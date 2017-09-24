@@ -28,6 +28,8 @@ def load_das_data(path, filename):
                                skip_blank_lines=True, low_memory=False)
 
     all_data = all_data.apply(pd.to_numeric, errors='coerce')
+    all_data.dropna(axis=1, how='all', inplace=True)
+    all_data.dropna(how='all', inplace=True)
     all_data.columns = [' '.join(col).strip() for col in all_data.columns.values]
 
     return(all_data)
