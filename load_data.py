@@ -131,3 +131,31 @@ def sensor_filter(df, perc_diff):
         sens_1 = df.iloc[:, 0]
         sens_2 = df.iloc[:, 1]
         return df[(sens_1 - sens_2) / sens_1 < perc_diff].index
+
+
+def apply_filter(df, col_level, skip_strs=[]):
+    """
+    df - dataframe to apply filter to
+    col_level - (str) label of multiindex level to get column names from
+    skip_strs - (list) strings to search for in column label; if found skip col
+    """
+    labels = list(set(df.columns.get_level_values(col_level).tolist()))
+    for i, label in enumerate(labels):
+        print(i)
+        skip_col = False
+        if len(skip_strs) != 0:
+            # print('skip strings: {}'.format(len(skip_strs)))
+            for string in skip_strs:
+                # print(string)
+                if label.find(string) != -1:
+                    skip_col = True
+        if skip_col:
+            continue
+        if 'index' in locals():
+            print(label)
+            next_index = sensor_filter(df[label], 0.05)
+            index = index.intersection(next_index)
+        else:
+            print(label)
+            index = sensor_filter(df[label], 0.05)
+    return df.loc[index, :]
