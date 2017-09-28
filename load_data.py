@@ -112,3 +112,22 @@ def equip_counts(df):
             eq_cnt_lst.append(equip_counts[col_name])
 #         print(eq_cnt_lst[i])
     return eq_cnt_lst
+
+
+def std_filter(series):
+    mean = series.mean()
+    std = series.std()
+    min_bound = mean - std * 2
+    max_bound = mean + std * 2
+    return all(series.apply(lambda x: min_bound < x < max_bound))
+
+
+def sensor_filter(df, perc_diff):
+    if df.shape[1] > 2:
+        return df[df.apply(std_filter, axis=1)].index
+    elif df.shape[1] == 1:
+        return df.index
+    else:
+        sens_1 = df.iloc[:, 0]
+        sens_2 = df.iloc[:, 1]
+        return df[(sens_1 - sens_2) / sens_1 < perc_diff].index
