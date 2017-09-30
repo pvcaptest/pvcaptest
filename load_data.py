@@ -141,7 +141,7 @@ def apply_filter(df, col_level, skip_strs=[]):
     """
     labels = list(set(df.columns.get_level_values(col_level).tolist()))
     for i, label in enumerate(labels):
-        print(i)
+        # print(i)
         skip_col = False
         if len(skip_strs) != 0:
             # print('skip strings: {}'.format(len(skip_strs)))
@@ -152,10 +152,10 @@ def apply_filter(df, col_level, skip_strs=[]):
         if skip_col:
             continue
         if 'index' in locals():
-            print(label)
+            # print(label)
             next_index = sensor_filter(df[label], 0.05)
             index = index.intersection(next_index)
         else:
-            print(label)
+            # print(label)
             index = sensor_filter(df[label], 0.05)
     return df.loc[index, :]
