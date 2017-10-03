@@ -132,7 +132,10 @@ def trans_dict(df):
     orig_names_sorted = [name_pair[1] for name_pair in names]
 
     trans = {}
-    for name in set(col_indices):
+    col_indices.sort()
+    cols = list(set(col_indices))
+    cols.sort()
+    for name in set(cols):
         start = col_indices.index(name)
         count = col_indices.count(name)
         trans[name] = orig_names_sorted[start:start + count]
