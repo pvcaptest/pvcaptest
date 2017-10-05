@@ -6,7 +6,7 @@ import datetime
 import re
 
 
-def load_das_data(path, filename):
+def load_das_file(path, filename):
     header_end = 1
 
     data = os.path.normpath(path + filename)
@@ -33,6 +33,20 @@ def load_das_data(path, filename):
     all_data.columns = [' '.join(col).strip() for col in all_data.columns.values]
 
     return(all_data)
+
+
+def load_data(dir='./data/'):
+    files_to_read = []
+    for file in os.listdir(dir):
+        if file.endswith('.csv'):
+            files_to_read.append(file)
+
+    all_sensors = pd.DataFrame()
+    for filename in files_to_read:
+        print("Read: " + filename)
+        nextData = load_das_file(dir, filename)
+        all_sensors = pd.concat([all_sensors, nextData], axis=0)
+    return all_sensors
 
 
 aux_load = 100
