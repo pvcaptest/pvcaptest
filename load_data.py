@@ -35,16 +35,16 @@ def load_das_file(path, filename):
     return(all_data)
 
 
-def load_data(dir='./data/'):
+def load_data(directory='./data/'):
     files_to_read = []
-    for file in os.listdir(dir):
+    for file in os.listdir(directory):
         if file.endswith('.csv'):
             files_to_read.append(file)
 
     all_sensors = pd.DataFrame()
     for filename in files_to_read:
         print("Read: " + filename)
-        nextData = load_das_file(dir, filename)
+        nextData = load_das_file(directory, filename)
         all_sensors = pd.concat([all_sensors, nextData], axis=0)
     return all_sensors
 
