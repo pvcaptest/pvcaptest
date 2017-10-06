@@ -5,6 +5,11 @@ import dateutil
 import datetime
 import re
 
+from bokeh.io import output_notebook, show
+from bokeh.plotting import figure
+from bokeh.palettes import Category10
+from bokeh.layouts import gridplot
+from bokeh.models import Legend
 
 def load_das_file(path, filename):
     header_end = 1
@@ -157,11 +162,48 @@ def trans_dict(df):
     return trans
 
 
-def std_filter(series):
+def plot(pm):
+    trans_keys = list(pm.trans.keys())
+    trans_keys.sort()
+    trans_keys
+
+    index = pm.df.index.tolist()
+    colors = Category10[10]
+    plots = []
+    for j, key in enumerate(trans_keys):
+        df = pm.df[pm.trans[key]]
+        cols = df.columns.tolist()
+        if len(cols) > len(colors):
+            continue
+
+        if j == 0:
+            p = figure(title=key, plot_width=400, plot_height=225,
+                       x_axis_type='datetime')
+            x_axis = p.x_range
+        if j > 0:
+            p = figure(title=key, plot_width=400, plot_height=225,
+                       x_axis_type='datetime', x_range=x_axis)
+
+        legend_items = []
+        for i, col in enumerate(cols):
+            line = p.line(index, df[col], line_color=colors[i])
+            legend_items.append((col, [line, ]))
+
+        legend = Legend(items=legend_items, location=(40, -5))
+        legend.label_text_font_size = '8pt'
+        p.add_layout(legend, 'below')
+
+        plots.append(p)
+
+    grid = gridplot(plots, ncols=2)
+    return grid
+
+
+def std_filter(series, std_devs=3):
     mean = series.mean()
     std = series.std()
-    min_bound = mean - std * 2
-    max_bound = mean + std * 2
+    min_bound = mean - std * std_devs
+    max_bound = mean + std * std_devs
     return all(series.apply(lambda x: min_bound < x < max_bound))
 
 
@@ -173,17 +215,19 @@ def sensor_filter(df, perc_diff):
     else:
         sens_1 = df.iloc[:, 0]
         sens_2 = df.iloc[:, 1]
-        return df[(sens_1 - sens_2) / sens_1 < perc_diff].index
+        return df[abs((sens_1 - sens_2) / sens_1) < perc_diff].index
 
 
-def apply_filter(df, col_level, skip_strs=[]):
+def apply_filter(pm, skip_strs=[], perc_diff=0.05):
     """
-    df - dataframe to apply filter to
-    col_level - (str) label of multiindex level to get column names from
+    pm - pecos object
     skip_strs - (list) strings to search for in column label; if found skip col
     """
-    labels = list(set(df.columns.get_level_values(col_level).tolist()))
-    for i, label in enumerate(labels):
+    trans_keys = list(pm.trans.keys())
+    trans_keys.sort()
+    trans_keys
+    # labels = list(set(df.columns.get_level_values(col_level).tolist()))
+    for i, label in enumerate(trans_keys):
         # print(i)
         skip_col = False
         if len(skip_strs) != 0:
@@ -196,9 +240,11 @@ def apply_filter(df, col_level, skip_strs=[]):
             continue
         if 'index' in locals():
             # print(label)
-            next_index = sensor_filter(df[label], 0.05)
+            # print(pm.df[pm.trans[label]].head(1))
+            next_index = sensor_filter(pm.df[pm.trans[label]], perc_diff)
             index = index.intersection(next_index)
         else:
             # print(label)
-            index = sensor_filter(df[label], 0.05)
-    return df.loc[index, :]
+            # print(pm.df[pm.trans[label]].head(1))
+            index = sensor_filter(pm.df[pm.trans[label]], perc_diff)
+    return pm.df.loc[index, :]
