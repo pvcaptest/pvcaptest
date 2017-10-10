@@ -178,6 +178,11 @@ class CapTest(object):
         Convience fucntion to return regression independent variable.
         var (string) may be 'power', 'poa', 't_amb', 'w_vel'
         """
+        if var == 'all':
+            lst = []
+            for value in self.reg_trans.values():
+                lst.extend(self.trans[value])
+            return self.raw_data[lst]
         return self.raw_data[self.trans[self.reg_trans[var]]]
 
     def plot(self):
@@ -305,6 +310,8 @@ class CapTest(object):
         Performs the regression on the current data.
         Argument to use regression as filter, default is False.
         If used as filter must provide filter udpate.
+        statsmodesl patsy formulas cannot have spaces in column var/col names
+        -possibly create temporary dataframe within method from the var method
         """
         pass
 
