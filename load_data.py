@@ -4,12 +4,16 @@ import pandas as pd
 import dateutil
 import datetime
 import re
+import matplotlib.pyplot as plt
+import math
 
 from bokeh.io import output_notebook, show
 from bokeh.plotting import figure
 from bokeh.palettes import Category10
 from bokeh.layouts import gridplot
-from bokeh.models import Legend
+from bokeh.models import Legend, HoverTool, tools
+
+import pecos
 
 def load_das_file(path, filename):
     header_end = 1
@@ -51,6 +55,8 @@ def load_data(directory='./data/'):
         print("Read: " + filename)
         nextData = load_das_file(directory, filename)
         all_sensors = pd.concat([all_sensors, nextData], axis=0)
+    ix_ser = all_sensors.index.to_series()
+    all_sensors['index'] = ix_ser.apply(lambda x: x.strftime('%m/%d/%Y %H %M'))
     return all_sensors
 
 
@@ -71,7 +77,8 @@ type_defs = {'irr': [['irradiance', 'irr', 'plane of array', 'poa', 'ghi',
              'op_state': [['operating state', 'state', 'op', 'status'],
                           (0, 10)],
              'real_pwr': [['real power', 'ac power', 'power'],
-                          (aux_load, ac_nameplate * 1.05)]}
+                          (aux_load, ac_nameplate * 1.05)],
+             'index': [['index'],('','z')]}
 
 sub_type_defs = {'poa': [['plane of array', 'poa']],
                  'ghi': [['global horizontal', 'ghi', 'global', 'glob']],
@@ -164,6 +171,8 @@ def trans_dict(df):
 
 def plot(pm):
     trans_keys = list(pm.trans.keys())
+    if 'index--' in trans_keys:
+        trans_keys.remove('index--')
     trans_keys.sort()
     trans_keys
 
@@ -183,7 +192,6 @@ def plot(pm):
         if j > 0:
             p = figure(title=key, plot_width=400, plot_height=225,
                        x_axis_type='datetime', x_range=x_axis)
-
         legend_items = []
         for i, col in enumerate(cols):
             line = p.line(index, df[col], line_color=colors[i])
@@ -248,3 +256,62 @@ def apply_filter(pm, skip_strs=[], perc_diff=0.05):
             # print(pm.df[pm.trans[label]].head(1))
             index = sensor_filter(pm.df[pm.trans[label]], perc_diff)
     return pm.df.loc[index, :]
+
+
+def pecos_quality_check(pm):
+    pass
+    pm.check_timestamp(300)
+
+    # # for b
+    # # pm.check_missing()
+    # # pm.check_range([-5,1500], 'irr-ghi-pyran')
+    # # pm.check_range([-5,1500], 'irr-poa-pyran')
+    # # pm.check_range([-5,1500], 'irr-poa-ref_cell')
+    # # pm.check_range([0,10], 'op_state-inv-')
+    # # pm.check_range([-1,1], 'pf-inv')
+    # # pm.check_range([-10,40], 'temp-amb-')
+    # # pm.check_range([-10,127], 'temp-mod-')
+    # # pm.check_range([0,18], 'wind--')
+
+    # # for c
+    # pm.check_missing()
+    # pm.check_range([-5,1500], 'irr-ghi-')
+    # pm.check_range([-5,1500], 'irr-poa-')
+    # pm.check_range([-5,1500], 'irr-poa-ref_cell')
+    # pm.check_range([-10,40], 'temp-amb-')
+    # pm.check_range([0,18], 'wind--')
+
+    # check_range_keys = trans_keys.copy()
+    # check_range_keys.remove('real_pwr-valuesError-mtr-')
+    # check_range_keys.remove('real_pwr-valuesError-inv-')
+
+    # for key in check_range_keys:
+    #     pm.check_increment([0.001, None], key)
+
+    # mask = pm.get_test_results_mask()
+    # QCI = pecos.metrics.qci(mask)
+
+    # # Define output file names and directories
+    # results_directory = 'Results'
+    # if not os.path.exists(results_directory):
+    #     os.makedirs(results_directory)
+    # graphics_file_rootname = os.path.join(results_directory, 'test_results')
+    # custom_graphics_file = os.path.abspath(os.path.join(results_directory, 'custom.png'))
+    # metrics_file = os.path.join(results_directory, system_name + '_metrics.csv')
+    # test_results_file = os.path.join(results_directory, system_name + '_test_results.csv')
+    # report_file = os.path.join(results_directory, system_name + '.html')
+
+    # # Generate graphics
+    # test_results_graphics = pecos.graphics.plot_test_results(graphics_file_rootname, pm)
+    # fig = plt.figure(figsize=(7.0, 3.5))
+
+    # ax1 = fig.add_subplot(311)
+    # pm.df[pm.trans['irr-poa-ref_cell']].plot()
+
+    # plt.savefig(custom_graphics_file, format='png', dpi=500)
+
+    # # Write metrics, test results, and report files
+    # pecos.io.write_metrics(metrics_file, QCI)
+    # pecos.io.write_test_results(test_results_file, pm.test_results)
+    # pecos.io.write_monitoring_report(report_file, pm, test_results_graphics,
+    #                                  [custom_graphics_file], QCI)
