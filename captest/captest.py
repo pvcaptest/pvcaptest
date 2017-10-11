@@ -16,6 +16,8 @@ from bokeh.models import Legend, HoverTool, tools
 import pecos
 
 
+met_keys = ['poa', 't_amb', 'w_vel', 'power']
+
 aux_load = 100
 ac_nameplate = 21040
 
@@ -56,6 +58,7 @@ class CapTest(object):
     def __init__(self):
         self.raw_data = pd.DataFrame()
         self.trans = {}
+        self.filt_data = pd.DataFrame()
 
     def load_das_file(self, path, filename):
         header_end = 1
@@ -65,7 +68,7 @@ class CapTest(object):
                                index_col=0, parse_dates=True, skip_blank_lines=True,
                                low_memory=False)
 
-        if not isinstance(all_data.index[0], pd.tslib.Timestamp):
+        if not isinstance(all_data.index[0], pd.Timestamp):
             for i, indice in enumerate(all_data.index):
                 try:
                     isinstance(dateutil.parser.parse(all_data.index[i]), datetime.date)
@@ -176,7 +179,7 @@ class CapTest(object):
     def var(self, var):
         """
         Convience fucntion to return regression independent variable.
-        var (string) may be 'power', 'poa', 't_amb', 'w_vel'
+        var (string) may be 'power', 'poa', 't_amb', 'w_vel' or 'all'
         """
         if var == 'all':
             lst = []
@@ -237,14 +240,39 @@ class CapTest(object):
         """
         pass
 
-    def agg_sensors(self, arg):
+    def agg_sensors(self, irr='median', temp='mean', wind='mean', real_pwr='sum',
+                    inplace=True, keep=True):
         """
         Aggregate measurments of the same variable from different sensors.
-        provide option for aggregation type- sum, mean, median others?
-            include defaults and allow list of options for each sensor type
+        Optional keyword argument for each measurment:
+        irr (string) - default 'median'
+        temp (string) - default 'mean'
+        wind (string) - default 'mean'
+        real_pwr (string) - default 'mean'
+        inplace (bool) - default True writes over current filtered dataframe
+                         False returns dataframe
         Adjust translation dictionaries
         """
-        pass
+        # met_keys = ['poa', 't_amb', 'w_vel', 'power']
+        agg_series = []
+        agg_series.append(self.var('poa').agg(irr, axis=1))
+        agg_series.append(self.var('t_amb').agg(temp, axis=1))
+        agg_series.append(self.var('w_vel').agg(wind, axis=1))
+        agg_series.append(self.var('power').agg(real_pwr, axis=1))
+        temp_dict = {key: val for key, val in zip(met_keys, agg_series)}
+        df = pd.DataFrame(temp_dict)
+
+        if keep:
+            lst = []
+            for value in self.reg_trans.values():
+                lst.extend(self.trans[value])
+            sel = [i for i, name in enumerate(self.raw_data) if name not in lst]
+            df = pd.concat([df, self.raw_data.iloc[:, sel]])
+
+        if inplace:
+            self.filt_data = df
+        else:
+            return(df)
 
     def drop_non_reg_cols(self, arg):
         """
