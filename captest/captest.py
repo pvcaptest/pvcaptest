@@ -259,7 +259,15 @@ class CapTest(object):
         agg_series.append(self.var('t_amb').agg(temp, axis=1))
         agg_series.append(self.var('w_vel').agg(wind, axis=1))
         agg_series.append(self.var('power').agg(real_pwr, axis=1))
-        temp_dict = {key: val for key, val in zip(met_keys, agg_series)}
+
+        comb_names = []
+        for key in met_keys:
+            comb_name = ('AGG-MEAN-' + ', '.join(self.trans[self.reg_trans[key]]))
+            comb_names.append(comb_name)
+            if inplace:
+                self.trans[self.reg_trans[key]] = [comb_name, ]
+
+        temp_dict = {key: val for key, val in zip(comb_names, agg_series)}
         df = pd.DataFrame(temp_dict)
 
         if keep:
@@ -270,7 +278,7 @@ class CapTest(object):
             df = pd.concat([df, self.raw_data.iloc[:, sel]])
 
         if inplace:
-            self.filt_data = df
+            self.raw_data = df
         else:
             return(df)
 
