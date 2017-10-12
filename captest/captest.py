@@ -213,14 +213,15 @@ class CapTest(object):
             return capdata.df[lst]
         return capdata.df[capdata.trans[self.reg_trans[var]]]
 
-    def plot(self):
-        index = self.raw_data.index.tolist()
+    def plot(self, capdata):
+        index = capdata.df.index.tolist()
         colors = Category10[10]
         plots = []
-        for j, key in enumerate(self.trans_keys):
-            df = self.raw_data[self.trans[key]]
+        for j, key in enumerate(capdata.trans_keys):
+            df = capdata.df[capdata.trans[key]]
             cols = df.columns.tolist()
             if len(cols) > len(colors):
+                print('Skipped {} because there are more than 10   columns.'.format(key))
                 continue
 
             if j == 0:
@@ -303,11 +304,11 @@ class CapTest(object):
             lst = []
             for value in self.reg_trans.values():
                 lst.extend(self.trans[value])
-            sel = [i for i, name in enumerate(self.raw_data) if name not in lst]
-            df = pd.concat([df, self.raw_data.iloc[:, sel]])
+            sel = [i for i, name in enumerate(capdata.df) if name not in lst]
+            df = pd.concat([df, capdata.df.iloc[:, sel]])
 
         if inplace:
-            self.raw_data = df
+            capdata.df = df
         else:
             return(df)
 
