@@ -180,6 +180,9 @@ class CapTest(object):
         """
         Convience fucntion to return regression independent variable.
         var (string) may be 'power', 'poa', 't_amb', 'w_vel' or 'all'
+
+        TODO:
+        -add argument to indicate returning data from raw_data or filt_data
         """
         if var == 'all':
             lst = []
@@ -251,7 +254,11 @@ class CapTest(object):
         real_pwr (string) - default 'mean'
         inplace (bool) - default True writes over current filtered dataframe
                          False returns dataframe
-        Adjust translation dictionaries
+        keep (bool) - keeps non regression columns in output dataframe
+
+        TODO:
+        -Should function like a filter and act on filtered data if there
+        is already filtered data or create filtered data
         """
         # met_keys = ['poa', 't_amb', 'w_vel', 'power']
         agg_series = []
