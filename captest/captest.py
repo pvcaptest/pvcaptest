@@ -54,17 +54,8 @@ class CapData(object):
     """docstring for CapData."""
     def __init__(self):
         super(CapData, self).__init__()
-
-
-class CapTest(object):
-    """
-    CapTest provides methods to facilitate solar PV capacity testing.
-    """
-
-    def __init__(self):
-        self.raw_data = pd.DataFrame()
+        self.df = pd.DataFrame
         self.trans = {}
-        self.filt_data = pd.DataFrame()
 
     def load_das_file(self, path, filename):
         header_end = 1
@@ -94,20 +85,34 @@ class CapTest(object):
 
         return(all_data)
 
-    def load_data(self, directory='./data/'):
+    def load_data(self, directory='./data/', set_trans=True):
+        """
+        Import data from csv files.
+        directory (string) - default is to import from './data/'
+        directoy='./path/to/data.csv'
+        """
+
         files_to_read = []
         for file in os.listdir(directory):
             if file.endswith('.csv'):
                 files_to_read.append(file)
+            elif file.endswith('.CSV'):
+                files_to_read.append(file)
 
         all_sensors = pd.DataFrame()
         for filename in files_to_read:
-            print("Read: " + filename)
+            if filename.lower().find('pvsyst') != -1:
+                print("Skipped PVsyst file: " + filename)
+                continue
             nextData = self.load_das_file(directory, filename)
             all_sensors = pd.concat([all_sensors, nextData], axis=0)
+            print("Read: " + filename)
         ix_ser = all_sensors.index.to_series()
         all_sensors['index'] = ix_ser.apply(lambda x: x.strftime('%m/%d/%Y %H %M'))
-        self.raw_data = all_sensors
+        self.df = all_sensors
+
+        if set_trans:
+            self.__set_trans()
 
     def load_pvsyst(self, arg):
         """
@@ -116,8 +121,8 @@ class CapTest(object):
         # self.pvsyst = pvsyst
         pass
 
-    def series_type(self, series, type_defs, bounds_check=True,
-                    warnings=False):
+    def __series_type(self, series, type_defs, bounds_check=True,
+                      warnings=False):
         for key in type_defs.keys():
             # print('################')
             # print(key)
@@ -142,19 +147,19 @@ class CapTest(object):
                         return key
         return ''
 
-    def trans_dict(self):
-        col_types = self.raw_data.apply(self.series_type, args=(type_defs,)).tolist()
-        sub_types = self.raw_data.apply(self.series_type, args=(sub_type_defs,),
-                                        bounds_check=False).tolist()
-        irr_types = self.raw_data.apply(self.series_type, args=(irr_sensors_defs,),
-                                        bounds_check=False).tolist()
+    def __set_trans(self):
+        col_types = self.df.apply(self.__series_type, args=(type_defs,)).tolist()
+        sub_types = self.df.apply(self.__series_type, args=(sub_type_defs,),
+                                  bounds_check=False).tolist()
+        irr_types = self.df.apply(self.__series_type, args=(irr_sensors_defs,),
+                                  bounds_check=False).tolist()
 
         col_indices = []
         for typ, sub_typ, irr_typ in zip(col_types, sub_types, irr_types):
             col_indices.append('-'.join([typ, sub_typ, irr_typ]))
 
         names = []
-        for new_name, old_name in zip(col_indices, self.raw_data.columns.tolist()):
+        for new_name, old_name in zip(col_indices, self.df.columns.tolist()):
             names.append((new_name, old_name))
         names.sort()
         orig_names_sorted = [name_pair[1] for name_pair in names]
@@ -175,6 +180,17 @@ class CapTest(object):
             trans_keys.remove('index--')
         trans_keys.sort()
         self.trans_keys = trans_keys
+
+
+class CapTest(object):
+    """
+    CapTest provides methods to facilitate solar PV capacity testing.
+    """
+
+    def __init__(self):
+        self.raw_data = pd.DataFrame()
+        self.trans = {}
+        self.filt_data = pd.DataFrame()
 
     def set_reg_trans(self, power='', poa='', t_amb='', w_vel=''):
         self.reg_trans = {'power': power,
