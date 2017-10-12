@@ -50,6 +50,12 @@ irr_sensors_defs = {'ref_cell': [['reference cell', 'reference', 'ref',
                     'pyran': [['pyranometer', 'pyran']]}
 
 
+class CapData(object):
+    """docstring for CapData."""
+    def __init__(self):
+        super(CapData, self).__init__()
+
+
 class CapTest(object):
     """
     CapTest provides methods to facilitate solar PV capacity testing.
