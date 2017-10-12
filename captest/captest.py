@@ -187,10 +187,11 @@ class CapTest(object):
     CapTest provides methods to facilitate solar PV capacity testing.
     """
 
-    def __init__(self):
-        self.raw_data = pd.DataFrame()
-        self.trans = {}
-        self.filt_data = pd.DataFrame()
+    def __init__(self, raw_data):
+        self.raw_data = raw_data
+        self.pvsyst_data = CapData()
+        self.flt_data = CapData()
+        self.trans_keys = {}
 
     def set_reg_trans(self, power='', poa='', t_amb='', w_vel=''):
         self.reg_trans = {'power': power,
@@ -198,20 +199,19 @@ class CapTest(object):
                           't_amb': t_amb,
                           'w_vel': w_vel}
 
-    def var(self, var):
+    def var(self, var, capdata):
         """
         Convience fucntion to return regression independent variable.
         var (string) may be 'power', 'poa', 't_amb', 'w_vel' or 'all'
-
-        TODO:
-        -add argument to indicate returning data from raw_data or filt_data
+        capdata (CapData object)
         """
+
         if var == 'all':
             lst = []
             for value in self.reg_trans.values():
-                lst.extend(self.trans[value])
-            return self.raw_data[lst]
-        return self.raw_data[self.trans[self.reg_trans[var]]]
+                lst.extend(capdata.trans[value])
+            return capdata.df[lst]
+        return capdata.df[capdata.trans[self.reg_trans[var]]]
 
     def plot(self):
         index = self.raw_data.index.tolist()
