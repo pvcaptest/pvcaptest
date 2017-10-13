@@ -266,11 +266,13 @@ class CapTest(object):
         """
         pass
 
-    def agg_sensors(self, irr='median', temp='mean', wind='mean', real_pwr='sum',
-                    inplace=True, keep=True):
+    def agg_sensors(self, cd_obj, irr='median', temp='mean', wind='mean',
+                    real_pwr='sum', inplace=True, keep=True):
         """
         Aggregate measurments of the same variable from different sensors.
         Optional keyword argument for each measurment:
+        cd_obj (CapData) -  CapData object usually CapTest.raw_data or
+                            CapTest.flt_data
         irr (string) - default 'median'
         temp (string) - default 'mean'
         wind (string) - default 'mean'
@@ -285,17 +287,17 @@ class CapTest(object):
         """
         # met_keys = ['poa', 't_amb', 'w_vel', 'power']
         agg_series = []
-        agg_series.append(self.var('poa').agg(irr, axis=1))
-        agg_series.append(self.var('t_amb').agg(temp, axis=1))
-        agg_series.append(self.var('w_vel').agg(wind, axis=1))
-        agg_series.append(self.var('power').agg(real_pwr, axis=1))
+        agg_series.append(self.var('poa', cd_obj).agg(irr, axis=1))
+        agg_series.append(self.var('t_amb', cd_obj).agg(temp, axis=1))
+        agg_series.append(self.var('w_vel', cd_obj).agg(wind, axis=1))
+        agg_series.append(self.var('power', cd_obj).agg(real_pwr, axis=1))
 
         comb_names = []
         for key in met_keys:
-            comb_name = ('AGG-MEAN-' + ', '.join(self.trans[self.reg_trans[key]]))
+            comb_name = ('AGG-' + ', '.join(cd_obj.trans[self.reg_trans[key]]))
             comb_names.append(comb_name)
             if inplace:
-                self.trans[self.reg_trans[key]] = [comb_name, ]
+                cd_obj.trans[self.reg_trans[key]] = [comb_name, ]
 
         temp_dict = {key: val for key, val in zip(comb_names, agg_series)}
         df = pd.DataFrame(temp_dict)
@@ -303,12 +305,12 @@ class CapTest(object):
         if keep:
             lst = []
             for value in self.reg_trans.values():
-                lst.extend(self.trans[value])
-            sel = [i for i, name in enumerate(capdata.df) if name not in lst]
-            df = pd.concat([df, capdata.df.iloc[:, sel]])
+                lst.extend(cd_obj.trans[value])
+            sel = [i for i, name in enumerate(cd_obj.df) if name not in lst]
+            df = pd.concat([df, cd_obj.df.iloc[:, sel]])
 
         if inplace:
-            capdata.df = df
+            cd_obj.df = df
         else:
             return(df)
 
