@@ -50,15 +50,12 @@ irr_sensors_defs = {'ref_cell': [['reference cell', 'reference', 'ref',
                     'pyran': [['pyranometer', 'pyran']]}
 
 
-class CapTest(object):
-    """
-    CapTest provides methods to facilitate solar PV capacity testing.
-    """
-
+class CapData(object):
+    """docstring for CapData."""
     def __init__(self):
-        self.raw_data = pd.DataFrame()
+        super(CapData, self).__init__()
+        self.df = pd.DataFrame()
         self.trans = {}
-        self.filt_data = pd.DataFrame()
 
     def load_das_file(self, path, filename):
         header_end = 1
@@ -88,20 +85,34 @@ class CapTest(object):
 
         return(all_data)
 
-    def load_data(self, directory='./data/'):
+    def load_data(self, directory='./data/', set_trans=True):
+        """
+        Import data from csv files.
+        directory (string) - default is to import from './data/'
+        directoy='./path/to/data.csv'
+        """
+
         files_to_read = []
         for file in os.listdir(directory):
             if file.endswith('.csv'):
                 files_to_read.append(file)
+            elif file.endswith('.CSV'):
+                files_to_read.append(file)
 
         all_sensors = pd.DataFrame()
         for filename in files_to_read:
-            print("Read: " + filename)
+            if filename.lower().find('pvsyst') != -1:
+                print("Skipped PVsyst file: " + filename)
+                continue
             nextData = self.load_das_file(directory, filename)
             all_sensors = pd.concat([all_sensors, nextData], axis=0)
+            print("Read: " + filename)
         ix_ser = all_sensors.index.to_series()
         all_sensors['index'] = ix_ser.apply(lambda x: x.strftime('%m/%d/%Y %H %M'))
-        self.raw_data = all_sensors
+        self.df = all_sensors
+
+        if set_trans:
+            self.__set_trans()
 
     def load_pvsyst(self, arg):
         """
@@ -110,8 +121,8 @@ class CapTest(object):
         # self.pvsyst = pvsyst
         pass
 
-    def series_type(self, series, type_defs, bounds_check=True,
-                    warnings=False):
+    def __series_type(self, series, type_defs, bounds_check=True,
+                      warnings=False):
         for key in type_defs.keys():
             # print('################')
             # print(key)
@@ -136,19 +147,19 @@ class CapTest(object):
                         return key
         return ''
 
-    def trans_dict(self):
-        col_types = self.raw_data.apply(self.series_type, args=(type_defs,)).tolist()
-        sub_types = self.raw_data.apply(self.series_type, args=(sub_type_defs,),
-                                        bounds_check=False).tolist()
-        irr_types = self.raw_data.apply(self.series_type, args=(irr_sensors_defs,),
-                                        bounds_check=False).tolist()
+    def __set_trans(self):
+        col_types = self.df.apply(self.__series_type, args=(type_defs,)).tolist()
+        sub_types = self.df.apply(self.__series_type, args=(sub_type_defs,),
+                                  bounds_check=False).tolist()
+        irr_types = self.df.apply(self.__series_type, args=(irr_sensors_defs,),
+                                  bounds_check=False).tolist()
 
         col_indices = []
         for typ, sub_typ, irr_typ in zip(col_types, sub_types, irr_types):
             col_indices.append('-'.join([typ, sub_typ, irr_typ]))
 
         names = []
-        for new_name, old_name in zip(col_indices, self.raw_data.columns.tolist()):
+        for new_name, old_name in zip(col_indices, self.df.columns.tolist()):
             names.append((new_name, old_name))
         names.sort()
         orig_names_sorted = [name_pair[1] for name_pair in names]
@@ -170,35 +181,48 @@ class CapTest(object):
         trans_keys.sort()
         self.trans_keys = trans_keys
 
+
+class CapTest(object):
+    """
+    CapTest provides methods to facilitate solar PV capacity testing.
+    """
+
+    def __init__(self, raw_data):
+        self.raw_data = raw_data
+        self.pvsyst_data = CapData()
+        self.flt_data = CapData()
+        self.trans_keys = {}
+
+
     def set_reg_trans(self, power='', poa='', t_amb='', w_vel=''):
         self.reg_trans = {'power': power,
                           'poa': poa,
                           't_amb': t_amb,
                           'w_vel': w_vel}
 
-    def var(self, var):
+    def var(self, var, capdata):
         """
         Convience fucntion to return regression independent variable.
         var (string) may be 'power', 'poa', 't_amb', 'w_vel' or 'all'
-
-        TODO:
-        -add argument to indicate returning data from raw_data or filt_data
+        capdata (CapData object)
         """
+
         if var == 'all':
             lst = []
             for value in self.reg_trans.values():
-                lst.extend(self.trans[value])
-            return self.raw_data[lst]
-        return self.raw_data[self.trans[self.reg_trans[var]]]
+                lst.extend(capdata.trans[value])
+            return capdata.df[lst]
+        return capdata.df[capdata.trans[self.reg_trans[var]]]
 
-    def plot(self):
-        index = self.raw_data.index.tolist()
+    def plot(self, capdata):
+        index = capdata.df.index.tolist()
         colors = Category10[10]
         plots = []
-        for j, key in enumerate(self.trans_keys):
-            df = self.raw_data[self.trans[key]]
+        for j, key in enumerate(capdata.trans_keys):
+            df = capdata.df[capdata.trans[key]]
             cols = df.columns.tolist()
             if len(cols) > len(colors):
+                print('Skipped {} because there are more than 10   columns.'.format(key))
                 continue
 
             if j == 0:
@@ -243,11 +267,13 @@ class CapTest(object):
         """
         pass
 
-    def agg_sensors(self, irr='median', temp='mean', wind='mean', real_pwr='sum',
-                    inplace=True, keep=True):
+    def agg_sensors(self, cd_obj, irr='median', temp='mean', wind='mean',
+                    real_pwr='sum', inplace=True, keep=True):
         """
         Aggregate measurments of the same variable from different sensors.
         Optional keyword argument for each measurment:
+        cd_obj (CapData) -  CapData object usually CapTest.raw_data or
+                            CapTest.flt_data
         irr (string) - default 'median'
         temp (string) - default 'mean'
         wind (string) - default 'mean'
@@ -262,17 +288,17 @@ class CapTest(object):
         """
         # met_keys = ['poa', 't_amb', 'w_vel', 'power']
         agg_series = []
-        agg_series.append(self.var('poa').agg(irr, axis=1))
-        agg_series.append(self.var('t_amb').agg(temp, axis=1))
-        agg_series.append(self.var('w_vel').agg(wind, axis=1))
-        agg_series.append(self.var('power').agg(real_pwr, axis=1))
+        agg_series.append(self.var('poa', cd_obj).agg(irr, axis=1))
+        agg_series.append(self.var('t_amb', cd_obj).agg(temp, axis=1))
+        agg_series.append(self.var('w_vel', cd_obj).agg(wind, axis=1))
+        agg_series.append(self.var('power', cd_obj).agg(real_pwr, axis=1))
 
         comb_names = []
         for key in met_keys:
-            comb_name = ('AGG-MEAN-' + ', '.join(self.trans[self.reg_trans[key]]))
+            comb_name = ('AGG-' + ', '.join(cd_obj.trans[self.reg_trans[key]]))
             comb_names.append(comb_name)
             if inplace:
-                self.trans[self.reg_trans[key]] = [comb_name, ]
+                cd_obj.trans[self.reg_trans[key]] = [comb_name, ]
 
         temp_dict = {key: val for key, val in zip(comb_names, agg_series)}
         df = pd.DataFrame(temp_dict)
@@ -280,12 +306,12 @@ class CapTest(object):
         if keep:
             lst = []
             for value in self.reg_trans.values():
-                lst.extend(self.trans[value])
-            sel = [i for i, name in enumerate(self.raw_data) if name not in lst]
-            df = pd.concat([df, self.raw_data.iloc[:, sel]])
+                lst.extend(cd_obj.trans[value])
+            sel = [i for i, name in enumerate(cd_obj.df) if name not in lst]
+            df = pd.concat([df, cd_obj.df.iloc[:, sel]])
 
         if inplace:
-            self.raw_data = df
+            cd_obj.df = df
         else:
             return(df)
 
@@ -295,12 +321,16 @@ class CapTest(object):
         """
         pass
 
-
     """
     Filtering methods must do the following:
-    -add name of filter, pts before, and pts after to a self.list
-    -list of tuples? [(filter, pts_before, pts_after), ...]
+    -add name of filter, pts before, and pts after to a self.DataFrame
+    -possibly also add argument values filter function is called with
+    -check if this is the first filter function run, if True copy raw_data
+    -determine if filter methods return new object (copy data) or modify df
     """
+    # if self.flt_data.df.empty:
+    #    self.flt_data = self.raw_data.df.copy()
+
     def filter_outliers(self, arg):
         """
         Apply eliptic envelope from scikit-learn to remove outliers.
