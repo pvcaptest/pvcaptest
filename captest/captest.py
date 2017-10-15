@@ -54,7 +54,7 @@ class CapData(object):
     """docstring for CapData."""
     def __init__(self):
         super(CapData, self).__init__()
-        self.df = pd.DataFrame
+        self.df = pd.DataFrame()
         self.trans = {}
 
     def load_das_file(self, path, filename):
@@ -193,6 +193,7 @@ class CapTest(object):
         self.flt_data = CapData()
         self.trans_keys = {}
 
+
     def set_reg_trans(self, power='', poa='', t_amb='', w_vel=''):
         self.reg_trans = {'power': power,
                           'poa': poa,
@@ -320,12 +321,16 @@ class CapTest(object):
         """
         pass
 
-
     """
     Filtering methods must do the following:
-    -add name of filter, pts before, and pts after to a self.list
-    -list of tuples? [(filter, pts_before, pts_after), ...]
+    -add name of filter, pts before, and pts after to a self.DataFrame
+    -possibly also add argument values filter function is called with
+    -check if this is the first filter function run, if True copy raw_data
+    -determine if filter methods return new object (copy data) or modify df
     """
+    # if self.flt_data.df.empty:
+    #    self.flt_data = self.raw_data.df.copy()
+
     def filter_outliers(self, arg):
         """
         Apply eliptic envelope from scikit-learn to remove outliers.
