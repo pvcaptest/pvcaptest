@@ -187,11 +187,13 @@ class CapTest(object):
     CapTest provides methods to facilitate solar PV capacity testing.
     """
 
-    def __init__(self, raw_data):
-        self.raw_data = raw_data
-        self.pvsyst_data = CapData()
-        self.flt_data = CapData()
+    def __init__(self, raw_das):
+        self.raw_das = raw_das
+        self.flt_das = CapData()
+        self.raw_sim = CapData()  # should initialize with sim also
+        self.flt_sim = CapData()
         self.trans_keys = {}
+        self.reg_trans = {}
 
 
     def set_reg_trans(self, power='', poa='', t_amb='', w_vel=''):
