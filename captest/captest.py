@@ -35,7 +35,7 @@ type_defs = {'irr': [['irradiance', 'irr', 'plane of array', 'poa', 'ghi',
                     (-1, 1)],
              'op_state': [['operating state', 'state', 'op', 'status'],
                           (0, 10)],
-             'real_pwr': [['real power', 'ac power', 'power'],
+             'real_pwr': [['real power', 'ac power'],
                           (aux_load, ac_nameplate * 1.05)],
              'index': [['index'],('','z')]}
 
@@ -65,6 +65,12 @@ class CapData(object):
         cd_c.trans = copy.copy(self.trans)
         cd_c.trans_keys = copy.copy(self.trans_keys)
         return cd_c
+
+    def empty(self):
+        if self.df.empty and len(self.trans_keys) == 0 and len(self.trans) == 0:
+            return True
+        else:
+            return False
 
     def load_das_file(self, path, filename):
         header_end = 1
@@ -340,16 +346,21 @@ class CapTest(object):
     -determine if filter methods return new object (copy data) or modify df
     """
 
-    def is_df_empty(self, data):
+    def __flt_setup(self, data):
         if data == 'das':
-            cd = self.das
-            flt_cd = self.flt_das
-        elif data == 'pvsyst':
-            cd = self.sim
-            flt_cd = self.flt_sim
-        if flt_cd.df.empty:
-            flt_cd.df = cd.df.copy()
-        return cd, flt_cd
+            if self.flt_das.empty():
+                self.flt_das = self.das.copy()
+            return self.flt_das
+        if data == 'pvsyst':
+            if self.flt_sim.empty():
+                self.flt_sim = self.sim.copy()
+            return self.flt_sim
+
+    def reset_flt(self, data):
+        if data == 'das':
+            self.flt_das = self.das.copy()
+        if data == 'pvsyst':
+            self.flt_sim = self.sim.copy()
 
     def filter_outliers(self, arg):
         """
@@ -357,13 +368,25 @@ class CapTest(object):
         """
         pass
 
-    def filter_pf(self, data):
+    def filter_pf(self, data, pf):
         """
-        Filter based on power factor values
+        Filter based on power factor values.
+        data (str) - 'sim' or 'das' determines if filter is on sim or das data
+        pf (float) - 0.999 or similar to remove timestamps with lower PF values
         """
-        cd, flt_cd = self.is_df_empty(data)
-        print(id(cd))
-        #pass
+        flt_cd = self.__flt_setup(data)
+
+        for key in flt_cd.trans_keys:
+            if key.find('pf') == 0:
+                selection = key
+
+        df = flt_cd.df[flt_cd.trans[selection]]
+        flt_cd.df = flt_cd.df[(df >= pf).all(axis=1)]
+
+        if data == 'das':
+            self.flt_das = flt_cd
+        if data == 'pvsyst':
+            self.flt_sim = flt_cd
 
     def filter_irr(self, low, high, percent=True):
         """
