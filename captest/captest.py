@@ -6,6 +6,7 @@ import datetime
 import re
 import matplotlib.pyplot as plt
 import math
+import copy
 
 from bokeh.io import output_notebook, show
 from bokeh.plotting import figure
@@ -56,6 +57,14 @@ class CapData(object):
         super(CapData, self).__init__()
         self.df = pd.DataFrame()
         self.trans = {}
+        self.trans_keys = []
+
+    def copy(self):
+        cd_c = CapData()
+        cd_c.df = self.df.copy()
+        cd_c.trans = copy.copy(self.trans)
+        cd_c.trans_keys = copy.copy(self.trans_keys)
+        return cd_c
 
     def load_das_file(self, path, filename):
         header_end = 1
@@ -187,10 +196,10 @@ class CapTest(object):
     CapTest provides methods to facilitate solar PV capacity testing.
     """
 
-    def __init__(self, raw_das):
-        self.raw_das = raw_das
+    def __init__(self, das):
+        self.das = das
         self.flt_das = CapData()
-        self.raw_sim = CapData()  # should initialize with sim also
+        self.sim = CapData()  # should initialize with sim also
         self.flt_sim = CapData()
         self.trans_keys = {}
         self.reg_trans = {}
@@ -330,8 +339,17 @@ class CapTest(object):
     -check if this is the first filter function run, if True copy raw_data
     -determine if filter methods return new object (copy data) or modify df
     """
-    # if self.flt_data.df.empty:
-    #    self.flt_data = self.raw_data.df.copy()
+
+    def is_df_empty(self, data):
+        if data == 'das':
+            cd = self.das
+            flt_cd = self.flt_das
+        elif data == 'pvsyst':
+            cd = self.sim
+            flt_cd = self.flt_sim
+        if flt_cd.df.empty:
+            flt_cd.df = cd.df.copy()
+        return cd, flt_cd
 
     def filter_outliers(self, arg):
         """
@@ -339,11 +357,13 @@ class CapTest(object):
         """
         pass
 
-    def filter_pf(self, arg):
+    def filter_pf(self, data):
         """
         Filter based on power factor values
         """
-        pass
+        cd, flt_cd = self.is_df_empty(data)
+        print(id(cd))
+        #pass
 
     def filter_irr(self, low, high, percent=True):
         """
