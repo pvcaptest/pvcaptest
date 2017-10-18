@@ -7,6 +7,7 @@ import re
 import matplotlib.pyplot as plt
 import math
 import copy
+from functools import wraps
 
 from bokeh.io import output_notebook, show
 from bokeh.plotting import figure
@@ -16,7 +17,7 @@ from bokeh.models import Legend, HoverTool, tools
 
 import pecos
 
-
+columns = ['Timestamps', 'Timestamps_filtered', 'filter_arguments']
 met_keys = ['poa', 't_amb', 'w_vel', 'power']
 
 aux_load = 100
@@ -49,6 +50,37 @@ sub_type_defs = {'poa': [['plane of array', 'poa']],
 irr_sensors_defs = {'ref_cell': [['reference cell', 'reference', 'ref',
                                   'referance', 'pvel']],
                     'pyran': [['pyranometer', 'pyran']]}
+
+
+def update_summary(func):
+    @wraps(func)
+    def wrapper(self, *args, **kwargs):
+        if 'pvsyst' in args:
+            pts_before = self.flt_sim.df.shape[0]
+            if pts_before == 0:
+                pts_before = self.sim.df.shape[0]
+        if 'das' in args:
+            pts_before = self.flt_das.df.shape[0]
+            if pts_before == 0:
+                pts_before = self.das.df.shape[0]
+
+        func(self, *args, **kwargs)
+
+        if 'pvsyst' in args:
+            pts_after = self.flt_sim.df.shape[0]
+            self.mindex.append(('pvsyst', func.__name__))
+        if 'das' in args:
+            pts_after = self.flt_das.df.shape[0]
+            self.mindex.append(('das', func.__name__))
+
+        pts_removed = pts_before - pts_after
+
+        arg_str = args.__repr__() + kwargs.__repr__()
+        self.summ_data.append({columns[0]: pts_after,
+                               columns[1]: pts_removed,
+                               columns[2]: arg_str})
+
+    return wrapper
 
 
 class CapData(object):
@@ -207,8 +239,9 @@ class CapTest(object):
         self.flt_das = CapData()
         self.sim = CapData()  # should initialize with sim also
         self.flt_sim = CapData()
-        self.trans_keys = {}
         self.reg_trans = {}
+        self.mindex = []
+        self.summ_data = []
 
 
     def set_reg_trans(self, power='', poa='', t_amb='', w_vel=''):
@@ -230,6 +263,12 @@ class CapTest(object):
                 lst.extend(capdata.trans[value])
             return capdata.df[lst]
         return capdata.df[capdata.trans[self.reg_trans[var]]]
+
+    def summary(self):
+        df = pd.DataFrame(data=self.summ_data,
+                          index=pd.MultiIndex.from_tuples(self.mindex),
+                          columns=columns)
+        return df
 
     def plot(self, capdata):
         index = capdata.df.index.tolist()
@@ -368,6 +407,7 @@ class CapTest(object):
         """
         pass
 
+    @update_summary
     def filter_pf(self, data, pf):
         """
         Filter based on power factor values.
