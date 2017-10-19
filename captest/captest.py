@@ -17,7 +17,7 @@ from bokeh.models import Legend, HoverTool, tools
 
 import pecos
 
-columns = ['Timestamps', 'Timestamps_filtered', 'filter_arguments']
+
 met_keys = ['poa', 't_amb', 'w_vel', 'power']
 
 aux_load = 100
@@ -36,9 +36,10 @@ type_defs = {'irr': [['irradiance', 'irr', 'plane of array', 'poa', 'ghi',
                     (-1, 1)],
              'op_state': [['operating state', 'state', 'op', 'status'],
                           (0, 10)],
-             'real_pwr': [['real power', 'ac power'],
+             'real_pwr': [['real power', 'ac power', 'e_grid'],
                           (aux_load, ac_nameplate * 1.05)],
-             'index': [['index'],('','z')]}
+             'shade': [['fshdbm', 'shd', 'shade'], (0, 1)],
+             'index': [['index'], ('', 'z')]}
 
 sub_type_defs = {'poa': [['plane of array', 'poa']],
                  'ghi': [['global horizontal', 'ghi', 'global', 'glob']],
@@ -50,6 +51,9 @@ sub_type_defs = {'poa': [['plane of array', 'poa']],
 irr_sensors_defs = {'ref_cell': [['reference cell', 'reference', 'ref',
                                   'referance', 'pvel']],
                     'pyran': [['pyranometer', 'pyran']]}
+
+
+columns = ['Timestamps', 'Timestamps_filtered', 'filter_arguments']
 
 
 def update_summary(func):
@@ -130,9 +134,22 @@ class CapData(object):
         all_data.dropna(how='all', inplace=True)
         all_data.columns = [' '.join(col).strip() for col in all_data.columns.values]
 
-        return(all_data)
+        return all_data
 
-    def load_data(self, directory='./data/', set_trans=True):
+    def load_pvsyst(self, path, filename):
+        """
+        Load pvsyst data and add assign to attribute pvsyst.
+        """
+        dirName = os.path.normpath(path + filename)
+        pvraw = pd.read_csv(dirName, skiprows=10, header=[0, 1],
+                            parse_dates=[0], infer_datetime_format=True)
+        pvraw.columns = pvraw.columns.droplevel(1)
+        # pvraw['dateString'] = pvraw['date'].apply(lambda x: x.strftime('%m/%d/%Y %H'))
+        pvraw.set_index('date', drop=True, inplace=True)
+        pvraw = pvraw.rename(columns={"T Amb": "TAmb"})
+        return pvraw
+
+    def load_data(self, directory='./data/', set_trans=True, load_pvsyst=False):
         """
         Import data from csv files.
         directory (string) - default is to import from './data/'
@@ -147,26 +164,30 @@ class CapData(object):
                 files_to_read.append(file)
 
         all_sensors = pd.DataFrame()
-        for filename in files_to_read:
-            if filename.lower().find('pvsyst') != -1:
-                print("Skipped PVsyst file: " + filename)
-                continue
-            nextData = self.load_das_file(directory, filename)
-            all_sensors = pd.concat([all_sensors, nextData], axis=0)
-            print("Read: " + filename)
+
+        if not load_pvsyst:
+            for filename in files_to_read:
+                if filename.lower().find('pvsyst') != -1:
+                    print("Skipped file: " + filename)
+                    continue
+                nextData = self.load_das_file(directory, filename)
+                all_sensors = pd.concat([all_sensors, nextData], axis=0)
+                print("Read: " + filename)
+        elif load_pvsyst:
+            for filename in files_to_read:
+                if filename.lower().find('pvsyst') == -1:
+                    print("Skipped file: " + filename)
+                    continue
+                nextData = self.load_pvsyst(directory, filename)
+                all_sensors = pd.concat([all_sensors, nextData], axis=0)
+                print("Read: " + filename)
+
         ix_ser = all_sensors.index.to_series()
         all_sensors['index'] = ix_ser.apply(lambda x: x.strftime('%m/%d/%Y %H %M'))
         self.df = all_sensors
 
         if set_trans:
             self.__set_trans()
-
-    def load_pvsyst(self, arg):
-        """
-        Load pvsyst data and add assign to attribute pvsyst.
-        """
-        # self.pvsyst = pvsyst
-        pass
 
     def __series_type(self, series, type_defs, bounds_check=True,
                       warnings=False):
@@ -242,7 +263,6 @@ class CapTest(object):
         self.reg_trans = {}
         self.mindex = []
         self.summ_data = []
-
 
     def set_reg_trans(self, power='', poa='', t_amb='', w_vel=''):
         self.reg_trans = {'power': power,
