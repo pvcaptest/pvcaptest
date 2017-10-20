@@ -274,19 +274,25 @@ class CapTest(object):
                           't_amb': t_amb,
                           'w_vel': w_vel}
 
-    def var(self, capdata, var=list()):
+    def var(self, capdata, var):
         """
         Convience fucntion to return regression independent variable.
-        var (string) may be 'power', 'poa', 't_amb', 'w_vel' or 'all'
+
+        Paremeters
+        --------------
         capdata (CapData object)
-        Todo:
-        change var to arg not kwarg, should be able to accept 'all' or lst
+        var (string or list of strings) may be 'power', 'poa', 't_amb', 'w_vel'
+             or 'all' or list of some subset of these
         """
 
-        if var[0] == 'all':
+        if var == 'all':
             keys = list(self.reg_trans.values())
-        else:
+        elif isinstance(var, list) and len(var) > 1:
             keys = [self.reg_trans[key] for key in var]
+        elif var in met_keys:
+            var = [var]
+            keys = [self.reg_trans[key] for key in var]
+
         lst = []
         for key in keys:
             lst.extend(capdata.trans[key])
@@ -354,7 +360,7 @@ class CapTest(object):
         .plot call.
         """
         flt_cd = self.__flt_setup(data)
-        df = self.var(flt_cd, var=['power', 'poa'])
+        df = self.var(flt_cd, ['power', 'poa'])
         df = df.rename(columns={df.columns[0]: 'power', df.columns[1]: 'poa'})
         plt = df.plot(kind='scatter', x='poa', y='power',
                 title=data, xlim=(0,1200), alpha=0.2)
@@ -397,10 +403,10 @@ class CapTest(object):
         cd_obj = self.__flt_setup(data)
 
         agg_series = []
-        agg_series.append(self.var(cd_obj, var=['poa']).agg(irr, axis=1))
-        agg_series.append(self.var(cd_obj, var=['t_amb']).agg(temp, axis=1))
-        agg_series.append(self.var(cd_obj, var=['w_vel']).agg(wind, axis=1))
-        agg_series.append(self.var(cd_obj, var=['power']).agg(real_pwr, axis=1))
+        agg_series.append(self.var(cd_obj, 'poa').agg(irr, axis=1))
+        agg_series.append(self.var(cd_obj, 't_amb').agg(temp, axis=1))
+        agg_series.append(self.var(cd_obj, 'w_vel').agg(wind, axis=1))
+        agg_series.append(self.var(cd_obj, 'power').agg(real_pwr, axis=1))
 
         comb_names = []
         for key in met_keys:
