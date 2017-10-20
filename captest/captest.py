@@ -279,6 +279,8 @@ class CapTest(object):
         Convience fucntion to return regression independent variable.
         var (string) may be 'power', 'poa', 't_amb', 'w_vel' or 'all'
         capdata (CapData object)
+        Todo:
+        change var to arg not kwarg, should be able to accept 'all' or lst
         """
 
         if var[0] == 'all':
@@ -351,12 +353,12 @@ class CapTest(object):
         running aggregation function.  Then rename columns to names used in
         .plot call.
         """
-        # irrad = cd_obj.df[cd_obj.trans[irr]]
-        # power = cd_obj.df[cd_obj.trans[power]]
-        # df = cd_obj.df[keys]
-        # if df.shape[1] == 2:
-        #     df[].plot(kind='scatter', x='GlobInc', y='Meter1_Real_Power_AC',
-        #                  title='Actual Test Data Set', ylim=(0,22000), xlim=(0,1200), alpha=0.2)
+        flt_cd = self.__flt_setup(data)
+        df = self.var(flt_cd, var=['power', 'poa'])
+        df = df.rename(columns={df.columns[0]: 'power', df.columns[1]: 'poa'})
+        plt = df.plot(kind='scatter', x='poa', y='power',
+                title=data, xlim=(0,1200), alpha=0.2)
+        return(plt)
 
     def pvsyst_apply_losses(self):
         """
