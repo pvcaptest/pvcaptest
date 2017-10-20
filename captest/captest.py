@@ -70,20 +70,22 @@ def update_summary(func):
 
         func(self, *args, **kwargs)
 
+        arg_str = args.__repr__() + kwargs.__repr__()
+
         if 'pvsyst' in args:
             pts_after = self.flt_sim.df.shape[0]
-            self.mindex.append(('pvsyst', func.__name__))
+            pts_removed = pts_before - pts_after
+            self.sim_mindex.append(('pvsyst', func.__name__))
+            self.sim_summ_data.append({columns[0]: pts_after,
+                                       columns[1]: pts_removed,
+                                       columns[2]: arg_str})
         if 'das' in args:
             pts_after = self.flt_das.df.shape[0]
-            self.mindex.append(('das', func.__name__))
-
-        pts_removed = pts_before - pts_after
-
-        arg_str = args.__repr__() + kwargs.__repr__()
-        self.summ_data.append({columns[0]: pts_after,
-                               columns[1]: pts_removed,
-                               columns[2]: arg_str})
-
+            pts_removed = pts_before - pts_after
+            self.das_mindex.append(('das', func.__name__))
+            self.das_summ_data.append({columns[0]: pts_after,
+                                       columns[1]: pts_removed,
+                                       columns[2]: arg_str})
     return wrapper
 
 
@@ -258,11 +260,13 @@ class CapTest(object):
     def __init__(self, das, sim):
         self.das = das
         self.flt_das = CapData()
+        self.das_mindex = []
+        self.das_summ_data = []
         self.sim = sim
         self.flt_sim = CapData()
+        self.sim_mindex = []
+        self.sim_summ_data = []
         self.reg_trans = {}
-        self.mindex = []
-        self.summ_data = []
 
     def set_reg_trans(self, power='', poa='', t_amb='', w_vel=''):
         self.reg_trans = {'power': power,
@@ -270,25 +274,41 @@ class CapTest(object):
                           't_amb': t_amb,
                           'w_vel': w_vel}
 
-    def var(self, var, capdata):
+    def var(self, capdata, var=list()):
         """
         Convience fucntion to return regression independent variable.
         var (string) may be 'power', 'poa', 't_amb', 'w_vel' or 'all'
         capdata (CapData object)
         """
 
-        if var == 'all':
-            lst = []
-            for value in self.reg_trans.values():
-                lst.extend(capdata.trans[value])
-            return capdata.df[lst]
-        return capdata.df[capdata.trans[self.reg_trans[var]]]
+        if var[0] == 'all':
+            keys = list(self.reg_trans.values())
+        else:
+            keys = [self.reg_trans[key] for key in var]
+        lst = []
+        for key in keys:
+            lst.extend(capdata.trans[key])
+        return capdata.df[lst]
+        #return capdata.df[capdata.trans[self.reg_trans[var]]]
 
     def summary(self):
-        df = pd.DataFrame(data=self.summ_data,
-                          index=pd.MultiIndex.from_tuples(self.mindex),
-                          columns=columns)
-        return df
+        summ_data, mindex = [], []
+        if len(self.das_summ_data) != 0 and len(self.sim_summ_data) != 0:
+            summ_data.extend(self.sim_summ_data).extend(self.das_summ_data)
+            mindex.extend(self.sim_mindex).extend(self.das_mindex)
+        elif len(self.das_summ_data) != 0:
+            summ_data.extend(self.das_summ_data)
+            mindex.extend(self.das_mindex)
+        else:
+            summ_data.extend(self.sim_summ_data)
+            mindex.extend(self.sim_mindex)
+        try:
+            df = pd.DataFrame(data=summ_data,
+                              index=pd.MultiIndex.from_tuples(mindex),
+                              columns=columns)
+            return df
+        except TypeError:
+            print('No filters have been run.')
 
     def plot(self, capdata):
         index = capdata.df.index.tolist()
@@ -322,11 +342,21 @@ class CapTest(object):
         grid = gridplot(plots, ncols=2)
         return grid
 
-    def scatter(self, arg):
+    def scatter(self, data):
         """
         Create scatter plot of irradiance vs power.
+        data (str) - 'sim' or 'das' determines if filter is on sim or das data
+
+        Use the revised var function to get 'poa' and 'power' after
+        running aggregation function.  Then rename columns to names used in
+        .plot call.
         """
-        pass
+        # irrad = cd_obj.df[cd_obj.trans[irr]]
+        # power = cd_obj.df[cd_obj.trans[power]]
+        # df = cd_obj.df[keys]
+        # if df.shape[1] == 2:
+        #     df[].plot(kind='scatter', x='GlobInc', y='Meter1_Real_Power_AC',
+        #                  title='Actual Test Data Set', ylim=(0,22000), xlim=(0,1200), alpha=0.2)
 
     def pvsyst_apply_losses(self):
         """
@@ -343,13 +373,12 @@ class CapTest(object):
         """
         pass
 
-    def agg_sensors(self, cd_obj, irr='median', temp='mean', wind='mean',
+    def agg_sensors(self, data, irr='median', temp='mean', wind='mean',
                     real_pwr='sum', inplace=True, keep=True):
         """
         Aggregate measurments of the same variable from different sensors.
         Optional keyword argument for each measurment:
-        cd_obj (CapData) -  CapData object usually CapTest.raw_data or
-                            CapTest.flt_data
+        data (str) - 'sim' or 'das' determines if filter is on sim or das data
         irr (string) - default 'median'
         temp (string) - default 'mean'
         wind (string) - default 'mean'
@@ -363,11 +392,13 @@ class CapTest(object):
         is already filtered data or create filtered data
         """
         # met_keys = ['poa', 't_amb', 'w_vel', 'power']
+        cd_obj = self.__flt_setup(data)
+
         agg_series = []
-        agg_series.append(self.var('poa', cd_obj).agg(irr, axis=1))
-        agg_series.append(self.var('t_amb', cd_obj).agg(temp, axis=1))
-        agg_series.append(self.var('w_vel', cd_obj).agg(wind, axis=1))
-        agg_series.append(self.var('power', cd_obj).agg(real_pwr, axis=1))
+        agg_series.append(self.var(cd_obj, var=['poa']).agg(irr, axis=1))
+        agg_series.append(self.var(cd_obj, var=['t_amb']).agg(temp, axis=1))
+        agg_series.append(self.var(cd_obj, var=['w_vel']).agg(wind, axis=1))
+        agg_series.append(self.var(cd_obj, var=['power']).agg(real_pwr, axis=1))
 
         comb_names = []
         for key in met_keys:
@@ -388,6 +419,10 @@ class CapTest(object):
 
         if inplace:
             cd_obj.df = df
+            if data == 'das':
+                self.flt_das = cd_obj
+            elif data == 'sim':
+                self.flt_sim = cd_obj
         else:
             return(df)
 
@@ -416,10 +451,22 @@ class CapTest(object):
             return self.flt_sim
 
     def reset_flt(self, data):
+        """
+        Copies over filtered dataframe with raw data.
+        data (str) - 'sim' or 'das' determines if filter is on sim or das data
+        Removes all summary history.
+
+        Todo:
+
+        """
         if data == 'das':
             self.flt_das = self.das.copy()
+            self.das_mindex = []
+            self.das_summ_data = []
         if data == 'pvsyst':
             self.flt_sim = self.sim.copy()
+            self.sim_mindex = []
+            self.sim_summ_data = []
 
     def filter_outliers(self, arg):
         """
@@ -448,6 +495,7 @@ class CapTest(object):
         if data == 'pvsyst':
             self.flt_sim = flt_cd
 
+    # @update_summary
     def filter_irr(self, low, high, percent=True):
         """
         Filter on irradiance values.
