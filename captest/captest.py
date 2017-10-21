@@ -259,6 +259,16 @@ class CapData(object):
         trans_keys.sort()
         self.trans_keys = trans_keys
 
+    def drop_cols(self, columns):
+        for key, value in self.trans.items():
+            for col in columns:
+                try:
+                    value.remove(col)
+                    self.trans[key] = value
+                except ValueError:
+                    continue
+        self.df.drop(columns, axis=1, inplace=True)
+
 
 class CapTest(object):
     """
