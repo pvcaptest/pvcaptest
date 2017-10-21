@@ -59,7 +59,7 @@ columns = ['Timestamps', 'Timestamps_filtered', 'filter_arguments']
 def update_summary(func):
     @wraps(func)
     def wrapper(self, *args, **kwargs):
-        if 'pvsyst' in args:
+        if 'sim' in args:
             pts_before = self.flt_sim.df.shape[0]
             if pts_before == 0:
                 pts_before = self.sim.df.shape[0]
@@ -72,10 +72,10 @@ def update_summary(func):
 
         arg_str = args.__repr__() + kwargs.__repr__()
 
-        if 'pvsyst' in args:
+        if 'sim' in args:
             pts_after = self.flt_sim.df.shape[0]
             pts_removed = pts_before - pts_after
-            self.sim_mindex.append(('pvsyst', func.__name__))
+            self.sim_mindex.append(('sim', func.__name__))
             self.sim_summ_data.append({columns[0]: pts_after,
                                        columns[1]: pts_removed,
                                        columns[2]: arg_str})
@@ -96,12 +96,20 @@ class CapData(object):
         self.df = pd.DataFrame()
         self.trans = {}
         self.trans_keys = []
+        self.reg_trans = {}
+
+    def set_reg_trans(self, power='', poa='', t_amb='', w_vel=''):
+        self.reg_trans = {'power': power,
+                          'poa': poa,
+                          't_amb': t_amb,
+                          'w_vel': w_vel}
 
     def copy(self):
         cd_c = CapData()
         cd_c.df = self.df.copy()
         cd_c.trans = copy.copy(self.trans)
         cd_c.trans_keys = copy.copy(self.trans_keys)
+        cd_c.reg_trans = copy.copy(self.reg_trans)
         return cd_c
 
     def empty(self):
@@ -138,9 +146,9 @@ class CapData(object):
 
         return all_data
 
-    def load_pvsyst(self, path, filename):
+    def load_sim(self, path, filename):
         """
-        Load pvsyst data and add assign to attribute pvsyst.
+        Load sim data and add assign to attribute sim.
         """
         dirName = os.path.normpath(path + filename)
         pvraw = pd.read_csv(dirName, skiprows=10, header=[0, 1],
@@ -151,7 +159,7 @@ class CapData(object):
         pvraw = pvraw.rename(columns={"T Amb": "TAmb"})
         return pvraw
 
-    def load_data(self, directory='./data/', set_trans=True, load_pvsyst=False):
+    def load_data(self, directory='./data/', set_trans=True, load_sim=False):
         """
         Import data from csv files.
         directory (string) - default is to import from './data/'
@@ -167,7 +175,7 @@ class CapData(object):
 
         all_sensors = pd.DataFrame()
 
-        if not load_pvsyst:
+        if not load_sim:
             for filename in files_to_read:
                 if filename.lower().find('pvsyst') != -1:
                     print("Skipped file: " + filename)
@@ -175,12 +183,12 @@ class CapData(object):
                 nextData = self.load_das_file(directory, filename)
                 all_sensors = pd.concat([all_sensors, nextData], axis=0)
                 print("Read: " + filename)
-        elif load_pvsyst:
+        elif load_sim:
             for filename in files_to_read:
                 if filename.lower().find('pvsyst') == -1:
                     print("Skipped file: " + filename)
                     continue
-                nextData = self.load_pvsyst(directory, filename)
+                nextData = self.load_sim(directory, filename)
                 all_sensors = pd.concat([all_sensors, nextData], axis=0)
                 print("Read: " + filename)
 
@@ -266,13 +274,7 @@ class CapTest(object):
         self.flt_sim = CapData()
         self.sim_mindex = []
         self.sim_summ_data = []
-        self.reg_trans = {}
 
-    def set_reg_trans(self, power='', poa='', t_amb='', w_vel=''):
-        self.reg_trans = {'power': power,
-                          'poa': poa,
-                          't_amb': t_amb,
-                          'w_vel': w_vel}
 
     def var(self, capdata, var):
         """
@@ -286,18 +288,17 @@ class CapTest(object):
         """
 
         if var == 'all':
-            keys = list(self.reg_trans.values())
+            keys = list(capdata.reg_trans.values())
         elif isinstance(var, list) and len(var) > 1:
-            keys = [self.reg_trans[key] for key in var]
+            keys = [capdata.reg_trans[key] for key in var]
         elif var in met_keys:
             var = [var]
-            keys = [self.reg_trans[key] for key in var]
+            keys = [capdata.reg_trans[key] for key in var]
 
         lst = []
         for key in keys:
             lst.extend(capdata.trans[key])
         return capdata.df[lst]
-        #return capdata.df[capdata.trans[self.reg_trans[var]]]
 
     def summary(self):
         summ_data, mindex = [], []
@@ -366,9 +367,9 @@ class CapTest(object):
                 title=data, xlim=(0,1200), alpha=0.2)
         return(plt)
 
-    def pvsyst_apply_losses(self):
+    def sim_apply_losses(self):
         """
-        Apply post pvsyst losses to pvsyst data.
+        Apply post sim losses to sim data.
         xfmr loss, mv voltage drop, availability
         """
         pass
@@ -377,7 +378,7 @@ class CapTest(object):
         """
         Calculate reporting conditons.
         mnth, year, season
-        from pvsyst, from actual data (at which filter step)
+        from sim, from actual data (at which filter step)
         """
         pass
 
@@ -410,17 +411,17 @@ class CapTest(object):
 
         comb_names = []
         for key in met_keys:
-            comb_name = ('AGG-' + ', '.join(cd_obj.trans[self.reg_trans[key]]))
+            comb_name = ('AGG-' + ', '.join(cd_obj.trans[cd_obj.reg_trans[key]]))
             comb_names.append(comb_name)
             if inplace:
-                cd_obj.trans[self.reg_trans[key]] = [comb_name, ]
+                cd_obj.trans[cd_obj.reg_trans[key]] = [comb_name, ]
 
         temp_dict = {key: val for key, val in zip(comb_names, agg_series)}
         df = pd.DataFrame(temp_dict)
 
         if keep:
             lst = []
-            for value in self.reg_trans.values():
+            for value in cd_obj.reg_trans.values():
                 lst.extend(cd_obj.trans[value])
             sel = [i for i, name in enumerate(cd_obj.df) if name not in lst]
             df = pd.concat([df, cd_obj.df.iloc[:, sel]])
@@ -453,7 +454,7 @@ class CapTest(object):
             if self.flt_das.empty():
                 self.flt_das = self.das.copy()
             return self.flt_das
-        if data == 'pvsyst':
+        if data == 'sim':
             if self.flt_sim.empty():
                 self.flt_sim = self.sim.copy()
             return self.flt_sim
@@ -471,10 +472,12 @@ class CapTest(object):
             self.flt_das = self.das.copy()
             self.das_mindex = []
             self.das_summ_data = []
-        if data == 'pvsyst':
+        elif data == 'sim':
             self.flt_sim = self.sim.copy()
             self.sim_mindex = []
             self.sim_summ_data = []
+        else:
+            print("'data must be 'das' or 'sim'")
 
     def filter_outliers(self, arg):
         """
@@ -500,7 +503,7 @@ class CapTest(object):
 
         if data == 'das':
             self.flt_das = flt_cd
-        if data == 'pvsyst':
+        if data == 'sim':
             self.flt_sim = flt_cd
 
     # @update_summary
