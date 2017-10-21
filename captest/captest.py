@@ -260,6 +260,13 @@ class CapData(object):
         self.trans_keys = trans_keys
 
     def drop_cols(self, columns):
+        """
+        Drops columns from CapData dataframe and translation dictionary.
+
+        Parameters
+        ----------
+        columns (list) List of columns to drop.
+        """
         for key, value in self.trans.items():
             for col in columns:
                 try:
