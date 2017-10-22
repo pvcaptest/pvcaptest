@@ -305,7 +305,6 @@ class CapTest(object):
         self.sim_mindex = []
         self.sim_summ_data = []
 
-
     def var(self, capdata, var):
         """
         Convience fucntion to return regression independent variable.
@@ -394,7 +393,7 @@ class CapTest(object):
         df = self.var(flt_cd, ['power', 'poa'])
         df = df.rename(columns={df.columns[0]: 'power', df.columns[1]: 'poa'})
         plt = df.plot(kind='scatter', x='poa', y='power',
-                title=data, xlim=(0,1200), alpha=0.2)
+                      title=data, xlim=(0, 1200), alpha=0.2)
         return(plt)
 
     def sim_apply_losses(self):
@@ -591,13 +590,56 @@ class CapTest(object):
         else:
             return flt_cd
 
-    def filter_op_state(self, arg):
+    @update_summary
+    def filter_op_state(self, data, op_state, mult_inv=None, inplace=True):
         """
         Filter on inverter operation state.
-        agrument needs to include operating state definition for specific inv
-        This is inherently an inverter mppt filter.
+
+        Parameters
+        ----------
+        data (str) - 'sim' or 'das' determines if filter is on sim or das data
+        op_state (integer) - integer inverter operating state to keep
+        mult_inv (list of tuples) - [(start, stop, op_state), ...] list of tuples
+                    where start is the first column of an type of inverter, stop
+                    is the last column and op_state is the operating state for the
+                    inverter type.
+        inplace (bool) - default True writes over current filtered dataframe
+                         False returns CapData object
         """
-        pass
+        if data == 'sim':
+            print('Method not implemented for pvsyst data.')
+            return None
+
+        flt_cd = self.__flt_setup(data)
+
+        for key in flt_cd.trans_keys:
+            if key.find('op') == 0:
+                selection = key
+
+        df = flt_cd.df[flt_cd.trans[selection]]
+        print('df shape: {}'.format(df.shape))
+
+        if mult_inv is not None:
+            return_index = flt_cd.df.index
+            for pos_tup in mult_inv:
+                print('pos_tup: {}'.format(pos_tup))
+                inverters = df.iloc[:, pos_tup[0]:pos_tup[1]]
+                print('inv shape: {}'.format(inverters.shape))
+                df_temp = flt_cd.df[(inverters == pos_tup[2]).all(axis=1)]
+                print('df_temp shape: {}'.format(df_temp.shape))
+                return_index = return_index.intersection(df_temp.index)
+            flt_cd.df = flt_cd.df.loc[return_index, :]
+        else:
+            flt_cd.df = flt_cd.df[(df == op_state).all(axis=1)]
+
+        if inplace:
+            if data == 'das':
+                self.flt_das = flt_cd
+            if data == 'sim':
+                # should not run as 'sim' is not implemented
+                self.flt_sim = flt_cd
+        else:
+            return flt_cd
 
     def filter_clipping(self, arg):
         """
@@ -620,7 +662,6 @@ class CapTest(object):
             self.flt_das = flt_cd
         if data == 'sim':
             self.flt_sim = flt_cd
-
 
     def filter_sensors(self, arg):
         """
