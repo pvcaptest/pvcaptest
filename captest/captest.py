@@ -617,16 +617,16 @@ class CapTest(object):
                 selection = key
 
         df = flt_cd.df[flt_cd.trans[selection]]
-        print('df shape: {}'.format(df.shape))
+        # print('df shape: {}'.format(df.shape))
 
         if mult_inv is not None:
             return_index = flt_cd.df.index
             for pos_tup in mult_inv:
-                print('pos_tup: {}'.format(pos_tup))
+                # print('pos_tup: {}'.format(pos_tup))
                 inverters = df.iloc[:, pos_tup[0]:pos_tup[1]]
-                print('inv shape: {}'.format(inverters.shape))
+                # print('inv shape: {}'.format(inverters.shape))
                 df_temp = flt_cd.df[(inverters == pos_tup[2]).all(axis=1)]
-                print('df_temp shape: {}'.format(df_temp.shape))
+                # print('df_temp shape: {}'.format(df_temp.shape))
                 return_index = return_index.intersection(df_temp.index)
             flt_cd.df = flt_cd.df.loc[return_index, :]
         else:
