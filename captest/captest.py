@@ -9,6 +9,9 @@ import math
 import copy
 from functools import wraps
 
+from sklearn.covariance import EllipticEnvelope
+from sklearn.svm import OneClassSVM
+
 from bokeh.io import output_notebook, show
 from bokeh.plotting import figure
 from bokeh.palettes import Category10
@@ -63,10 +66,18 @@ def update_summary(func):
             pts_before = self.flt_sim.df.shape[0]
             if pts_before == 0:
                 pts_before = self.sim.df.shape[0]
+                self.sim_mindex.append(('sim', 'sim_count'))
+                self.sim_summ_data.append({columns[0]: pts_before,
+                                           columns[1]: 0,
+                                           columns[2]: ''})
         if 'das' in args:
             pts_before = self.flt_das.df.shape[0]
             if pts_before == 0:
                 pts_before = self.das.df.shape[0]
+                self.das_mindex.append(('das', 'das_count'))
+                self.das_summ_data.append({columns[0]: pts_before,
+                                           columns[1]: 0,
+                                           columns[2]: ''})
 
         func(self, *args, **kwargs)
 
@@ -441,16 +452,17 @@ class CapTest(object):
             for value in cd_obj.reg_trans.values():
                 lst.extend(cd_obj.trans[value])
             sel = [i for i, name in enumerate(cd_obj.df) if name not in lst]
-            df = pd.concat([df, cd_obj.df.iloc[:, sel]])
+            df = pd.concat([df, cd_obj.df.iloc[:, sel]], axis=1)
+
+        cd_obj.df = df
 
         if inplace:
-            cd_obj.df = df
             if data == 'das':
                 self.flt_das = cd_obj
             elif data == 'sim':
                 self.flt_sim = cd_obj
         else:
-            return(df)
+            return cd_obj
 
     def drop_non_reg_cols(self, arg):
         """
@@ -496,11 +508,32 @@ class CapTest(object):
         else:
             print("'data must be 'das' or 'sim'")
 
-    def filter_outliers(self, arg):
+    @update_summary
+    def filter_outliers(self, data, inplace=True):
         """
         Apply eliptic envelope from scikit-learn to remove outliers.
+
+        Parameters
+        ----------
+        data (str) - 'sim' or 'das' determines if filter is on sim or das data
         """
-        pass
+        flt_cd = self.__flt_setup(data)
+
+        XandY = self.var(flt_cd, ['poa', 'power'])
+        X1 = XandY.values
+
+        clf_1 = EllipticEnvelope(contamination=0.04)
+        clf_1.fit(X1)
+
+        flt_cd.df = flt_cd.df[clf_1.predict(X1) == 1]
+
+        if inplace:
+            if data == 'das':
+                self.flt_das = flt_cd
+            if data == 'sim':
+                self.flt_sim = flt_cd
+        else:
+            return flt_cd
 
     @update_summary
     def filter_pf(self, data, pf):
@@ -547,11 +580,22 @@ class CapTest(object):
         """
         pass
 
-    def filter_missing(self, arg):
+    @update_summary
+    def filter_missing(self, data):
         """
         Remove timestamps with missing data.
+
+        Parameters
+        ----------
+        data (str) - 'sim' or 'das' determines if filter is on sim or das data
         """
-        pass
+        flt_cd = self.__flt_setup(data)
+        flt_cd.df = flt_cd.df.dropna(axis=0, how='all', inplace=False)
+        if data == 'das':
+            self.flt_das = flt_cd
+        if data == 'sim':
+            self.flt_sim = flt_cd
+
 
     def filter_sensors(self, arg):
         """
