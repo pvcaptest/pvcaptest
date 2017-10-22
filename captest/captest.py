@@ -56,7 +56,7 @@ irr_sensors_defs = {'ref_cell': [['reference cell', 'reference', 'ref',
                     'pyran': [['pyranometer', 'pyran']]}
 
 
-columns = ['Timestamps', 'Timestamps_filtered', 'filter_arguments']
+columns = ['Timestamps', 'Timestamps_filtered', 'Filter_arguments']
 
 
 def update_summary(func):
@@ -69,7 +69,7 @@ def update_summary(func):
                 self.sim_mindex.append(('sim', 'sim_count'))
                 self.sim_summ_data.append({columns[0]: pts_before,
                                            columns[1]: 0,
-                                           columns[2]: ''})
+                                           columns[2]: 'no filters'})
         if 'das' in args:
             pts_before = self.flt_das.df.shape[0]
             if pts_before == 0:
@@ -77,9 +77,9 @@ def update_summary(func):
                 self.das_mindex.append(('das', 'das_count'))
                 self.das_summ_data.append({columns[0]: pts_before,
                                            columns[1]: 0,
-                                           columns[2]: ''})
+                                           columns[2]: 'no filters'})
 
-        func(self, *args, **kwargs)
+        ret_val = func(self, *args, **kwargs)
 
         arg_str = args.__repr__() + kwargs.__repr__()
 
@@ -97,6 +97,8 @@ def update_summary(func):
             self.das_summ_data.append({columns[0]: pts_after,
                                        columns[1]: pts_removed,
                                        columns[2]: arg_str})
+
+        return ret_val
     return wrapper
 
 
@@ -556,15 +558,38 @@ class CapTest(object):
         if data == 'sim':
             self.flt_sim = flt_cd
 
-    # @update_summary
-    def filter_irr(self, low, high, percent=True):
+    @update_summary
+    def filter_irr(self, data, low, high, ref_val=None, inplace=True):
         """
         Filter on irradiance values.
-        allow for a plus or minus percent argument or
-        a min and max value
-        if percent is false then low and high are min and max
+
+        Parameters
+        ----------
+        data (str) - 'sim' or 'das' determines if filter is on sim or das data
+        low (float/int) - minimum value as fraction (0.8) or absolute 200 (W/m^2)
+        high (float/int) - max value as fraction (1.2) or absolute 800 (W/m^2)
+        ref_val (float/ing) - Must provide arg when min/max are fractions
+        inplace (bool) - Default true write back to CapTest.flt_sim or flt_das
         """
-        pass
+        flt_cd = self.__flt_setup(data)
+
+        if ref_val is not None:
+            low *= ref_val
+            high *= ref_val
+
+        df = self.var(flt_cd, 'poa')
+        df = df.rename(columns={df.columns[0]: 'poa'})
+        df.query('@low <= poa <= @high', inplace=True)
+
+        flt_cd.df = flt_cd.df.loc[df.index, :]
+
+        if inplace:
+            if data == 'das':
+                self.flt_das = flt_cd
+            if data == 'sim':
+                self.flt_sim = flt_cd
+        else:
+            return flt_cd
 
     def filter_op_state(self, arg):
         """
