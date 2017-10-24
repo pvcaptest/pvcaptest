@@ -383,6 +383,9 @@ class CapTest(object):
     def scatter(self, data):
         """
         Create scatter plot of irradiance vs power.
+
+        Parameters
+        ----------
         data (str) - 'sim' or 'das' determines if filter is on sim or das data
 
         Use the revised var function to get 'poa' and 'power' after
@@ -663,11 +666,85 @@ class CapTest(object):
         if data == 'sim':
             self.flt_sim = flt_cd
 
-    def filter_sensors(self, arg):
+    def __std_filter(self, series, std_devs=3):
+        mean = series.mean()
+        std = series.std()
+        min_bound = mean - std * std_devs
+        max_bound = mean + std * std_devs
+        return all(series.apply(lambda x: min_bound < x < max_bound))
+
+    def __sensor_filter(self, df, perc_diff):
+        if df.shape[1] > 2:
+            return df[df.apply(self.__std_filter, axis=1)].index
+        elif df.shape[1] == 1:
+            return df.index
+        else:
+            sens_1 = df.iloc[:, 0]
+            sens_2 = df.iloc[:, 1]
+            return df[abs((sens_1 - sens_2) / sens_1) <= perc_diff].index
+
+    @update_summary
+    def filter_sensors(self, data, skip_strs=[], perc_diff=0.05, inplace=True,
+                       reg_trans=True):
         """
         Drop suspicious measurments by comparing values from different sensors.
+
+        Parameters
+        ----------
+        data (str) - 'sim' or 'das' determines if filter is on sim or das data
+        skip_strs (list like) - strings to search for in column label.
+                                If found skip column.
+        perc_diff (float) - Percent difference cutoff for readings of the same
+                            measurement from different sensors.
+        inplace (bool) - default True writes over current filtered dataframe
+                         False returns CapData object
+
+        TODO:
+        -perc_diff can be dict of sensor type keys paired with per_diff values
         """
-        pass
+
+        cd_obj = self.__flt_setup(data)
+
+        if reg_trans:
+            cols = cd_obj.reg_trans.values()
+        else:
+            cols = cd_obj.trans_keys
+
+        # labels = list(set(df.columns.get_level_values(col_level).tolist()))
+        for i, label in enumerate(cols):
+            # print(i)
+            skip_col = False
+            if len(skip_strs) != 0:
+                # print('skip strings: {}'.format(len(skip_strs)))
+                for string in skip_strs:
+                    # print(string)
+                    if label.find(string) != -1:
+                        skip_col = True
+            if skip_col:
+                continue
+            if 'index' in locals():
+                # if index has been assigned then take intersection
+                # print(label)
+                # print(pm.df[pm.trans[label]].head(1))
+                df = cd_obj.df[cd_obj.trans[label]]
+                next_index = self.__sensor_filter(df, perc_diff)
+                index = index.intersection(next_index)
+            else:
+                # if index has not been assigned then assign it
+                # print(label)
+                # print(pm.df[pm.trans[label]].head(1))
+                df = cd_obj.df[cd_obj.trans[label]]
+                index = self.__sensor_filter(df, perc_diff)
+
+        cd_obj.df = cd_obj.df.loc[index, :]
+
+        if inplace:
+            if data == 'das':
+                self.flt_das = cd_obj
+            elif data == 'sim':
+                self.flt_sim = cd_obj
+        else:
+            return cd_obj
 
     def regression(self, filter=False):
         """
@@ -691,6 +768,7 @@ class CapTest(object):
         """
         pass
 
+
 def equip_counts(df):
     equip_counts = {}
     eq_cnt_lst = []
@@ -711,54 +789,3 @@ def equip_counts(df):
             eq_cnt_lst.append(equip_counts[col_name])
 #         print(eq_cnt_lst[i])
     return eq_cnt_lst
-
-
-def std_filter(series, std_devs=3):
-    mean = series.mean()
-    std = series.std()
-    min_bound = mean - std * std_devs
-    max_bound = mean + std * std_devs
-    return all(series.apply(lambda x: min_bound < x < max_bound))
-
-
-def sensor_filter(df, perc_diff):
-    if df.shape[1] > 2:
-        return df[df.apply(std_filter, axis=1)].index
-    elif df.shape[1] == 1:
-        return df.index
-    else:
-        sens_1 = df.iloc[:, 0]
-        sens_2 = df.iloc[:, 1]
-        return df[abs((sens_1 - sens_2) / sens_1) < perc_diff].index
-
-
-def apply_filter(pm, skip_strs=[], perc_diff=0.05):
-    """
-    pm - pecos object
-    skip_strs - (list) strings to search for in column label; if found skip col
-    """
-    trans_keys = list(pm.trans.keys())
-    trans_keys.sort()
-    trans_keys
-    # labels = list(set(df.columns.get_level_values(col_level).tolist()))
-    for i, label in enumerate(trans_keys):
-        # print(i)
-        skip_col = False
-        if len(skip_strs) != 0:
-            # print('skip strings: {}'.format(len(skip_strs)))
-            for string in skip_strs:
-                # print(string)
-                if label.find(string) != -1:
-                    skip_col = True
-        if skip_col:
-            continue
-        if 'index' in locals():
-            # print(label)
-            # print(pm.df[pm.trans[label]].head(1))
-            next_index = sensor_filter(pm.df[pm.trans[label]], perc_diff)
-            index = index.intersection(next_index)
-        else:
-            # print(label)
-            # print(pm.df[pm.trans[label]].head(1))
-            index = sensor_filter(pm.df[pm.trans[label]], perc_diff)
-    return pm.df.loc[index, :]
