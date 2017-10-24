@@ -18,7 +18,7 @@ from bokeh.palettes import Category10
 from bokeh.layouts import gridplot
 from bokeh.models import Legend, HoverTool, tools
 
-import pecos
+import pecos  # remove?
 
 
 met_keys = ['poa', 't_amb', 'w_vel', 'power']
@@ -131,7 +131,7 @@ class CapData(object):
         else:
             return False
 
-    def load_das_file(self, path, filename):
+    def load_pvsyst(self, path, filename):
         header_end = 1
 
         data = os.path.normpath(path + filename)
@@ -193,7 +193,7 @@ class CapData(object):
                 if filename.lower().find('pvsyst') != -1:
                     print("Skipped file: " + filename)
                     continue
-                nextData = self.load_das_file(directory, filename)
+                nextData = self.load_pvsyst(directory, filename)
                 all_sensors = pd.concat([all_sensors, nextData], axis=0)
                 print("Read: " + filename)
         elif load_sim:
