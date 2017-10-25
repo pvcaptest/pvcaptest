@@ -131,13 +131,22 @@ class CapData(object):
         else:
             return False
 
-    def load_pvsyst(self, path, filename):
+    def load_das(self, path, filename, **kwargs):
         header_end = 1
 
         data = os.path.normpath(path + filename)
-        all_data = pd.read_csv(data, encoding="UTF-8", header=[0, header_end],
-                               index_col=0, parse_dates=True, skip_blank_lines=True,
-                               low_memory=False)
+
+        encodings = ['utf-8', 'latin1', 'iso-8859-1', 'cp1252']
+        for encoding in encodings:
+            try:
+                all_data = pd.read_csv(data, encoding=encoding,
+                                       header=[0, header_end], index_col=0,
+                                       parse_dates=True, skip_blank_lines=True,
+                                       low_memory=False, **kwargs)
+            except UnicodeDecodeError:
+                continue
+            else:
+                break
 
         if not isinstance(all_data.index[0], pd.Timestamp):
             for i, indice in enumerate(all_data.index):
@@ -148,9 +157,16 @@ class CapData(object):
                 except ValueError:
                     continue
 
-            all_data = pd.read_csv(data, encoding="UTF-8", header=[0, header_end],
-                                   index_col=0, parse_dates=True,
-                                   skip_blank_lines=True, low_memory=False)
+        for encoding in encodings:
+            try:
+                all_data = pd.read_csv(data, encoding=encoding,
+                                       header=[0, header_end], index_col=0,
+                                       parse_dates=True, skip_blank_lines=True,
+                                       low_memory=False, **kwargs)
+            except UnicodeDecodeError:
+                continue
+            else:
+                break
 
         all_data = all_data.apply(pd.to_numeric, errors='coerce')
         all_data.dropna(axis=1, how='all', inplace=True)
@@ -159,24 +175,47 @@ class CapData(object):
 
         return all_data
 
-    def load_sim(self, path, filename):
+    def load_pvsyst(self, path, filename, **kwargs):
         """
         Load sim data and add assign to attribute sim.
         """
         dirName = os.path.normpath(path + filename)
-        pvraw = pd.read_csv(dirName, skiprows=10, header=[0, 1],
-                            parse_dates=[0], infer_datetime_format=True)
+
+        encodings = ['utf-8', 'latin1', 'iso-8859-1', 'cp1252']
+        for encoding in encodings:
+            try:
+                pvraw = pd.read_csv(dirName, skiprows=10, encoding=encoding,
+                                    header=[0, 1], parse_dates=[0],
+                                    infer_datetime_format=True, **kwargs)
+            except UnicodeDecodeError:
+                continue
+            else:
+                break
+
         pvraw.columns = pvraw.columns.droplevel(1)
         # pvraw['dateString'] = pvraw['date'].apply(lambda x: x.strftime('%m/%d/%Y %H'))
         pvraw.set_index('date', drop=True, inplace=True)
         pvraw = pvraw.rename(columns={"T Amb": "TAmb"})
         return pvraw
 
-    def load_data(self, directory='./data/', set_trans=True, load_sim=False):
+    def load_data(self, directory='./data/', set_trans=True, load_pvsyst=False,
+                  **kwargs):
         """
         Import data from csv files.
-        directory (string) - default is to import from './data/'
-        directoy='./path/to/data.csv'
+
+        Parameters
+        ----------
+        directory: str, default './data/'
+            Path to directory containing csv files to load.
+        set_trans: bool, default True
+            Generates translation dicitionary for column names after loading data.
+        load_pvsyst: bool, default False
+            By default skips any csv file that has 'pvsyst' in the name.  Is not
+            case sensitive.  Set to true to import a csv with 'pvsyst' in the name
+            and skip all other files.
+        **kwargs
+            Will pass kwargs onto the inner call to Pandas.read_csv.  Useful to
+            adjust the separator (Ex. sep=';').
         """
 
         files_to_read = []
@@ -188,20 +227,20 @@ class CapData(object):
 
         all_sensors = pd.DataFrame()
 
-        if not load_sim:
+        if not load_pvsyst:
             for filename in files_to_read:
                 if filename.lower().find('pvsyst') != -1:
                     print("Skipped file: " + filename)
                     continue
-                nextData = self.load_pvsyst(directory, filename)
+                nextData = self.load_das(directory, filename, **kwargs)
                 all_sensors = pd.concat([all_sensors, nextData], axis=0)
                 print("Read: " + filename)
-        elif load_sim:
+        elif load_pvsyst:
             for filename in files_to_read:
                 if filename.lower().find('pvsyst') == -1:
                     print("Skipped file: " + filename)
                     continue
-                nextData = self.load_sim(directory, filename)
+                nextData = self.load_pvsyst(directory, filename, **kwargs)
                 all_sensors = pd.concat([all_sensors, nextData], axis=0)
                 print("Read: " + filename)
 
