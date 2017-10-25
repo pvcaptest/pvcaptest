@@ -435,7 +435,7 @@ class CapTest(object):
         df = self.var(flt_cd, ['power', 'poa'])
         df = df.rename(columns={df.columns[0]: 'power', df.columns[1]: 'poa'})
         plt = df.plot(kind='scatter', x='poa', y='power',
-                      title=data, xlim=(0, 1200), alpha=0.2)
+                      title=data, alpha=0.2)
         return(plt)
 
     def sim_apply_losses(self):
