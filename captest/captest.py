@@ -343,6 +343,7 @@ class CapTest(object):
         self.flt_sim = CapData()
         self.sim_mindex = []
         self.sim_summ_data = []
+        self.rc = dict()
 
     def var(self, capdata, var):
         """
@@ -445,10 +446,8 @@ class CapTest(object):
         """
         pass
 
-    def rep_cond(self, data, test_date=None, freq='60D' inplace=True):
+    def pred_rcs(self,):
         """
-        Calculate reporting conditons.
-
         Parameters
         ----------
         data: str, 'sim' or 'das'
@@ -462,28 +461,51 @@ class CapTest(object):
             String representing number of days to aggregate for reporting
             condition calculation.  Ex '60D' for 60 Days.  Typical '30D', '60D',
             '90D'.
+        """
+        # if data = 'sim' and test_date is not None:
+        #     date = pd.to_datetime(test_date)
+        #     offset = pd.DateOffset(days=int(freq[:2]) / 2)
+        #     start = date - offset
+        #
+        #     # this is only useful for simulated data
+        #     # need differnt approach for real data across end of year
+        #     tail = df.loc[start:, :]
+        #     head = df.loc[:start, :]
+        #     head = head.iloc[:head.shape[0] - 1, :]
+        #     head_shifted = head.shift(8760, freq='H')
+        #     dfnewstart = pd.concat([tail, head_shifted])
+        #
+        #     temp_wind = dfnewstart[['t_amb', 'w_vel']]
+        #     irr = dfnewstart['GlobInc']
+        #
+        #     RCs = temp_wind.groupby(pd.Grouper(freq=freq, label='right')).mean()
+        #     RCs['GlobInc'] = irr.groupby(pd.TimeGrouper(freq=freq,
+        #                                     label='right')).quantile(.6)
+        #     RCs = RCs.iloc[0, :]
+        pass
+
+    def rep_cond(self, data, test_date=None, days=60, inplace=True, mean=False):
+        """
+        Calculate reporting conditons.
+
+        Parameters
+        ----------
+        data: str, 'sim' or 'das'
+            'sim' or 'das' determines if filter is on sim or das data
+        test_date: str, 'mm/dd/yyyy', optional
+            Date to center reporting conditions aggregation functions around.
+            When not used specified reporting conditions for all data passed
+            are returned grouped by the freq provided.  freq='90D' give seasonal
+            reporting conditions and freq='30D' give monthly reproting conditions.
+        days: int, default 60
+            Number of days to use when calculating reporting conditons.  Typically
+            no less than 30 and no more than 90.
         inplace: bool, True by default
-            When true udates object rc parameter, when false returns dataframe.
-        mnth, year, season
-        1 mnth span; 12 RCs- spec start month
-        2 mnth span; 6 RCs
-        3 mnth span; 4 RCs
-        from sim, from actual data at current filter step
-        for one and 2 mnth freq will need function to shift start date of df index
-        so groups start and end when needed
-        -start/end of df index can be used to adjust the group boundaries
-        seasons
-            Winter- Dec, Jan, Feb
-            Spring- Mar, Apr, May
-            Summer- Jun, Jul, Aug
-            Fall- Sep, Oct, Nov
-        if 'das':
-            use all of data available
-        if 'sim':
-            if test_date not None:
-                **kwargs - freq='60D' for days in group
-            if test_date is None:
-                **kwargs - freq='60D' for days in group
+            When true updates object rc parameter, when false returns dicitionary
+            of reporting conditions.
+        mean: bool, False by default
+            Calculates irradiance reporting conditions by mean rather than default
+            of 60th percentile.  Default follows ASTM standard.
         """
         flt_cd = self.__flt_setup(data)
         df = self.var(flt_cd, ['poa', 't_amb', 'w_vel'])
@@ -491,39 +513,30 @@ class CapTest(object):
                                 df.columns[1]: 't_amb',
                                 df.columns[2]: 'w_vel'})
 
-        if data = 'sim' and test_date is not None:
-            date = pd.to_datetime(test_date)
-            offset = pd.DateOffset(days=int(freq[:2]) / 2)
-            start = date - offset
+        date = pd.to_datetime(test_date)
+        offset = pd.DateOffset(days=days)
+        start = date - offset
+        end = date + offset
+        if start < df.index[0]:
+            start = df.index[0]
+        if end > df.index[-1]:
+            end = df.index[-1]
+        df = df.loc[start:end, :]
 
-            # this is only useful for simulated data
-            # need differnt approach for real data across end of year
-            tail = df.loc[start:, :]
-            head = df.loc[:start, :]
-            head = head.iloc[:head.shape[0] - 1, :]
-            head_shifted = head.shift(8760, freq='H')
-            dfnewstart = pd.concat([tail, head_shifted])
-
-            temp_wind = dfnewstart[['t_amb', 'w_vel']]
-            irr = dfnewstart['GlobInc']
-
-            RCs = temp_wind.groupby(pd.Grouper(freq=freq, label='right')).mean()
-            RCs['GlobInc'] = irr.groupby(pd.TimeGrouper(freq=freq,
-                                            label='right')).quantile(.6)
-            RCs = RCs.iloc[0, :]
+        if mean:
+            RCs = {'GlobInc': df['poa'].mean(),
+                   'TAmb': df['t_amb'].mean(),
+                   'WindVel': df['w_vel'].mean()}
         else:
-            temp_wind = df[['t_amb', 'w_vel']]
-            irr = dfnewstart['GlobInc']
-
-            RCs = temp_wind.groupby(pd.Grouper(freq=freq, label='right')).mean()
-            RCs['GlobInc'] = irr.groupby(pd.TimeGrouper(freq=freq,
-                                            label='right')).quantile(.6)
+            RCs = {'GlobInc': df['poa'].mean(),
+                   'TAmb': df['t_amb'].mean(),
+                   'WindVel': df['w_vel'].quantile(0.6)}
+        print(RCs)
 
         if inplace:
             self.rc = RCs
         else:
             return RCs
-
 
     def agg_sensors(self, data, irr='median', temp='mean', wind='mean',
                     real_pwr='sum', inplace=True, keep=True):
@@ -534,7 +547,7 @@ class CapTest(object):
         irr (string) - default 'median'
         temp (string) - default 'mean'
         wind (string) - default 'mean'
-        real_pwr (string) - default 'mean'
+        real_pwr (string) - default 'sum'
         inplace (bool) - default True writes over current filtered dataframe
                          False returns dataframe
         keep (bool) - keeps non regression columns in output dataframe
