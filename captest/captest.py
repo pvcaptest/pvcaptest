@@ -9,6 +9,8 @@ import math
 import copy
 from functools import wraps
 
+import statsmodels.formula.api as smf
+
 from sklearn.covariance import EllipticEnvelope
 from sklearn.svm import OneClassSVM
 
@@ -344,6 +346,7 @@ class CapTest(object):
         self.sim_mindex = []
         self.sim_summ_data = []
         self.rc = dict()
+        self.regression
 
     def var(self, capdata, var):
         """
@@ -372,8 +375,10 @@ class CapTest(object):
     def summary(self):
         summ_data, mindex = [], []
         if len(self.das_summ_data) != 0 and len(self.sim_summ_data) != 0:
-            summ_data.extend(self.sim_summ_data).extend(self.das_summ_data)
-            mindex.extend(self.sim_mindex).extend(self.das_mindex)
+            summ_data.extend(self.das_summ_data)
+            summ_data.extend(self.sim_summ_data)
+            mindex.extend(self.das_mindex)
+            mindex.extend(self.sim_mindex)
         elif len(self.das_summ_data) != 0:
             summ_data.extend(self.das_summ_data)
             mindex.extend(self.das_mindex)
@@ -782,7 +787,8 @@ class CapTest(object):
 
         Parameters
         ----------
-        data (str) - 'sim' or 'das' determines if filter is on sim or das data
+        data: str
+            'sim' or 'das' determines if filter is on sim or das data
         """
         flt_cd = self.__flt_setup(data)
         flt_cd.df = flt_cd.df.dropna(axis=0, how='all', inplace=False)
@@ -871,15 +877,34 @@ class CapTest(object):
         else:
             return cd_obj
 
-    def regression(self, filter=False):
+    def regression(self, data, filter=False):
         """
-        Performs the regression on the current data.
+        Performs regression with statsmodels on filtered data.
+
+        Parameters
+        ----------
+        data: str, 'sim' or 'das'
+            'sim' or 'das' determines if filter is on sim or das data
+
         Argument to use regression as filter, default is False.
         If used as filter must provide filter udpate.
         statsmodesl patsy formulas cannot have spaces in column var/col names
         -possibly create temporary dataframe within method from the var method
         """
-        pass
+        cd_obj = self.__flt_setup(data)
+
+        df = self.var(cd_obj, ['power', 'poa', 't_amb', 'w_vel'])
+        rename = {df.columns[0]: 'power',
+                  df.columns[1]: 'poa',
+                  df.columns[2]: 't_amb',
+                  df.columns[3]: 'w_vel'}
+        df = df.rename(columns=rename)
+
+        fml = 'power ~ poa + I(poa * poa) + I(poa * t_amb) + I(poa * w_vel) - 1'
+        mod = smf.ols(formula=fml, data=df)
+        reg = mod.fit()
+        print(reg.summary())
+        self.regression = reg
 
     def predict(self, arg):
         """
