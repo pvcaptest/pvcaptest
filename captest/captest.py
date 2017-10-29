@@ -484,6 +484,7 @@ class CapTest(object):
         #     RCs = RCs.iloc[0, :]
         pass
 
+    @update_summary
     def rep_cond(self, data, test_date=None, days=60, inplace=True, mean=False):
         """
         Calculate reporting conditons.
