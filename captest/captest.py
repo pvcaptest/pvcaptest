@@ -346,7 +346,7 @@ class CapTest(object):
         self.sim_mindex = []
         self.sim_summ_data = []
         self.rc = dict()
-        self.regression
+        self.ols_model = None
 
     def var(self, capdata, var):
         """
@@ -443,6 +443,27 @@ class CapTest(object):
         plt = df.plot(kind='scatter', x='poa', y='power',
                       title=data, alpha=0.2)
         return(plt)
+
+    def reg_scatter_matrix(self, data):
+        """
+        Create pandas scatter matrix of regression variables.
+
+        Parameters
+        ----------
+        data (str) - 'sim' or 'das' determines if filter is on sim or das data
+        """
+        cd_obj = self.__flt_setup(data)
+
+        df = self.var(cd_obj, ['poa', 't_amb', 'w_vel'])
+        rename = {df.columns[0]: 'poa',
+                  df.columns[1]: 't_amb',
+                  df.columns[2]: 'w_vel'}
+        df = df.rename(columns=rename)
+        df['poa_poa'] = df['poa'] * df['poa']
+        df['poa_t_amb'] = df['poa'] * df['t_amb']
+        df['poa_w_vel'] = df['poa'] * df['w_vel']
+        df.drop(['t_amb', 'w_vel'], axis=1, inplace=True)
+        return(pd.plotting.scatter_matrix(df))
 
     def sim_apply_losses(self):
         """
@@ -877,7 +898,8 @@ class CapTest(object):
         else:
             return cd_obj
 
-    def regression(self, data, filter=False):
+    @update_summary
+    def reg_cpt(self, data, filter=False, inplace=True):
         """
         Performs regression with statsmodels on filtered data.
 
@@ -885,11 +907,13 @@ class CapTest(object):
         ----------
         data: str, 'sim' or 'das'
             'sim' or 'das' determines if filter is on sim or das data
-
-        Argument to use regression as filter, default is False.
-        If used as filter must provide filter udpate.
-        statsmodesl patsy formulas cannot have spaces in column var/col names
-        -possibly create temporary dataframe within method from the var method
+        filter: bool, default False
+            When true removes timestamps where the residuals are greater than
+            two standard deviations.  When false just calcualtes ordinary least
+            squares regression.
+        inplace: bool, default True
+            If filter is true and inplace is true, then function overwrites the
+            filtered data for sim or das.  If false returns a CapData object.
         """
         cd_obj = self.__flt_setup(data)
 
@@ -903,8 +927,22 @@ class CapTest(object):
         fml = 'power ~ poa + I(poa * poa) + I(poa * t_amb) + I(poa * w_vel) - 1'
         mod = smf.ols(formula=fml, data=df)
         reg = mod.fit()
-        print(reg.summary())
-        self.regression = reg
+
+        if filter:
+            print('NOTE: Regression used to filter outlying points.\n\n')
+            print(reg.summary())
+            df = df[np.abs(reg.resid) < 2 * np.sqrt(reg.scale)]
+            cd_obj.df = cd_obj.df.loc[df.index, :]
+            if inplace:
+                if data == 'das':
+                    self.flt_das = cd_obj
+                elif data == 'sim':
+                    self.flt_sim = cd_obj
+            else:
+                return cd_obj
+        else:
+            print(reg.summary())
+            self.ols_model = reg
 
     def predict(self, arg):
         """
