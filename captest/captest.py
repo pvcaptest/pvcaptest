@@ -62,6 +62,11 @@ columns = ['Timestamps', 'Timestamps_filtered', 'Filter_arguments']
 
 
 def update_summary(func):
+    """
+    ToDo:
+    Check if summary is updated when function is called with inplace=False. It
+    should not be.
+    """
     @wraps(func)
     def wrapper(self, *args, **kwargs):
         if 'sim' in args:
@@ -346,7 +351,8 @@ class CapTest(object):
         self.sim_mindex = []
         self.sim_summ_data = []
         self.rc = dict()
-        self.ols_model = None
+        self.ols_model_das = None
+        self.ols_model_sim = None
 
     def var(self, capdata, var):
         """
@@ -942,7 +948,10 @@ class CapTest(object):
                 return cd_obj
         else:
             print(reg.summary())
-            self.ols_model = reg
+            if data = 'das':
+                self.ols_model_das = reg
+            elif data = 'sim':
+                self.ols_model_sim = reg
 
     def predict(self, arg):
         """
