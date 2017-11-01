@@ -948,9 +948,9 @@ class CapTest(object):
                 return cd_obj
         else:
             print(reg.summary())
-            if data = 'das':
+            if data == 'das':
                 self.ols_model_das = reg
-            elif data = 'sim':
+            elif data == 'sim':
                 self.ols_model_sim = reg
 
     def predict(self, arg):
