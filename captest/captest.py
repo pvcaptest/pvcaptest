@@ -363,6 +363,11 @@ class CapTest(object):
         capdata (CapData object)
         var (string or list of strings) may be 'power', 'poa', 't_amb', 'w_vel'
              or 'all' or list of some subset of these
+        ToDo:
+        -rename to view?
+        -expand to all values in trans_keys? if var is an integer then use that
+         integer as an index in the trans_keys list
+        -move from a CapTest method to a CapData method
         """
 
         if var == 'all':
@@ -429,7 +434,7 @@ class CapTest(object):
             plots.append(p)
 
         grid = gridplot(plots, ncols=2)
-        return grid
+        return show(grid)
 
     def scatter(self, data):
         """
@@ -442,6 +447,8 @@ class CapTest(object):
         Use the revised var function to get 'poa' and 'power' after
         running aggregation function.  Then rename columns to names used in
         .plot call.
+        ToDo:
+        -add nans for filtered time stamps, so it is clear what has been removed
         """
         flt_cd = self.__flt_setup(data)
         df = self.var(flt_cd, ['power', 'poa'])
@@ -557,13 +564,13 @@ class CapTest(object):
         df = df.loc[start:end, :]
 
         if mean:
-            RCs = {'GlobInc': df['poa'].mean(),
-                   'TAmb': df['t_amb'].mean(),
-                   'WindVel': df['w_vel'].mean()}
+            RCs = {'poa': [df['poa'].mean()],
+                   't_amb': [df['t_amb'].mean()],
+                   'w_vel': [df['w_vel'].mean()]}
         else:
-            RCs = {'GlobInc': df['poa'].mean(),
-                   'TAmb': df['t_amb'].mean(),
-                   'WindVel': df['w_vel'].quantile(0.6)}
+            RCs = {'poa': [df['poa'].mean()],
+                   't_amb': [df['t_amb'].mean()],
+                   'w_vel': [df['w_vel'].quantile(0.6)]}
         print(RCs)
 
         if inplace:
