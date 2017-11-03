@@ -365,6 +365,7 @@ class CapTest(object):
              or 'all' or list of some subset of these
         ToDo:
         -rename to view?
+        -split into two methods view for trans keys and rview for reg_trans keys
         -expand to all values in trans_keys? if var is an integer then use that
          integer as an index in the trans_keys list
         -move from a CapTest method to a CapData method
@@ -706,9 +707,14 @@ class CapTest(object):
     @update_summary
     def filter_pf(self, data, pf):
         """
-        Filter based on power factor values.
-        data (str) - 'sim' or 'das' determines if filter is on sim or das data
-        pf (float) - 0.999 or similar to remove timestamps with lower PF values
+        Keep timestamps where all power factors are greater than or equal to pf.
+
+        Parameters
+        ----------
+        data: str
+            'sim' or 'das' determines if filter is on sim or das data
+        pf: float
+            0.999 or similar to remove timestamps with lower PF values
         """
         flt_cd = self.__flt_setup(data)
 
