@@ -63,9 +63,11 @@ columns = ['Timestamps', 'Timestamps_filtered', 'Filter_arguments']
 
 def update_summary(func):
     """
-    ToDo:
-    Check if summary is updated when function is called with inplace=False. It
-    should not be.
+    Todo
+    ----
+    not in place
+        Check if summary is updated when function is called with inplace=False.
+        It should not be.
     """
     @wraps(func)
     def wrapper(self, *args, **kwargs):
@@ -212,14 +214,14 @@ class CapData(object):
 
         Parameters
         ----------
-        directory: str, default './data/'
+        directory : str, default './data/'
             Path to directory containing csv files to load.
-        set_trans: bool, default True
+        set_trans : bool, default True
             Generates translation dicitionary for column names after loading data.
-        load_pvsyst: bool, default False
+        load_pvsyst : bool, default False
             By default skips any csv file that has 'pvsyst' in the name.  Is not
-            case sensitive.  Set to true to import a csv with 'pvsyst' in the name
-            and skip all other files.
+            case sensitive.  Set to true to import a csv with 'pvsyst' in the
+            name and skip all other files.
         **kwargs
             Will pass kwargs onto the inner call to Pandas.read_csv.  Useful to
             adjust the separator (Ex. sep=';').
@@ -365,16 +367,11 @@ class CapData(object):
         """
         Convience fucntion to return regression independent variable.
 
-        Paremeters
-        --------------
+        Parameters
+        ----------
         ind_var: string or list of strings
             may be 'power', 'poa', 't_amb', 'w_vel', a list of some subset of
             the previous four strings or 'all'
-        ToDo:
-        -rename to view?
-        -split into two methods view for trans keys and rview for reg_trans keys
-        -expand to all values in trans_keys? if var is an integer then use that
-         integer as an index in the trans_keys list
         """
 
         if ind_var == 'all':
@@ -471,8 +468,11 @@ class CapTest(object):
         data: str
             'sim' or 'das' determines if plot is of sim or das data.
 
-        ToDo:
-        -add nans for filtered time stamps, so it is clear what has been removed
+        Todo
+        ----
+        Add NANs
+            Add nans for filtered time stamps, so it is clear what has been
+            removed
         """
         flt_cd = self.__flt_setup(data)
 
@@ -693,12 +693,13 @@ class CapTest(object):
 
     def reset_flt(self, data):
         """
-        Copies over filtered dataframe with raw data.
-        data (str) - 'sim' or 'das' determines if filter is on sim or das data
-        Removes all summary history.
+        Copies over filtered dataframe with raw data and removes all summary
+        history.
 
-        Todo:
-
+        Parameters
+        ----------
+        data : str
+            'sim' or 'das' determines if filter is on sim or das data.
         """
         if data == 'das':
             self.flt_das = self.das.copy()
@@ -904,8 +905,11 @@ class CapTest(object):
         inplace (bool) - default True writes over current filtered dataframe
                          False returns CapData object
 
-        TODO:
-        -perc_diff can be dict of sensor type keys paired with per_diff values
+        Todo
+        ----
+        perc_diff dict
+            perc_diff can be dict of sensor type keys paired with per_diff
+            values
         """
 
         cd_obj = self.__flt_setup(data)
