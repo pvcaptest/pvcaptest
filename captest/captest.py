@@ -335,6 +335,35 @@ class CapData(object):
                     continue
         self.df.drop(columns, axis=1, inplace=True)
 
+    def rview(self, ind_var):
+        """
+        Convience fucntion to return regression independent variable.
+
+        Paremeters
+        --------------
+        ind_var: string or list of strings
+            may be 'power', 'poa', 't_amb', 'w_vel', a list of some subset of
+            the previous four strings or 'all'
+        ToDo:
+        -rename to view?
+        -split into two methods view for trans keys and rview for reg_trans keys
+        -expand to all values in trans_keys? if var is an integer then use that
+         integer as an index in the trans_keys list
+        """
+
+        if ind_var == 'all':
+            keys = list(self.reg_trans.values())
+        elif isinstance(ind_var, list) and len(ind_var) > 1:
+            keys = [self.reg_trans[key] for key in ind_var]
+        elif ind_var in met_keys:
+            ind_var = [ind_var]
+            keys = [self.reg_trans[key] for key in ind_var]
+
+        lst = []
+        for key in keys:
+            lst.extend(self.trans[key])
+        return self.df[lst]
+
 
 class CapTest(object):
     """
@@ -353,36 +382,6 @@ class CapTest(object):
         self.rc = dict()
         self.ols_model_das = None
         self.ols_model_sim = None
-
-    def var(self, capdata, var):
-        """
-        Convience fucntion to return regression independent variable.
-
-        Paremeters
-        --------------
-        capdata (CapData object)
-        var (string or list of strings) may be 'power', 'poa', 't_amb', 'w_vel'
-             or 'all' or list of some subset of these
-        ToDo:
-        -rename to view?
-        -split into two methods view for trans keys and rview for reg_trans keys
-        -expand to all values in trans_keys? if var is an integer then use that
-         integer as an index in the trans_keys list
-        -move from a CapTest method to a CapData method
-        """
-
-        if var == 'all':
-            keys = list(capdata.reg_trans.values())
-        elif isinstance(var, list) and len(var) > 1:
-            keys = [capdata.reg_trans[key] for key in var]
-        elif var in met_keys:
-            var = [var]
-            keys = [capdata.reg_trans[key] for key in var]
-
-        lst = []
-        for key in keys:
-            lst.extend(capdata.trans[key])
-        return capdata.df[lst]
 
     def summary(self):
         summ_data, mindex = [], []
@@ -443,16 +442,20 @@ class CapTest(object):
 
         Parameters
         ----------
-        data (str) - 'sim' or 'das' determines if filter is on sim or das data
+        data: str
+            'sim' or 'das' determines if plot is of sim or das data.
 
-        Use the revised var function to get 'poa' and 'power' after
-        running aggregation function.  Then rename columns to names used in
-        .plot call.
         ToDo:
         -add nans for filtered time stamps, so it is clear what has been removed
         """
         flt_cd = self.__flt_setup(data)
-        df = self.var(flt_cd, ['power', 'poa'])
+
+        df = flt_cd.rview(['power', 'poa'])
+
+        if df.shape[1] != 2:
+            print('Aggregate sensors before using this method.')
+            return None
+
         df = df.rename(columns={df.columns[0]: 'power', df.columns[1]: 'poa'})
         plt = df.plot(kind='scatter', x='poa', y='power',
                       title=data, alpha=0.2)
@@ -468,7 +471,7 @@ class CapTest(object):
         """
         cd_obj = self.__flt_setup(data)
 
-        df = self.var(cd_obj, ['poa', 't_amb', 'w_vel'])
+        df = cd_obj.rview(['poa', 't_amb', 'w_vel'])
         rename = {df.columns[0]: 'poa',
                   df.columns[1]: 't_amb',
                   df.columns[2]: 'w_vel'}
@@ -549,7 +552,7 @@ class CapTest(object):
             of 60th percentile.  Default follows ASTM standard.
         """
         flt_cd = self.__flt_setup(data)
-        df = self.var(flt_cd, ['poa', 't_amb', 'w_vel'])
+        df = flt_cd.rview(['poa', 't_amb', 'w_vel'])
         df = df.rename(columns={df.columns[0]: 'poa',
                                 df.columns[1]: 't_amb',
                                 df.columns[2]: 'w_vel'})
@@ -583,28 +586,33 @@ class CapTest(object):
                     real_pwr='sum', inplace=True, keep=True):
         """
         Aggregate measurments of the same variable from different sensors.
-        Optional keyword argument for each measurment:
-        data (str) - 'sim' or 'das' determines if filter is on sim or das data
-        irr (string) - default 'median'
-        temp (string) - default 'mean'
-        wind (string) - default 'mean'
-        real_pwr (string) - default 'sum'
-        inplace (bool) - default True writes over current filtered dataframe
-                         False returns dataframe
-        keep (bool) - keeps non regression columns in output dataframe
 
-        TODO:
-        -Should function like a filter and act on filtered data if there
-        is already filtered data or create filtered data
+        Parameters
+        ----------
+        data: str
+            'sim' or 'das' determines if filter is on sim or das data
+        irr: str, default 'median'
+            Aggregates irradiance columns using the specified method.
+        temp: str, default 'mean'
+            Aggregates temperature columns using the specified method.
+        wind: str, default 'mean'
+            Aggregates wind speed columns using the specified method.
+        real_pwr: str, default 'sum'
+            Aggregates real power columns using the specified method.
+        inplace: bool, default True
+            True writes over current filtered dataframe.
+            False returns an aggregated dataframe.
+        keep: bool, default True
+            Keeps non regression columns in returned dataframe.
         """
         # met_keys = ['poa', 't_amb', 'w_vel', 'power']
         cd_obj = self.__flt_setup(data)
 
         agg_series = []
-        agg_series.append(self.var(cd_obj, 'poa').agg(irr, axis=1))
-        agg_series.append(self.var(cd_obj, 't_amb').agg(temp, axis=1))
-        agg_series.append(self.var(cd_obj, 'w_vel').agg(wind, axis=1))
-        agg_series.append(self.var(cd_obj, 'power').agg(real_pwr, axis=1))
+        agg_series.append((cd_obj.rview('poa')).agg(irr, axis=1))
+        agg_series.append((cd_obj.rview('t_amb')).agg(temp, axis=1))
+        agg_series.append((cd_obj.rview('w_vel')).agg(wind, axis=1))
+        agg_series.append((cd_obj.rview('power')).agg(real_pwr, axis=1))
 
         comb_names = []
         for key in met_keys:
@@ -688,7 +696,7 @@ class CapTest(object):
         """
         flt_cd = self.__flt_setup(data)
 
-        XandY = self.var(flt_cd, ['poa', 'power'])
+        XandY = flt_cd.rview(['poa', 'power'])
         X1 = XandY.values
 
         clf_1 = EllipticEnvelope(contamination=0.04)
@@ -749,7 +757,7 @@ class CapTest(object):
             low *= ref_val
             high *= ref_val
 
-        df = self.var(flt_cd, 'poa')
+        df = flt_cd.rview('poa')
         df = df.rename(columns={df.columns[0]: 'poa'})
         df.query('@low <= poa <= @high', inplace=True)
 
@@ -936,7 +944,7 @@ class CapTest(object):
         """
         cd_obj = self.__flt_setup(data)
 
-        df = self.var(cd_obj, ['power', 'poa', 't_amb', 'w_vel'])
+        df = cd_obj.rview(['power', 'poa', 't_amb', 'w_vel'])
         rename = {df.columns[0]: 'power',
                   df.columns[1]: 'poa',
                   df.columns[2]: 't_amb',
