@@ -335,6 +335,32 @@ class CapData(object):
                     continue
         self.df.drop(columns, axis=1, inplace=True)
 
+    def view(self, tkey):
+        """
+        Convience function to return dataframe columns using translation
+        dictionary names.
+
+        Parameters
+        --------------
+        tkey: int or str or list of int or strs
+            String or list of strings from self.trans_keys or int postion or
+            list of int postitions of value in self.trans_keys.
+        """
+
+        if isinstance(tkey, int):
+            keys = self.trans[self.trans_keys[tkey]]
+        elif isinstance(tkey, list) and len(tkey) > 1:
+            keys = []
+            for key in tkey:
+                if isinstance(key, str):
+                    keys.extend(self.trans[key])
+                elif isinstance(key, int):
+                    keys.extend(self.trans[self.trans_keys[key]])
+        elif tkey in self.trans_keys:
+            keys = self.trans[tkey]
+
+        return self.df[keys]
+
     def rview(self, ind_var):
         """
         Convience fucntion to return regression independent variable.
