@@ -112,7 +112,33 @@ def update_summary(func):
 
 
 class CapData(object):
-    """docstring for CapData."""
+    """
+    Class to store capacity test data and translation of column names.
+
+    CapData objects store a pandas dataframe of measured or simulated data
+    and a translation dictionary used to translate and group the raw column
+    names provided in the data.
+
+    The translation dictionary allows maintaining the column names in the raw
+    data while also grouping measurements of the same type from different
+    sensors.
+
+    Parameters
+    ----------
+    df : pandas dataframe
+        Used to store measured or simulated data imported from csv.
+    trans : dictionary
+        A dictionary with keys that are algorithimically determined based on
+        the data of each imported column in the dataframe and values that are
+        the column labels in the raw data.
+    trans_keys : lst
+        Simply a list of the translation dictionary (trans) keys.
+    reg_trans : dictionary
+        Dictionary that is manually set to link abbreviations for
+        for the independent variables of the ASTM Capacity test regression
+        equation to the translation dictionary keys.
+    """
+
     def __init__(self):
         super(CapData, self).__init__()
         self.df = pd.DataFrame()
