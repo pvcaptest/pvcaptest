@@ -131,7 +131,7 @@ class CapData(object):
         A dictionary with keys that are algorithimically determined based on
         the data of each imported column in the dataframe and values that are
         the column labels in the raw data.
-    trans_keys : lst
+    trans_keys : list
         Simply a list of the translation dictionary (trans) keys.
     reg_trans : dictionary
         Dictionary that is manually set to link abbreviations for
@@ -147,12 +147,30 @@ class CapData(object):
         self.reg_trans = {}
 
     def set_reg_trans(self, power='', poa='', t_amb='', w_vel=''):
+        """
+        Create a dictionary linking the regression variables to trans_keys.
+
+        Links the independent regression variables to the appropriate
+        translation keys.  Sets attribute and returns nothing.
+
+        Parameters
+        ----------
+        power : str
+            Translation key for the power variable.
+        poa : str
+            Translation key for the plane of array (poa) irradiance variable.
+        t_amb : str
+            Translation key for the ambient temperature variable.
+        w_vel : str
+            Translation key for the wind velocity key.
+        """
         self.reg_trans = {'power': power,
                           'poa': poa,
                           't_amb': t_amb,
                           'w_vel': w_vel}
 
     def copy(self):
+        """Creates and returns a copy of self."""
         cd_c = CapData()
         cd_c.df = self.df.copy()
         cd_c.trans = copy.copy(self.trans)
@@ -161,12 +179,32 @@ class CapData(object):
         return cd_c
 
     def empty(self):
+        """Returns a boolean indicating if the CapData object contains data."""
         if self.df.empty and len(self.trans_keys) == 0 and len(self.trans) == 0:
             return True
         else:
             return False
 
     def load_das(self, path, filename, **kwargs):
+        """
+        Reads measured solar data from a csv file.
+
+        Utilizes pandas read_csv to import measure solar data from a csv file.
+        Attempts a few diferent encodings, trys to determine the header end
+        by looking for a date in the first column, and concantenates column
+        headings to a single string.
+
+        path : str
+            Path to file to import.
+        filename : str
+            Name of file to import.
+        **kwargs
+            Use to pass additional kwargs to pandas read_csv.
+
+        Returns
+        -------
+        pandas dataframe
+        """
         header_end = 1
 
         data = os.path.normpath(path + filename)
@@ -212,7 +250,20 @@ class CapData(object):
 
     def load_pvsyst(self, path, filename, **kwargs):
         """
-        Load sim data and add assign to attribute sim.
+        Load data from a PVsyst energy production model.
+
+        Parameters
+        ----------
+        path : str
+            Path to file to import.
+        filename : str
+            Name of file to import.
+        **kwargs
+            Use to pass additional kwargs to pandas read_csv.
+
+        Returns
+        -------
+        pandas dataframe
         """
         dirName = os.path.normpath(path + filename)
 
@@ -243,14 +294,19 @@ class CapData(object):
         directory : str, default './data/'
             Path to directory containing csv files to load.
         set_trans : bool, default True
-            Generates translation dicitionary for column names after loading data.
+            Generates translation dicitionary for column names after loading
+            data.
         load_pvsyst : bool, default False
             By default skips any csv file that has 'pvsyst' in the name.  Is not
             case sensitive.  Set to true to import a csv with 'pvsyst' in the
             name and skip all other files.
         **kwargs
-            Will pass kwargs onto the inner call to Pandas.read_csv.  Useful to
-            adjust the separator (Ex. sep=';').
+            Will pass kwargs onto load_pvsyst or load_das, which will pass to
+            Pandas.read_csv.  Useful to adjust the separator (Ex. sep=';').
+
+        Returns
+        -------
+        None
         """
 
         files_to_read = []
