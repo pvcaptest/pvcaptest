@@ -344,6 +344,36 @@ class CapData(object):
 
     def __series_type(self, series, type_defs, bounds_check=True,
                       warnings=False):
+        """
+        Assigns columns to a category by analyzing the column names.
+
+        The type_defs parameter is a dictionary which defines search strings
+        and value limits for each key, where the key is a categorical name
+        and the search strings are possible related names.  For example an
+        irradiance sensor has the key 'irr' with search strings 'irradiance'
+        'plane of array', 'poa', etc.
+
+        Parameters
+        ----------
+        series : pandas series
+            Pandas series, row or column of dataframe passed by pandas.df.apply.
+        type_defs : dictionary
+            Dictionary with the following structure.  See type_defs
+            {'category abbreviation': [[category search strings],
+                                       (min val, max val)]}
+        bounds_check : bool, default True
+            When true checks series values against min and max values in the
+            type_defs dictionary.
+        warnings : bool, default False
+            When true prints warning that values in series are outside expected
+            range and adds '-valuesError' to returned str.
+
+        Returns
+        -------
+        string
+            Returns a string representing the category for the series.  Concatenates '-valuesError' if bounds_check and warnings are both
+            True and values within the series are outside the expected range.
+        """
         for key in type_defs.keys():
             # print('################')
             # print(key)
@@ -369,6 +399,29 @@ class CapData(object):
         return ''
 
     def __set_trans(self):
+        """
+        Creates a dict of raw column names paired to categorical column names.
+
+        Uses multiple type_def formatted dictionaries to determine the type,
+        sub-type, and sensor type for data series of a dataframe.  The determined
+        types are concatenated to a string used as a dictionary key with a list
+        of one or more oringal column names as the paried value.
+
+        Parameters
+        ----------
+        None
+
+        Returns
+        -------
+        None
+            Sets attributes self.trans and self.trans_keys
+
+        Todo
+        ----
+        type_defs parameter
+            Consider refactoring to have a list of type_def dictionaries as an
+            input and loop over each dict in the list.
+        """
         col_types = self.df.apply(self.__series_type, args=(type_defs,)).tolist()
         sub_types = self.df.apply(self.__series_type, args=(sub_type_defs,),
                                   bounds_check=False).tolist()
@@ -421,11 +474,10 @@ class CapData(object):
 
     def view(self, tkey):
         """
-        Convience function to return dataframe columns using translation
-        dictionary names.
+        Convience function returns columns using translation dictionary names.
 
         Parameters
-        --------------
+        ----------
         tkey: int or str or list of int or strs
             String or list of strings from self.trans_keys or int postion or
             list of int postitions of value in self.trans_keys.
@@ -473,6 +525,41 @@ class CapData(object):
 class CapTest(object):
     """
     CapTest provides methods to facilitate solar PV capacity testing.
+
+    The CapTest class provides a framework to facilitate visualizing, filtering,
+    and performing regressions on data typically collected from operating solar
+    pv plants or solar energy production models.
+
+    The class parameters include an unmodified CapData object and filtered
+    CapData object for both measured and simulated data.
+
+    Parameters
+    ----------
+    das : CapData, required
+        The CapData object containing data from a data acquisition system (das).
+        This is the measured data used to perform a capacity test.
+    flt_das : CapData
+        A CapData object containing a filtered version of the das data.  Filter
+        methods always modify this attribute or flt_sim.
+    das_mindex : list of tuples
+        Holds the row index data modified by the update_summary decorator
+        function.
+    das_summ_data : list of dicts
+        Holds the data modifiedby the update_summary decorator function.
+    sim : CapData, required
+        Identical to das for data from an energy production simulation.
+    flt_sim : CapData
+        Identical to flt_das for data from an energy production simulation.
+    sim_mindex : list of tuples
+        Identical to das_mindex for data from an energy production simulation.
+    sim_summ_data : list of dicts
+        Identical to das_summ_data for data from an energy production simulation.
+    rc : dict of lists
+        Dictionary of lists for the reporting conditions (poa, t_amb, and w_vel).
+    ols_model_das : statsmodels linear regression model
+        Holds the linear regression model object for the das data.
+    ols_model_sim : statsmodels linear regression model
+        Identical to ols_model_das for simulated data.
     """
 
     def __init__(self, das, sim):
@@ -489,6 +576,22 @@ class CapTest(object):
         self.ols_model_sim = None
 
     def summary(self):
+        """
+        Prints summary dataframe of the filtering applied to flt_das and flt_sim.
+
+        The summary dataframe shows the history of the filtering steps applied
+        to the measured and simulated data including the timestamps remaining
+        after each step, the timestamps removed by each step and the arguments
+        used to call each filtering method.
+
+        Parameters
+        ----------
+        None
+
+        Returns
+        -------
+        Pandas DataFrame
+        """
         summ_data, mindex = [], []
         if len(self.das_summ_data) != 0 and len(self.sim_summ_data) != 0:
             summ_data.extend(self.das_summ_data)
@@ -510,6 +613,38 @@ class CapTest(object):
             print('No filters have been run.')
 
     def plot(self, capdata):
+        """
+        Plots a Bokeh line graph for each group of sensors in CapData.trans.
+
+        Function returns a Bokeh grid of figures.  A figure is generated for each
+        key in the translation dictionary and a line is plotted for each raw
+        column name paired with that key.
+
+        For example, if there are multiple plane of array irradiance sensors,
+        the data from each one will be plotted on a single figure.
+
+        Figures are not generated for categories that would plot more than 10
+        lines.
+
+        Parameters
+        ----------
+        capdata : CapData object
+
+        Returns
+        -------
+        show(grid)
+            Command to show grid of figures.  Intended for use in jupyter
+            notebook.
+
+        Todo
+        ----
+        Move to CapData
+            This method is a better fit in the CapData class as it does not
+            use any attributes of CapTest.  Syntax will be cleaner if moved.
+        Add NANs
+            Add nans for filtered time stamps, so it is clear what has been
+            removed
+        """
         index = capdata.df.index.tolist()
         colors = Category10[10]
         plots = []
@@ -549,12 +684,6 @@ class CapTest(object):
         ----------
         data: str
             'sim' or 'das' determines if plot is of sim or das data.
-
-        Todo
-        ----
-        Add NANs
-            Add nans for filtered time stamps, so it is clear what has been
-            removed
         """
         flt_cd = self.__flt_setup(data)
 
@@ -599,6 +728,9 @@ class CapTest(object):
 
     def pred_rcs(self,):
         """
+        Generate reporting conditions for a year and calculate predicted power
+        for each reporting condition.
+
         Parameters
         ----------
         data: str, 'sim' or 'das'
@@ -658,6 +790,12 @@ class CapTest(object):
         mean: bool, False by default
             Calculates irradiance reporting conditions by mean rather than default
             of 60th percentile.  Default follows ASTM standard.
+
+        Returns
+        -------
+        dict
+            Returns a dictionary of reporting conditions if inplace=False
+            otherwise returns None.
         """
         flt_cd = self.__flt_setup(data)
         df = flt_cd.rview(['poa', 't_amb', 'w_vel'])
@@ -712,6 +850,11 @@ class CapTest(object):
             False returns an aggregated dataframe.
         keep: bool, default True
             Keeps non regression columns in returned dataframe.
+
+        Returns
+        -------
+        CapData obj
+            If inplace is False, then returns a modified CapData object.
         """
         # met_keys = ['poa', 't_amb', 'w_vel', 'power']
         cd_obj = self.__flt_setup(data)
@@ -749,9 +892,12 @@ class CapTest(object):
         else:
             return cd_obj
 
-    def drop_non_reg_cols(self, arg):
+    def reg_data(self, arg):
         """
-        Is this needed?  easily done with pandas, why drop when you can select
+        Todo
+        ----
+        See rview and renaming code in reg_cpt method.  Move this to this
+        function or a top level function.
         """
         pass
 
@@ -764,6 +910,9 @@ class CapTest(object):
     """
 
     def __flt_setup(self, data):
+        """
+        Returns the filtered sim or das CapData object or a copy of the raw data.
+        """
         if data == 'das':
             if self.flt_das.empty():
                 self.flt_das = self.das.copy()
@@ -854,11 +1003,21 @@ class CapTest(object):
 
         Parameters
         ----------
-        data (str) - 'sim' or 'das' determines if filter is on sim or das data
-        low (float/int) - minimum value as fraction (0.8) or absolute 200 (W/m^2)
-        high (float/int) - max value as fraction (1.2) or absolute 800 (W/m^2)
-        ref_val (float/ing) - Must provide arg when min/max are fractions
-        inplace (bool) - Default true write back to CapTest.flt_sim or flt_das
+        data : str
+            'sim' or 'das' determines if filter is on sim or das data
+        low : float or int
+            Minimum value as fraction (0.8) or absolute 200 (W/m^2)
+        high : float or int
+            Max value as fraction (1.2) or absolute 800 (W/m^2)
+        ref_val : float or int
+            Must provide arg when min/max are fractions
+        inplace : bool
+            Default true write back to CapTest.flt_sim or flt_das
+
+        Returns
+        -------
+        CapData object
+            Filtered CapData object if inplace is False.
         """
         flt_cd = self.__flt_setup(data)
 
@@ -887,14 +1046,22 @@ class CapTest(object):
 
         Parameters
         ----------
-        data (str) - 'sim' or 'das' determines if filter is on sim or das data
-        op_state (integer) - integer inverter operating state to keep
-        mult_inv (list of tuples) - [(start, stop, op_state), ...] list of tuples
-                    where start is the first column of an type of inverter, stop
-                    is the last column and op_state is the operating state for the
-                    inverter type.
-        inplace (bool) - default True writes over current filtered dataframe
-                         False returns CapData object
+        data : str
+            'sim' or 'das' determines if filter is on sim or das data
+        op_state : int
+            integer inverter operating state to keep
+        mult_inv : list of tuples, [(start, stop, op_state), ...]
+            List of tuples where start is the first column of an type of
+            inverter, stop is the last column and op_state is the operating
+            state for the inverter type.
+        inplace : bool, default True
+            When True writes over current filtered dataframe.  When False
+            returns CapData object.
+
+        Returns
+        -------
+        CapData
+            Returns filtered CapData object when inplace is False.
         """
         if data == 'sim':
             print('Method not implemented for pvsyst data.')
@@ -931,11 +1098,6 @@ class CapTest(object):
         else:
             return flt_cd
 
-    def filter_clipping(self, arg):
-        """
-        May not be needed as can be accomplished through filter_irr
-        """
-        pass
 
     @update_summary
     def filter_missing(self, data):
@@ -979,13 +1141,21 @@ class CapTest(object):
 
         Parameters
         ----------
-        data (str) - 'sim' or 'das' determines if filter is on sim or das data
-        skip_strs (list like) - strings to search for in column label.
-                                If found skip column.
-        perc_diff (float) - Percent difference cutoff for readings of the same
-                            measurement from different sensors.
-        inplace (bool) - default True writes over current filtered dataframe
-                         False returns CapData object
+        data : str
+            'sim' or 'das' determines if filter is on sim or das data
+        skip_strs : list like
+            Strings to search for in column label. If found, skip column.
+        perc_diff : float
+            Percent difference cutoff for readings of the same measurement from
+            different sensors.
+        inplace : bool, default True
+            If True, writes over current filtered dataframe. If False, returns
+            CapData object.
+
+        Returns
+        -------
+        CapData
+            Returns filtered CapData if inplace is False.
 
         Todo
         ----
@@ -1053,6 +1223,12 @@ class CapTest(object):
         inplace: bool, default True
             If filter is true and inplace is true, then function overwrites the
             filtered data for sim or das.  If false returns a CapData object.
+
+        Returns
+        -------
+        CapData
+            Returns a filtered CapData object if filter is True and inplace is
+            False.
         """
         cd_obj = self.__flt_setup(data)
 
@@ -1086,20 +1262,27 @@ class CapTest(object):
             elif data == 'sim':
                 self.ols_model_sim = reg
 
-    def predict(self, arg):
+    def cp_results(self, arg):
         """
-        Calculate prediction from regression.
-        """
-        pass
+        Return summary indicating if system passed or failed capacity test.
 
-    def cap_test(self, arg):
+        Parameters
+        ----------
+
+
         """
-        Apply methods to run a standard cap test following the ASTM standard.
-        """
-        pass
+
 
 
 def equip_counts(df):
+    """
+    Returns list of integers that are a count of columns with the same name.
+
+    Todo
+    ----
+    Recycle
+        Determine if code might be useful somewhere.
+    """
     equip_counts = {}
     eq_cnt_lst = []
     col_names = df.columns.tolist()
