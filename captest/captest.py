@@ -1262,15 +1262,65 @@ class CapTest(object):
             elif data == 'sim':
                 self.ols_model_sim = reg
 
-    def cp_results(self, arg):
+    def cp_results(self, nameplate, err):
         """
-        Return summary indicating if system passed or failed capacity test.
+        Prints a summary indicating if system passed or failed capacity test.
 
         Parameters
         ----------
+        nameplate : numeric
+            AC nameplate rating of the PV plant.
+        err : str
+            String representing error band.  Ex. '+ 3', '+/- 3', '- 5'
+            There must be space between the sign and number. Number is
+            interpreted as a percent.
 
-
+        Returns
+        -------
+        None
         """
+        actual = self.ols_model_das.predict(self.rc)[0]
+        expected = self.ols_model_sim.predict(self.rc)[0]
+        cap_ratio = actual / expected
+        if cap_ratio < 0.01:
+            cap_ratio *= 1000
+            actual *= 1000
+        capacity = nameplate * cap_ratio
+
+        sign = err.split(sep=' ')[0]
+        error = int(err.split(sep=' ')[1])
+
+        nameplate_plus_error = nameplate * (1 + error / 100)
+        nameplate_minus_error = nameplate * (1 - error / 100)
+
+        if sign == '+/-' or sign == '-/+':
+            if nameplate_minus_error <= capacity <= nameplate_plus_error:
+                print("{:<30s}{}".format("Capacity Test Result:", "PASS"))
+            else:
+                print("{:<25s}{}".format("Capacity Test Result:", "FAIL"))
+            bounds = str(nameplate_minus_error) + ', ' + str(nameplate_plus_error)
+        elif sign == '+':
+            if nameplate <= capacity <= nameplate_plus_error:
+                print("{:<30s}{}".format("Capacity Test Result:", "PASS"))
+            else:
+                print("{:<25s}{}".format("Capacity Test Result:", "FAIL"))
+            bounds = str(nameplate) + ', ' + str(nameplate_plus_error)
+        elif sign == '-':
+            if nameplate_minus_error <= capacity <= nameplate:
+                print("{:<30s}{}".format("Capacity Test Result:", "PASS"))
+            else:
+                print("{:<25s}{}".format("Capacity Test Result:", "FAIL"))
+            bounds = str(nameplate_minus_error) + ', ' + str(nameplate)
+        else:
+            print("Sign must be '+', '-', '+/-', or '-/+'.")
+
+        print("{:<30s}{:0.3f}".format("Modeled test output:", expected) + "\n" +
+              "{:<30s}{:0.3f}".format("Actual test output:", actual) + "\n" +
+              "{:<30s}{:0.3f}".format("Tested output ratio:", cap_ratio) + "\n" +
+              "{:<30s}{:0.3f}".format("Tested Capacity:", capacity)
+              )
+
+        print("{:<30s}{}".format("Bounds:", bounds))
 
 
 
