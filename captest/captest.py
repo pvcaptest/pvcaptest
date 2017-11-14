@@ -20,13 +20,8 @@ from bokeh.palettes import Category10
 from bokeh.layouts import gridplot
 from bokeh.models import Legend, HoverTool, tools
 
-import pecos  # remove?
-
 
 met_keys = ['poa', 't_amb', 'w_vel', 'power']
-
-aux_load = 100
-ac_nameplate = 21040
 
 # The search strings for types cannot be duplicated across types.
 type_defs = {'irr': [['irradiance', 'irr', 'plane of array', 'poa', 'ghi',
@@ -375,7 +370,8 @@ class CapData(object):
         Returns
         -------
         string
-            Returns a string representing the category for the series.  Concatenates '-valuesError' if bounds_check and warnings are both
+            Returns a string representing the category for the series.
+            Concatenates '-valuesError' if bounds_check and warnings are both
             True and values within the series are outside the expected range.
         """
         for key in type_defs.keys():
@@ -1102,7 +1098,6 @@ class CapTest(object):
         else:
             return flt_cd
 
-
     @update_summary
     def filter_missing(self, data):
         """
@@ -1327,7 +1322,6 @@ class CapTest(object):
               )
 
         print("{:<30s}{}".format("Bounds:", bounds))
-
 
 
 def equip_counts(df):
