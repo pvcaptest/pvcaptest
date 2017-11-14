@@ -525,6 +525,63 @@ class CapData(object):
             lst.extend(self.trans[key])
         return self.df[lst]
 
+    def plot(self):
+        """
+        Plots a Bokeh line graph for each group of sensors in self.trans.
+
+        Function returns a Bokeh grid of figures.  A figure is generated for each
+        key in the translation dictionary and a line is plotted for each raw
+        column name paired with that key.
+
+        For example, if there are multiple plane of array irradiance sensors,
+        the data from each one will be plotted on a single figure.
+
+        Figures are not generated for categories that would plot more than 10
+        lines.
+
+        Returns
+        -------
+        show(grid)
+            Command to show grid of figures.  Intended for use in jupyter
+            notebook.
+
+        Todo
+        ----
+        Add NANs
+            Add nans for filtered time stamps, so it is clear what has been
+            removed
+        """
+        index = self.df.index.tolist()
+        colors = Category10[10]
+        plots = []
+        for j, key in enumerate(self.trans_keys):
+            df = self.df[self.trans[key]]
+            cols = df.columns.tolist()
+            if len(cols) > len(colors):
+                print('Skipped {} because there are more than 10   columns.'.format(key))
+                continue
+
+            if j == 0:
+                p = figure(title=key, plot_width=400, plot_height=225,
+                           x_axis_type='datetime')
+                x_axis = p.x_range
+            if j > 0:
+                p = figure(title=key, plot_width=400, plot_height=225,
+                           x_axis_type='datetime', x_range=x_axis)
+            legend_items = []
+            for i, col in enumerate(cols):
+                line = p.line(index, df[col], line_color=colors[i])
+                legend_items.append((col, [line, ]))
+
+            legend = Legend(items=legend_items, location=(40, -5))
+            legend.label_text_font_size = '8pt'
+            p.add_layout(legend, 'below')
+
+            plots.append(p)
+
+        grid = gridplot(plots, ncols=2)
+        return show(grid)
+
 
 class CapTest(object):
     """
@@ -615,70 +672,6 @@ class CapTest(object):
             return df
         except TypeError:
             print('No filters have been run.')
-
-    def plot(self, capdata):
-        """
-        Plots a Bokeh line graph for each group of sensors in CapData.trans.
-
-        Function returns a Bokeh grid of figures.  A figure is generated for each
-        key in the translation dictionary and a line is plotted for each raw
-        column name paired with that key.
-
-        For example, if there are multiple plane of array irradiance sensors,
-        the data from each one will be plotted on a single figure.
-
-        Figures are not generated for categories that would plot more than 10
-        lines.
-
-        Parameters
-        ----------
-        capdata : CapData object
-
-        Returns
-        -------
-        show(grid)
-            Command to show grid of figures.  Intended for use in jupyter
-            notebook.
-
-        Todo
-        ----
-        Move to CapData
-            This method is a better fit in the CapData class as it does not
-            use any attributes of CapTest.  Syntax will be cleaner if moved.
-        Add NANs
-            Add nans for filtered time stamps, so it is clear what has been
-            removed
-        """
-        index = capdata.df.index.tolist()
-        colors = Category10[10]
-        plots = []
-        for j, key in enumerate(capdata.trans_keys):
-            df = capdata.df[capdata.trans[key]]
-            cols = df.columns.tolist()
-            if len(cols) > len(colors):
-                print('Skipped {} because there are more than 10   columns.'.format(key))
-                continue
-
-            if j == 0:
-                p = figure(title=key, plot_width=400, plot_height=225,
-                           x_axis_type='datetime')
-                x_axis = p.x_range
-            if j > 0:
-                p = figure(title=key, plot_width=400, plot_height=225,
-                           x_axis_type='datetime', x_range=x_axis)
-            legend_items = []
-            for i, col in enumerate(cols):
-                line = p.line(index, df[col], line_color=colors[i])
-                legend_items.append((col, [line, ]))
-
-            legend = Legend(items=legend_items, location=(40, -5))
-            legend.label_text_font_size = '8pt'
-            p.add_layout(legend, 'below')
-
-            plots.append(p)
-
-        grid = gridplot(plots, ncols=2)
-        return show(grid)
 
     def scatter(self, data):
         """
