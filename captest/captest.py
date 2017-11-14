@@ -125,6 +125,7 @@ class CapData(object):
 
     Parameters
     ----------
+
     df : pandas dataframe
         Used to store measured or simulated data imported from csv.
     trans : dictionary
@@ -193,6 +194,9 @@ class CapData(object):
         Attempts a few diferent encodings, trys to determine the header end
         by looking for a date in the first column, and concantenates column
         headings to a single string.
+
+        Parameters
+        ----------
 
         path : str
             Path to file to import.
@@ -1265,6 +1269,8 @@ class CapTest(object):
     def cp_results(self, nameplate, err):
         """
         Prints a summary indicating if system passed or failed capacity test.
+
+        NOTE: Method will try to adjust for 1000x differences in units.
 
         Parameters
         ----------
