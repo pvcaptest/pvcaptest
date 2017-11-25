@@ -1,8 +1,9 @@
+import os
 import unittest
-import captest as pvc
 import numpy as np
 import pandas as pd
 
+from ..captest import captest as pvc
 
 data = np.arange(0, 1300, 54.167)
 index = pd.DatetimeIndex(start='1/1/2017', freq='H', periods=24)
@@ -49,6 +50,31 @@ CapTest
     cp_results
     equip_counts- not used
 """
+
+
+class TestCapDataLoadMethods(unittest.TestCase):
+    """Tests for load_data method."""
+    test_files = ['test1.csv', 'test2.csv', 'test3.CSV', 'test4.txt',
+                  'pvsyst.csv', 'pvsyst_data.csv']
+
+    def setUp(self):
+        os.mkdir('test_csvs')
+        for fname in test_files:
+            with open('test_csvs/' + fname, 'a') as f:
+                f.write('11/21/2017,1')
+
+        self.capdata = pvc.CapData()
+        self.capdata.load_data(directory='test_csvs', set_trans=False)
+
+    def tearDown(self):
+        for fname in test_files:
+            os.remove('test_csvs/' + fname)
+        os.rmdir('test_csvs/')
+
+    def test_read_csvs(self):
+        self.assertEqual(self.capdata.df.shape[0], 3,
+                         'imported a non csv or pvsyst file')
+
 
 class TestFilterIrr(unittest.TestCase):
     """Tests for CapTest class."""
