@@ -1,9 +1,10 @@
 import os
+import sys
 import unittest
 import numpy as np
 import pandas as pd
 
-from ..captest import captest as pvc
+from .context import captest as pvc
 
 data = np.arange(0, 1300, 54.167)
 index = pd.DatetimeIndex(start='1/1/2017', freq='H', periods=24)
@@ -13,6 +14,9 @@ capdata = pvc.CapData()
 capdata.df = df
 
 """
+Run test from project root with 'python -m tests.test_CapTest'
+
+
 update_summary
 CapData
     set_reg_trans
