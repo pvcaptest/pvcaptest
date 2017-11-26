@@ -37,7 +37,7 @@ type_defs = {'irr': [['irradiance', 'irr', 'plane of array', 'poa', 'ghi',
              'op_state': [['operating state', 'state', 'op', 'status'],
                           (0, 10)],
              'real_pwr': [['real power', 'ac power', 'e_grid'],
-                          (aux_load, ac_nameplate * 1.05)],
+                          (-1000000, 1000000000000)],  # set to very lax bounds
              'shade': [['fshdbm', 'shd', 'shade'], (0, 1)],
              'index': [['index'], ('', 'z')]}
 
