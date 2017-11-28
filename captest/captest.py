@@ -7,6 +7,7 @@ import re
 import matplotlib.pyplot as plt
 import math
 import copy
+import collections
 from functools import wraps
 
 import statsmodels.formula.api as smf
@@ -24,22 +25,22 @@ from bokeh.models import Legend, HoverTool, tools
 met_keys = ['poa', 't_amb', 'w_vel', 'power']
 
 # The search strings for types cannot be duplicated across types.
-type_defs = {'irr': [['irradiance', 'irr', 'plane of array', 'poa', 'ghi',
+type_defs = collections.OrderedDict([('irr', [['irradiance', 'irr', 'plane of array', 'poa', 'ghi',
                      'global', 'glob', 'w/m^2', 'w/m2', 'w/m', 'w/'],
-                     (-10, 1500)],
-             'temp': [['temperature', 'temp', 'degrees', 'deg', 'ambient',
+                     (-10, 1500)]),
+             ('temp', [['temperature', 'temp', 'degrees', 'deg', 'ambient',
                        'amb', 'cell temperature'],
-                      (-49, 127)],
-             'wind': [['wind', 'speed'],
-                      (0, 18)],
-             'pf': [['power factor', 'factor', 'pf'],
-                    (-1, 1)],
-             'op_state': [['operating state', 'state', 'op', 'status'],
-                          (0, 10)],
-             'real_pwr': [['real power', 'ac power', 'e_grid'],
-                          (-1000000, 1000000000000)],  # set to very lax bounds
-             'shade': [['fshdbm', 'shd', 'shade'], (0, 1)],
-             'index': [['index'], ('', 'z')]}
+                      (-49, 127)]),
+             ('wind', [['wind', 'speed'],
+                      (0, 18)]),
+             ('pf', [['power factor', 'factor', 'pf'],
+                    (-1, 1)]),
+             ('op_state', [['operating state', 'state', 'op', 'status'],
+                          (0, 10)]),
+             ('real_pwr', [['real power', 'ac power', 'e_grid'],
+                          (-1000000, 1000000000000)]),  # set to very lax bounds
+             ('shade', [['fshdbm', 'shd', 'shade'], (0, 1)]),
+             ('index', [['index'], ('', 'z')])])
 
 sub_type_defs = {'poa': [['plane of array', 'poa']],
                  'ghi': [['global horizontal', 'ghi', 'global', 'glob']],
@@ -402,7 +403,7 @@ class CapData(object):
         Creates a dict of raw column names paired to categorical column names.
 
         Uses multiple type_def formatted dictionaries to determine the type,
-        sub-type, and sensor type for data series of a dataframe.  The determined
+        sub-type, and equipment type for data series of a dataframe.  The determined
         types are concatenated to a string used as a dictionary key with a list
         of one or more oringal column names as the paried value.
 
