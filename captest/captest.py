@@ -204,15 +204,13 @@ class CapData(object):
         -------
         pandas dataframe
         """
-        header_end = 1
 
         data = os.path.normpath(path + filename)
 
         encodings = ['utf-8', 'latin1', 'iso-8859-1', 'cp1252']
         for encoding in encodings:
             try:
-                all_data = pd.read_csv(data, encoding=encoding,
-                                       header=[0, header_end], index_col=0,
+                all_data = pd.read_csv(data, encoding=encoding, index_col=0,
                                        parse_dates=True, skip_blank_lines=True,
                                        low_memory=False, **kwargs)
             except UnicodeDecodeError:
@@ -229,16 +227,17 @@ class CapData(object):
                 except ValueError:
                     continue
 
-        for encoding in encodings:
-            try:
-                all_data = pd.read_csv(data, encoding=encoding,
-                                       header=[0, header_end], index_col=0,
-                                       parse_dates=True, skip_blank_lines=True,
-                                       low_memory=False, **kwargs)
-            except UnicodeDecodeError:
-                continue
-            else:
-                break
+            header = list(np.arange(header_end))
+            for encoding in encodings:
+                try:
+                    all_data = pd.read_csv(data, encoding=encoding,
+                                           header=header, index_col=0,
+                                           parse_dates=True, skip_blank_lines=True,
+                                           low_memory=False, **kwargs)
+                except UnicodeDecodeError:
+                    continue
+                else:
+                    break
 
         all_data = all_data.apply(pd.to_numeric, errors='coerce')
         all_data.dropna(axis=1, how='all', inplace=True)
