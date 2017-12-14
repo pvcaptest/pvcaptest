@@ -222,7 +222,8 @@ class CapData(object):
         if not isinstance(all_data.index[0], pd.Timestamp):
             for i, indice in enumerate(all_data.index):
                 try:
-                    isinstance(dateutil.parser.parse(all_data.index[i]), datetime.date)
+                    isinstance(dateutil.parser.parse(str(all_data.index[i])),
+                               datetime.date)
                     header_end = i + 1
                     break
                 except ValueError:
