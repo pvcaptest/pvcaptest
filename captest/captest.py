@@ -550,6 +550,7 @@ class CapData(object):
         index = self.df.index.tolist()
         colors = Category10[10]
         plots = []
+        x_axis = None
         for j, key in enumerate(self.trans_keys):
             df = self.df[self.trans[key]]
             cols = df.columns.tolist()
@@ -557,7 +558,7 @@ class CapData(object):
                 print('Skipped {} because there are more than 10   columns.'.format(key))
                 continue
 
-            if j == 0:
+            if x_axis == None:
                 p = figure(title=key, plot_width=400, plot_height=225,
                            x_axis_type='datetime')
                 x_axis = p.x_range
