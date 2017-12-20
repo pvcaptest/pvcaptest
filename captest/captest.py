@@ -984,7 +984,7 @@ class CapTest(object):
                 selection = key
 
         df = flt_cd.df[flt_cd.trans[selection]]
-        flt_cd.df = flt_cd.df[(df >= pf).all(axis=1)]
+        flt_cd.df = flt_cd.df[(np.abs(df) >= pf).all(axis=1)]
 
         if data == 'das':
             self.flt_das = flt_cd
