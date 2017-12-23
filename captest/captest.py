@@ -106,6 +106,10 @@ def update_summary(func):
         return ret_val
     return wrapper
 
+def perc_wrap(p):
+    def numpy_percentile(x):
+        return np.percentile(x.T, p, interpolation='nearest')
+    return numpy_percentile
 
 class CapData(object):
     """
@@ -763,7 +767,8 @@ class CapTest(object):
         pass
 
     @update_summary
-    def rep_cond(self, data, test_date=None, days=60, inplace=True, mean=False):
+    def rep_cond(self, data, test_date=None, days=60, inplace=True,
+                 func={'poa':perc_wrap(60), 't_amb':'mean', 'w_vel':'mean'}):
         """
         Calculate reporting conditons.
 
@@ -782,9 +787,12 @@ class CapTest(object):
         inplace: bool, True by default
             When true updates object rc parameter, when false returns dicitionary
             of reporting conditions.
-        mean: bool, False by default
-            Calculates irradiance reporting conditions by mean rather than default
-            of 60th percentile.  Default follows ASTM standard.
+        func: callable, string, dictionary, or list of string/callables
+            Determines how the reporting condition is calculated.
+            Default is a dictionary poa - 60th numpy_percentile, t_amb - mean
+                                          w_vel - mean
+            Can pass a string function ('mean') to calculate each reporting
+            condition the same way.
 
         Returns
         -------
@@ -808,14 +816,9 @@ class CapTest(object):
             end = df.index[-1]
         df = df.loc[start:end, :]
 
-        if mean:
-            RCs = {'poa': [df['poa'].mean()],
-                   't_amb': [df['t_amb'].mean()],
-                   'w_vel': [df['w_vel'].mean()]}
-        else:
-            RCs = {'poa': [df['poa'].mean()],
-                   't_amb': [df['t_amb'].mean()],
-                   'w_vel': [df['w_vel'].quantile(0.6)]}
+        RCs = df.agg(func).to_dict()
+        RCs = {key:[val] for key, val in RCs.items()}
+
         print(RCs)
 
         if inplace:
@@ -1094,7 +1097,7 @@ class CapTest(object):
             return flt_cd
 
     @update_summary
-    def filter_missing(self, data):
+    def filter_missing(self, data, **kwargs):
         """
         Remove timestamps with missing data.
 
@@ -1104,7 +1107,7 @@ class CapTest(object):
             'sim' or 'das' determines if filter is on sim or das data
         """
         flt_cd = self.__flt_setup(data)
-        flt_cd.df = flt_cd.df.dropna(axis=0, how='all', inplace=False)
+        flt_cd.df = flt_cd.df.dropna(axis=0, inplace=False, **kwargs)
         if data == 'das':
             self.flt_das = flt_cd
         if data == 'sim':
