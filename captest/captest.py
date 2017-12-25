@@ -126,6 +126,49 @@ def spans_year(start_date, end_date):
     else:
         return False
 
+def cntg_eoy(df, start, end):
+    """
+    Shifts data before or after new year to form a contigous time period.
+
+    This function shifts data from the end of the year a year back or data from
+    the begining of the year a year forward, to create a contiguous time period.
+    Intended to be used on historical typical year data.
+
+    If start date is in dataframe, then data at the beginning of the year will
+    be moved ahead one year.  If end date is in dataframe, then data at the end
+    of the year will be moved back one year.
+
+    cntg (contiguous); eoy (end of year)
+
+    Parameters
+    ----------
+    df: pandas DataFrame
+        Dataframe to be adjusted.
+    start: pandas Timestamp
+        Start date for time period.
+    end: pandas Timestamp
+        End date for time period.
+    """
+    if df.index[0].year == start.year:
+        df_beg = df.loc[start:,:]
+
+        df_end = df.copy()
+        df_end.index = df_end.index + pd.DateOffset(days=365)
+        df_end = df_end.loc[:end,:]
+
+    elif df.index[0].year == end.year:
+        df_end = df.loc[:end,:]
+
+        df_beg = df.copy()
+        df_beg.index = df_beg.index - pd.DateOffset(days=365)
+        df_beg = df_beg.loc[start:,:]
+
+    df_return = pd.concat([df_beg, df_end], axis=0)
+    ix_ser = df_return.index.to_series()
+    df_return['index'] = ix_ser.apply(lambda x: x.strftime('%m/%d/%Y %H %M'))
+    return df_return
+
+
 class CapData(object):
     """
     Class to store capacity test data and translation of column names.
@@ -973,13 +1016,98 @@ class CapTest(object):
             print("'data must be 'das' or 'sim'")
 
     @update_summary
+    def filter_time(self, data, start=None, end=None, days=None, test_date=None,
+                    inplace=True):
+        """
+        Function wrapping pandas dataframe selection methods.
+
+        Parameters
+        ----------
+        data: str
+            'sim' or 'das' determines if filter is on sim or das data
+        start: str
+            Start date for data to be returned.  Must be in format that can be
+            converted by pandas.to_datetime.  Not required if test_date and days
+            arguments are passed.
+        end: str
+            End date for data to be returned.  Must be in format that can be
+            converted by pandas.to_datetime.  Not required if test_date and days
+            arguments are passed.
+        days: int
+            Days in time period to be returned.  Not required if start and end
+            are specified.
+        test_date: str
+            Must be format that can be converted by pandas.to_datetime.  Not
+            required if start and end are specified.  Requires days argument.
+            Time period returned will be centered on this date.
+        inplace : bool
+            Default true write back to CapTest.flt_sim or flt_das
+        """
+        flt_cd = self.__flt_setup(data)
+
+        if start != None and end != None:
+            start = pd.to_datetime(start)
+            end = pd.to_datetime(end)
+            if data == 'sim' and spans_year(start, end):
+                flt_cd.df = cntg_eoy(flt_cd.df, start, end)
+            else:
+                flt_cd.df = flt_cd.df.loc[start:end, :]
+
+        if start != None and end == None:
+            if days == None:
+                print("Must specify end date or days.")
+            else:
+                start = pd.to_datetime(start)
+                end = start + pd.DateOffset(days=days)
+                if data == 'sim' and spans_year(start, end):
+                    flt_cd.df = cntg_eoy(flt_cd.df, start, end)
+                else:
+                    flt_cd.df = flt_cd.df.loc[start:end, :]
+
+        if start == None and end != None:
+            if days == None:
+                print("Must specify end date or days.")
+            else:
+                end = pd.to_datetime(end)
+                start = end - pd.DateOffset(days=days)
+                if data == 'sim' and spans_year(start, end):
+                    flt_cd.df = cntg_eoy(flt_cd.df, start, end)
+                else:
+                    flt_cd.df = flt_cd.df.loc[start:end, :]
+
+        if test_date != None:
+            test_date = pd.to_datetime(test_date)
+            if days == None:
+                print("Must specify days")
+                return
+            else:
+                offset = pd.DateOffset(days=days/2)
+                start = test_date - offset
+                end = test_date + offset
+                if data == 'sim' and spans_year(start, end):
+                    flt_cd.df = cntg_eoy(flt_cd.df, start, end)
+                else:
+                    flt_cd.df = flt_cd.df.loc[start:end, :]
+
+        if inplace:
+            if data == 'das':
+                self.flt_das = flt_cd
+            if data == 'sim':
+                self.flt_sim = flt_cd
+        else:
+            return flt_cd
+
+    @update_summary
     def filter_outliers(self, data, inplace=True):
         """
         Apply eliptic envelope from scikit-learn to remove outliers.
 
         Parameters
         ----------
-        data (str) - 'sim' or 'das' determines if filter is on sim or das data
+        data: str
+            'sim' or 'das' determines if filter is on sim or das data
+        inplace : bool
+            Default true write back to CapTest.flt_sim or flt_das
         """
         flt_cd = self.__flt_setup(data)
 
@@ -1010,6 +1138,8 @@ class CapTest(object):
             'sim' or 'das' determines if filter is on sim or das data
         pf: float
             0.999 or similar to remove timestamps with lower PF values
+        inplace : bool
+            Default true write back to CapTest.flt_sim or flt_das
         """
         flt_cd = self.__flt_setup(data)
 
