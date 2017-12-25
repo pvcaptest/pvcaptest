@@ -111,6 +111,21 @@ def perc_wrap(p):
         return np.percentile(x.T, p, interpolation='nearest')
     return numpy_percentile
 
+def spans_year(start_date, end_date):
+    """
+    Returns boolean indicating if dates passes are in the same year.
+
+    Parameters
+    ----------
+
+    start_date: pandas Timestamp
+    end_date: pandas Timestamp
+    """
+    if start_date.year != end_date.year:
+        return True
+    else:
+        return False
+
 class CapData(object):
     """
     Class to store capacity test data and translation of column names.
@@ -725,47 +740,61 @@ class CapTest(object):
         """
         pass
 
-    def pred_rcs(self,):
-        """
-        Generate reporting conditions for a year and calculate predicted power
-        for each reporting condition.
-
-        Parameters
-        ----------
-        data: str, 'sim' or 'das'
-            'sim' or 'das' determines if filter is on sim or das data
-        test_date: str, 'mm/dd/yyyy', optional
-            Date to center reporting conditions aggregation functions around.
-            When not used specified reporting conditions for all data passed
-            are returned grouped by the freq provided.  freq='90D' give seasonal
-            reporting conditions and freq='30D' give monthly reproting conditions.
-        freq: str, default '60D'
-            String representing number of days to aggregate for reporting
-            condition calculation.  Ex '60D' for 60 Days.  Typical '30D', '60D',
-            '90D'.
-        """
-        # if data = 'sim' and test_date is not None:
-        #     date = pd.to_datetime(test_date)
-        #     offset = pd.DateOffset(days=int(freq[:2]) / 2)
-        #     start = date - offset
-        #
-        #     # this is only useful for simulated data
-        #     # need differnt approach for real data across end of year
-        #     tail = df.loc[start:, :]
-        #     head = df.loc[:start, :]
-        #     head = head.iloc[:head.shape[0] - 1, :]
-        #     head_shifted = head.shift(8760, freq='H')
-        #     dfnewstart = pd.concat([tail, head_shifted])
-        #
-        #     temp_wind = dfnewstart[['t_amb', 'w_vel']]
-        #     irr = dfnewstart['GlobInc']
-        #
-        #     RCs = temp_wind.groupby(pd.Grouper(freq=freq, label='right')).mean()
-        #     RCs['GlobInc'] = irr.groupby(pd.TimeGrouper(freq=freq,
-        #                                     label='right')).quantile(.6)
-        #     RCs = RCs.iloc[0, :]
-        pass
-
+    # def pred_rcs(self, data, test_date=None, days=60, inplace=True):
+    #     """
+    #     Generate reporting conditions for a year and calculate predicted power
+    #     for each reporting condition.
+    #
+    #     Parameters
+    #     ----------
+    #     data: str, 'sim' or 'das'
+    #         'sim' or 'das' determines if filter is on sim or das data
+    #     test_date: str, 'mm/dd/yyyy', optional
+    #         Date to center reporting conditions aggregation functions around.
+    #         When not used specified reporting conditions for all data passed
+    #         are returned grouped by the freq provided.  freq='90D' give seasonal
+    #         reporting conditions and freq='30D' give monthly reproting conditions.
+    #     freq: str, default '60D'
+    #         String representing number of days to aggregate for reporting
+    #         condition calculation.  Ex '60D' for 60 Days.  Typical '30D', '60D',
+    #         '90D'.
+    #     """
+    #     flt_cd = self.__flt_setup(data)
+    #     df = flt_cd.rview(['poa', 't_amb', 'w_vel'])
+    #     df = df.rename(columns={df.columns[0]: 'poa',
+    #                             df.columns[1]: 't_amb',
+    #                             df.columns[2]: 'w_vel'})
+    #
+    #     if data == 'sim' and test_date is not None:
+    #         date = pd.to_datetime(test_date)
+    #         offset = pd.DateOffset(days=(days/2))
+    #         start = date - offset
+    #
+    #         # this is only useful for simulated data
+    #         # need differnt approach for real data across end of year
+    #         tail = df.loc[start:, :]
+    #         head = df.loc[:start, :]
+    #         head = head.iloc[:head.shape[0] - 1, :]
+    #         head_shifted = head.shift(8760, freq='H')
+    #         dfnewstart = pd.concat([tail, head_shifted])
+    #
+    #         # temp_wind = dfnewstart[['t_amb', 'w_vel']]
+    #         # irr = dfnewstart['GlobInc']
+    #         #
+    #         # RCs = temp_wind.groupby(pd.Grouper(freq=freq, label='right')).mean()
+    #         # RCs['GlobInc'] = irr.groupby(pd.TimeGrouper(freq=freq,
+    #         #                                 label='right')).quantile(.6)
+    #         # RCs = RCs.iloc[0, :]
+    #     return dfnewstart
+    """
+    If reporting conditons are calc from measured data
+    -use filtered dataset must be 750 min per ASTM E2939
+    -simulated data must be filtered by time period around test separately
+    If reporting conditons are calc from historical data
+    -just calc reporting conditions for test period
+    -calc reporting conditons and pred capacity for each season/month for year
+    -need to handle winter season that spans new year
+    """
     @update_summary
     def rep_cond(self, data, test_date=None, days=60, inplace=True,
                  func={'poa':perc_wrap(60), 't_amb':'mean', 'w_vel':'mean'}):
@@ -805,19 +834,21 @@ class CapTest(object):
         df = df.rename(columns={df.columns[0]: 'poa',
                                 df.columns[1]: 't_amb',
                                 df.columns[2]: 'w_vel'})
+        if data == 'das':
+            date = pd.to_datetime(test_date)
+            offset = pd.DateOffset(days=days/2)
+            start = date - offset
+            end = date + offset
+            if start < df.index[0]:
+                start = df.index[0]
+            if end > df.index[-1]:
+                end = df.index[-1]
+            df = df.loc[start:end, :]
 
-        date = pd.to_datetime(test_date)
-        offset = pd.DateOffset(days=days)
-        start = date - offset
-        end = date + offset
-        if start < df.index[0]:
-            start = df.index[0]
-        if end > df.index[-1]:
-            end = df.index[-1]
-        df = df.loc[start:end, :]
+            RCs = df.agg(func).to_dict()
+            RCs = {key:[val] for key, val in RCs.items()}
+        # elif data == 'sim':
 
-        RCs = df.agg(func).to_dict()
-        RCs = {key:[val] for key, val in RCs.items()}
 
         print(RCs)
 
