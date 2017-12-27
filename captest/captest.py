@@ -783,52 +783,62 @@ class CapTest(object):
         """
         pass
 
-    # def pred_rcs(self, data, test_date=None, days=60, inplace=True):
-    #     """
-    #     Generate reporting conditions for a year and calculate predicted power
-    #     for each reporting condition.
-    #
-    #     Parameters
-    #     ----------
-    #     data: str, 'sim' or 'das'
-    #         'sim' or 'das' determines if filter is on sim or das data
-    #     test_date: str, 'mm/dd/yyyy', optional
-    #         Date to center reporting conditions aggregation functions around.
-    #         When not used specified reporting conditions for all data passed
-    #         are returned grouped by the freq provided.  freq='90D' give seasonal
-    #         reporting conditions and freq='30D' give monthly reproting conditions.
-    #     freq: str, default '60D'
-    #         String representing number of days to aggregate for reporting
-    #         condition calculation.  Ex '60D' for 60 Days.  Typical '30D', '60D',
-    #         '90D'.
-    #     """
-    #     flt_cd = self.__flt_setup(data)
-    #     df = flt_cd.rview(['poa', 't_amb', 'w_vel'])
-    #     df = df.rename(columns={df.columns[0]: 'poa',
-    #                             df.columns[1]: 't_amb',
-    #                             df.columns[2]: 'w_vel'})
-    #
-    #     if data == 'sim' and test_date is not None:
-    #         date = pd.to_datetime(test_date)
-    #         offset = pd.DateOffset(days=(days/2))
-    #         start = date - offset
-    #
-    #         # this is only useful for simulated data
-    #         # need differnt approach for real data across end of year
-    #         tail = df.loc[start:, :]
-    #         head = df.loc[:start, :]
-    #         head = head.iloc[:head.shape[0] - 1, :]
-    #         head_shifted = head.shift(8760, freq='H')
-    #         dfnewstart = pd.concat([tail, head_shifted])
-    #
-    #         # temp_wind = dfnewstart[['t_amb', 'w_vel']]
-    #         # irr = dfnewstart['GlobInc']
-    #         #
-    #         # RCs = temp_wind.groupby(pd.Grouper(freq=freq, label='right')).mean()
-    #         # RCs['GlobInc'] = irr.groupby(pd.TimeGrouper(freq=freq,
-    #         #                                 label='right')).quantile(.6)
-    #         # RCs = RCs.iloc[0, :]
-    #     return dfnewstart
+    def pred_rcs(self, data, test_date=None, days=60, inplace=True, freq='30D'):
+        """
+        Generate reporting conditions for a year and calculate predicted power
+        for each reporting condition.
+
+        Parameters
+        ----------
+        data: str, 'sim' or 'das'
+            'sim' or 'das' determines if filter is on sim or das data
+        test_date: str, 'mm/dd/yyyy', optional
+            Date to center reporting conditions aggregation functions around.
+            When not used specified reporting conditions for all data passed
+            are returned grouped by the freq provided.  freq='90D' give seasonal
+            reporting conditions and freq='30D' give monthly reproting conditions.
+        freq: str, default '60D'
+            String representing number of days to aggregate for reporting
+            condition calculation.  Ex '60D' for 60 Days.  Typical '30D', '60D',
+            '90D'.
+
+        Todo
+        ----
+        Refactor function
+            Rewrite function to filter using prelim regression, calc RCs, and fit
+            ols model on pandas GroupBy object using the GroupBy.apply method.
+            This will involve moving some of the core functionality of the
+            filter_irr, reg_cpt, rep_cond to top level functions that accept a
+            dataframe as the first argument.
+        """
+        # flt_cd = self.__flt_setup(data)
+        # df = flt_cd.rview(['poa', 't_amb', 'w_vel'])
+        # df = df.rename(columns={df.columns[0]: 'poa',
+        #                         df.columns[1]: 't_amb',
+        #                         df.columns[2]: 'w_vel'})
+        #
+        # if data == 'sim' and test_date is None:
+            # date = pd.to_datetime(test_date)
+            # offset = pd.DateOffset(days=(days/2))
+            # start = date - offset
+            #
+            # # this is only useful for simulated data
+            # # need differnt approach for real data across end of year
+            # tail = df.loc[start:, :]
+            # head = df.loc[:start, :]
+            # head = head.iloc[:head.shape[0] - 1, :]
+            # head_shifted = head.shift(8760, freq='H')
+            # dfnewstart = pd.concat([tail, head_shifted])
+
+            # temp_wind = df[['t_amb', 'w_vel']]
+            # irr = df['GlobInc']
+            #
+            # RCs = temp_wind.groupby(pd.Grouper(freq=freq, label='right')).mean()
+            # RCs['GlobInc'] = irr.groupby(pd.TimeGrouper(freq=freq,
+            #                                 label='right')).quantile(.6)
+            # return RCs
+            pass
+
     """
     If reporting conditons are calc from measured data
     -use filtered dataset must be 750 min per ASTM E2939
@@ -839,7 +849,7 @@ class CapTest(object):
     -need to handle winter season that spans new year
     """
     @update_summary
-    def rep_cond(self, data, test_date=None, days=60, inplace=True,
+    def rep_cond(self, data, test_date=None, days=60, inplace=True, freq=None,
                  func={'poa':perc_wrap(60), 't_amb':'mean', 'w_vel':'mean'}):
         """
         Calculate reporting conditons.
@@ -851,14 +861,18 @@ class CapTest(object):
         test_date: str, 'mm/dd/yyyy', optional
             Date to center reporting conditions aggregation functions around.
             When not used specified reporting conditions for all data passed
-            are returned grouped by the freq provided.  freq='90D' give seasonal
-            reporting conditions and freq='30D' give monthly reproting conditions.
+            are returned grouped by the freq provided.
         days: int, default 60
             Number of days to use when calculating reporting conditons.  Typically
             no less than 30 and no more than 90.
         inplace: bool, True by default
             When true updates object rc parameter, when false returns dicitionary
             of reporting conditions.
+        freq: str
+            String pandas offset alias to aggregate for reporting
+            condition calculation.  Ex '60D' for 60 Days or 'M' for months.
+            Typical 'M', '2M', or 'BQ-NOV'.  'BQ-NOV' is business quarterly
+            year ending in Novemnber i.e. seasons.
         func: callable, string, dictionary, or list of string/callables
             Determines how the reporting condition is calculated.
             Default is a dictionary poa - 60th numpy_percentile, t_amb - mean
@@ -877,21 +891,34 @@ class CapTest(object):
         df = df.rename(columns={df.columns[0]: 'poa',
                                 df.columns[1]: 't_amb',
                                 df.columns[2]: 'w_vel'})
-        if data == 'das':
+        if test_date is not None:
             date = pd.to_datetime(test_date)
             offset = pd.DateOffset(days=days/2)
             start = date - offset
             end = date + offset
+        if data == 'das' and test_date is not None:
             if start < df.index[0]:
                 start = df.index[0]
             if end > df.index[-1]:
                 end = df.index[-1]
             df = df.loc[start:end, :]
 
-            RCs = df.agg(func).to_dict()
-            RCs = {key:[val] for key, val in RCs.items()}
-        # elif data == 'sim':
+        elif data == 'sim' and test_date is not None:
+            if spans_year(start, end):
+                df = cntg_eoy(df, start, end)
 
+        RCs = df.agg(func).to_dict()
+        RCs = {key:[val] for key, val in RCs.items()}
+
+        if freq is not None and test_date is None:
+            RCs = df.groupby(pd.Grouper(freq=freq, label='right')).agg(func)
+            RCs = RCs.to_dict('list')
+
+            # if predict:
+                # need to fit ols on each set of grouped data before predictin
+                # move prediction to separate function
+                # RCs['ouput'] = self.ols_model_sim.predict(RCs)
+                # return pd.DataFrame.from_dict(RCs)
 
         print(RCs)
 
@@ -1364,6 +1391,15 @@ class CapTest(object):
                 self.flt_sim = cd_obj
         else:
             return cd_obj
+
+    def filter_pvsyst(self, data):
+        """
+        Filter pvsyst data for shading and off mppt operation.
+        """
+        # pvFiltered = pvFiltered.loc[pvFiltered['FShdBm'] == 1.0]
+        # columns = ['IL Pmin','IL Vmin','IL Pmax','IL Vmax']
+        # pvFiltered = pvFiltered.loc[pvFiltered[columns].sum(axis=1)<=0]
+        pass
 
     @update_summary
     def reg_cpt(self, data, filter=False, inplace=True):
