@@ -837,7 +837,7 @@ class CapTest(object):
             # RCs['GlobInc'] = irr.groupby(pd.TimeGrouper(freq=freq,
             #                                 label='right')).quantile(.6)
             # return RCs
-            pass
+        pass
 
     """
     If reporting conditons are calc from measured data
@@ -1392,14 +1392,23 @@ class CapTest(object):
         else:
             return cd_obj
 
-    def filter_pvsyst(self, data):
+    @update_summary
+    def filter_pvsyst(self, data, shade=1.0, inplace=True):
         """
         Filter pvsyst data for shading and off mppt operation.
         """
-        # pvFiltered = pvFiltered.loc[pvFiltered['FShdBm'] == 1.0]
+        cd_obj = self.__flt_setup(data)
+        #
+        index = cd_obj.df[cd_obj.df['FShdBm'] >= shade].index
         # columns = ['IL Pmin','IL Vmin','IL Pmax','IL Vmax']
-        # pvFiltered = pvFiltered.loc[pvFiltered[columns].sum(axis=1)<=0]
-        pass
+        # df = df.loc[df[columns].sum(axis=1)<=0]
+        #
+        cd_obj.df = cd_obj.df.loc[index, :]
+        #
+        if inplace:
+            self.flt_sim = cd_obj
+        else:
+            return cd_obj
 
     @update_summary
     def reg_cpt(self, data, filter=False, inplace=True):
