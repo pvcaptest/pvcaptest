@@ -1295,7 +1295,8 @@ collect results
         # df = df.rename(columns={df.columns[0]: 'poa'})
         irr_col = df.columns[0]
 
-        flt_cd.df = flt_irr(df, irr_col, low, high, ref_val=ref_val)
+        df_flt = flt_irr(df, irr_col, low, high, ref_val=ref_val)
+        flt_cd.df = flt_cd.df.loc[df_flt.index, :]
 
         if inplace:
             if data == 'das':
