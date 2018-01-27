@@ -172,6 +172,34 @@ def cntg_eoy(df, start, end):
     return df_return
 
 
+def flt_irr(df, irr_col, low, high, ref_val=None):
+    """
+    Top level filter on irradiance values.
+
+    Parameters
+    ----------
+    irr_col : str
+        String that is the name of the column with the irradiance data.
+    low : float or int
+        Minimum value as fraction (0.8) or absolute 200 (W/m^2)
+    high : float or int
+        Max value as fraction (1.2) or absolute 800 (W/m^2)
+    ref_val : float or int
+        Must provide arg when min/max are fractions
+
+    Returns
+    -------
+    DataFrame
+    """
+    if ref_val is not None:
+        low *= ref_val
+        high *= ref_val
+
+    flt_str = '@low <= ' + irr_col + ' <= @high'
+    indx = df.query(flt_str).index
+
+    return df.loc[indx, :]
+
 class CapData(object):
     """
     Class to store capacity test data and translation of column names.
@@ -828,6 +856,8 @@ class CapTest(object):
             This will involve moving some of the core functionality of the
             filter_irr, reg_cpt, rep_cond to top level functions that accept a
             dataframe as the first argument.
+            Create function for GroupBy.apply that itself is a function that
+            applies a list of functions in order.
         """
         # flt_cd = self.__flt_setup(data)
         # df = flt_cd.rview(['poa', 't_amb', 'w_vel'])
@@ -858,6 +888,42 @@ class CapTest(object):
         pass
 
     """
+General sequence of calc RCs and using them to predict
+-------------------------------
+filter
+filter
+group by month
+    filter w/in mnth
+    filter w/in mnth
+    calc irradiance RC
+    filter +/- around irr RC
+    calc temp RC
+    calc wind RC
+    fit ols model
+    predict ols fit with RCs
+calc guarnateed cap
+collect results
+
+
+Example
+--------------------------
+filter_irr
+filter_pvsyst
+group by month
+    loop to find highest irr RC where +/- band is balanced and has >50 pts
+    store irr RCs
+    filter
+    filter +/- around irr RC
+    calc temp RC
+    calc wind RC
+    fit ols model
+    predict ols fit with RCs
+calc guarnateed cap
+collect results
+
+
+
+
     If reporting conditons are calc from measured data
     -use filtered dataset must be 750 min per ASTM E2939
     -simulated data must be filtered by time period around test separately
@@ -868,7 +934,7 @@ class CapTest(object):
     """
     @update_summary
     def rep_cond(self, data, test_date=None, days=60, inplace=True, freq=None,
-                 func={'poa':perc_wrap(60), 't_amb':'mean', 'w_vel':'mean'}):
+                 func={'poa': perc_wrap(60), 't_amb': 'mean', 'w_vel': 'mean'}):
         """
         Calculate reporting conditons.
 
@@ -1225,15 +1291,11 @@ class CapTest(object):
         """
         flt_cd = self.__flt_setup(data)
 
-        if ref_val is not None:
-            low *= ref_val
-            high *= ref_val
-
         df = flt_cd.rview('poa')
-        df = df.rename(columns={df.columns[0]: 'poa'})
-        df.query('@low <= poa <= @high', inplace=True)
+        # df = df.rename(columns={df.columns[0]: 'poa'})
+        irr_col = df.columns[0]
 
-        flt_cd.df = flt_cd.df.loc[df.index, :]
+        flt_cd.df = flt_irr(df, irr_col, low, high, ref_val=ref_val)
 
         if inplace:
             if data == 'das':
