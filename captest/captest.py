@@ -113,34 +113,44 @@ def perc_wrap(p):
     return numpy_percentile
 
 
-def irrRC_balanced():
+def irrRC_balanced(df, irr_col='GlobInc'):
     """
     Calculates max irradiance reporting condition that is below 60th percentile.
 
     Parameters
     ----------
+    df: pandas DataFrame
+        DataFrame containing irradiance data for calculating the irradiance
+        reporting condition.
+    irr_col : str
+        String that is the name of the column with the irradiance data.
 
+    Returns
+    -------
+    Tuple
+        Float reporting irradiance and filtered dataframe.
 
     """
-    # vals_above = 10
-    # perc = 100.
-    # pt_qty = 0
-    # print('------------------ MONTH START -------------------------')
-    # print(name)
-    # while perc > 0.60 or pt_qty < 50:
-    #     print('####### LOOP START #######')
-    #     mnth_count = mnth.shape[0]
-    #     mnth_perc = 1 - (vals_above / mnth_count)
-    #     print('in percent: {}'.format(mnth_perc))
-    #     irr_RC = (mnth['GlobInc'].agg(pvc.perc_wrap(mnth_perc * 100)))
-    #     print('ref irr: {}'.format(irr_RC))
-    #     flt_df = pvc.flt_irr(mnth, 'GlobInc', 0.8, 1.2, ref_val=irr_RC)
-    #     print('number of vals: {}'.format(mnth.shape))
-    #     pt_qty = flt_df.shape[0]
-    #     print('flt pt qty: {}'.format(pt_qty))
-    #     perc = stats.percentileofscore(flt_df['GlobInc'], irr_RC) / 100
-    #     print('out percent: {}'.format(perc))
-    #     vals_above += 1
+    vals_above = 10
+    perc = 100.
+    pt_qty = 0
+    print('------------------ MONTH START -------------------------')
+    print(name)
+    while perc > 0.60 or pt_qty < 50:
+        # print('####### LOOP START #######')
+        df_count = df.shape[0]
+        df_perc = 1 - (vals_above / df_count)
+        print('in percent: {}'.format(df_perc))
+        irr_RC = (df[irr_col].agg(pvc.perc_wrap(df_perc * 100)))
+        print('ref irr: {}'.format(irr_RC))
+        flt_df = pvc.flt_irr(df, irr_col, 0.8, 1.2, ref_val=irr_RC)
+        print('number of vals: {}'.format(df.shape))
+        pt_qty = flt_df.shape[0]
+        print('flt pt qty: {}'.format(pt_qty))
+        perc = stats.percentileofscore(flt_df[irr_col], irr_RC) / 100
+        print('out percent: {}'.format(perc))
+        vals_above += 1
+    return(irr_RC, flt_df)
 
 def spans_year(start_date, end_date):
     """
