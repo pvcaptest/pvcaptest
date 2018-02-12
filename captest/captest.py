@@ -113,6 +113,35 @@ def perc_wrap(p):
     return numpy_percentile
 
 
+def irrRC_balanced():
+    """
+    Calculates max irradiance reporting condition that is below 60th percentile.
+
+    Parameters
+    ----------
+
+
+    """
+    # vals_above = 10
+    # perc = 100.
+    # pt_qty = 0
+    # print('------------------ MONTH START -------------------------')
+    # print(name)
+    # while perc > 0.60 or pt_qty < 50:
+    #     print('####### LOOP START #######')
+    #     mnth_count = mnth.shape[0]
+    #     mnth_perc = 1 - (vals_above / mnth_count)
+    #     print('in percent: {}'.format(mnth_perc))
+    #     irr_RC = (mnth['GlobInc'].agg(pvc.perc_wrap(mnth_perc * 100)))
+    #     print('ref irr: {}'.format(irr_RC))
+    #     flt_df = pvc.flt_irr(mnth, 'GlobInc', 0.8, 1.2, ref_val=irr_RC)
+    #     print('number of vals: {}'.format(mnth.shape))
+    #     pt_qty = flt_df.shape[0]
+    #     print('flt pt qty: {}'.format(pt_qty))
+    #     perc = stats.percentileofscore(flt_df['GlobInc'], irr_RC) / 100
+    #     print('out percent: {}'.format(perc))
+    #     vals_above += 1
+
 def spans_year(start_date, end_date):
     """
     Returns boolean indicating if dates passes are in the same year.
