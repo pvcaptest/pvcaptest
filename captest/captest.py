@@ -12,6 +12,8 @@ from functools import wraps
 
 import statsmodels.formula.api as smf
 
+from scipy import stats
+
 from sklearn.covariance import EllipticEnvelope
 from sklearn.svm import OneClassSVM
 
@@ -135,15 +137,14 @@ def irrRC_balanced(df, irr_col='GlobInc'):
     perc = 100.
     pt_qty = 0
     print('------------------ MONTH START -------------------------')
-    print(name)
     while perc > 0.60 or pt_qty < 50:
         # print('####### LOOP START #######')
         df_count = df.shape[0]
         df_perc = 1 - (vals_above / df_count)
         print('in percent: {}'.format(df_perc))
-        irr_RC = (df[irr_col].agg(pvc.perc_wrap(df_perc * 100)))
+        irr_RC = (df[irr_col].agg(perc_wrap(df_perc * 100)))
         print('ref irr: {}'.format(irr_RC))
-        flt_df = pvc.flt_irr(df, irr_col, 0.8, 1.2, ref_val=irr_RC)
+        flt_df = flt_irr(df, irr_col, 0.8, 1.2, ref_val=irr_RC)
         print('number of vals: {}'.format(df.shape))
         pt_qty = flt_df.shape[0]
         print('flt pt qty: {}'.format(pt_qty))
