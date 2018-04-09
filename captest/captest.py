@@ -115,7 +115,7 @@ def perc_wrap(p):
     return numpy_percentile
 
 
-def irrRC_balanced(df, irr_col='GlobInc'):
+def irrRC_balanced(df, low, high, irr_col='GlobInc'):
     """
     Calculates max irradiance reporting condition that is below 60th percentile.
 
@@ -124,6 +124,10 @@ def irrRC_balanced(df, irr_col='GlobInc'):
     df: pandas DataFrame
         DataFrame containing irradiance data for calculating the irradiance
         reporting condition.
+    low: float
+        Bottom value for irradiance filter, usually between 0.5 and 0.8.
+    high: float
+        Top value for irradiance filter, usually between 1.2 and 1.5.
     irr_col : str
         String that is the name of the column with the irradiance data.
 
@@ -136,6 +140,8 @@ def irrRC_balanced(df, irr_col='GlobInc'):
     vals_above = 10
     perc = 100.
     pt_qty = 0
+    loop_cnt = 0
+    pt_qty_array = []
     print('------------------ MONTH START -------------------------')
     while perc > 0.60 or pt_qty < 50:
         # print('####### LOOP START #######')
@@ -144,13 +150,17 @@ def irrRC_balanced(df, irr_col='GlobInc'):
         print('in percent: {}'.format(df_perc))
         irr_RC = (df[irr_col].agg(perc_wrap(df_perc * 100)))
         print('ref irr: {}'.format(irr_RC))
-        flt_df = flt_irr(df, irr_col, 0.8, 1.2, ref_val=irr_RC)
+        flt_df = flt_irr(df, irr_col, low, high, ref_val=irr_RC)
         print('number of vals: {}'.format(df.shape))
         pt_qty = flt_df.shape[0]
         print('flt pt qty: {}'.format(pt_qty))
         perc = stats.percentileofscore(flt_df[irr_col], irr_RC) / 100
         print('out percent: {}'.format(perc))
         vals_above += 1
+        pt_qty_array.append(pt_qty)
+        if perc <= 0.6 and pt_qty <= pt_qty_array[loop_cnt -1]:
+            break
+        loop_cnt += 1
     return(irr_RC, flt_df)
 
 def spans_year(start_date, end_date):
@@ -904,7 +914,7 @@ class CapTest(object):
         # df = df.rename(columns={df.columns[0]: 'poa',
         #                         df.columns[1]: 't_amb',
         #                         df.columns[2]: 'w_vel'})
-        #
+
         # if data == 'sim' and test_date is None:
             # date = pd.to_datetime(test_date)
             # offset = pd.DateOffset(days=(days/2))
