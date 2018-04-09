@@ -1040,6 +1040,8 @@ collect results
         elif data == 'sim' and test_date is not None:
             if spans_year(start, end):
                 df = cntg_eoy(df, start, end)
+            else:
+                df = df.loc[start:end, :]
 
         RCs = df.agg(func).to_dict()
         RCs = {key:[val] for key, val in RCs.items()}
