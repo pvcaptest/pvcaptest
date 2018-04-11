@@ -142,20 +142,20 @@ def irrRC_balanced(df, low, high, irr_col='GlobInc'):
     pt_qty = 0
     loop_cnt = 0
     pt_qty_array = []
-    print('------------------ MONTH START -------------------------')
+    # print('------------------ MONTH START -------------------------')
     while perc > 0.60 or pt_qty < 50:
         # print('####### LOOP START #######')
         df_count = df.shape[0]
         df_perc = 1 - (vals_above / df_count)
-        print('in percent: {}'.format(df_perc))
+        # print('in percent: {}'.format(df_perc))
         irr_RC = (df[irr_col].agg(perc_wrap(df_perc * 100)))
-        print('ref irr: {}'.format(irr_RC))
+        # print('ref irr: {}'.format(irr_RC))
         flt_df = flt_irr(df, irr_col, low, high, ref_val=irr_RC)
-        print('number of vals: {}'.format(df.shape))
+        # print('number of vals: {}'.format(df.shape))
         pt_qty = flt_df.shape[0]
-        print('flt pt qty: {}'.format(pt_qty))
+        # print('flt pt qty: {}'.format(pt_qty))
         perc = stats.percentileofscore(flt_df[irr_col], irr_RC) / 100
-        print('out percent: {}'.format(perc))
+        # print('out percent: {}'.format(perc))
         vals_above += 1
         pt_qty_array.append(pt_qty)
         if perc <= 0.6 and pt_qty <= pt_qty_array[loop_cnt -1]:
@@ -249,6 +249,30 @@ def flt_irr(df, irr_col, low, high, ref_val=None):
     indx = df.query(flt_str).index
 
     return df.loc[indx, :]
+
+
+def fit_model(df, fml='power ~ poa + I(poa * poa) + I(poa * t_amb) + I(poa * w_vel) - 1'):
+    """
+    Fits linear regression using statsmodels to dataframe passed.
+
+    Dataframe must be first argument for use with pandas groupby object
+    apply method.
+
+    Parameters
+    ----------
+    df: pandas dataframe
+    fml: str
+        Formula to fit refer to statsmodels and patsy documentation for format.
+        Default is the formula in ASTM E2848.
+
+    Returns
+    -------
+    Statsmodels linear model regression results wrapper object.
+    """
+    mod = smf.ols(formula=fml, data=df)
+    reg = mod.fit()
+    return reg
+
 
 class CapData(object):
     """
@@ -971,6 +995,32 @@ group by month
 calc guarnateed cap
 collect results
 
+GROUPBY
+irrRC_balanced(df, low, high, irr_col='GlobInc')
+    iterates over data until 60/40
+        calcs 60th percentile
+        filters irradaince by +/- around 60th percentile
+    returns irr_RC and filtered dataframe
+collect irr RCs and flt_dfs
+calc temp and wind RCs
+fit model to flt_dfs
+pred with model and RCs
+append parameters
+
+
+rep_cond(df, start & end or group interval, agg functions)
+    GROUPBY
+    returns reporting conditions as dict of lists
+fit model to groupby groups
+pred with model and RCs
+append parameters
+
+How much functionality to group into a function to use in groupby.apply?
+All steps (RCs, model fit, model pred) in one function for groupby?
+Split all steps into different apply groubpy steps?
+Group fit and predict steps in one function?
+LEANING TOWARD- break into separate functions for each step and create a
+template notebook using steps rather than trying to create one function that does it all.
 
 
 
@@ -1051,10 +1101,6 @@ collect results
             RCs = RCs.to_dict('list')
 
             # if predict:
-                # need to fit ols on each set of grouped data before predictin
-                # move prediction to separate function
-                # RCs['ouput'] = self.ols_model_sim.predict(RCs)
-                # return pd.DataFrame.from_dict(RCs)
 
         print(RCs)
 
