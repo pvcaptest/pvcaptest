@@ -801,6 +801,9 @@ class CapTest(object):
         Holds the linear regression model object for the das data.
     ols_model_sim : statsmodels linear regression model
         Identical to ols_model_das for simulated data.
+    reg_fml : str
+        Regression formula to be fit to measured and simulated data.  Must
+        follow the requirements of statsmodels use of patsy.
     """
 
     def __init__(self, das, sim):
@@ -815,6 +818,7 @@ class CapTest(object):
         self.rc = dict()
         self.ols_model_das = None
         self.ols_model_sim = None
+        self.reg_fml = 'power ~ poa + I(poa * poa) + I(poa * t_amb) + I(poa * w_vel) - 1'
 
     def summary(self):
         """
@@ -1645,9 +1649,7 @@ template notebook using steps rather than trying to create one function that doe
                   df.columns[3]: 'w_vel'}
         df = df.rename(columns=rename)
 
-        fml = 'power ~ poa + I(poa * poa) + I(poa * t_amb) + I(poa * w_vel) - 1'
-        mod = smf.ols(formula=fml, data=df)
-        reg = mod.fit()
+        reg = fit_model(df, fml=self.reg_fml)
 
         if filter:
             print('NOTE: Regression used to filter outlying points.\n\n')
