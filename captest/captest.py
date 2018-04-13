@@ -260,8 +260,8 @@ def fit_model(df, fml='power ~ poa + I(poa * poa) + I(poa * t_amb) + I(poa * w_v
 
     Parameters
     ----------
-    df: pandas dataframe
-    fml: str
+    df : pandas dataframe
+    fml : str
         Formula to fit refer to statsmodels and patsy documentation for format.
         Default is the formula in ASTM E2848.
 
@@ -273,6 +273,29 @@ def fit_model(df, fml='power ~ poa + I(poa * poa) + I(poa * t_amb) + I(poa * w_v
     reg = mod.fit()
     return reg
 
+
+def predict(regs, rcs):
+    """
+    Calculates predicted values for given linear models and predictor values.
+
+    Evaluates the first linear model in the iterable with the first row of the
+    predictor values in the dataframe.  Passed arguments muste be aligned.
+    Parameters
+    ----------
+    regs : iterable of statsmodels regression results wrappers
+    rcs : pandas dataframe
+        Dataframe of predictor values used to evaluate each linear model.
+        The column names must match the strings used in the regression formuala.
+
+    Returns
+    -------
+    Pandas series of predicted values.
+    """
+    pred_cap = pd.Series()
+    for i, mod in enumerate(regs):
+        RC_dict = {key:(val, ) for key,val in (rcs.iloc[i,:].to_dict()).items()}
+        pred_cap = pred_cap.append(mod.predict(RC_dict))
+    return pred_cap
 
 class CapData(object):
     """
@@ -1075,15 +1098,18 @@ template notebook using steps rather than trying to create one function that doe
             otherwise returns None.
         """
         flt_cd = self.__flt_setup(data)
-        df = flt_cd.rview(['poa', 't_amb', 'w_vel'])
-        df = df.rename(columns={df.columns[0]: 'poa',
-                                df.columns[1]: 't_amb',
-                                df.columns[2]: 'w_vel'})
+        df = flt_cd.rview(['power', 'poa', 't_amb', 'w_vel'])
+        df = df.rename(columns={df.columns[0]: 'power',
+                                df.columns[1]: 'poa',
+                                df.columns[2]: 't_amb',
+                                df.columns[3]: 'w_vel'})
+
         if test_date is not None:
             date = pd.to_datetime(test_date)
             offset = pd.DateOffset(days=days/2)
             start = date - offset
             end = date + offset
+
         if data == 'das' and test_date is not None:
             if start < df.index[0]:
                 start = df.index[0]
@@ -1101,10 +1127,14 @@ template notebook using steps rather than trying to create one function that doe
         RCs = {key:[val] for key, val in RCs.items()}
 
         if freq is not None and test_date is None:
-            RCs = df.groupby(pd.Grouper(freq=freq, label='right')).agg(func)
-            RCs = RCs.to_dict('list')
+            df_grpd = df.groupby(pd.Grouper(freq=freq, label='right'))
+            RCs = df_grpd.agg(func)
+            #RCs = RCs.to_dict('list')
 
             # if predict:
+            #     regs = df_grpd.apply(fit_model(fml=self.reg_fml))
+            #     rc_mod = RCs.copy()
+            #     rc_mod['mod'] = regs.values.tolist()
 
         print(RCs)
 
