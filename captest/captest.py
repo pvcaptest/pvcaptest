@@ -297,6 +297,9 @@ def predict(regs, rcs):
         pred_cap = pred_cap.append(mod.predict(RC_dict))
     return pred_cap
 
+
+
+
 class CapData(object):
     """
     Class to store capacity test data and translation of column names.
@@ -1128,13 +1131,12 @@ template notebook using steps rather than trying to create one function that doe
 
         if freq is not None and test_date is None:
             df_grpd = df.groupby(pd.Grouper(freq=freq, label='right'))
-            RCs = df_grpd.agg(func)
-            #RCs = RCs.to_dict('list')
+            RCs_df = df_grpd.agg(func)
+            RCs = RCs_df.to_dict('list')
 
             # if predict:
-            #     regs = df_grpd.apply(fit_model(fml=self.reg_fml))
-            #     rc_mod = RCs.copy()
-            #     rc_mod['mod'] = regs.values.tolist()
+
+
 
         print(RCs)
 
