@@ -293,11 +293,48 @@ def predict(regs, rcs):
     """
     pred_cap = pd.Series()
     for i, mod in enumerate(regs):
-        RC_dict = {key:(val, ) for key,val in (rcs.iloc[i,:].to_dict()).items()}
+        RC_dict = {key: (val, ) for key, val in (rcs.iloc[i, :].to_dict()).items()}
         pred_cap = pred_cap.append(mod.predict(RC_dict))
     return pred_cap
 
 
+def pred_summary(grps, rcs, allowance, **kwargs):
+    """
+    Creates summary table of reporting conditions, pred cap, and gauranteed cap.
+
+    Parameters
+    ----------
+    grps : pandas groupby object
+        Solar data grouped by season or month used to calculate reporting
+        conditions.  This method does not calculate reporting conditions.  This
+        argument is used to fit models for each group.
+    rcs : pandas dataframe
+        Dataframe of reporting conditions used to predict capacities.
+    allowance : float
+        Percent allowance to calculate gauranteed capacity from predicted capacity.
+
+    Returns
+    -------
+    Dataframe of reporting conditions, model coefficients, predicted capacities
+    gauranteed capacities, and points in each grouping.
+    """
+
+    regs = grps.apply(fit_model, **kwargs)
+    predictions = predict(regs, rcs)
+    params = regs.apply(lambda x: x.params.transpose())
+    pt_qty = grps.agg('count').iloc[:, 0]
+    predictions.index = pt_qty.index
+
+    params.index = pt_qty.index
+    rcs.index = pt_qty.index
+    predictions.name = 'PredCap'
+
+    results = pd.concat([rcs, predictions, params], axis=1)
+
+    results['guaranteedCap'] = results['PredCap'] * (1 - allowance)
+    results['pt_qty'] = pt_qty.values
+
+    return results
 
 
 class CapData(object):
@@ -830,9 +867,11 @@ class CapTest(object):
     reg_fml : str
         Regression formula to be fit to measured and simulated data.  Must
         follow the requirements of statsmodels use of patsy.
+    tolerance : float
+        Tolerance for capacity test as a decimal NOT percentage.
     """
 
-    def __init__(self, das, sim):
+    def __init__(self, das, sim, tolerance):
         self.das = das
         self.flt_das = CapData()
         self.das_mindex = []
@@ -845,6 +884,7 @@ class CapTest(object):
         self.ols_model_das = None
         self.ols_model_sim = None
         self.reg_fml = 'power ~ poa + I(poa * poa) + I(poa * t_amb) + I(poa * w_vel) - 1'
+        self.tolerance = tolerance
 
     def summary(self):
         """
@@ -1064,7 +1104,7 @@ template notebook using steps rather than trying to create one function that doe
     """
     @update_summary
     def rep_cond(self, data, test_date=None, days=60, inplace=True, freq=None,
-                 func={'poa': perc_wrap(60), 't_amb': 'mean', 'w_vel': 'mean'}):
+                 func={'poa': perc_wrap(60), 't_amb': 'mean', 'w_vel': 'mean'}, pred=False):
         """
         Calculate reporting conditons.
 
@@ -1093,6 +1133,9 @@ template notebook using steps rather than trying to create one function that doe
                                           w_vel - mean
             Can pass a string function ('mean') to calculate each reporting
             condition the same way.
+        pred: boolean, default False
+            If true and frequency is specified, then method returns capacity
+            predictions for each group of reporting conditions.
 
         Returns
         -------
@@ -1134,9 +1177,9 @@ template notebook using steps rather than trying to create one function that doe
             RCs_df = df_grpd.agg(func)
             RCs = RCs_df.to_dict('list')
 
-            # if predict:
-
-
+            if predict:
+                results = pred_summary(df_grpd, RCs_df, self.tolerance)
+                return results
 
         print(RCs)
 
