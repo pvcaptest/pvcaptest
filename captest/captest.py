@@ -158,10 +158,11 @@ def irrRC_balanced(df, low, high, irr_col='GlobInc'):
         # print('out percent: {}'.format(perc))
         vals_above += 1
         pt_qty_array.append(pt_qty)
-        if perc <= 0.6 and pt_qty <= pt_qty_array[loop_cnt -1]:
+        if perc <= 0.6 and pt_qty <= pt_qty_array[loop_cnt - 1]:
             break
         loop_cnt += 1
     return(irr_RC, flt_df)
+
 
 def spans_year(start_date, end_date):
     """
@@ -1178,7 +1179,8 @@ template notebook using steps rather than trying to create one function that doe
             RCs = RCs_df.to_dict('list')
 
             if predict:
-                results = pred_summary(df_grpd, RCs_df, self.tolerance)
+                results = pred_summary(df_grpd, RCs_df, self.tolerance,
+                                       fml=self.reg_fml)
                 return results
 
         print(RCs)
