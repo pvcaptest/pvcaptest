@@ -1070,7 +1070,7 @@ GROUPBY
 irrRC_balanced(df, low, high, irr_col='GlobInc')
     iterates over data until 60/40
         calcs 60th percentile
-        filters irradaince by +/- around 60th percentile
+        filters irradiance by +/- around 60th percentile
     returns irr_RC and filtered dataframe
 collect irr RCs and flt_dfs
 calc temp and wind RCs
@@ -1105,7 +1105,7 @@ template notebook using steps rather than trying to create one function that doe
     """
     @update_summary
     def rep_cond(self, data, test_date=None, days=60, inplace=True, freq=None,
-                 func={'poa': perc_wrap(60), 't_amb': 'mean', 'w_vel': 'mean'}, pred=False):
+                 func={'poa': perc_wrap(60), 't_amb': 'mean', 'w_vel': 'mean'}, pred=False, irr_bal=False, w_vel=None):
         """
         Calculate reporting conditons.
 
@@ -1137,6 +1137,14 @@ template notebook using steps rather than trying to create one function that doe
         pred: boolean, default False
             If true and frequency is specified, then method returns capacity
             predictions for each group of reporting conditions.
+        irr_bal: boolean, default False
+            If true, pred is set to True, and frequency is specified then the
+            predictions for each group of reporting conditions use the
+            irrRC_balanced function to determine the reporting conditions.
+        w_vel: int
+            If w_vel is not none, then wind reporting condition will be set to
+            value specified for predictions.  Does not affect output unless pred
+            is True and irr_bal is True.
 
         Returns
         -------
@@ -1171,7 +1179,7 @@ template notebook using steps rather than trying to create one function that doe
                 df = df.loc[start:end, :]
 
         RCs = df.agg(func).to_dict()
-        RCs = {key:[val] for key, val in RCs.items()}
+        RCs = {key: [val] for key, val in RCs.items()}
 
         if freq is not None and test_date is None:
             df_grpd = df.groupby(pd.Grouper(freq=freq, label='right'))
@@ -1179,6 +1187,22 @@ template notebook using steps rather than trying to create one function that doe
             RCs = RCs_df.to_dict('list')
 
             if predict:
+                if irr_bal:
+                    RCs_df = pd.DataFrame()
+                    flt_dfs = pd.DataFrame()
+                    for name, mnth in df_grpd:
+                        results = irrRC_balanced(mnth, 0.5, 1.5, irr_col='poa')
+                        flt_df = results[1]
+                        flt_dfs = flt_dfs.append(results[1])
+                        temp_RC = flt_df['t_amb'].mean()
+                        wind_RC = flt_df['w_vel'].mean()
+                        if w_vel is not None:
+                            wind_RC = w_vel
+                        RCs_df = RCs_df.append({'poa': results[0],
+                                                't_amb': temp_RC,
+                                                'w_vel': wind_RC}, ignore_index=True)
+                    df_grpd = flt_dfs.groupby(by=pd.Grouper(freq='M'))
+
                 results = pred_summary(df_grpd, RCs_df, self.tolerance,
                                        fml=self.reg_fml)
                 return results
