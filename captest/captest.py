@@ -1205,14 +1205,22 @@ template notebook using steps rather than trying to create one function that doe
 
                 results = pred_summary(df_grpd, RCs_df, self.tolerance,
                                        fml=self.reg_fml)
-                return results
-
-        print(RCs)
+                # return results
 
         if inplace:
-            self.rc = RCs
+            if pred:
+                print('Results dataframe saved to rc attribute.')
+                print(results)
+                self.rc = results
+            else:
+                print('Reporting conditions saved to rc attribute.')
+                print(RCs)
+                self.rc = RCs
         else:
-            return RCs
+            if pred:
+                return results
+            else:
+                return RCs
 
     def agg_sensors(self, data, irr='median', temp='mean', wind='mean',
                     real_pwr='sum', inplace=True, keep=True):
