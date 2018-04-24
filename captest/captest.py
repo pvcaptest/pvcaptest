@@ -202,6 +202,10 @@ def cntg_eoy(df, start, end):
         Start date for time period.
     end: pandas Timestamp
         End date for time period.
+
+    Todo
+    ----
+    Need to test and debug this for years not matching.
     """
     if df.index[0].year == start.year:
         df_beg = df.loc[start:, :]
@@ -1104,10 +1108,16 @@ template notebook using steps rather than trying to create one function that doe
     -need to handle winter season that spans new year
     """
     @update_summary
-    def rep_cond(self, data, test_date=None, days=60, inplace=True, freq=None,
-                 func={'poa': perc_wrap(60), 't_amb': 'mean', 'w_vel': 'mean'}, pred=False, irr_bal=False, w_vel=None):
+    def rep_cond(self, data, *args, test_date=None, days=60, inplace=True,
+                 freq=None, func={'poa': perc_wrap(60), 't_amb': 'mean',
+                                  'w_vel': 'mean'},
+                 pred=False, irr_bal=False, w_vel=None, **kwargs):
+
         """
         Calculate reporting conditons.
+
+        NOTE: Can pass additional positional arguments for low/high irradiance
+        filter.
 
         Parameters
         ----------
@@ -1161,7 +1171,7 @@ template notebook using steps rather than trying to create one function that doe
 
         if test_date is not None:
             date = pd.to_datetime(test_date)
-            offset = pd.DateOffset(days=days/2)
+            offset = pd.DateOffset(days=days / 2)
             start = date - offset
             end = date + offset
 
@@ -1191,7 +1201,7 @@ template notebook using steps rather than trying to create one function that doe
                     RCs_df = pd.DataFrame()
                     flt_dfs = pd.DataFrame()
                     for name, mnth in df_grpd:
-                        results = irrRC_balanced(mnth, 0.5, 1.5, irr_col='poa')
+                        results = irrRC_balanced(mnth, *args, irr_col='poa')
                         flt_df = results[1]
                         flt_dfs = flt_dfs.append(results[1])
                         temp_RC = flt_df['t_amb'].mean()
@@ -1205,7 +1215,6 @@ template notebook using steps rather than trying to create one function that doe
 
                 results = pred_summary(df_grpd, RCs_df, self.tolerance,
                                        fml=self.reg_fml)
-                # return results
 
         if inplace:
             if pred:
