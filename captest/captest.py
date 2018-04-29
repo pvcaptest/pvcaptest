@@ -142,7 +142,6 @@ def irrRC_balanced(df, low, high, irr_col='GlobInc'):
     pt_qty = 0
     loop_cnt = 0
     pt_qty_array = []
-    # print('------------------ MONTH START -------------------------')
     while perc > 0.60 or pt_qty < 50:
         # print('####### LOOP START #######')
         df_count = df.shape[0]
