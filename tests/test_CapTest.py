@@ -81,6 +81,56 @@ class TestCapDataLoadMethods(unittest.TestCase):
                          'imported a non csv or pvsyst file')
 
 
+class Test_CapData_methods_sim(unittest.TestCase):
+    """Test for top level irrRC_balanced function."""
+
+    def setUp(self):
+        self.pvsyst = pvc.CapData()
+        self.pvsyst.load_data(directory='./tests/data/', load_pvsyst=True)
+        # self.jun = self.pvsyst.df.loc['06/1990']
+        # self.jun_cpy = self.jun.copy()
+        # self.low = 0.5
+        # self.high = 1.5
+        # (self.irr_RC, self.jun_flt) = pvc.irrRC_balanced(self.jun, self.low,
+        #                                                  self.high)
+        # self.jun_flt_irr = self.jun_flt['GlobInc']
+
+    def test_irrRC_balanced(self):
+        jun = self.pvsyst.df.loc['06/1990']
+        jun_cpy = jun.copy()
+        low = 0.5
+        high = 1.5
+        (irr_RC, jun_flt) = pvc.irrRC_balanced(jun, low, high)
+        jun_flt_irr = jun_flt['GlobInc']
+        self.assertTrue(all(jun_flt.columns == jun.columns),
+                        'Columns of input df missing in filtered ouput df.')
+        self.assertGreater(jun_flt.shape[0], 0,
+                           'Returned df has no rows')
+        self.assertLess(jun_flt.shape[0], jun.shape[0],
+                        'No rows removed from filtered df.')
+        self.assertTrue(jun.equals(jun_cpy),
+                        'Input dataframe modified by function.')
+        self.assertGreater(irr_RC, jun[jun['GlobInc'] > 0]['GlobInc'].min(),
+                           'Reporting irr not greater than min irr in input data')
+        self.assertLess(irr_RC, jun['GlobInc'].max(),
+                        'Reporting irr no less than max irr in input data')
+
+        pts_below_irr = jun_flt_irr[jun_flt_irr.between(0, irr_RC)].shape[0]
+        perc_below = pts_below_irr / jun_flt_irr.shape[0]
+        self.assertLess(perc_below, 0.6,
+                        'More than 60 percent of points below reporting irr')
+        self.assertGreaterEqual(perc_below, 0.5,
+                                'Less than 50 percent of points below rep irr')
+
+        pts_above_irr = jun_flt_irr[jun_flt_irr.between(irr_RC, 1500)].shape[0]
+        perc_above = pts_above_irr / jun_flt_irr.shape[0]
+        self.assertGreater(perc_above, 0.4,
+                           'Less than 40 percent of points above reporting irr')
+        self.assertLessEqual(perc_above, 0.5,
+                             'More than 50 percent of points above reportin irr')
+
+
+
 # class TestFilterIrr(unittest.TestCase):
 #     """Tests for CapTest class."""
 #
