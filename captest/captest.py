@@ -115,7 +115,7 @@ def perc_wrap(p):
     return numpy_percentile
 
 
-def irrRC_balanced(df, low, high, irr_col='GlobInc'):
+def irrRC_balanced(df, low, high, irr_col='GlobInc', plot=False):
     """
     Calculates max irradiance reporting condition that is below 60th percentile.
 
@@ -128,8 +128,11 @@ def irrRC_balanced(df, low, high, irr_col='GlobInc'):
         Bottom value for irradiance filter, usually between 0.5 and 0.8.
     high: float
         Top value for irradiance filter, usually between 1.2 and 1.5.
-    irr_col : str
+    irr_col: str
         String that is the name of the column with the irradiance data.
+    plot: bool, default False
+        Plots graphical view of algorithim searching for reporting irradiance.
+        Useful for troubleshooting or understanding the method.
 
     Returns
     -------
@@ -137,12 +140,20 @@ def irrRC_balanced(df, low, high, irr_col='GlobInc'):
         Float reporting irradiance and filtered dataframe.
 
     """
+    if plot:
+        irr = df[irr_col].values
+        x = np.ones(irr.shape[0])
+        plt.plot(x, irr, 'o', markerfacecolor=(0.5, 0.7, 0.5, 0.1))
+        plt.ylabel('irr')
+        x_inc = 1.01
+
     vals_above = 10
     perc = 100.
     pt_qty = 0
     loop_cnt = 0
     pt_qty_array = []
-    while perc > 0.60 or pt_qty < 50:
+    # print('--------------- MONTH START --------------')
+    while perc > 0.6 or pt_qty < 50:
         # print('####### LOOP START #######')
         df_count = df.shape[0]
         df_perc = 1 - (vals_above / df_count)
@@ -160,6 +171,16 @@ def irrRC_balanced(df, low, high, irr_col='GlobInc'):
         if perc <= 0.6 and pt_qty <= pt_qty_array[loop_cnt - 1]:
             break
         loop_cnt += 1
+
+        if plot:
+            x_inc += 0.02
+            y1 = irr_RC * low
+            y2 = irr_RC * high
+            plt.plot(x_inc, irr_RC, 'ro')
+            plt.plot([x_inc, x_inc], [y1, y2])
+
+    if plot:
+        plt.show()
     return(irr_RC, flt_df)
 
 
@@ -1200,7 +1221,8 @@ template notebook using steps rather than trying to create one function that doe
                     RCs_df = pd.DataFrame()
                     flt_dfs = pd.DataFrame()
                     for name, mnth in df_grpd:
-                        results = irrRC_balanced(mnth, *args, irr_col='poa')
+                        results = irrRC_balanced(mnth, *args, irr_col='poa',
+                                                 **kwargs)
                         flt_df = results[1]
                         flt_dfs = flt_dfs.append(results[1])
                         temp_RC = flt_df['t_amb'].mean()
