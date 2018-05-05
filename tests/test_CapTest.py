@@ -18,6 +18,15 @@ Run test from project root with 'python -m tests.test_CapTest'
 
 
 update_summary
+x  perc_wrap
+irrRC_balanced
+spans_year
+cntg_eoy
+flt_irr
+fit_model
+predict
+pred_summary
+
 CapData
     set_reg_trans
     copy
@@ -81,6 +90,24 @@ class TestCapDataLoadMethods(unittest.TestCase):
                          'imported a non csv or pvsyst file')
 
 
+class Test_perc_wrap(unittest.TestCase):
+    """Test percent wrap function."""
+    def test_perc_wrap(self):
+        rng = np.arange(1, 100, 1)
+        rng_cpy = rng.copy()
+        df = pd.DataFrame({'vals': rng})
+        df_cpy = df.copy()
+        bool_array = []
+        for val in rng:
+            np_perc = np.percentile(rng, val, interpolation='nearest')
+            wrap_perc = df.agg(pvc.perc_wrap(val)).values[0]
+            bool_array.append(np_perc == wrap_perc)
+        self.assertTrue(all(bool_array),
+                        'np.percentile wrapper gives different value than np perc')
+        self.assertTrue(all(df == df_cpy), 'perc_wrap function modified input df')
+
+
+
 class Test_CapData_methods_sim(unittest.TestCase):
     """Test for top level irrRC_balanced function."""
 
@@ -128,6 +155,57 @@ class Test_CapData_methods_sim(unittest.TestCase):
                            'Less than 40 percent of points above reporting irr')
         self.assertLessEqual(perc_above, 0.5,
                              'More than 50 percent of points above reportin irr')
+
+    def test_rep_cond_pred(self):
+        """Test prediction option of reporting conditions method."""
+        vals = self.pvsyst.trans['--']
+        self.pvsyst.trans['--'] = vals[:-1]
+        self.pvsyst.trans['irr-ghi-'] = ['GlobInc']
+        self.pvsyst.set_reg_trans(poa='irr-ghi-', power='real_pwr--',
+                                  w_vel='wind--', t_amb='temp-amb-')
+        meas = pvc.CapData()
+        cptest = pvc.CapTest(meas, self.pvsyst, 0.5)
+        results = cptest.rep_cond('sim', 0.8, 1.2, inplace=False, freq='M',
+                                  pred=True)
+
+        self.assertEqual(results.shape[0], 12, 'Not all months in results.')
+        self.assertEqual(results.shape[1], 10, 'Not all cols in results.')
+
+        col_names = ['poa', 'w_vel', 't_amb', 'PredCap', 'poa_coef',
+                     'I(poa * poa)', 'I(poa * t_amb)', 'I(poa * w_vel)',
+                     'guaranteedCap', 'pt_qty']
+        for name in col_names:
+            self.assertIn(name, results.columns,
+                          '{} column is not in results.'.format(name))
+        self.assertIsInstance(results.index,
+                              pd.core.indexes.datetimes.DatetimeIndex,
+                              'Index is not pandas DatetimeIndex')
+
+        # Check irradiance values for each month
+        for val in results.index:
+            mnth_str = val.strftime('%m/%Y')
+            df_irr = self.pvsyst.df['GlobInc']
+            irr_result = results['poa'].loc[mnth_str][0]
+            np_result = np.percentile(df_irr.loc[mnth_str], 60,
+                                      interpolation='nearest')
+            self.assertEqual(np_result, irr_result,
+                             'The 60th percentile from function does not match '
+                             'numpy percentile for {}'.format(mnth_str))
+
+            df_w_vel = self.pvsyst.df['WindVel']
+            w_result = results['w_vel'].loc[mnth_str][0]
+            w_result_pd = df_w_vel.loc[mnth_str].mean()
+            self.assertEqual(w_result_pd, w_result,
+                             'The average wind speed result does not match '
+                             'pandas aveage for {}'.format(mnth_str))
+
+            df_t_amb = self.pvsyst.df['TAmb']
+            t_amb_result = results['t_amb'].loc[mnth_str][0]
+            t_amb_result_pd = df_t_amb.loc[mnth_str].mean()
+            self.assertEqual(t_amb_result_pd, t_amb_result,
+                             'The average amb temp result does not match '
+                             'pandas aveage for {}'.format(mnth_str))
+
 
 
 
