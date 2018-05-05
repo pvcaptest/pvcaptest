@@ -90,7 +90,7 @@ class TestCapDataLoadMethods(unittest.TestCase):
                          'imported a non csv or pvsyst file')
 
 
-class Test_perc_wrap(unittest.TestCase):
+class Test_top_level_funcs(unittest.TestCase):
     """Test percent wrap function."""
     def test_perc_wrap(self):
         rng = np.arange(1, 100, 1)
@@ -105,6 +105,25 @@ class Test_perc_wrap(unittest.TestCase):
         self.assertTrue(all(bool_array),
                         'np.percentile wrapper gives different value than np perc')
         self.assertTrue(all(df == df_cpy), 'perc_wrap function modified input df')
+
+    def test_fit_model(self):
+        rng = np.random.RandomState(1)
+        x = 50 * abs(rng.rand(50))
+        y = 2 * x - 5 + 5 * rng.randn(50)
+        df = pd.DataFrame({'x': x, 'y': y})
+        fml = 'y ~ x - 1'
+        passed_ind_vars = fml.split('~')[1].split()[::2]
+        try:
+            passed_ind_vars.remove('1')
+        except ValueError:
+            pass
+
+        reg = pvc.fit_model(df, fml=fml)
+
+        for var in passed_ind_vars:
+            self.assertIn(var, reg.params.index,
+                          '{} ind variable in formula argument not in model'
+                          'parameters'.format(var))
 
 
 
