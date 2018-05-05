@@ -14,8 +14,13 @@ capdata = pvc.CapData()
 capdata.df = df
 
 """
-Run test from project root with 'python -m tests.test_CapTest'
+Run all tests from project root:
+'python -m tests.test_CapTest'
 
+Run individual tests:
+'python -m unittest tests.test_CapTest.Class.Method'
+
+-m flag imports unittest as module rather than running as script
 
 update_summary
 x  perc_wrap
