@@ -126,7 +126,29 @@ class Test_top_level_funcs(unittest.TestCase):
                           '{} ind variable in formula argument not in model'
                           'parameters'.format(var))
 
+    def test_predict(self):
+        x = np.arange(0, 50)
+        y1 = x
+        y2 = x * 2
+        y3 = x * 10
 
+        dfs = [pd.DataFrame({'x': x, 'y': y1}),
+               pd.DataFrame({'x': x, 'y': y2}),
+               pd.DataFrame({'x': x, 'y': y3})]
+
+        reg_lst = []
+        for df in dfs:
+            reg_lst.append(pvc.fit_model(df, fml='y ~ x'))
+        reg_ser = pd.Series(reg_lst)
+
+        for regs in [reg_lst, reg_ser]:
+            preds = pvc.predict(regs, pd.DataFrame({'x': [10, 10, 10]}))
+            self.assertAlmostEqual(preds.iloc[0], 10, 7, 'Pred for x = y wrong.')
+            self.assertAlmostEqual(preds.iloc[1], 20, 7, 'Pred for x = y * 2 wrong.')
+            self.assertAlmostEqual(preds.iloc[2], 100, 7, 'Pred for x = y * 10 wrong.')
+            self.assertEqual(3, preds.shape[0], 'Each of the three input'
+                                                'regressions should have a'
+                                                'prediction')
 
 
 class Test_CapData_methods_sim(unittest.TestCase):
