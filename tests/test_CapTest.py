@@ -107,6 +107,7 @@ class Test_top_level_funcs(unittest.TestCase):
         self.assertTrue(all(df == df_cpy), 'perc_wrap function modified input df')
 
     def test_fit_model(self):
+        """Test fit model func which wraps statsmodels ols.fit for dataframe."""
         rng = np.random.RandomState(1)
         x = 50 * abs(rng.rand(50))
         y = 2 * x - 5 + 5 * rng.randn(50)
@@ -124,6 +125,7 @@ class Test_top_level_funcs(unittest.TestCase):
             self.assertIn(var, reg.params.index,
                           '{} ind variable in formula argument not in model'
                           'parameters'.format(var))
+
 
 
 
