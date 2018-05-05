@@ -304,7 +304,8 @@ def predict(regs, rcs):
     Calculates predicted values for given linear models and predictor values.
 
     Evaluates the first linear model in the iterable with the first row of the
-    predictor values in the dataframe.  Passed arguments muste be aligned.
+    predictor values in the dataframe.  Passed arguments must be aligned.
+
     Parameters
     ----------
     regs : iterable of statsmodels regression results wrappers
@@ -327,12 +328,13 @@ def pred_summary(grps, rcs, allowance, **kwargs):
     """
     Creates summary table of reporting conditions, pred cap, and gauranteed cap.
 
+    This method does not calculate reporting conditions.
+
     Parameters
     ----------
     grps : pandas groupby object
         Solar data grouped by season or month used to calculate reporting
-        conditions.  This method does not calculate reporting conditions.  This
-        argument is used to fit models for each group.
+        conditions.  This argument is used to fit models for each group.
     rcs : pandas dataframe
         Dataframe of reporting conditions used to predict capacities.
     allowance : float
