@@ -347,6 +347,7 @@ def pred_summary(grps, rcs, allowance, **kwargs):
     regs = grps.apply(fit_model, **kwargs)
     predictions = predict(regs, rcs)
     params = regs.apply(lambda x: x.params.transpose())
+    params.rename_axis({'poa':'poa_coef'}, axis=1, inplace=True)
     pt_qty = grps.agg('count').iloc[:, 0]
     predictions.index = pt_qty.index
 
