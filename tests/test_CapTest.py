@@ -155,6 +155,67 @@ class Test_top_level_funcs(unittest.TestCase):
                                                 'regressions should have a'
                                                 'prediction')
 
+    def test_pred_summary(self):
+        """Test aggregation of reporting conditions and predicted results."""
+        """
+        grpby -> df of regressions
+        regs -> series of predicted values
+        df of reg parameters
+        """
+        pvsyst = pvc.CapData()
+        pvsyst.load_data(directory='./tests/data/', load_pvsyst=True)
+
+        df_regs = pvsyst.df.loc[:, ['E_Grid', 'GlobInc', 'TAmb', 'WindVel']]
+        df_regs_day = df_regs.query('GlobInc > 0')
+        grps = df_regs_day.groupby(by=pd.TimeGrouper('M'))
+
+        ones = np.ones(12)
+        irr_rc = ones * 500
+        temp_rc = ones * 20
+        w_vel = ones
+        rcs = pd.DataFrame({'GlobInc': irr_rc, 'TAmb': temp_rc, 'WindVel': w_vel})
+
+        results = pvc.pred_summary(grps, rcs, 0.05,
+                                   fml='E_Grid ~ GlobInc +'
+                                                 'I(GlobInc * GlobInc) +'
+                                                 'I(GlobInc * TAmb) +'
+                                                 'I(GlobInc * WindVel) - 1')
+
+        self.assertEqual(results.shape[0], 12, 'Not all months in results.')
+        self.assertEqual(results.shape[1], 10, 'Not all cols in results.')
+
+        self.assertIsInstance(results.index,
+                              pd.core.indexes.datetimes.DatetimeIndex,
+                              'Index is not pandas DatetimeIndex')
+
+        col_length = len(results.columns.values)
+        col_set_length = len(set(results.columns.values))
+        self.assertEqual(col_set_length, col_length,
+                         'There is a duplicate column name in the results df.')
+
+        pt_qty_exp = [341, 330, 392, 390, 403, 406,
+                           456, 386, 390, 346, 331, 341]
+        gaur_cap_exp = [3089550.4039329495, 3103610.4635679387,
+                        3107035.251399103, 3090681.1145782764,
+                        3058186.270209293, 3059784.2309170915,
+                        3088294.50827525, 3087081.0026879036,
+                        3075251.990424683, 3093287.331878834,
+                        3097089.7852036236, 3084318.093294242]
+        for i, mnth in enumerate(results.index):
+            self.assertLess(results.loc[mnth, 'guaranteedCap'],
+                            results.loc[mnth, 'PredCap'],
+                            'Gauranteed capacity is greater than predicted in'
+                            'month {}'.format(mnth))
+            self.assertGreater(results.loc[mnth, 'guaranteedCap'], 0,
+                               'Gauranteed capacity is less than 0 in'
+                               'month {}'.format(mnth))
+            self.assertAlmostEqual(results.loc[mnth, 'guaranteedCap'],
+                                   gaur_cap_exp[i], 7,
+                                   'Gauranted capacity not equal to expected'
+                                   'value in {}'.format(mnth))
+            self.assertEqual(results.loc[mnth, 'pt_qty'], pt_qty_exp[i],
+                               'Point quantity not equal to expected values in'
+                               '{}'.format(mnth))
 
 class Test_CapData_methods_sim(unittest.TestCase):
     """Test for top level irrRC_balanced function."""
@@ -215,19 +276,6 @@ class Test_CapData_methods_sim(unittest.TestCase):
         cptest = pvc.CapTest(meas, self.pvsyst, 0.5)
         results = cptest.rep_cond('sim', 0.8, 1.2, inplace=False, freq='M',
                                   pred=True)
-
-        self.assertEqual(results.shape[0], 12, 'Not all months in results.')
-        self.assertEqual(results.shape[1], 10, 'Not all cols in results.')
-
-        col_names = ['poa', 'w_vel', 't_amb', 'PredCap', 'poa_coef',
-                     'I(poa * poa)', 'I(poa * t_amb)', 'I(poa * w_vel)',
-                     'guaranteedCap', 'pt_qty']
-        for name in col_names:
-            self.assertIn(name, results.columns,
-                          '{} column is not in results.'.format(name))
-        self.assertIsInstance(results.index,
-                              pd.core.indexes.datetimes.DatetimeIndex,
-                              'Index is not pandas DatetimeIndex')
 
         # Check irradiance values for each month
         for val in results.index:
