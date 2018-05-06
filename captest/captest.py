@@ -349,13 +349,18 @@ def pred_summary(grps, rcs, allowance, **kwargs):
     regs = grps.apply(fit_model, **kwargs)
     predictions = predict(regs, rcs)
     params = regs.apply(lambda x: x.params.transpose())
-    params.rename_axis({'poa':'poa_coef'}, axis=1, inplace=True)
     pt_qty = grps.agg('count').iloc[:, 0]
     predictions.index = pt_qty.index
 
     params.index = pt_qty.index
     rcs.index = pt_qty.index
     predictions.name = 'PredCap'
+
+    for rc_col_name in rcs.columns:
+        for param_col_name in params.columns:
+            if rc_col_name == param_col_name:
+                params.rename_axis({param_col_name: param_col_name + '-param'},
+                                   axis=1, inplace=True)
 
     results = pd.concat([rcs, predictions, params], axis=1)
 
