@@ -1156,16 +1156,16 @@ template notebook using steps rather than trying to create one function that doe
             When not used specified reporting conditions for all data passed
             are returned grouped by the freq provided.
         days: int, default 60
-            Number of days to use when calculating reporting conditons.  Typically
-            no less than 30 and no more than 90.
+            Number of days to use when calculating reporting conditons.
+            Typically no less than 30 and no more than 90.
         inplace: bool, True by default
             When true updates object rc parameter, when false returns dicitionary
             of reporting conditions.
         freq: str
-            String pandas offset alias to aggregate for reporting
-            condition calculation.  Ex '60D' for 60 Days or 'M' for months.
-            Typical 'M', '2M', or 'BQ-NOV'.  'BQ-NOV' is business quarterly
-            year ending in Novemnber i.e. seasons.
+            String pandas offset alias to specify aggregattion frequency
+            for reporting condition calculation. Ex '60D' for 60 Days or
+            'M' for months. Typical 'M', '2M', or 'BQ-NOV'.
+            'BQ-NOV' is business quarterly year ending in Novemnber i.e. seasons.
         func: callable, string, dictionary, or list of string/callables
             Determines how the reporting condition is calculated.
             Default is a dictionary poa - 60th numpy_percentile, t_amb - mean
@@ -1173,15 +1173,16 @@ template notebook using steps rather than trying to create one function that doe
             Can pass a string function ('mean') to calculate each reporting
             condition the same way.
         pred: boolean, default False
-            If true and frequency is specified, then method returns capacity
-            predictions for each group of reporting conditions.
+            If true and frequency is specified, then method returns a dataframe
+            with reporting conditions, regression parameters, predicted
+            capacites, and point quantities for each group.
         irr_bal: boolean, default False
             If true, pred is set to True, and frequency is specified then the
             predictions for each group of reporting conditions use the
             irrRC_balanced function to determine the reporting conditions.
         w_vel: int
             If w_vel is not none, then wind reporting condition will be set to
-            value specified for predictions.  Does not affect output unless pred
+            value specified for predictions. Does not affect output unless pred
             is True and irr_bal is True.
 
         Returns
@@ -1189,6 +1190,8 @@ template notebook using steps rather than trying to create one function that doe
         dict
             Returns a dictionary of reporting conditions if inplace=False
             otherwise returns None.
+        pandas DataFrame
+            If pred=True, then returns a pandas dataframe of results.
         """
         flt_cd = self.__flt_setup(data)
         df = flt_cd.rview(['power', 'poa', 't_amb', 'w_vel'])
