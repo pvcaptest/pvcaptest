@@ -274,12 +274,22 @@ class Test_CapData_methods_sim(unittest.TestCase):
                                   w_vel='wind--', t_amb='temp-amb-')
         meas = pvc.CapData()
         cptest = pvc.CapTest(meas, self.pvsyst, 0.5)
+
+        # Tests for typical monthly predictions
         results = cptest.rep_cond('sim', 0.8, 1.2, inplace=False, freq='M',
                                   pred=True)
 
-        # Check irradiance values for each month
+        self.assertEqual(results.shape[0], 12,
+                         'freq=M should give 12 rows in results dataframe')
+        self.assertEqual(results.index[0].month, 1,
+                         'First row should be for January.')
+        self.assertEqual(results.index[11].month, 12,
+                         'Last row should be for January.')
+
         for val in results.index:
             mnth_str = val.strftime('%m/%Y')
+
+            # Check irradiance values for each month
             df_irr = self.pvsyst.df['GlobInc']
             irr_result = results['poa'].loc[mnth_str][0]
             np_result = np.percentile(df_irr.loc[mnth_str], 60,
@@ -288,6 +298,7 @@ class Test_CapData_methods_sim(unittest.TestCase):
                              'The 60th percentile from function does not match '
                              'numpy percentile for {}'.format(mnth_str))
 
+            # Check wind speed values for each month
             df_w_vel = self.pvsyst.df['WindVel']
             w_result = results['w_vel'].loc[mnth_str][0]
             w_result_pd = df_w_vel.loc[mnth_str].mean()
@@ -295,6 +306,7 @@ class Test_CapData_methods_sim(unittest.TestCase):
                              'The average wind speed result does not match '
                              'pandas aveage for {}'.format(mnth_str))
 
+            # Check ambient temperature values for each month
             df_t_amb = self.pvsyst.df['TAmb']
             t_amb_result = results['t_amb'].loc[mnth_str][0]
             t_amb_result_pd = df_t_amb.loc[mnth_str].mean()
@@ -302,6 +314,18 @@ class Test_CapData_methods_sim(unittest.TestCase):
                              'The average amb temp result does not match '
                              'pandas aveage for {}'.format(mnth_str))
 
+        # Tests for seasonal predictions
+        check_freqs = ['BQ-JAN', 'BQ-FEB', 'BQ-MAR',
+                       'BQ-APR', 'BQ-MAY', 'BQ-JUN',
+                       'BQ-JUL', 'BQ-AUG', 'BQ-SEP',
+                       'BQ-OCT', 'BQ-NOV', 'BQ-DEC']
+        for freq in check_freqs:
+            results_qtr = cptest.rep_cond('sim', 0.8, 1.2, inplace=False,
+                                          freq=freq, pred=True)
+
+            self.assertEqual(results_qtr.shape[0], 4,
+                             '{} seasonal freq not aligned with input '
+                             'data'.format(freq))
 
 
 
