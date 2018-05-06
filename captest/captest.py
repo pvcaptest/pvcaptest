@@ -1219,7 +1219,30 @@ template notebook using steps rather than trying to create one function that doe
         RCs = df.agg(func).to_dict()
         RCs = {key: [val] for key, val in RCs.items()}
 
+        check_freqs = ['BQ-JAN', 'BQ-FEB', 'BQ-APR', 'BQ-MAY', 'BQ-JUL',
+                       'BQ-AUG', 'BQ-OCT', 'BQ-NOV']
+        mnth_int = {'JAN': 1, 'FEB': 2, 'APR': 4, 'MAY': 5, 'JUL': 7,
+                    'AUG': 8, 'OCT': 10, 'NOV': 11}
+
         if freq is not None and test_date is None:
+            if freq in check_freqs:
+                mnth = mnth_int[freq.split('-')[1]]
+                year = df.index[0].year
+                mnths_eoy = 12 - mnth
+                mnths_boy = 3 - mnths_eoy
+                if int(mnth) >= 10:
+                    str_date = str(mnths_boy) + '/' + str(year)
+                else:
+                    str_date = str(mnth) + '/' + str(year)
+                tdelta = df.index[1] - df.index[0]
+                date_to_offset = df.loc[str_date].index[-1].to_pydatetime()
+                start = date_to_offset + tdelta
+                end = date_to_offset + pd.DateOffset(years=1)
+                if mnth < 8 or mnth >= 10:
+                    df = cntg_eoy(df, start, end)
+                else:
+                    df = cntg_eoy(df, end, start)
+
             df_grpd = df.groupby(pd.Grouper(freq=freq, label='right'))
             RCs_df = df_grpd.agg(func)
             RCs = RCs_df.to_dict('list')
