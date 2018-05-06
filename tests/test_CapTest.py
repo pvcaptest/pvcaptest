@@ -327,6 +327,11 @@ class Test_CapData_methods_sim(unittest.TestCase):
                              '{} seasonal freq not aligned with input '
                              'data'.format(freq))
 
+        cptest.rep_cond('sim', 0.8, 1.2, inplace=True, freq='M',
+                                  pred=True)
+        self.assertIsInstance(cptest.rc,
+                              pd.core.frame.DataFrame,
+                              'Results not saved to CapTest rc attribute')
 
 
 # class TestFilterIrr(unittest.TestCase):
