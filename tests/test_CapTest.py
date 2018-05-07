@@ -200,7 +200,7 @@ class Test_top_level_funcs(unittest.TestCase):
         self.assertEqual(results.shape[0], 12, 'Not all months in results.')
         self.assertEqual(results.shape[1], 10, 'Not all cols in results.')
 
-        self.ance(results.index,
+        self.assertIsInstance(results.index,
                               pd.core.indexes.datetimes.DatetimeIndex,
                               'Index is not pandas DatetimeIndex')
 
