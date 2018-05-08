@@ -533,17 +533,24 @@ class CapData(object):
         encodings = ['utf-8', 'latin1', 'iso-8859-1', 'cp1252']
         for encoding in encodings:
             try:
+                # pvraw = pd.read_csv(dirName, skiprows=10, encoding=encoding,
+                #                     header=[0, 1], parse_dates=[0],
+                #                     infer_datetime_format=True, **kwargs)
                 pvraw = pd.read_csv(dirName, skiprows=10, encoding=encoding,
-                                    header=[0, 1], parse_dates=[0],
-                                    infer_datetime_format=True, **kwargs)
+                                    header=[0, 1], **kwargs)
             except UnicodeDecodeError:
                 continue
             else:
                 break
 
         pvraw.columns = pvraw.columns.droplevel(1)
-        # pvraw['dateString'] = pvraw['date'].apply(lambda x: x.strftime('%m/%d/%Y %H'))
-        pvraw.set_index('date', drop=True, inplace=True)
+        dates = pvraw.loc[:, 'date']
+        try:
+            dt_index = pd.to_datetime(dates, format='%m/%d/%y %H:%M')
+        except ValueError:
+            dt_index = pd.to_datetime(dates)
+        pvraw.index = dt_index
+        pvraw.drop('date', axis=1, inplace=True)
         pvraw = pvraw.rename(columns={"T Amb": "TAmb"})
         return pvraw
 

@@ -72,6 +72,22 @@ CapTest
 test_files = ['test1.csv', 'test2.csv', 'test3.CSV', 'test4.txt',
               'pvsyst.csv', 'pvsyst_data.csv']
 
+class TestLoadDataMethods(unittest.TestCase):
+    """Test for load data methods without setup."""
+
+    def test_load_pvsyst(self):
+        pvsyst = pvc.CapData()
+        pvsyst = pvsyst.load_pvsyst('./tests/data/',
+                                    'pvsyst_example_HourlyRes_2.CSV')
+        self.assertEqual(8760, pvsyst.shape[0],
+                         'Not the correct number of rows in imported data.')
+        self.assertIsInstance(pvsyst.index,
+                              pd.core.indexes.datetimes.DatetimeIndex,
+                              'Index is not a datetime index.')
+        self.assertIsInstance(pvsyst.columns,
+                              pd.core.indexes.base.Index,
+                              'Columns might be MultiIndex; should be base index')
+
 
 class TestCapDataLoadMethods(unittest.TestCase):
     """Tests for load_data method."""
