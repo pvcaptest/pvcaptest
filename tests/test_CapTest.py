@@ -99,7 +99,7 @@ class TestCapDataLoadMethods(unittest.TestCase):
                 f.write('Date, val\n11/21/2017, 1')
 
         self.capdata = pvc.CapData()
-        self.capdata.load_data(directory='test_csvs/', set_trans=False)
+        self.capdata.load_data(path='test_csvs/', set_trans=False)
 
     def tearDown(self):
         for fname in test_files:
@@ -179,7 +179,7 @@ class Test_top_level_funcs(unittest.TestCase):
         df of reg parameters
         """
         pvsyst = pvc.CapData()
-        pvsyst.load_data(directory='./tests/data/', load_pvsyst=True)
+        pvsyst.load_data(path='./tests/data/', load_pvsyst=True)
 
         df_regs = pvsyst.df.loc[:, ['E_Grid', 'GlobInc', 'TAmb', 'WindVel']]
         df_regs_day = df_regs.query('GlobInc > 0')
@@ -238,7 +238,7 @@ class Test_CapData_methods_sim(unittest.TestCase):
 
     def setUp(self):
         self.pvsyst = pvc.CapData()
-        self.pvsyst.load_data(directory='./tests/data/', load_pvsyst=True)
+        self.pvsyst.load_data(path='./tests/data/', load_pvsyst=True)
         # self.jun = self.pvsyst.df.loc['06/1990']
         # self.jun_cpy = self.jun.copy()
         # self.low = 0.5

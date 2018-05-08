@@ -270,6 +270,7 @@ def flt_irr(df, irr_col, low, high, ref_val=None):
         low *= ref_val
         high *= ref_val
 
+    # This fails on very long column names or col names with a comma
     flt_str = '@low <= ' + irr_col + ' <= @high'
     indx = df.query(flt_str).index
 
@@ -554,22 +555,25 @@ class CapData(object):
         pvraw = pvraw.rename(columns={"T Amb": "TAmb"})
         return pvraw
 
-    def load_data(self, directory='./data/', set_trans=True, load_pvsyst=False,
-                  **kwargs):
+    def load_data(self, path='./data/', fname=None, set_trans=True,
+                  load_pvsyst=False, **kwargs):
         """
         Import data from csv files.
 
         Parameters
         ----------
-        directory : str, default './data/'
+        path : str, default './data/'
             Path to directory containing csv files to load.
+        fname: str, default None
+            Filename of specific file to load. If filename is none method will
+            load all csv files into one dataframe.
         set_trans : bool, default True
             Generates translation dicitionary for column names after loading
             data.
         load_pvsyst : bool, default False
-            By default skips any csv file that has 'pvsyst' in the name.  Is not
-            case sensitive.  Set to true to import a csv with 'pvsyst' in the
-            name and skip all other files.
+            By default skips any csv file that has 'pvsyst' in the name.  Is
+            not case sensitive.  Set to true to import a csv with 'pvsyst' in
+            the name and skip all other files.
         **kwargs
             Will pass kwargs onto load_pvsyst or load_das, which will pass to
             Pandas.read_csv.  Useful to adjust the separator (Ex. sep=';').
@@ -578,32 +582,37 @@ class CapData(object):
         -------
         None
         """
+        if fname is None:
+            files_to_read = []
+            for file in os.listdir(path):
+                if file.endswith('.csv'):
+                    files_to_read.append(file)
+                elif file.endswith('.CSV'):
+                    files_to_read.append(file)
 
-        files_to_read = []
-        for file in os.listdir(directory):
-            if file.endswith('.csv'):
-                files_to_read.append(file)
-            elif file.endswith('.CSV'):
-                files_to_read.append(file)
+            all_sensors = pd.DataFrame()
 
-        all_sensors = pd.DataFrame()
-
-        if not load_pvsyst:
-            for filename in files_to_read:
-                if filename.lower().find('pvsyst') != -1:
-                    print("Skipped file: " + filename)
-                    continue
-                nextData = self.load_das(directory, filename, **kwargs)
-                all_sensors = pd.concat([all_sensors, nextData], axis=0)
-                print("Read: " + filename)
-        elif load_pvsyst:
-            for filename in files_to_read:
-                if filename.lower().find('pvsyst') == -1:
-                    print("Skipped file: " + filename)
-                    continue
-                nextData = self.load_pvsyst(directory, filename, **kwargs)
-                all_sensors = pd.concat([all_sensors, nextData], axis=0)
-                print("Read: " + filename)
+            if not load_pvsyst:
+                for filename in files_to_read:
+                    if filename.lower().find('pvsyst') != -1:
+                        print("Skipped file: " + filename)
+                        continue
+                    nextData = self.load_das(path, filename, **kwargs)
+                    all_sensors = pd.concat([all_sensors, nextData], axis=0)
+                    print("Read: " + filename)
+            elif load_pvsyst:
+                for filename in files_to_read:
+                    if filename.lower().find('pvsyst') == -1:
+                        print("Skipped file: " + filename)
+                        continue
+                    nextData = self.load_pvsyst(path, filename, **kwargs)
+                    all_sensors = pd.concat([all_sensors, nextData], axis=0)
+                    print("Read: " + filename)
+        else:
+            if not load_pvsyst:
+                all_sensors = self.load_das(path, fname, **kwargs)
+            elif load_pvsyst:
+                all_sensors = self.load_pvsyst(path, fname, **kwargs)
 
         ix_ser = all_sensors.index.to_series()
         all_sensors['index'] = ix_ser.apply(lambda x: x.strftime('%m/%d/%Y %H %M'))
