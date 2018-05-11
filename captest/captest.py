@@ -12,6 +12,8 @@ from functools import wraps
 
 import statsmodels.formula.api as smf
 
+from scipy import stats
+
 from sklearn.covariance import EllipticEnvelope
 from sklearn.svm import OneClassSVM
 
@@ -113,6 +115,75 @@ def perc_wrap(p):
     return numpy_percentile
 
 
+def irrRC_balanced(df, low, high, irr_col='GlobInc', plot=False):
+    """
+    Calculates max irradiance reporting condition that is below 60th percentile.
+
+    Parameters
+    ----------
+    df: pandas DataFrame
+        DataFrame containing irradiance data for calculating the irradiance
+        reporting condition.
+    low: float
+        Bottom value for irradiance filter, usually between 0.5 and 0.8.
+    high: float
+        Top value for irradiance filter, usually between 1.2 and 1.5.
+    irr_col: str
+        String that is the name of the column with the irradiance data.
+    plot: bool, default False
+        Plots graphical view of algorithim searching for reporting irradiance.
+        Useful for troubleshooting or understanding the method.
+
+    Returns
+    -------
+    Tuple
+        Float reporting irradiance and filtered dataframe.
+
+    """
+    if plot:
+        irr = df[irr_col].values
+        x = np.ones(irr.shape[0])
+        plt.plot(x, irr, 'o', markerfacecolor=(0.5, 0.7, 0.5, 0.1))
+        plt.ylabel('irr')
+        x_inc = 1.01
+
+    vals_above = 10
+    perc = 100.
+    pt_qty = 0
+    loop_cnt = 0
+    pt_qty_array = []
+    # print('--------------- MONTH START --------------')
+    while perc > 0.6 or pt_qty < 50:
+        # print('####### LOOP START #######')
+        df_count = df.shape[0]
+        df_perc = 1 - (vals_above / df_count)
+        # print('in percent: {}'.format(df_perc))
+        irr_RC = (df[irr_col].agg(perc_wrap(df_perc * 100)))
+        # print('ref irr: {}'.format(irr_RC))
+        flt_df = flt_irr(df, irr_col, low, high, ref_val=irr_RC)
+        # print('number of vals: {}'.format(df.shape))
+        pt_qty = flt_df.shape[0]
+        # print('flt pt qty: {}'.format(pt_qty))
+        perc = stats.percentileofscore(flt_df[irr_col], irr_RC) / 100
+        # print('out percent: {}'.format(perc))
+        vals_above += 1
+        pt_qty_array.append(pt_qty)
+        if perc <= 0.6 and pt_qty <= pt_qty_array[loop_cnt - 1]:
+            break
+        loop_cnt += 1
+
+        if plot:
+            x_inc += 0.02
+            y1 = irr_RC * low
+            y2 = irr_RC * high
+            plt.plot(x_inc, irr_RC, 'ro')
+            plt.plot([x_inc, x_inc], [y1, y2])
+
+    if plot:
+        plt.show()
+    return(irr_RC, flt_df)
+
+
 def spans_year(start_date, end_date):
     """
     Returns boolean indicating if dates passes are in the same year.
@@ -151,6 +222,10 @@ def cntg_eoy(df, start, end):
         Start date for time period.
     end: pandas Timestamp
         End date for time period.
+
+    Todo
+    ----
+    Need to test and debug this for years not matching.
     """
     if df.index[0].year == start.year:
         df_beg = df.loc[start:, :]
@@ -170,6 +245,130 @@ def cntg_eoy(df, start, end):
     ix_ser = df_return.index.to_series()
     df_return['index'] = ix_ser.apply(lambda x: x.strftime('%m/%d/%Y %H %M'))
     return df_return
+
+
+def flt_irr(df, irr_col, low, high, ref_val=None):
+    """
+    Top level filter on irradiance values.
+
+    Parameters
+    ----------
+    irr_col : str
+        String that is the name of the column with the irradiance data.
+    low : float or int
+        Minimum value as fraction (0.8) or absolute 200 (W/m^2)
+    high : float or int
+        Max value as fraction (1.2) or absolute 800 (W/m^2)
+    ref_val : float or int
+        Must provide arg when min/max are fractions
+
+    Returns
+    -------
+    DataFrame
+    """
+    if ref_val is not None:
+        low *= ref_val
+        high *= ref_val
+
+    # This fails on very long column names or col names with a comma
+    flt_str = '@low <= ' + irr_col + ' <= @high'
+    indx = df.query(flt_str).index
+
+    return df.loc[indx, :]
+
+
+def fit_model(df, fml='power ~ poa + I(poa * poa) + I(poa * t_amb) + I(poa * w_vel) - 1'):
+    """
+    Fits linear regression using statsmodels to dataframe passed.
+
+    Dataframe must be first argument for use with pandas groupby object
+    apply method.
+
+    Parameters
+    ----------
+    df : pandas dataframe
+    fml : str
+        Formula to fit refer to statsmodels and patsy documentation for format.
+        Default is the formula in ASTM E2848.
+
+    Returns
+    -------
+    Statsmodels linear model regression results wrapper object.
+    """
+    mod = smf.ols(formula=fml, data=df)
+    reg = mod.fit()
+    return reg
+
+
+def predict(regs, rcs):
+    """
+    Calculates predicted values for given linear models and predictor values.
+
+    Evaluates the first linear model in the iterable with the first row of the
+    predictor values in the dataframe.  Passed arguments must be aligned.
+
+    Parameters
+    ----------
+    regs : iterable of statsmodels regression results wrappers
+    rcs : pandas dataframe
+        Dataframe of predictor values used to evaluate each linear model.
+        The column names must match the strings used in the regression formuala.
+
+    Returns
+    -------
+    Pandas series of predicted values.
+    """
+    pred_cap = pd.Series()
+    for i, mod in enumerate(regs):
+        RC_dict = {key: (val, ) for key, val in (rcs.iloc[i, :].to_dict()).items()}
+        pred_cap = pred_cap.append(mod.predict(RC_dict))
+    return pred_cap
+
+
+def pred_summary(grps, rcs, allowance, **kwargs):
+    """
+    Creates summary table of reporting conditions, pred cap, and gauranteed cap.
+
+    This method does not calculate reporting conditions.
+
+    Parameters
+    ----------
+    grps : pandas groupby object
+        Solar data grouped by season or month used to calculate reporting
+        conditions.  This argument is used to fit models for each group.
+    rcs : pandas dataframe
+        Dataframe of reporting conditions used to predict capacities.
+    allowance : float
+        Percent allowance to calculate gauranteed capacity from predicted capacity.
+
+    Returns
+    -------
+    Dataframe of reporting conditions, model coefficients, predicted capacities
+    gauranteed capacities, and points in each grouping.
+    """
+
+    regs = grps.apply(fit_model, **kwargs)
+    predictions = predict(regs, rcs)
+    params = regs.apply(lambda x: x.params.transpose())
+    pt_qty = grps.agg('count').iloc[:, 0]
+    predictions.index = pt_qty.index
+
+    params.index = pt_qty.index
+    rcs.index = pt_qty.index
+    predictions.name = 'PredCap'
+
+    for rc_col_name in rcs.columns:
+        for param_col_name in params.columns:
+            if rc_col_name == param_col_name:
+                params.rename_axis({param_col_name: param_col_name + '-param'},
+                                   axis=1, inplace=True)
+
+    results = pd.concat([rcs, predictions, params], axis=1)
+
+    results['guaranteedCap'] = results['PredCap'] * (1 - allowance)
+    results['pt_qty'] = pt_qty.values
+
+    return results
 
 
 class CapData(object):
@@ -335,36 +534,46 @@ class CapData(object):
         encodings = ['utf-8', 'latin1', 'iso-8859-1', 'cp1252']
         for encoding in encodings:
             try:
+                # pvraw = pd.read_csv(dirName, skiprows=10, encoding=encoding,
+                #                     header=[0, 1], parse_dates=[0],
+                #                     infer_datetime_format=True, **kwargs)
                 pvraw = pd.read_csv(dirName, skiprows=10, encoding=encoding,
-                                    header=[0, 1], parse_dates=[0],
-                                    infer_datetime_format=True, **kwargs)
+                                    header=[0, 1], **kwargs)
             except UnicodeDecodeError:
                 continue
             else:
                 break
 
         pvraw.columns = pvraw.columns.droplevel(1)
-        # pvraw['dateString'] = pvraw['date'].apply(lambda x: x.strftime('%m/%d/%Y %H'))
-        pvraw.set_index('date', drop=True, inplace=True)
+        dates = pvraw.loc[:, 'date']
+        try:
+            dt_index = pd.to_datetime(dates, format='%m/%d/%y %H:%M')
+        except ValueError:
+            dt_index = pd.to_datetime(dates)
+        pvraw.index = dt_index
+        pvraw.drop('date', axis=1, inplace=True)
         pvraw = pvraw.rename(columns={"T Amb": "TAmb"})
         return pvraw
 
-    def load_data(self, directory='./data/', set_trans=True, load_pvsyst=False,
-                  **kwargs):
+    def load_data(self, path='./data/', fname=None, set_trans=True,
+                  load_pvsyst=False, **kwargs):
         """
         Import data from csv files.
 
         Parameters
         ----------
-        directory : str, default './data/'
+        path : str, default './data/'
             Path to directory containing csv files to load.
+        fname: str, default None
+            Filename of specific file to load. If filename is none method will
+            load all csv files into one dataframe.
         set_trans : bool, default True
             Generates translation dicitionary for column names after loading
             data.
         load_pvsyst : bool, default False
-            By default skips any csv file that has 'pvsyst' in the name.  Is not
-            case sensitive.  Set to true to import a csv with 'pvsyst' in the
-            name and skip all other files.
+            By default skips any csv file that has 'pvsyst' in the name.  Is
+            not case sensitive.  Set to true to import a csv with 'pvsyst' in
+            the name and skip all other files.
         **kwargs
             Will pass kwargs onto load_pvsyst or load_das, which will pass to
             Pandas.read_csv.  Useful to adjust the separator (Ex. sep=';').
@@ -373,32 +582,37 @@ class CapData(object):
         -------
         None
         """
+        if fname is None:
+            files_to_read = []
+            for file in os.listdir(path):
+                if file.endswith('.csv'):
+                    files_to_read.append(file)
+                elif file.endswith('.CSV'):
+                    files_to_read.append(file)
 
-        files_to_read = []
-        for file in os.listdir(directory):
-            if file.endswith('.csv'):
-                files_to_read.append(file)
-            elif file.endswith('.CSV'):
-                files_to_read.append(file)
+            all_sensors = pd.DataFrame()
 
-        all_sensors = pd.DataFrame()
-
-        if not load_pvsyst:
-            for filename in files_to_read:
-                if filename.lower().find('pvsyst') != -1:
-                    print("Skipped file: " + filename)
-                    continue
-                nextData = self.load_das(directory, filename, **kwargs)
-                all_sensors = pd.concat([all_sensors, nextData], axis=0)
-                print("Read: " + filename)
-        elif load_pvsyst:
-            for filename in files_to_read:
-                if filename.lower().find('pvsyst') == -1:
-                    print("Skipped file: " + filename)
-                    continue
-                nextData = self.load_pvsyst(directory, filename, **kwargs)
-                all_sensors = pd.concat([all_sensors, nextData], axis=0)
-                print("Read: " + filename)
+            if not load_pvsyst:
+                for filename in files_to_read:
+                    if filename.lower().find('pvsyst') != -1:
+                        print("Skipped file: " + filename)
+                        continue
+                    nextData = self.load_das(path, filename, **kwargs)
+                    all_sensors = pd.concat([all_sensors, nextData], axis=0)
+                    print("Read: " + filename)
+            elif load_pvsyst:
+                for filename in files_to_read:
+                    if filename.lower().find('pvsyst') == -1:
+                        print("Skipped file: " + filename)
+                        continue
+                    nextData = self.load_pvsyst(path, filename, **kwargs)
+                    all_sensors = pd.concat([all_sensors, nextData], axis=0)
+                    print("Read: " + filename)
+        else:
+            if not load_pvsyst:
+                all_sensors = self.load_das(path, fname, **kwargs)
+            elif load_pvsyst:
+                all_sensors = self.load_pvsyst(path, fname, **kwargs)
 
         ix_ser = all_sensors.index.to_series()
         all_sensors['index'] = ix_ser.apply(lambda x: x.strftime('%m/%d/%Y %H %M'))
@@ -699,9 +913,14 @@ class CapTest(object):
         Holds the linear regression model object for the das data.
     ols_model_sim : statsmodels linear regression model
         Identical to ols_model_das for simulated data.
+    reg_fml : str
+        Regression formula to be fit to measured and simulated data.  Must
+        follow the requirements of statsmodels use of patsy.
+    tolerance : float
+        Tolerance for capacity test as a decimal NOT percentage.
     """
 
-    def __init__(self, das, sim):
+    def __init__(self, das, sim, tolerance):
         self.das = das
         self.flt_das = CapData()
         self.das_mindex = []
@@ -713,6 +932,8 @@ class CapTest(object):
         self.rc = dict()
         self.ols_model_das = None
         self.ols_model_sim = None
+        self.reg_fml = 'power ~ poa + I(poa * poa) + I(poa * t_amb) + I(poa * w_vel) - 1'
+        self.tolerance = tolerance
 
     def summary(self):
         """
@@ -801,76 +1022,17 @@ class CapTest(object):
         """
         pass
 
-    def pred_rcs(self, data, test_date=None, days=60, inplace=True, freq='30D'):
-        """
-        Generate reporting conditions for a year and calculate predicted power
-        for each reporting condition.
-
-        Parameters
-        ----------
-        data: str, 'sim' or 'das'
-            'sim' or 'das' determines if filter is on sim or das data
-        test_date: str, 'mm/dd/yyyy', optional
-            Date to center reporting conditions aggregation functions around.
-            When not used specified reporting conditions for all data passed
-            are returned grouped by the freq provided.  freq='90D' give seasonal
-            reporting conditions and freq='30D' give monthly reproting conditions.
-        freq: str, default '60D'
-            String representing number of days to aggregate for reporting
-            condition calculation.  Ex '60D' for 60 Days.  Typical '30D', '60D',
-            '90D'.
-
-        Todo
-        ----
-        Refactor function
-            Rewrite function to filter using prelim regression, calc RCs, and fit
-            ols model on pandas GroupBy object using the GroupBy.apply method.
-            This will involve moving some of the core functionality of the
-            filter_irr, reg_cpt, rep_cond to top level functions that accept a
-            dataframe as the first argument.
-        """
-        # flt_cd = self.__flt_setup(data)
-        # df = flt_cd.rview(['poa', 't_amb', 'w_vel'])
-        # df = df.rename(columns={df.columns[0]: 'poa',
-        #                         df.columns[1]: 't_amb',
-        #                         df.columns[2]: 'w_vel'})
-        #
-        # if data == 'sim' and test_date is None:
-            # date = pd.to_datetime(test_date)
-            # offset = pd.DateOffset(days=(days/2))
-            # start = date - offset
-            #
-            # # this is only useful for simulated data
-            # # need differnt approach for real data across end of year
-            # tail = df.loc[start:, :]
-            # head = df.loc[:start, :]
-            # head = head.iloc[:head.shape[0] - 1, :]
-            # head_shifted = head.shift(8760, freq='H')
-            # dfnewstart = pd.concat([tail, head_shifted])
-
-            # temp_wind = df[['t_amb', 'w_vel']]
-            # irr = df['GlobInc']
-            #
-            # RCs = temp_wind.groupby(pd.Grouper(freq=freq, label='right')).mean()
-            # RCs['GlobInc'] = irr.groupby(pd.TimeGrouper(freq=freq,
-            #                                 label='right')).quantile(.6)
-            # return RCs
-        pass
-
-    """
-    If reporting conditons are calc from measured data
-    -use filtered dataset must be 750 min per ASTM E2939
-    -simulated data must be filtered by time period around test separately
-    If reporting conditons are calc from historical data
-    -just calc reporting conditions for test period
-    -calc reporting conditons and pred capacity for each season/month for year
-    -need to handle winter season that spans new year
-    """
     @update_summary
-    def rep_cond(self, data, test_date=None, days=60, inplace=True, freq=None,
-                 func={'poa':perc_wrap(60), 't_amb':'mean', 'w_vel':'mean'}):
+    def rep_cond(self, data, *args, test_date=None, days=60, inplace=True,
+                 freq=None, func={'poa': perc_wrap(60), 't_amb': 'mean',
+                                  'w_vel': 'mean'},
+                 pred=False, irr_bal=False, w_vel=None, **kwargs):
+
         """
         Calculate reporting conditons.
+
+        NOTE: Can pass additional positional arguments for low/high irradiance
+        filter.
 
         Parameters
         ----------
@@ -881,39 +1043,56 @@ class CapTest(object):
             When not used specified reporting conditions for all data passed
             are returned grouped by the freq provided.
         days: int, default 60
-            Number of days to use when calculating reporting conditons.  Typically
-            no less than 30 and no more than 90.
+            Number of days to use when calculating reporting conditons.
+            Typically no less than 30 and no more than 90.
         inplace: bool, True by default
             When true updates object rc parameter, when false returns dicitionary
             of reporting conditions.
         freq: str
-            String pandas offset alias to aggregate for reporting
-            condition calculation.  Ex '60D' for 60 Days or 'M' for months.
-            Typical 'M', '2M', or 'BQ-NOV'.  'BQ-NOV' is business quarterly
-            year ending in Novemnber i.e. seasons.
+            String pandas offset alias to specify aggregattion frequency
+            for reporting condition calculation. Ex '60D' for 60 Days or
+            'M' for months. Typical 'M', '2M', or 'BQ-NOV'.
+            'BQ-NOV' is business quarterly year ending in Novemnber i.e. seasons.
         func: callable, string, dictionary, or list of string/callables
             Determines how the reporting condition is calculated.
             Default is a dictionary poa - 60th numpy_percentile, t_amb - mean
                                           w_vel - mean
             Can pass a string function ('mean') to calculate each reporting
             condition the same way.
+        pred: boolean, default False
+            If true and frequency is specified, then method returns a dataframe
+            with reporting conditions, regression parameters, predicted
+            capacites, and point quantities for each group.
+        irr_bal: boolean, default False
+            If true, pred is set to True, and frequency is specified then the
+            predictions for each group of reporting conditions use the
+            irrRC_balanced function to determine the reporting conditions.
+        w_vel: int
+            If w_vel is not none, then wind reporting condition will be set to
+            value specified for predictions. Does not affect output unless pred
+            is True and irr_bal is True.
 
         Returns
         -------
         dict
             Returns a dictionary of reporting conditions if inplace=False
             otherwise returns None.
+        pandas DataFrame
+            If pred=True, then returns a pandas dataframe of results.
         """
         flt_cd = self.__flt_setup(data)
-        df = flt_cd.rview(['poa', 't_amb', 'w_vel'])
-        df = df.rename(columns={df.columns[0]: 'poa',
-                                df.columns[1]: 't_amb',
-                                df.columns[2]: 'w_vel'})
+        df = flt_cd.rview(['power', 'poa', 't_amb', 'w_vel'])
+        df = df.rename(columns={df.columns[0]: 'power',
+                                df.columns[1]: 'poa',
+                                df.columns[2]: 't_amb',
+                                df.columns[3]: 'w_vel'})
+
         if test_date is not None:
             date = pd.to_datetime(test_date)
-            offset = pd.DateOffset(days=days/2)
+            offset = pd.DateOffset(days=days / 2)
             start = date - offset
             end = date + offset
+
         if data == 'das' and test_date is not None:
             if start < df.index[0]:
                 start = df.index[0]
@@ -924,26 +1103,75 @@ class CapTest(object):
         elif data == 'sim' and test_date is not None:
             if spans_year(start, end):
                 df = cntg_eoy(df, start, end)
+            else:
+                df = df.loc[start:end, :]
 
         RCs = df.agg(func).to_dict()
-        RCs = {key:[val] for key, val in RCs.items()}
+        RCs = {key: [val] for key, val in RCs.items()}
+
+        check_freqs = ['BQ-JAN', 'BQ-FEB', 'BQ-APR', 'BQ-MAY', 'BQ-JUL',
+                       'BQ-AUG', 'BQ-OCT', 'BQ-NOV']
+        mnth_int = {'JAN': 1, 'FEB': 2, 'APR': 4, 'MAY': 5, 'JUL': 7,
+                    'AUG': 8, 'OCT': 10, 'NOV': 11}
 
         if freq is not None and test_date is None:
-            RCs = df.groupby(pd.Grouper(freq=freq, label='right')).agg(func)
-            RCs = RCs.to_dict('list')
+            if freq in check_freqs:
+                mnth = mnth_int[freq.split('-')[1]]
+                year = df.index[0].year
+                mnths_eoy = 12 - mnth
+                mnths_boy = 3 - mnths_eoy
+                if int(mnth) >= 10:
+                    str_date = str(mnths_boy) + '/' + str(year)
+                else:
+                    str_date = str(mnth) + '/' + str(year)
+                tdelta = df.index[1] - df.index[0]
+                date_to_offset = df.loc[str_date].index[-1].to_pydatetime()
+                start = date_to_offset + tdelta
+                end = date_to_offset + pd.DateOffset(years=1)
+                if mnth < 8 or mnth >= 10:
+                    df = cntg_eoy(df, start, end)
+                else:
+                    df = cntg_eoy(df, end, start)
 
-            # if predict:
-                # need to fit ols on each set of grouped data before predictin
-                # move prediction to separate function
-                # RCs['ouput'] = self.ols_model_sim.predict(RCs)
-                # return pd.DataFrame.from_dict(RCs)
+            df_grpd = df.groupby(pd.Grouper(freq=freq, label='right'))
+            RCs_df = df_grpd.agg(func)
+            RCs = RCs_df.to_dict('list')
 
-        print(RCs)
+            if predict:
+                if irr_bal:
+                    RCs_df = pd.DataFrame()
+                    flt_dfs = pd.DataFrame()
+                    for name, mnth in df_grpd:
+                        results = irrRC_balanced(mnth, *args, irr_col='poa',
+                                                 **kwargs)
+                        flt_df = results[1]
+                        flt_dfs = flt_dfs.append(results[1])
+                        temp_RC = flt_df['t_amb'].mean()
+                        wind_RC = flt_df['w_vel'].mean()
+                        if w_vel is not None:
+                            wind_RC = w_vel
+                        RCs_df = RCs_df.append({'poa': results[0],
+                                                't_amb': temp_RC,
+                                                'w_vel': wind_RC}, ignore_index=True)
+                    df_grpd = flt_dfs.groupby(by=pd.Grouper(freq='M'))
+
+                results = pred_summary(df_grpd, RCs_df, self.tolerance,
+                                       fml=self.reg_fml)
 
         if inplace:
-            self.rc = RCs
+            if pred:
+                print('Results dataframe saved to rc attribute.')
+                print(results)
+                self.rc = results
+            else:
+                print('Reporting conditions saved to rc attribute.')
+                print(RCs)
+                self.rc = RCs
         else:
-            return RCs
+            if pred:
+                return results
+            else:
+                return RCs
 
     def agg_sensors(self, data, irr='median', temp='mean', wind='mean',
                     real_pwr='sum', inplace=True, keep=True):
@@ -1225,15 +1453,12 @@ class CapTest(object):
         """
         flt_cd = self.__flt_setup(data)
 
-        if ref_val is not None:
-            low *= ref_val
-            high *= ref_val
-
         df = flt_cd.rview('poa')
-        df = df.rename(columns={df.columns[0]: 'poa'})
-        df.query('@low <= poa <= @high', inplace=True)
+        # df = df.rename(columns={df.columns[0]: 'poa'})
+        irr_col = df.columns[0]
 
-        flt_cd.df = flt_cd.df.loc[df.index, :]
+        df_flt = flt_irr(df, irr_col, low, high, ref_val=ref_val)
+        flt_cd.df = flt_cd.df.loc[df_flt.index, :]
 
         if inplace:
             if data == 'das':
@@ -1416,6 +1641,9 @@ class CapTest(object):
         Filter pvsyst data for shading and off mppt operation.
 
         This function is only applicable to simulated data generated by PVsyst.
+        Filters the 'IL Pmin', IL Vmin', 'IL Pmax', 'IL Vmax' values if they are
+        greater than 0.
+
 
         Parameters
         ----------
@@ -1439,7 +1667,7 @@ class CapTest(object):
         index_shd = df.query('FShdBm>=@shade').index
 
         columns = ['IL Pmin', 'IL Vmin', 'IL Pmax', 'IL Vmax']
-        index_IL = df[df[columns].sum(axis=1) <= 0]
+        index_IL = df[df[columns].sum(axis=1) <= 0].index
         index = index_shd.intersection(index_IL)
 
         cd_obj.df = cd_obj.df.loc[index, :]
@@ -1481,9 +1709,7 @@ class CapTest(object):
                   df.columns[3]: 'w_vel'}
         df = df.rename(columns=rename)
 
-        fml = 'power ~ poa + I(poa * poa) + I(poa * t_amb) + I(poa * w_vel) - 1'
-        mod = smf.ols(formula=fml, data=df)
-        reg = mod.fit()
+        reg = fit_model(df, fml=self.reg_fml)
 
         if filter:
             print('NOTE: Regression used to filter outlying points.\n\n')
