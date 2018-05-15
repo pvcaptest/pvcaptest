@@ -112,8 +112,8 @@ class TestCapDataLoadMethods(unittest.TestCase):
 
 
 class Test_top_level_funcs(unittest.TestCase):
-    """Test percent wrap function."""
     def test_perc_wrap(self):
+        """Test percent wrap function."""
         rng = np.arange(1, 100, 1)
         rng_cpy = rng.copy()
         df = pd.DataFrame({'vals': rng})
@@ -126,6 +126,26 @@ class Test_top_level_funcs(unittest.TestCase):
         self.assertTrue(all(bool_array),
                         'np.percentile wrapper gives different value than np perc')
         self.assertTrue(all(df == df_cpy), 'perc_wrap function modified input df')
+
+    def test_flt_irr(self):
+        rng = np.arange(0, 1000)
+        df = pd.DataFrame({'weather_station irr poa W/m^2':rng,
+                           'col_1':rng,
+                           'col_2':rng})
+        df_flt = pvc.flt_irr(df, 'weather_station irr poa W/m^2', 50, 100)
+
+        self.assertEqual(df_flt.shape[0], 51,
+                         'Incorrect number of rows returned from filter.')
+        self.assertEqual(df_flt.shape[1], 3,
+                         'Incorrect number of columns returned from filter.')
+        self.assertIs(df.columns[2], 'weather_station irr poa W/m^2',
+                      'Filter column name inadverdently modified by method.')
+        self.assertEqual(df_flt.iloc[0, 2], 50,
+                         'Minimum value in returned data in filter column is'
+                         'not equal to low argument.')
+        self.assertEqual(df_flt.iloc[-1, 2], 100,
+                         'Maximum value in returned data in filter column is'
+                         'not equal to high argument.')
 
     def test_fit_model(self):
         """Test fit model func which wraps statsmodels ols.fit for dataframe."""
