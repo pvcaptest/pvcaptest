@@ -39,7 +39,7 @@ type_defs = collections.OrderedDict([('irr', [['irradiance', 'irr', 'plane of ar
                     (-1, 1)]),
              ('op_state', [['operating state', 'state', 'op', 'status'],
                           (0, 10)]),
-             ('real_pwr', [['real power', 'ac power', 'e_grid'],
+             ('real_pwr', [['real power', 'ac power', 'e_grid', 'power'],
                           (-1000000, 1000000000000)]),  # set to very lax bounds
              ('shade', [['fshdbm', 'shd', 'shade'], (0, 1)]),
              ('index', [['index'], ('', 'z')])])
@@ -48,7 +48,7 @@ sub_type_defs = {'poa': [['plane of array', 'poa']],
                  'ghi': [['global horizontal', 'ghi', 'global', 'glob']],
                  'amb': [['ambient', 'amb']],
                  'mod': [['module', 'mod']],
-                 'mtr': [['revenue meter', 'rev meter', 'billing meter', ' meter']],
+                 'mtr': [['revenue meter', 'rev meter', 'billing meter', 'meter']],
                  'inv': [['inverter', 'inv']]}
 
 irr_sensors_defs = {'ref_cell': [['reference cell', 'reference', 'ref',
@@ -826,6 +826,11 @@ class CapData(object):
         Add NANs
             Add nans for filtered time stamps, so it is clear what has been
             removed
+        Add Hover Tooltip
+            Entire grid of plots fails to show if one of the legend on one of
+            the plots becomes too tall.  Fixed temporarily by increaseing plot
+            height.  Fix by removing legend and adding hover tooltip or letting
+            figure plot_height set dynamically.
         """
         dframe = self.df
 
@@ -842,15 +847,16 @@ class CapData(object):
             df = dframe[self.trans[key]]
             cols = df.columns.tolist()
             if len(cols) > len(colors):
-                print('Skipped {} because there are more than 10   columns.'.format(key))
+                print('Skipped {} because there are more than 10'
+                      'columns.'.format(key))
                 continue
 
             if x_axis == None:
-                p = figure(title=key, plot_width=400, plot_height=225,
+                p = figure(title=key, plot_width=400, plot_height=350,
                            x_axis_type='datetime')
                 x_axis = p.x_range
             if j > 0:
-                p = figure(title=key, plot_width=400, plot_height=225,
+                p = figure(title=key, plot_width=400, plot_height=350,
                            x_axis_type='datetime', x_range=x_axis)
             legend_items = []
             for i, col in enumerate(cols):
