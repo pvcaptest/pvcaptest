@@ -741,7 +741,11 @@ class CapData(object):
 
         Parameters
         ----------
-        columns (list) List of columns to drop.
+        Columns (list) List of columns to drop.
+
+        Todo
+        ----
+        Change to accept a string column name or list of strings
         """
         for key, value in self.trans.items():
             for col in columns:
@@ -1321,6 +1325,11 @@ class CapTest(object):
             Time period returned will be centered on this date.
         inplace : bool
             Default true write back to CapTest.flt_sim or flt_das
+
+        Todo
+        ----
+        Add inverse options to remove time between start end rather than return
+        it
         """
         flt_cd = self.__flt_setup(data)
 
