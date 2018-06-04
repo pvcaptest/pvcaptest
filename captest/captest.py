@@ -270,9 +270,9 @@ def flt_irr(df, irr_col, low, high, ref_val=None):
         low *= ref_val
         high *= ref_val
 
-    # This fails on very long column names or col names with a comma
-    flt_str = '@low <= ' + irr_col + ' <= @high'
-    indx = df.query(flt_str).index
+    df_renamed = df.rename(columns={irr_col: 'poa'})
+    flt_str = '@low <= ' + 'poa' + ' <= @high'
+    indx = df_renamed.query(flt_str).index
 
     return df.loc[indx, :]
 
@@ -1469,7 +1469,6 @@ class CapTest(object):
         flt_cd = self.__flt_setup(data)
 
         df = flt_cd.rview('poa')
-        # df = df.rename(columns={df.columns[0]: 'poa'})
         irr_col = df.columns[0]
 
         df_flt = flt_irr(df, irr_col, low, high, ref_val=ref_val)
