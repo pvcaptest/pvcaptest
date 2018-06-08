@@ -1,0 +1,12 @@
+- bounds check and warnings options of the CapData.__series_type cause plot method to break up sensor types into separate plots if one (some) sensors of the sensor type have value warnings and others don't
+- setting of translation dictionary needs refinement
+- pvsyst output file- need to separate tarray from inv losses
+- need to split pvsyst GlobHor and GlobInc; GlobInc is ending up in irr-ghi-
+- Add uncertainty calculation to the summary function
+- edit documentation for added features of the plot method
+- add standard test that tries to run everything with no user input
+- change cp_results to use the CapTest.tolerance
+- update cptest.scatter method to make multiple plots if there are multiple poa sensors
+- edit documentation of the filter power factor method, not clear exactly what pf data it is filtering on change so user specs trans key to filter on rather than finding any pf in trans_dict
+- plotting function to scatter plot regression variables from sim and das together
+    - ex: irr vs power for both sim and das on same plot or same for wind, temp
