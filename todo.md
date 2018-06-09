@@ -10,3 +10,4 @@
 - edit documentation of the filter power factor method, not clear exactly what pf data it is filtering on change so user specs trans key to filter on rather than finding any pf in trans_dict
 - plotting function to scatter plot regression variables from sim and das together
     - ex: irr vs power for both sim and das on same plot or same for wind, temp
+- clean up the filter arguments formatting in the summary method output and remove the 'das' or 'sim' from the beginning
