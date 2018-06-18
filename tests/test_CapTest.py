@@ -24,21 +24,21 @@ Run individual tests:
 
 update_summary
 x  perc_wrap
-irrRC_balanced
+x irrRC_balanced
 spans_year
 cntg_eoy
-flt_irr
-fit_model
-predict
-pred_summary
+x flt_irr
+x fit_model
+x predict
+x pred_summary
 
 CapData
     set_reg_trans
     copy
     empty
-    load_das
-    load_pvsyst
-    load_data
+    x load_das
+    x load_pvsyst
+    x load_data
     __series_type
     __set_trans
     drop_cols
@@ -52,6 +52,7 @@ CapTest
     sim_apply_losses- blank
     pred_rcs- future
     rep_cond
+    x rep_cond(pred=True)
     agg_sensors
     reg_data
     __flt_setup
