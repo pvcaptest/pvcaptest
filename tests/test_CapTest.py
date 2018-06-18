@@ -330,7 +330,7 @@ class Test_CapData_methods_sim(unittest.TestCase):
             irr_result = results['poa'].loc[mnth_str][0]
             np_result = np.percentile(df_irr.loc[mnth_str], 60,
                                       interpolation='nearest')
-            self.assertEqual(np_result, irr_result,
+            self.assertAlmostEqual(np_result, irr_result, 7,
                              'The 60th percentile from function does not match '
                              'numpy percentile for {}'.format(mnth_str))
 
@@ -338,7 +338,7 @@ class Test_CapData_methods_sim(unittest.TestCase):
             df_w_vel = self.pvsyst.df['WindVel']
             w_result = results['w_vel'].loc[mnth_str][0]
             w_result_pd = df_w_vel.loc[mnth_str].mean()
-            self.assertEqual(w_result_pd, w_result,
+            self.assertAlmostEqual(w_result_pd, w_result, 7,
                              'The average wind speed result does not match '
                              'pandas aveage for {}'.format(mnth_str))
 
@@ -346,7 +346,7 @@ class Test_CapData_methods_sim(unittest.TestCase):
             df_t_amb = self.pvsyst.df['TAmb']
             t_amb_result = results['t_amb'].loc[mnth_str][0]
             t_amb_result_pd = df_t_amb.loc[mnth_str].mean()
-            self.assertEqual(t_amb_result_pd, t_amb_result,
+            self.assertAlmostEqual(t_amb_result_pd, t_amb_result, 7,
                              'The average amb temp result does not match '
                              'pandas aveage for {}'.format(mnth_str))
 
