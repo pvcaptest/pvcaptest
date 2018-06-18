@@ -88,6 +88,19 @@ class TestLoadDataMethods(unittest.TestCase):
                               pd.core.indexes.base.Index,
                               'Columns might be MultiIndex; should be base index')
 
+    def test_load_das(self):
+        das = pvc.CapData()
+        das = das.load_das('./tests/data/',
+                           'example_meas_data.csv')
+        self.assertEqual(1440, das.shape[0],
+                         'Not the correct number of rows in imported data.')
+        self.assertIsInstance(das.index,
+                              pd.core.indexes.datetimes.DatetimeIndex,
+                              'Index is not a datetime index.')
+        self.assertIsInstance(das.columns,
+                              pd.core.indexes.base.Index,
+                              'Columns might be MultiIndex; should be base index')
+
 
 class TestCapDataLoadMethods(unittest.TestCase):
     """Tests for load_data method."""
