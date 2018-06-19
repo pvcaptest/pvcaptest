@@ -33,7 +33,7 @@ x predict
 x pred_summary
 
 CapData
-    set_reg_trans
+    set_reg_trans- no test needed
     copy
     empty
     x load_das
@@ -280,6 +280,21 @@ class Test_CapData_methods_sim(unittest.TestCase):
         # (self.irr_RC, self.jun_flt) = pvc.irrRC_balanced(self.jun, self.low,
         #                                                  self.high)
         # self.jun_flt_irr = self.jun_flt['GlobInc']
+
+    def test_copy(self):
+        self.pvsyst.set_reg_trans(power='real_pwr--', poa='irr-ghi-',
+                                  t_amb='temp-amb-', w_vel='wind--')
+        pvsyst_copy = self.pvsyst.copy()
+        df_equality = pvsyst_copy.df.equals(self.pvsyst.df)
+
+        self.assertTrue(df_equality,
+                        'Dataframe of copy not equal to original')
+        self.assertEqual(pvsyst_copy.trans, self.pvsyst.trans,
+                         'Trans dict of copy is not equal to original')
+        self.assertEqual(pvsyst_copy.trans_keys, self.pvsyst.trans_keys,
+                         'Trans dict keys are not equal to original.')
+        self.assertEqual(pvsyst_copy.reg_trans, self.pvsyst.reg_trans,
+                         'Regression trans dict copy is not equal to orig.')
 
     def test_irrRC_balanced(self):
         jun = self.pvsyst.df.loc['06/1990']
