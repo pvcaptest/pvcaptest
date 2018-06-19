@@ -34,7 +34,7 @@ x pred_summary
 
 CapData
     set_reg_trans- no test needed
-    copy
+    x copy
     empty
     x load_das
     x load_pvsyst
