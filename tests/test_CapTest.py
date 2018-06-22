@@ -39,7 +39,7 @@ CapData
     x load_das
     x load_pvsyst
     x load_data
-    __series_type
+    x __series_type
     __set_trans
     drop_cols
     view
