@@ -661,7 +661,7 @@ class CapData(object):
             # print(key)
             for search_str in type_defs[key][0]:
                 # print(search_str)
-                if series.name.lower().find(search_str) == -1:
+                if series.name.lower().find(search_str.lower()) == -1:
                     continue
                 else:
                     if bounds_check:
