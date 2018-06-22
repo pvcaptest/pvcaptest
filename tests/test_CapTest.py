@@ -1,5 +1,5 @@
 import os
-import sys
+import collections
 import unittest
 import numpy as np
 import pandas as pd
@@ -124,6 +124,70 @@ class TestCapDataLoadMethods(unittest.TestCase):
         self.assertEqual(self.capdata.df.shape[0], 3,
                          'imported a non csv or pvsyst file')
 
+
+class TestCapDataSeriesTypes(unittest.TestCase):
+    """Test CapData private methods assignment of type to each series of data."""
+
+    def setUp(self):
+        self.cdata = pvc.CapData()
+
+    def test_series_type(self):
+        name = 'weather station 1 weather station 1 ghi poa w/m2'
+        test_series = pd.Series(np.arange(0, 900, 100), name=name)
+        out = self.cdata._CapData__series_type(test_series, pvc.type_defs)
+
+        self.assertIsInstance(out, str,
+                              'Returned object is not a string.')
+        self.assertEqual(out, 'irr',
+                         'Returned object is not "irr".')
+
+    def test_series_type_caps_in_type_def(self):
+        name = 'weather station 1 weather station 1 ghi poa w/m2'
+        test_series = pd.Series(np.arange(0, 900, 100), name=name)
+        type_def = collections.OrderedDict([
+                     ('irr', [['IRRADIANCE', 'IRR', 'PLANE OF ARRAY', 'POA',
+                               'GHI', 'GLOBAL', 'GLOB', 'W/M^2', 'W/M2', 'W/M',
+                               'W/'],
+                              (-10, 1500)])])
+        out = self.cdata._CapData__series_type(test_series, type_def)
+
+        self.assertIsInstance(out, str,
+                              'Returned object is not a string.')
+        self.assertEqual(out, 'irr',
+                         'Returned object is not "irr".')
+
+    def test_series_type_repeatable(self):
+        name = 'weather station 1 weather station 1 ghi poa w/m2'
+        test_series = pd.Series(np.arange(0, 900, 100), name=name)
+        out = []
+        i = 0
+        while i < 100:
+            out.append(self.cdata._CapData__series_type(test_series, pvc.type_defs))
+            i += 1
+        out_np = np.array(out)
+
+        self.assertTrue(all(out_np == 'irr'),
+                        'Result is not consistent after repeated runs.')
+
+    def test_series_type_valErr(self):
+        name = 'weather station 1 weather station 1 ghi poa w/m2'
+        test_series = pd.Series(name=name)
+        out = self.cdata._CapData__series_type(test_series, pvc.type_defs)
+
+        self.assertIsInstance(out, str,
+                              'Returned object is not a string.')
+        self.assertEqual(out, 'irr-valuesError',
+                         'Returned object is not "irr-valuesError".')
+
+    def test_series_type_no_str(self):
+        name = 'should not return key string'
+        test_series = pd.Series(name=name)
+        out = self.cdata._CapData__series_type(test_series, pvc.type_defs)
+
+        self.assertIsInstance(out, str,
+                              'Returned object is not a string.')
+        self.assertIs(out, '',
+                      'Returned object is not empty string.')
 
 class Test_top_level_funcs(unittest.TestCase):
     def test_perc_wrap(self):
