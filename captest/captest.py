@@ -1736,7 +1736,9 @@ class CapTest(object):
                 self.ols_model_sim = reg
 
     def cp_results(self, nameplate, check_pvalues=False, pval=0.05,
-                   print_res=True):
+                   print_res=True,
+                   err={'poa': 14, 't_amb': 0.04, 'w_vel': 0.3},
+                   ci = 1.96):
         """
         Prints a summary indicating if system passed or failed capacity test.
 
@@ -1754,6 +1756,11 @@ class CapTest(object):
             greater than pval will be set to zero.
         print_res : boolean, default True
             Set to False to prevent printing results.
+        err : dict, default poa = 14, t_amb = 0.04C, w_vel = 0.3 m/sec
+            Dictionary of uncertanties for sensors.  Plane of array irradiance
+            is in w/m^2. Ambient temperatuer is degrees C and wind speed
+            is meters per second.
+        ci : float, default 1.96
 
         Returns
         -------
@@ -1814,6 +1821,8 @@ class CapTest(object):
                   )
 
             print("{:<30s}{}".format("Bounds:", bounds))
+
+            err_rc = {key: val * ci / self.rc[key][0] for key, val in err.items()}
 
         return((cap_ratio, ))
 
