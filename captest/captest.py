@@ -1727,7 +1727,7 @@ class CapTest(object):
             return cd_obj
 
     @update_summary
-    def reg_cpt(self, data, filter=False, inplace=True):
+    def reg_cpt(self, data, filter=False, inplace=True, summary=True):
         """
         Performs regression with statsmodels on filtered data.
 
@@ -1742,6 +1742,8 @@ class CapTest(object):
         inplace: bool, default True
             If filter is true and inplace is true, then function overwrites the
             filtered data for sim or das.  If false returns a CapData object.
+        summary: bool, default True
+            Set to false to not print regression summary.
 
         Returns
         -------
@@ -1762,7 +1764,8 @@ class CapTest(object):
 
         if filter:
             print('NOTE: Regression used to filter outlying points.\n\n')
-            print(reg.summary())
+            if summary:
+                print(reg.summary())
             df = df[np.abs(reg.resid) < 2 * np.sqrt(reg.scale)]
             cd_obj.df = cd_obj.df.loc[df.index, :]
             if inplace:
@@ -1773,7 +1776,8 @@ class CapTest(object):
             else:
                 return cd_obj
         else:
-            print(reg.summary())
+            if summary:
+                print(reg.summary())
             if data == 'das':
                 self.ols_model_das = reg
             elif data == 'sim':
