@@ -44,8 +44,8 @@ type_defs = collections.OrderedDict([('irr', [['irradiance', 'irr', 'plane of ar
              ('shade', [['fshdbm', 'shd', 'shade'], (0, 1)]),
              ('index', [['index'], ('', 'z')])])
 
-sub_type_defs = {'poa': [['plane of array', 'poa']],
-                 'ghi': [['global horizontal', 'ghi', 'global', 'glob']],
+sub_type_defs = {'poa': [['sun', 'plane of array', 'poa']],
+                 'ghi': [['sun2', 'global horizontal', 'ghi', 'global', 'glob']],
                  'amb': [['ambient', 'amb']],
                  'mod': [['module', 'mod']],
                  'mtr': [['revenue meter', 'rev meter', 'billing meter', ' meter']],
@@ -447,7 +447,7 @@ class CapData(object):
         else:
             return False
 
-    def load_das(self, path, filename, **kwargs):
+    def load_das(self, path, filename, source=None, **kwargs):
         """
         Reads measured solar data from a csv file.
 
@@ -494,7 +494,11 @@ class CapData(object):
                 except ValueError:
                     continue
 
-            header = list(np.arange(header_end))
+            if source == 'AlsoEnergy':
+                header = 'infer'
+            else:
+                header = list(np.arange(header_end))
+
             for encoding in encodings:
                 try:
                     all_data = pd.read_csv(data, encoding=encoding,
@@ -506,10 +510,50 @@ class CapData(object):
                 else:
                     break
 
+            if source == 'AlsoEnergy':
+                row0 = all_data.iloc[0, :]
+                row1 = all_data.iloc[1, :]
+                row2 = all_data.iloc[2, :]
+
+                row0_noparen = []
+                for val in row0:
+                    if type(val) is str:
+                        row0_noparen.append(val.split('(')[0].strip())
+                    else:
+                        row0_noparen.append(val)
+
+                row1_nocomm = []
+                for val in row1:
+                    if type(val) is str:
+                        strings = val.split(',')
+                        if len(strings) == 1:
+                            row1_nocomm.append(val)
+                        else:
+                            row1_nocomm.append(strings[-1].strip())
+                    else:
+                        row1_nocomm.append(val)
+
+                row2_noNan = []
+                for val in row2:
+                    if val is pd.np.nan:
+                        row2_noNan.append('')
+                    else:
+                        row2_noNan.append(val)
+
+                new_cols = []
+                for one, two, three in zip(row0_noparen, row1_nocomm, row2_noNan):
+                    new_cols.append(str(one) + ' ' + str(two) + ', ' + str(three))
+
+                all_data.columns = new_cols
+
         all_data = all_data.apply(pd.to_numeric, errors='coerce')
         all_data.dropna(axis=1, how='all', inplace=True)
         all_data.dropna(how='all', inplace=True)
-        all_data.columns = [' '.join(col).strip() for col in all_data.columns.values]
+
+        if source is not 'AlsoEnergy':
+            all_data.columns = [' '.join(col).strip() for col in all_data.columns.values]
+        else:
+            all_data.index = pd.to_datetime(all_data.index)
 
         return all_data
 
@@ -556,7 +600,7 @@ class CapData(object):
         pvraw = pvraw.rename(columns={"T Amb": "TAmb"})
         return pvraw
 
-    def load_data(self, path='./data/', fname=None, set_trans=True,
+    def load_data(self, path='./data/', fname=None, set_trans=True, source=None,
                   load_pvsyst=False, **kwargs):
         """
         Import data from csv files.
@@ -571,6 +615,10 @@ class CapData(object):
         set_trans : bool, default True
             Generates translation dicitionary for column names after loading
             data.
+        source : str, default None
+            Default of None uses general approach that concatenates header data.
+            Set to 'AlsoEnergy' to use column heading parsing specific to
+            downloads from AlsoEnergy.
         load_pvsyst : bool, default False
             By default skips any csv file that has 'pvsyst' in the name.  Is
             not case sensitive.  Set to true to import a csv with 'pvsyst' in
@@ -598,7 +646,8 @@ class CapData(object):
                     if filename.lower().find('pvsyst') != -1:
                         print("Skipped file: " + filename)
                         continue
-                    nextData = self.load_das(path, filename, **kwargs)
+                    nextData = self.load_das(path, filename, source=source,
+                                             **kwargs)
                     all_sensors = pd.concat([all_sensors, nextData], axis=0)
                     print("Read: " + filename)
             elif load_pvsyst:
@@ -611,7 +660,7 @@ class CapData(object):
                     print("Read: " + filename)
         else:
             if not load_pvsyst:
-                all_sensors = self.load_das(path, fname, **kwargs)
+                all_sensors = self.load_das(path, fname, source=source, **kwargs)
             elif load_pvsyst:
                 all_sensors = self.load_pvsyst(path, fname, **kwargs)
 

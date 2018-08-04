@@ -88,6 +88,30 @@ class TestLoadDataMethods(unittest.TestCase):
                               pd.core.indexes.base.Index,
                               'Columns might be MultiIndex; should be base index')
 
+    def test_source_alsoenergy(self):
+        das_1 = pvc.CapData()
+        das_1.load_data(path='./tests/data/col_naming_examples/',
+                      fname='ae_site1.csv', source='AlsoEnergy')
+        col_names1 = ['Elkor Production Meter PowerFactor, ',
+                      'Elkor Production Meter KW, kW',
+                      'Weather Station 1 TempF, °F', 'Weather Station 2 Sun2, W/m²',
+                      'Weather Station 1 Sun, W/m²', 'Weather Station 1 WindSpeed, mph',
+                      'index']
+        self.assertTrue(all(das_1.df.columns == col_names1),
+                        'Column names are not expected value for ae_site1')
+
+        das_2 = pvc.CapData()
+        das_2.load_data(path='./tests/data/col_naming_examples/',
+                      fname='ae_site2.csv', source='AlsoEnergy')
+        col_names2 = ['Acuvim II Meter PowerFactor, PF', 'Acuvim II Meter KW, kW',
+                      'Weather Station 1 TempF, °F', 'Weather Station 3 TempF, °F',
+                      'Weather Station 2 Sun2, W/m²', 'Weather Station 4 Sun2, W/m²',
+                      'Weather Station 1 Sun, W/m²', 'Weather Station 3 Sun, W/m²',
+                      'Weather Station 1 WindSpeed, mph',
+                      'Weather Station 3 WindSpeed, mph',
+                      'index']
+        self.assertTrue(all(das_2.df.columns == col_names2),
+                        'Column names are not expected value for ae_site1')
 
 class TestCapDataLoadMethods(unittest.TestCase):
     """Tests for load_data method."""
