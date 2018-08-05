@@ -968,6 +968,10 @@ class CapTest(object):
         follow the requirements of statsmodels use of patsy.
     tolerance : float
         Tolerance for capacity test as a decimal NOT percentage.
+    err : str
+        String representing error band.  Ex. '+ 3', '+/- 3', '- 5'
+        There must be space between the sign and number. Number is
+        interpreted as a percent.
     """
 
     def __init__(self, das, sim, tolerance):
@@ -1205,7 +1209,8 @@ class CapTest(object):
                                                 'w_vel': wind_RC}, ignore_index=True)
                     df_grpd = flt_dfs.groupby(by=pd.Grouper(freq='M'))
 
-                results = pred_summary(df_grpd, RCs_df, self.tolerance,
+                error = float(self.tolerance.split(sep=' ')[1]) / 100
+                results = pred_summary(df_grpd, RCs_df, error,
                                        fml=self.reg_fml)
 
         if inplace:
@@ -1783,7 +1788,8 @@ class CapTest(object):
             elif data == 'sim':
                 self.ols_model_sim = reg
 
-    def cp_results(self, nameplate, err):
+    def cp_results(self, nameplate, check_pvalues=False, pval=0.05,
+                   print_res=True):
         """
         Prints a summary indicating if system passed or failed capacity test.
 
@@ -1793,15 +1799,27 @@ class CapTest(object):
         ----------
         nameplate : numeric
             AC nameplate rating of the PV plant.
-        err : str
-            String representing error band.  Ex. '+ 3', '+/- 3', '- 5'
-            There must be space between the sign and number. Number is
-            interpreted as a percent.
+        check_pvalues : boolean, default False
+            Set to true to check p values for each coefficient.  If p values is
+            greater than pval, then the coefficient is set to zero.
+        pval : float, default 0.05
+            p value to use as cutoff.  Regresion coefficients with a p value
+            greater than pval will be set to zero.
+        print_res : boolean, default True
+            Set to False to prevent printing results.
 
         Returns
         -------
-        None
+        Capacity test ratio
         """
+        if check_pvalues:
+            for key, val in self.ols_model_das.pvalues.iteritems():
+                if val > pval:
+                    self.ols_model_das.params[key] = 0
+            for key, val in self.ols_model_sim.pvalues.iteritems():
+                if val > pval:
+                    self.ols_model_sim.params[key] = 0
+
         actual = self.ols_model_das.predict(self.rc)[0]
         expected = self.ols_model_sim.predict(self.rc)[0]
         cap_ratio = actual / expected
@@ -1810,41 +1828,75 @@ class CapTest(object):
             actual *= 1000
         capacity = nameplate * cap_ratio
 
-        sign = err.split(sep=' ')[0]
-        error = int(err.split(sep=' ')[1])
+        sign = self.tolerance.split(sep=' ')[0]
+        error = int(self.tolerance.split(sep=' ')[1])
 
         nameplate_plus_error = nameplate * (1 + error / 100)
         nameplate_minus_error = nameplate * (1 - error / 100)
 
-        if sign == '+/-' or sign == '-/+':
-            if nameplate_minus_error <= capacity <= nameplate_plus_error:
-                print("{:<30s}{}".format("Capacity Test Result:", "PASS"))
+        if print_res:
+            if sign == '+/-' or sign == '-/+':
+                if nameplate_minus_error <= capacity <= nameplate_plus_error:
+                    print("{:<30s}{}".format("Capacity Test Result:", "PASS"))
+                else:
+                    print("{:<25s}{}".format("Capacity Test Result:", "FAIL"))
+                bounds = str(nameplate_minus_error) + ', ' + str(nameplate_plus_error)
+            elif sign == '+':
+                if nameplate <= capacity <= nameplate_plus_error:
+                    print("{:<30s}{}".format("Capacity Test Result:", "PASS"))
+                else:
+                    print("{:<25s}{}".format("Capacity Test Result:", "FAIL"))
+                bounds = str(nameplate) + ', ' + str(nameplate_plus_error)
+            elif sign == '-':
+                if nameplate_minus_error <= capacity <= nameplate:
+                    print("{:<30s}{}".format("Capacity Test Result:", "PASS"))
+                else:
+                    print("{:<25s}{}".format("Capacity Test Result:", "FAIL"))
+                bounds = str(nameplate_minus_error) + ', ' + str(nameplate)
             else:
-                print("{:<25s}{}".format("Capacity Test Result:", "FAIL"))
-            bounds = str(nameplate_minus_error) + ', ' + str(nameplate_plus_error)
-        elif sign == '+':
-            if nameplate <= capacity <= nameplate_plus_error:
-                print("{:<30s}{}".format("Capacity Test Result:", "PASS"))
-            else:
-                print("{:<25s}{}".format("Capacity Test Result:", "FAIL"))
-            bounds = str(nameplate) + ', ' + str(nameplate_plus_error)
-        elif sign == '-':
-            if nameplate_minus_error <= capacity <= nameplate:
-                print("{:<30s}{}".format("Capacity Test Result:", "PASS"))
-            else:
-                print("{:<25s}{}".format("Capacity Test Result:", "FAIL"))
-            bounds = str(nameplate_minus_error) + ', ' + str(nameplate)
-        else:
-            print("Sign must be '+', '-', '+/-', or '-/+'.")
+                print("Sign must be '+', '-', '+/-', or '-/+'.")
 
-        print("{:<30s}{:0.3f}".format("Modeled test output:", expected) + "\n" +
-              "{:<30s}{:0.3f}".format("Actual test output:", actual) + "\n" +
-              "{:<30s}{:0.3f}".format("Tested output ratio:", cap_ratio) + "\n" +
-              "{:<30s}{:0.3f}".format("Tested Capacity:", capacity)
-              )
+            print("{:<30s}{:0.3f}".format("Modeled test output:",
+                                          expected) + "\n" +
+                  "{:<30s}{:0.3f}".format("Actual test output:",
+                                          actual) + "\n" +
+                  "{:<30s}{:0.3f}".format("Tested output ratio:",
+                                          cap_ratio) + "\n" +
+                  "{:<30s}{:0.3f}".format("Tested Capacity:",
+                                          capacity)
+                  )
 
-        print("{:<30s}{}".format("Bounds:", bounds))
+            print("{:<30s}{}".format("Bounds:", bounds))
 
+        return(cap_ratio)
+
+    def uncertainty():
+        """Calculates random standard uncertainty of the regression
+        (SEE times the square root of the leverage of the reporting
+        conditions).
+
+        NO TESTS YET!
+        """
+
+        SEE = np.sqrt(self.ols_model_das.mse_resid)
+
+        cd_obj = self.__flt_setup('das')
+        df = cd_obj.rview(['power', 'poa', 't_amb', 'w_vel'])
+        new_names = ['power', 'poa', 't_amb', 'w_vel']
+        rename = {new: old for new, old in zip(df.columns, new_names)}
+        df = df.rename(columns=rename)
+
+        rc_pt = {key: val[0] for key, val in self.rc.items()}
+        rc_pt['power'] = actual
+        df.append([rc_pt])
+
+        reg = fit_model(df, fml=self.reg_fml)
+
+        infl = reg.get_influence()
+        leverage = infl.hat_matrix_diag[-1]
+        sy = SEE * np.sqrt(leverage)
+
+        return(sy)
 
 def equip_counts(df):
     """
