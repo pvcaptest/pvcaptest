@@ -1,5 +1,5 @@
 import os
-import sys
+import collections
 import unittest
 import numpy as np
 import pandas as pd
@@ -25,22 +25,22 @@ Run individual tests:
 
 update_summary
 x  perc_wrap
-irrRC_balanced
+x irrRC_balanced
 spans_year
 cntg_eoy
-flt_irr
-fit_model
-predict
-pred_summary
+x flt_irr
+x fit_model
+x predict
+x pred_summary
 
 CapData
-    set_reg_trans
-    copy
+    set_reg_trans- no test needed
+    x copy
     empty
-    load_das
-    load_pvsyst
-    load_data
-    __series_type
+    x load_das
+    x load_pvsyst
+    x load_data
+    x __series_type
     __set_trans
     drop_cols
     view
@@ -53,6 +53,7 @@ CapTest
     sim_apply_losses- blank
     pred_rcs- future
     rep_cond
+    x rep_cond(pred=True)
     agg_sensors
     reg_data
     __flt_setup
@@ -89,6 +90,7 @@ class TestLoadDataMethods(unittest.TestCase):
                               pd.core.indexes.base.Index,
                               'Columns might be MultiIndex; should be base index')
 
+
     def test_source_alsoenergy(self):
         das_1 = pvc.CapData()
         das_1.load_data(path='./tests/data/col_naming_examples/',
@@ -114,6 +116,21 @@ class TestLoadDataMethods(unittest.TestCase):
         self.assertTrue(all(das_2.df.columns == col_names2),
                         'Column names are not expected value for ae_site1')
 
+    def test_load_das(self):
+        das = pvc.CapData()
+        das = das.load_das('./tests/data/',
+                           'example_meas_data.csv')
+        self.assertEqual(1440, das.shape[0],
+                         'Not the correct number of rows in imported data.')
+        self.assertIsInstance(das.index,
+                              pd.core.indexes.datetimes.DatetimeIndex,
+                              'Index is not a datetime index.')
+        self.assertIsInstance(das.columns,
+                              pd.core.indexes.base.Index,
+                              'Columns might be MultiIndex; should be base index')
+
+
+
 class TestCapDataLoadMethods(unittest.TestCase):
     """Tests for load_data method."""
 
@@ -135,6 +152,70 @@ class TestCapDataLoadMethods(unittest.TestCase):
         self.assertEqual(self.capdata.df.shape[0], 3,
                          'imported a non csv or pvsyst file')
 
+
+class TestCapDataSeriesTypes(unittest.TestCase):
+    """Test CapData private methods assignment of type to each series of data."""
+
+    def setUp(self):
+        self.cdata = pvc.CapData()
+
+    def test_series_type(self):
+        name = 'weather station 1 weather station 1 ghi poa w/m2'
+        test_series = pd.Series(np.arange(0, 900, 100), name=name)
+        out = self.cdata._CapData__series_type(test_series, pvc.type_defs)
+
+        self.assertIsInstance(out, str,
+                              'Returned object is not a string.')
+        self.assertEqual(out, 'irr',
+                         'Returned object is not "irr".')
+
+    def test_series_type_caps_in_type_def(self):
+        name = 'weather station 1 weather station 1 ghi poa w/m2'
+        test_series = pd.Series(np.arange(0, 900, 100), name=name)
+        type_def = collections.OrderedDict([
+                     ('irr', [['IRRADIANCE', 'IRR', 'PLANE OF ARRAY', 'POA',
+                               'GHI', 'GLOBAL', 'GLOB', 'W/M^2', 'W/M2', 'W/M',
+                               'W/'],
+                              (-10, 1500)])])
+        out = self.cdata._CapData__series_type(test_series, type_def)
+
+        self.assertIsInstance(out, str,
+                              'Returned object is not a string.')
+        self.assertEqual(out, 'irr',
+                         'Returned object is not "irr".')
+
+    def test_series_type_repeatable(self):
+        name = 'weather station 1 weather station 1 ghi poa w/m2'
+        test_series = pd.Series(np.arange(0, 900, 100), name=name)
+        out = []
+        i = 0
+        while i < 100:
+            out.append(self.cdata._CapData__series_type(test_series, pvc.type_defs))
+            i += 1
+        out_np = np.array(out)
+
+        self.assertTrue(all(out_np == 'irr'),
+                        'Result is not consistent after repeated runs.')
+
+    def test_series_type_valErr(self):
+        name = 'weather station 1 weather station 1 ghi poa w/m2'
+        test_series = pd.Series(name=name)
+        out = self.cdata._CapData__series_type(test_series, pvc.type_defs)
+
+        self.assertIsInstance(out, str,
+                              'Returned object is not a string.')
+        self.assertEqual(out, 'irr-valuesError',
+                         'Returned object is not "irr-valuesError".')
+
+    def test_series_type_no_str(self):
+        name = 'should not return key string'
+        test_series = pd.Series(name=name)
+        out = self.cdata._CapData__series_type(test_series, pvc.type_defs)
+
+        self.assertIsInstance(out, str,
+                              'Returned object is not a string.')
+        self.assertIs(out, '',
+                      'Returned object is not empty string.')
 
 class Test_top_level_funcs(unittest.TestCase):
     def test_perc_wrap(self):
@@ -292,6 +373,21 @@ class Test_CapData_methods_sim(unittest.TestCase):
         #                                                  self.high)
         # self.jun_flt_irr = self.jun_flt['GlobInc']
 
+    def test_copy(self):
+        self.pvsyst.set_reg_trans(power='real_pwr--', poa='irr-ghi-',
+                                  t_amb='temp-amb-', w_vel='wind--')
+        pvsyst_copy = self.pvsyst.copy()
+        df_equality = pvsyst_copy.df.equals(self.pvsyst.df)
+
+        self.assertTrue(df_equality,
+                        'Dataframe of copy not equal to original')
+        self.assertEqual(pvsyst_copy.trans, self.pvsyst.trans,
+                         'Trans dict of copy is not equal to original')
+        self.assertEqual(pvsyst_copy.trans_keys, self.pvsyst.trans_keys,
+                         'Trans dict keys are not equal to original.')
+        self.assertEqual(pvsyst_copy.reg_trans, self.pvsyst.reg_trans,
+                         'Regression trans dict copy is not equal to orig.')
+
     def test_irrRC_balanced(self):
         jun = self.pvsyst.df.loc['06/1990']
         jun_cpy = jun.copy()
@@ -355,7 +451,7 @@ class Test_CapData_methods_sim(unittest.TestCase):
             irr_result = results['poa'].loc[mnth_str][0]
             np_result = np.percentile(df_irr.loc[mnth_str], 60,
                                       interpolation='nearest')
-            self.assertEqual(np_result, irr_result,
+            self.assertAlmostEqual(np_result, irr_result, 7,
                              'The 60th percentile from function does not match '
                              'numpy percentile for {}'.format(mnth_str))
 
@@ -363,7 +459,7 @@ class Test_CapData_methods_sim(unittest.TestCase):
             df_w_vel = self.pvsyst.df['WindVel']
             w_result = results['w_vel'].loc[mnth_str][0]
             w_result_pd = df_w_vel.loc[mnth_str].mean()
-            self.assertEqual(w_result_pd, w_result,
+            self.assertAlmostEqual(w_result_pd, w_result, 7,
                              'The average wind speed result does not match '
                              'pandas aveage for {}'.format(mnth_str))
 
@@ -371,7 +467,7 @@ class Test_CapData_methods_sim(unittest.TestCase):
             df_t_amb = self.pvsyst.df['TAmb']
             t_amb_result = results['t_amb'].loc[mnth_str][0]
             t_amb_result_pd = df_t_amb.loc[mnth_str].mean()
-            self.assertEqual(t_amb_result_pd, t_amb_result,
+            self.assertAlmostEqual(t_amb_result_pd, t_amb_result, 7,
                              'The average amb temp result does not match '
                              'pandas aveage for {}'.format(mnth_str))
 
