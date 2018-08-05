@@ -1736,9 +1736,7 @@ class CapTest(object):
                 self.ols_model_sim = reg
 
     def cp_results(self, nameplate, check_pvalues=False, pval=0.05,
-                   print_res=True,
-                   err={'poa': 14, 't_amb': 0.04, 'w_vel': 0.3},
-                   ci = 1.96):
+                   print_res=True):
         """
         Prints a summary indicating if system passed or failed capacity test.
 
@@ -1756,15 +1754,10 @@ class CapTest(object):
             greater than pval will be set to zero.
         print_res : boolean, default True
             Set to False to prevent printing results.
-        err : dict, default poa = 14, t_amb = 0.04C, w_vel = 0.3 m/sec
-            Dictionary of uncertanties for sensors.  Plane of array irradiance
-            is in w/m^2. Ambient temperatuer is degrees C and wind speed
-            is meters per second.
-        ci : float, default 1.96
 
         Returns
         -------
-        Tuple of capacity test ratio
+        Capacity test ratio
         """
         if check_pvalues:
             for key, val in self.ols_model_das.pvalues.iteritems():
@@ -1822,10 +1815,35 @@ class CapTest(object):
 
             print("{:<30s}{}".format("Bounds:", bounds))
 
-            err_rc = {key: val * ci / self.rc[key][0] for key, val in err.items()}
+        return(cap_ratio)
 
-        return((cap_ratio, ))
+    def uncertainty():
+        """Calculates random standard uncertainty of the regression
+        (SEE times the square root of the leverage of the reporting
+        conditions).
 
+        NO TESTS YET!
+        """
+
+        SEE = np.sqrt(self.ols_model_das.mse_resid)
+
+        cd_obj = self.__flt_setup('das')
+        df = cd_obj.rview(['power', 'poa', 't_amb', 'w_vel'])
+        new_names = ['power', 'poa', 't_amb', 'w_vel']
+        rename = {new: old for new, old in zip(df.columns, new_names)}
+        df = df.rename(columns=rename)
+
+        rc_pt = {key: val[0] for key, val in self.rc.items()}
+        rc_pt['power'] = actual
+        df.append([rc_pt])
+
+        reg = fit_model(df, fml=self.reg_fml)
+
+        infl = reg.get_influence()
+        leverage = infl.hat_matrix_diag[-1]
+        sy = SEE * np.sqrt(leverage)
+
+        return(sy)
 
 def equip_counts(df):
     """

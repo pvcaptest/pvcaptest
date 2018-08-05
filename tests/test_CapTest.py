@@ -406,7 +406,7 @@ class Test_CapTest_cp_results_single_coeff(unittest.TestCase):
         res = self.cptest.cp_results(100, print_res=False)
 
         self.assertIsInstance(res,
-                              tuple,
+                              float,
                               'Returned value is not a tuple')
 
 
@@ -420,7 +420,7 @@ class Test_CapTest_cp_results_mult_coeff(unittest.TestCase):
         meas = pvc.CapData()
         sim = pvc.CapData()
         self.cptest = pvc.CapTest(meas, sim, '+/- 5')
-        self.cptest.rc = {'a': [6], 'b': [5], 'c': [3]}
+        self.cptest.rc = {'poa': [6], 't_amb': [5], 'w_vel': [3]}
 
         nsample = 100
         e = np.random.normal(size=nsample)
@@ -435,10 +435,13 @@ class Test_CapTest_cp_results_mult_coeff(unittest.TestCase):
         das_y = das_y + e
         sim_y = sim_y + e
 
-        das_df = pd.DataFrame({'y': das_y, 'a': a, 'b': b, 'c': c})
-        sim_df = pd.DataFrame({'y': sim_y, 'a': a, 'b': b, 'c': c})
+        das_df = pd.DataFrame({'power': das_y, 'poa': a, 't_amb': b, 'w_vel': c})
+        sim_df = pd.DataFrame({'power': sim_y, 'poa': a, 't_amb': b, 'w_vel': c})
 
-        fml = 'y ~ a + I(a * a) + I(a * b) + I(a * c) - 1'
+        meas.df = das_df
+        meas.set_reg_trans(power='power', poa='poa', t_amb='t_amb', w_vel='w_vel')
+
+        fml = 'power ~ poa + I(poa * poa) + I(poa * t_amb) + I(poa * w_vel) - 1'
         das_model = smf.ols(formula=fml, data=das_df)
         sim_model = smf.ols(formula=fml, data=sim_df)
 
