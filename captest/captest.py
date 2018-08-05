@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 import math
 import copy
 import collections
+import holoviews as hv
 from functools import wraps
 
 import statsmodels.formula.api as smf
@@ -27,25 +28,26 @@ from bokeh.models import Legend, HoverTool, tools
 met_keys = ['poa', 't_amb', 'w_vel', 'power']
 
 # The search strings for types cannot be duplicated across types.
-type_defs = collections.OrderedDict([('irr', [['irradiance', 'irr', 'plane of array', 'poa', 'ghi',
-                     'global', 'glob', 'w/m^2', 'w/m2', 'w/m', 'w/'],
-                     (-10, 1500)]),
+type_defs = collections.OrderedDict([
+             ('irr', [['irradiance', 'irr', 'plane of array', 'poa', 'ghi',
+                       'global', 'glob', 'w/m^2', 'w/m2', 'w/m', 'w/'],
+                      (-10, 1500)]),
              ('temp', [['temperature', 'temp', 'degrees', 'deg', 'ambient',
-                       'amb', 'cell temperature'],
-                      (-49, 127)]),
+                        'amb', 'cell temperature'],
+                       (-49, 127)]),
              ('wind', [['wind', 'speed'],
-                      (0, 18)]),
+                       (0, 18)]),
              ('pf', [['power factor', 'factor', 'pf'],
-                    (-1, 1)]),
+                     (-1, 1)]),
              ('op_state', [['operating state', 'state', 'op', 'status'],
-                          (0, 10)]),
+                           (0, 10)]),
              ('real_pwr', [['real power', 'ac power', 'e_grid'],
-                          (-1000000, 1000000000000)]),  # set to very lax bounds
+                           (-1000000, 1000000000000)]),  # set to very lax bounds
              ('shade', [['fshdbm', 'shd', 'shade'], (0, 1)]),
              ('index', [['index'], ('', 'z')])])
 
-sub_type_defs = {'poa': [['plane of array', 'poa']],
-                 'ghi': [['global horizontal', 'ghi', 'global', 'glob']],
+sub_type_defs = {'poa': [['sun', 'plane of array', 'poa']],
+                 'ghi': [['sun2', 'global horizontal', 'ghi', 'global', 'glob']],
                  'amb': [['ambient', 'amb']],
                  'mod': [['module', 'mod']],
                  'mtr': [['revenue meter', 'rev meter', 'billing meter', ' meter']],
@@ -447,7 +449,7 @@ class CapData(object):
         else:
             return False
 
-    def load_das(self, path, filename, **kwargs):
+    def load_das(self, path, filename, source=None, **kwargs):
         """
         Reads measured solar data from a csv file.
 
@@ -494,7 +496,11 @@ class CapData(object):
                 except ValueError:
                     continue
 
-            header = list(np.arange(header_end))
+            if source == 'AlsoEnergy':
+                header = 'infer'
+            else:
+                header = list(np.arange(header_end))
+
             for encoding in encodings:
                 try:
                     all_data = pd.read_csv(data, encoding=encoding,
@@ -506,10 +512,50 @@ class CapData(object):
                 else:
                     break
 
+            if source == 'AlsoEnergy':
+                row0 = all_data.iloc[0, :]
+                row1 = all_data.iloc[1, :]
+                row2 = all_data.iloc[2, :]
+
+                row0_noparen = []
+                for val in row0:
+                    if type(val) is str:
+                        row0_noparen.append(val.split('(')[0].strip())
+                    else:
+                        row0_noparen.append(val)
+
+                row1_nocomm = []
+                for val in row1:
+                    if type(val) is str:
+                        strings = val.split(',')
+                        if len(strings) == 1:
+                            row1_nocomm.append(val)
+                        else:
+                            row1_nocomm.append(strings[-1].strip())
+                    else:
+                        row1_nocomm.append(val)
+
+                row2_noNan = []
+                for val in row2:
+                    if val is pd.np.nan:
+                        row2_noNan.append('')
+                    else:
+                        row2_noNan.append(val)
+
+                new_cols = []
+                for one, two, three in zip(row0_noparen, row1_nocomm, row2_noNan):
+                    new_cols.append(str(one) + ' ' + str(two) + ', ' + str(three))
+
+                all_data.columns = new_cols
+
         all_data = all_data.apply(pd.to_numeric, errors='coerce')
         all_data.dropna(axis=1, how='all', inplace=True)
         all_data.dropna(how='all', inplace=True)
-        all_data.columns = [' '.join(col).strip() for col in all_data.columns.values]
+
+        if source is not 'AlsoEnergy':
+            all_data.columns = [' '.join(col).strip() for col in all_data.columns.values]
+        else:
+            all_data.index = pd.to_datetime(all_data.index)
 
         return all_data
 
@@ -535,36 +581,50 @@ class CapData(object):
         encodings = ['utf-8', 'latin1', 'iso-8859-1', 'cp1252']
         for encoding in encodings:
             try:
+                # pvraw = pd.read_csv(dirName, skiprows=10, encoding=encoding,
+                #                     header=[0, 1], parse_dates=[0],
+                #                     infer_datetime_format=True, **kwargs)
                 pvraw = pd.read_csv(dirName, skiprows=10, encoding=encoding,
-                                    header=[0, 1], parse_dates=[0],
-                                    infer_datetime_format=True, **kwargs)
+                                    header=[0, 1], **kwargs)
             except UnicodeDecodeError:
                 continue
             else:
                 break
 
         pvraw.columns = pvraw.columns.droplevel(1)
-        # pvraw['dateString'] = pvraw['date'].apply(lambda x: x.strftime('%m/%d/%Y %H'))
-        pvraw.set_index('date', drop=True, inplace=True)
+        dates = pvraw.loc[:, 'date']
+        try:
+            dt_index = pd.to_datetime(dates, format='%m/%d/%y %H:%M')
+        except ValueError:
+            dt_index = pd.to_datetime(dates)
+        pvraw.index = dt_index
+        pvraw.drop('date', axis=1, inplace=True)
         pvraw = pvraw.rename(columns={"T Amb": "TAmb"})
         return pvraw
 
-    def load_data(self, directory='./data/', set_trans=True, load_pvsyst=False,
-                  **kwargs):
+    def load_data(self, path='./data/', fname=None, set_trans=True, source=None,
+                  load_pvsyst=False, **kwargs):
         """
         Import data from csv files.
 
         Parameters
         ----------
-        directory : str, default './data/'
+        path : str, default './data/'
             Path to directory containing csv files to load.
+        fname: str, default None
+            Filename of specific file to load. If filename is none method will
+            load all csv files into one dataframe.
         set_trans : bool, default True
             Generates translation dicitionary for column names after loading
             data.
+        source : str, default None
+            Default of None uses general approach that concatenates header data.
+            Set to 'AlsoEnergy' to use column heading parsing specific to
+            downloads from AlsoEnergy.
         load_pvsyst : bool, default False
-            By default skips any csv file that has 'pvsyst' in the name.  Is not
-            case sensitive.  Set to true to import a csv with 'pvsyst' in the
-            name and skip all other files.
+            By default skips any csv file that has 'pvsyst' in the name.  Is
+            not case sensitive.  Set to true to import a csv with 'pvsyst' in
+            the name and skip all other files.
         **kwargs
             Will pass kwargs onto load_pvsyst or load_das, which will pass to
             Pandas.read_csv.  Useful to adjust the separator (Ex. sep=';').
@@ -573,32 +633,38 @@ class CapData(object):
         -------
         None
         """
+        if fname is None:
+            files_to_read = []
+            for file in os.listdir(path):
+                if file.endswith('.csv'):
+                    files_to_read.append(file)
+                elif file.endswith('.CSV'):
+                    files_to_read.append(file)
 
-        files_to_read = []
-        for file in os.listdir(directory):
-            if file.endswith('.csv'):
-                files_to_read.append(file)
-            elif file.endswith('.CSV'):
-                files_to_read.append(file)
+            all_sensors = pd.DataFrame()
 
-        all_sensors = pd.DataFrame()
-
-        if not load_pvsyst:
-            for filename in files_to_read:
-                if filename.lower().find('pvsyst') != -1:
-                    print("Skipped file: " + filename)
-                    continue
-                nextData = self.load_das(directory, filename, **kwargs)
-                all_sensors = pd.concat([all_sensors, nextData], axis=0)
-                print("Read: " + filename)
-        elif load_pvsyst:
-            for filename in files_to_read:
-                if filename.lower().find('pvsyst') == -1:
-                    print("Skipped file: " + filename)
-                    continue
-                nextData = self.load_pvsyst(directory, filename, **kwargs)
-                all_sensors = pd.concat([all_sensors, nextData], axis=0)
-                print("Read: " + filename)
+            if not load_pvsyst:
+                for filename in files_to_read:
+                    if filename.lower().find('pvsyst') != -1:
+                        print("Skipped file: " + filename)
+                        continue
+                    nextData = self.load_das(path, filename, source=source,
+                                             **kwargs)
+                    all_sensors = pd.concat([all_sensors, nextData], axis=0)
+                    print("Read: " + filename)
+            elif load_pvsyst:
+                for filename in files_to_read:
+                    if filename.lower().find('pvsyst') == -1:
+                        print("Skipped file: " + filename)
+                        continue
+                    nextData = self.load_pvsyst(path, filename, **kwargs)
+                    all_sensors = pd.concat([all_sensors, nextData], axis=0)
+                    print("Read: " + filename)
+        else:
+            if not load_pvsyst:
+                all_sensors = self.load_das(path, fname, source=source, **kwargs)
+            elif load_pvsyst:
+                all_sensors = self.load_pvsyst(path, fname, **kwargs)
 
         ix_ser = all_sensors.index.to_series()
         all_sensors['index'] = ix_ser.apply(lambda x: x.strftime('%m/%d/%Y %H %M'))
@@ -645,7 +711,7 @@ class CapData(object):
             # print(key)
             for search_str in type_defs[key][0]:
                 # print(search_str)
-                if series.name.lower().find(search_str) == -1:
+                if series.name.lower().find(search_str.lower()) == -1:
                     continue
                 else:
                     if bounds_check:
@@ -904,6 +970,10 @@ class CapTest(object):
         follow the requirements of statsmodels use of patsy.
     tolerance : float
         Tolerance for capacity test as a decimal NOT percentage.
+    err : str
+        String representing error band.  Ex. '+ 3', '+/- 3', '- 5'
+        There must be space between the sign and number. Number is
+        interpreted as a percent.
     """
 
     def __init__(self, das, sim, tolerance):
@@ -979,6 +1049,48 @@ class CapTest(object):
         plt = df.plot(kind='scatter', x='poa', y='power',
                       title=data, alpha=0.2)
         return(plt)
+
+    def scatter_hv(self, data, timeseries=False):
+        """
+        Create holoview scatter plot of irradiance vs power.  Optional linked
+        time series plot of the same data.
+
+        Parameters
+        ----------
+        data: str
+            'sim' or 'das' determines if plot is of sim or das data.
+        timeseries : boolean, default False
+            True adds timeseries plot of power data with linked brushing.
+        """
+        flt_cd = self.__flt_setup(data)
+        new_names = ['power', 'poa', 't_amb', 'w_vel']
+        df = flt_cd.rview(new_names).copy()
+        rename = {old: new for old, new in zip(df.columns, new_names)}
+        df.rename(columns=rename, inplace=True)
+        df['index'] = flt_cd.df.loc[:,'index']
+        df.index.name = 'date_index'
+        df['date'] = df.index.values
+
+        opt_dict = {'Scatter': {'style': dict(size=5, cmap='Category20',
+                                              alpha=0.2),
+                                'plot': dict(tools=['box_select', 'lasso_select',
+                                                    'hover'],
+                                             color_index='inv',
+                                             legend_position='right',
+                                             height=400, width=500)},
+                    'Curve': {'plot': dict(shared_datasource=True, height=400,
+                                           width=800)},
+                    'Layout': {'plot': dict(shared_datasource=True)},
+                    'VLine': {'style': dict(color='gray', line_width=1)}}
+
+        poa_vs_kw = hv.Scatter(df, 'poa', ['power', 'poa', 'w_vel', 'index'])
+        poa_vs_time = hv.Curve(df, 'date', 'power')
+        layout_scatter = (poa_vs_kw).opts(opt_dict)
+        layout_timeseries = (poa_vs_kw + poa_vs_time).opts(opt_dict)
+        if timeseries:
+            return(layout_timeseries.cols(1))
+        else:
+            return(layout_scatter)
 
     def reg_scatter_matrix(self, data):
         """
@@ -1141,7 +1253,8 @@ class CapTest(object):
                                                 'w_vel': wind_RC}, ignore_index=True)
                     df_grpd = flt_dfs.groupby(by=pd.Grouper(freq='M'))
 
-                results = pred_summary(df_grpd, RCs_df, self.tolerance,
+                error = float(self.tolerance.split(sep=' ')[1]) / 100
+                results = pred_summary(df_grpd, RCs_df, error,
                                        fml=self.reg_fml)
 
         if inplace:
@@ -1663,7 +1776,7 @@ class CapTest(object):
             return cd_obj
 
     @update_summary
-    def reg_cpt(self, data, filter=False, inplace=True):
+    def reg_cpt(self, data, filter=False, inplace=True, summary=True):
         """
         Performs regression with statsmodels on filtered data.
 
@@ -1678,6 +1791,8 @@ class CapTest(object):
         inplace: bool, default True
             If filter is true and inplace is true, then function overwrites the
             filtered data for sim or das.  If false returns a CapData object.
+        summary: bool, default True
+            Set to false to not print regression summary.
 
         Returns
         -------
@@ -1698,7 +1813,8 @@ class CapTest(object):
 
         if filter:
             print('NOTE: Regression used to filter outlying points.\n\n')
-            print(reg.summary())
+            if summary:
+                print(reg.summary())
             df = df[np.abs(reg.resid) < 2 * np.sqrt(reg.scale)]
             cd_obj.df = cd_obj.df.loc[df.index, :]
             if inplace:
@@ -1709,13 +1825,15 @@ class CapTest(object):
             else:
                 return cd_obj
         else:
-            print(reg.summary())
+            if summary:
+                print(reg.summary())
             if data == 'das':
                 self.ols_model_das = reg
             elif data == 'sim':
                 self.ols_model_sim = reg
 
-    def cp_results(self, nameplate, err):
+    def cp_results(self, nameplate, check_pvalues=False, pval=0.05,
+                   print_res=True):
         """
         Prints a summary indicating if system passed or failed capacity test.
 
@@ -1725,15 +1843,27 @@ class CapTest(object):
         ----------
         nameplate : numeric
             AC nameplate rating of the PV plant.
-        err : str
-            String representing error band.  Ex. '+ 3', '+/- 3', '- 5'
-            There must be space between the sign and number. Number is
-            interpreted as a percent.
+        check_pvalues : boolean, default False
+            Set to true to check p values for each coefficient.  If p values is
+            greater than pval, then the coefficient is set to zero.
+        pval : float, default 0.05
+            p value to use as cutoff.  Regresion coefficients with a p value
+            greater than pval will be set to zero.
+        print_res : boolean, default True
+            Set to False to prevent printing results.
 
         Returns
         -------
-        None
+        Capacity test ratio
         """
+        if check_pvalues:
+            for key, val in self.ols_model_das.pvalues.iteritems():
+                if val > pval:
+                    self.ols_model_das.params[key] = 0
+            for key, val in self.ols_model_sim.pvalues.iteritems():
+                if val > pval:
+                    self.ols_model_sim.params[key] = 0
+
         actual = self.ols_model_das.predict(self.rc)[0]
         expected = self.ols_model_sim.predict(self.rc)[0]
         cap_ratio = actual / expected
@@ -1742,41 +1872,75 @@ class CapTest(object):
             actual *= 1000
         capacity = nameplate * cap_ratio
 
-        sign = err.split(sep=' ')[0]
-        error = int(err.split(sep=' ')[1])
+        sign = self.tolerance.split(sep=' ')[0]
+        error = int(self.tolerance.split(sep=' ')[1])
 
         nameplate_plus_error = nameplate * (1 + error / 100)
         nameplate_minus_error = nameplate * (1 - error / 100)
 
-        if sign == '+/-' or sign == '-/+':
-            if nameplate_minus_error <= capacity <= nameplate_plus_error:
-                print("{:<30s}{}".format("Capacity Test Result:", "PASS"))
+        if print_res:
+            if sign == '+/-' or sign == '-/+':
+                if nameplate_minus_error <= capacity <= nameplate_plus_error:
+                    print("{:<30s}{}".format("Capacity Test Result:", "PASS"))
+                else:
+                    print("{:<25s}{}".format("Capacity Test Result:", "FAIL"))
+                bounds = str(nameplate_minus_error) + ', ' + str(nameplate_plus_error)
+            elif sign == '+':
+                if nameplate <= capacity <= nameplate_plus_error:
+                    print("{:<30s}{}".format("Capacity Test Result:", "PASS"))
+                else:
+                    print("{:<25s}{}".format("Capacity Test Result:", "FAIL"))
+                bounds = str(nameplate) + ', ' + str(nameplate_plus_error)
+            elif sign == '-':
+                if nameplate_minus_error <= capacity <= nameplate:
+                    print("{:<30s}{}".format("Capacity Test Result:", "PASS"))
+                else:
+                    print("{:<25s}{}".format("Capacity Test Result:", "FAIL"))
+                bounds = str(nameplate_minus_error) + ', ' + str(nameplate)
             else:
-                print("{:<25s}{}".format("Capacity Test Result:", "FAIL"))
-            bounds = str(nameplate_minus_error) + ', ' + str(nameplate_plus_error)
-        elif sign == '+':
-            if nameplate <= capacity <= nameplate_plus_error:
-                print("{:<30s}{}".format("Capacity Test Result:", "PASS"))
-            else:
-                print("{:<25s}{}".format("Capacity Test Result:", "FAIL"))
-            bounds = str(nameplate) + ', ' + str(nameplate_plus_error)
-        elif sign == '-':
-            if nameplate_minus_error <= capacity <= nameplate:
-                print("{:<30s}{}".format("Capacity Test Result:", "PASS"))
-            else:
-                print("{:<25s}{}".format("Capacity Test Result:", "FAIL"))
-            bounds = str(nameplate_minus_error) + ', ' + str(nameplate)
-        else:
-            print("Sign must be '+', '-', '+/-', or '-/+'.")
+                print("Sign must be '+', '-', '+/-', or '-/+'.")
 
-        print("{:<30s}{:0.3f}".format("Modeled test output:", expected) + "\n" +
-              "{:<30s}{:0.3f}".format("Actual test output:", actual) + "\n" +
-              "{:<30s}{:0.3f}".format("Tested output ratio:", cap_ratio) + "\n" +
-              "{:<30s}{:0.3f}".format("Tested Capacity:", capacity)
-              )
+            print("{:<30s}{:0.3f}".format("Modeled test output:",
+                                          expected) + "\n" +
+                  "{:<30s}{:0.3f}".format("Actual test output:",
+                                          actual) + "\n" +
+                  "{:<30s}{:0.3f}".format("Tested output ratio:",
+                                          cap_ratio) + "\n" +
+                  "{:<30s}{:0.3f}".format("Tested Capacity:",
+                                          capacity)
+                  )
 
-        print("{:<30s}{}".format("Bounds:", bounds))
+            print("{:<30s}{}".format("Bounds:", bounds))
 
+        return(cap_ratio)
+
+    def uncertainty():
+        """Calculates random standard uncertainty of the regression
+        (SEE times the square root of the leverage of the reporting
+        conditions).
+
+        NO TESTS YET!
+        """
+
+        SEE = np.sqrt(self.ols_model_das.mse_resid)
+
+        cd_obj = self.__flt_setup('das')
+        df = cd_obj.rview(['power', 'poa', 't_amb', 'w_vel'])
+        new_names = ['power', 'poa', 't_amb', 'w_vel']
+        rename = {new: old for new, old in zip(df.columns, new_names)}
+        df = df.rename(columns=rename)
+
+        rc_pt = {key: val[0] for key, val in self.rc.items()}
+        rc_pt['power'] = actual
+        df.append([rc_pt])
+
+        reg = fit_model(df, fml=self.reg_fml)
+
+        infl = reg.get_influence()
+        leverage = infl.hat_matrix_diag[-1]
+        sy = SEE * np.sqrt(leverage)
+
+        return(sy)
 
 def equip_counts(df):
     """
