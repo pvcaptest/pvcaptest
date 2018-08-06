@@ -1071,14 +1071,15 @@ class CapTest(object):
         df.index.name = 'date_index'
         df['date'] = df.index.values
 
-        opt_dict = {'Scatter': {'style': dict(size=5, cmap='Category20',
-                                              alpha=0.2),
+        opt_dict = {'Scatter': {'style': dict(size=5),
                                 'plot': dict(tools=['box_select', 'lasso_select',
                                                     'hover'],
-                                             color_index='inv',
                                              legend_position='right',
-                                             height=400, width=500)},
-                    'Curve': {'plot': dict(shared_datasource=True, height=400,
+                                             height=400, width=500,
+                                             shared_datasource=True,)},
+                    'Curve': {'plot': dict(tools=['box_select', 'lasso_select',
+                                                  'hover'],
+                                           shared_datasource=True, height=400,
                                            width=800)},
                     'Layout': {'plot': dict(shared_datasource=True)},
                     'VLine': {'style': dict(color='gray', line_width=1)}}
