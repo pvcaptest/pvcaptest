@@ -1,0 +1,7 @@
+"","ae_site_1","ae_site_1","ae_site_1","ae_site_1","ae_site_1","ae_site_1"
+"","Elkor Production Meter","Elkor Production Meter","Weather Station 1 (Standard w/ Kipp POA)","Weather Station 2 (Kipp GHI)","Weather Station 1 (Standard w/ Kipp POA)","Weather Station 1 (Standard w/ Kipp POA)"
+"Timestamp","Elkor Production Meter, PowerFactor","Elkor Production Meter, KW","Weather Station 1 (Standard w/ Kipp POA), TempF","Weather Station 2 (Kipp GHI), Sun2","Weather Station 1 (Standard w/ Kipp POA), Sun","Weather Station 1 (Standard w/ Kipp POA), WindSpeed"
+"","","kW","°F","W/m²","W/m²","mph"
+"8/4/2018 12:00 AM","0.021","-3.35","71","0","0","0"
+"8/4/2018 12:15 AM","0.029","-4.67","71","0","0","0"
+"8/4/2018 12:30 AM","0.479","-4.19","70.9","0","0","0"
