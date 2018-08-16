@@ -48,9 +48,9 @@ type_defs = collections.OrderedDict([
 
 sub_type_defs = {'poa': [['sun', 'plane of array', 'poa']],
                  'ghi': [['sun2', 'global horizontal', 'ghi', 'global', 'glob']],
-                 'amb': [['ambient', 'amb']],
-                 'mod': [['module', 'mod']],
-                 'mtr': [['revenue meter', 'rev meter', 'billing meter', ' meter']],
+                 'amb': [['TempF', 'ambient', 'amb']],
+                 'mod': [['Temp1', 'module', 'mod']],
+                 'mtr': [['revenue meter', 'rev meter', 'billing meter', 'meter']],
                  'inv': [['inverter', 'inv']]}
 
 irr_sensors_defs = {'ref_cell': [['reference cell', 'reference', 'ref',
@@ -793,7 +793,11 @@ class CapData(object):
 
         Parameters
         ----------
-        columns (list) List of columns to drop.
+        Columns (list) List of columns to drop.
+
+        Todo
+        ----
+        Change to accept a string column name or list of strings
         """
         for key, value in self.trans.items():
             for col in columns:
@@ -878,6 +882,11 @@ class CapData(object):
         Add NANs
             Add nans for filtered time stamps, so it is clear what has been
             removed
+        Add Hover Tooltip
+            Entire grid of plots fails to show if one of the legend on one of
+            the plots becomes too tall.  Fixed temporarily by increaseing plot
+            height.  Fix by removing legend and adding hover tooltip or letting
+            figure plot_height set dynamically.
         """
         dframe = self.df
 
@@ -894,15 +903,16 @@ class CapData(object):
             df = dframe[self.trans[key]]
             cols = df.columns.tolist()
             if len(cols) > len(colors):
-                print('Skipped {} because there are more than 10   columns.'.format(key))
+                print('Skipped {} because there are more than 10'
+                      'columns.'.format(key))
                 continue
 
             if x_axis == None:
-                p = figure(title=key, plot_width=400, plot_height=225,
+                p = figure(title=key, plot_width=400, plot_height=350,
                            x_axis_type='datetime')
                 x_axis = p.x_range
             if j > 0:
-                p = figure(title=key, plot_width=400, plot_height=225,
+                p = figure(title=key, plot_width=400, plot_height=350,
                            x_axis_type='datetime', x_range=x_axis)
             legend_items = []
             for i, col in enumerate(cols):
@@ -1415,6 +1425,11 @@ class CapTest(object):
             Time period returned will be centered on this date.
         inplace : bool
             Default true write back to CapTest.flt_sim or flt_das
+
+        Todo
+        ----
+        Add inverse options to remove time between start end rather than return
+        it
         """
         flt_cd = self.__flt_setup(data)
 
