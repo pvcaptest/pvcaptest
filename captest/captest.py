@@ -46,12 +46,13 @@ type_defs = collections.OrderedDict([
              ('shade', [['fshdbm', 'shd', 'shade'], (0, 1)]),
              ('index', [['index'], ('', 'z')])])
 
-sub_type_defs = {'poa': [['sun', 'plane of array', 'poa']],
-                 'ghi': [['sun2', 'global horizontal', 'ghi', 'global', 'glob']],
-                 'amb': [['TempF', 'ambient', 'amb']],
-                 'mod': [['Temp1', 'module', 'mod']],
-                 'mtr': [['revenue meter', 'rev meter', 'billing meter', 'meter']],
-                 'inv': [['inverter', 'inv']]}
+sub_type_defs = collections.OrderedDict([
+                 ('ghi', [['sun2', 'global horizontal', 'ghi', 'global', 'glob']]),
+                 ('poa', [['sun', 'plane of array', 'poa']]),
+                 ('amb', [['TempF', 'ambient', 'amb']]),
+                 ('mod', [['Temp1', 'module', 'mod']]),
+                 ('mtr', [['revenue meter', 'rev meter', 'billing meter', 'meter']]),
+                 ('inv', [['inverter', 'inv']])])
 
 irr_sensors_defs = {'ref_cell': [['reference cell', 'reference', 'ref',
                                   'referance', 'pvel']],
