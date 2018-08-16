@@ -48,8 +48,8 @@ type_defs = collections.OrderedDict([
 
 sub_type_defs = {'poa': [['sun', 'plane of array', 'poa']],
                  'ghi': [['sun2', 'global horizontal', 'ghi', 'global', 'glob']],
-                 'amb': [['ambient', 'amb']],
-                 'mod': [['module', 'mod']],
+                 'amb': [['TempF', 'ambient', 'amb']],
+                 'mod': [['Temp1', 'module', 'mod']],
                  'mtr': [['revenue meter', 'rev meter', 'billing meter', 'meter']],
                  'inv': [['inverter', 'inv']]}
 
