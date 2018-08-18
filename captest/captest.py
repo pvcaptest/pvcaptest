@@ -59,7 +59,7 @@ irr_sensors_defs = {'ref_cell': [['reference cell', 'reference', 'ref',
                     'pyran': [['pyranometer', 'pyran']]}
 
 
-columns = ['Timestamps', 'Timestamps_filtered', 'Filter_arguments']
+columns = ['pts_before_filter', 'pts_removed', 'filter_arguments']
 
 
 def update_summary(func):
