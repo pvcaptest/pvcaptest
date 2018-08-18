@@ -91,7 +91,23 @@ def update_summary(func):
 
         ret_val = func(self, *args, **kwargs)
 
-        arg_str = args.__repr__() + kwargs.__repr__()
+        arg_str = args.__repr__()
+        lst = arg_str.split(',')
+        arg_lst = [item.strip("'() ") for item in lst]
+        arg_lst_one = arg_lst[0]
+        if arg_lst_one == 'das' or arg_lst_one == 'sim':
+            arg_lst = arg_lst[1:]
+        arg_str = ', '.join(arg_lst)
+
+        kwarg_str = kwargs.__repr__()
+        kwarg_str = kwarg_str.strip('{}')
+
+        if len(arg_str) == 0 and len(kwarg_str) == 0:
+            arg_str = 'no arguments'
+        elif len(arg_str) == 0:
+            arg_str = kwarg_str
+        else:
+            arg_str = arg_str + ', ' + kwarg_str
 
         if 'sim' in args:
             pts_after = self.flt_sim.df.shape[0]
