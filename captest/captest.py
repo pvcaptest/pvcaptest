@@ -987,12 +987,10 @@ class CapTest(object):
     reg_fml : str
         Regression formula to be fit to measured and simulated data.  Must
         follow the requirements of statsmodels use of patsy.
-    tolerance : float
-        Tolerance for capacity test as a decimal NOT percentage.
-    err : str
+    tolerance : str
         String representing error band.  Ex. '+ 3', '+/- 3', '- 5'
         There must be space between the sign and number. Number is
-        interpreted as a percent.
+        interpreted as a percent.  For example, 5 percent is 5 not 0.05.
     """
 
     def __init__(self, das, sim, tolerance):
