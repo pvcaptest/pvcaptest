@@ -880,6 +880,18 @@ class CapData(object):
         Figures are not generated for categories that would plot more than 10
         lines.
 
+        Parameters
+        ----------
+        reindex : Boolean, default False
+            Use with the freq argument to reset index of dataframe, which will
+            shows the gaps were data was removed by filtering steps.
+        freq : str
+            Pandas offset alias to use for frequency of new index, when reindex
+            is set to True.
+        marker : str, default 'line'
+            Accepts 'line', 'circle', 'line-circle'.  These are bokeh marker
+            options.
+
         Returns
         -------
         show(grid)
@@ -888,9 +900,6 @@ class CapData(object):
 
         Todo
         ----
-        Add NANs
-            Add nans for filtered time stamps, so it is clear what has been
-            removed
         Add Hover Tooltip
             Entire grid of plots fails to show if one of the legend on one of
             the plots becomes too tall.  Fixed temporarily by increaseing plot
