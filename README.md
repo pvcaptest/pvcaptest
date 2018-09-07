@@ -9,7 +9,7 @@
 </tr>
 
 <tr>
-  <td>Live Tutorial</td>
+  <td>Live Example</td>
   <td>
     <a href="https://mybinder.org/v2/gh/bt-/pvcaptest/master?filepath=examples%2Fcaptest_example.ipynb">
     <img src="https://mybinder.org/badge.svg"
