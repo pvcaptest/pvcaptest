@@ -46,19 +46,20 @@ type_defs = collections.OrderedDict([
              ('shade', [['fshdbm', 'shd', 'shade'], (0, 1)]),
              ('index', [['index'], ('', 'z')])])
 
-sub_type_defs = {'poa': [['sun', 'plane of array', 'poa']],
-                 'ghi': [['sun2', 'global horizontal', 'ghi', 'global', 'glob']],
-                 'amb': [['ambient', 'amb']],
-                 'mod': [['module', 'mod']],
-                 'mtr': [['revenue meter', 'rev meter', 'billing meter', ' meter']],
-                 'inv': [['inverter', 'inv']]}
+sub_type_defs = collections.OrderedDict([
+                 ('ghi', [['sun2', 'global horizontal', 'ghi', 'global', 'glob']]),
+                 ('poa', [['sun', 'plane of array', 'poa']]),
+                 ('amb', [['TempF', 'ambient', 'amb']]),
+                 ('mod', [['Temp1', 'module', 'mod']]),
+                 ('mtr', [['revenue meter', 'rev meter', 'billing meter', 'meter']]),
+                 ('inv', [['inverter', 'inv']])])
 
 irr_sensors_defs = {'ref_cell': [['reference cell', 'reference', 'ref',
                                   'referance', 'pvel']],
                     'pyran': [['pyranometer', 'pyran']]}
 
 
-columns = ['Timestamps', 'Timestamps_filtered', 'Filter_arguments']
+columns = ['pts_before_filter', 'pts_removed', 'filter_arguments']
 
 
 def update_summary(func):
@@ -90,7 +91,23 @@ def update_summary(func):
 
         ret_val = func(self, *args, **kwargs)
 
-        arg_str = args.__repr__() + kwargs.__repr__()
+        arg_str = args.__repr__()
+        lst = arg_str.split(',')
+        arg_lst = [item.strip("'() ") for item in lst]
+        arg_lst_one = arg_lst[0]
+        if arg_lst_one == 'das' or arg_lst_one == 'sim':
+            arg_lst = arg_lst[1:]
+        arg_str = ', '.join(arg_lst)
+
+        kwarg_str = kwargs.__repr__()
+        kwarg_str = kwarg_str.strip('{}')
+
+        if len(arg_str) == 0 and len(kwarg_str) == 0:
+            arg_str = 'no arguments'
+        elif len(arg_str) == 0:
+            arg_str = kwarg_str
+        else:
+            arg_str = arg_str + ', ' + kwarg_str
 
         if 'sim' in args:
             pts_after = self.flt_sim.df.shape[0]
@@ -109,6 +126,14 @@ def update_summary(func):
 
         return ret_val
     return wrapper
+
+
+def highlight_pvals(s):
+    """
+    Highlight vals greater than or equal to 0.05 in a Series yellow.
+    """
+    is_greaterthan = s >= 0.05
+    return ['background-color: yellow' if v else '' for v in is_greaterthan]
 
 
 def perc_wrap(p):
@@ -793,7 +818,11 @@ class CapData(object):
 
         Parameters
         ----------
-        columns (list) List of columns to drop.
+        Columns (list) List of columns to drop.
+
+        Todo
+        ----
+        Change to accept a string column name or list of strings
         """
         for key, value in self.trans.items():
             for col in columns:
@@ -867,6 +896,18 @@ class CapData(object):
         Figures are not generated for categories that would plot more than 10
         lines.
 
+        Parameters
+        ----------
+        reindex : Boolean, default False
+            Use with the freq argument to reset index of dataframe, which will
+            shows the gaps were data was removed by filtering steps.
+        freq : str
+            Pandas offset alias to use for frequency of new index, when reindex
+            is set to True.
+        marker : str, default 'line'
+            Accepts 'line', 'circle', 'line-circle'.  These are bokeh marker
+            options.
+
         Returns
         -------
         show(grid)
@@ -875,9 +916,11 @@ class CapData(object):
 
         Todo
         ----
-        Add NANs
-            Add nans for filtered time stamps, so it is clear what has been
-            removed
+        Add Hover Tooltip
+            Entire grid of plots fails to show if one of the legend on one of
+            the plots becomes too tall.  Fixed temporarily by increaseing plot
+            height.  Fix by removing legend and adding hover tooltip or letting
+            figure plot_height set dynamically.
         """
         dframe = self.df
 
@@ -894,15 +937,16 @@ class CapData(object):
             df = dframe[self.trans[key]]
             cols = df.columns.tolist()
             if len(cols) > len(colors):
-                print('Skipped {} because there are more than 10   columns.'.format(key))
+                print('Skipped {} because there are more than 10'
+                      'columns.'.format(key))
                 continue
 
             if x_axis == None:
-                p = figure(title=key, plot_width=400, plot_height=225,
+                p = figure(title=key, plot_width=400, plot_height=350,
                            x_axis_type='datetime')
                 x_axis = p.x_range
             if j > 0:
-                p = figure(title=key, plot_width=400, plot_height=225,
+                p = figure(title=key, plot_width=400, plot_height=350,
                            x_axis_type='datetime', x_range=x_axis)
             legend_items = []
             for i, col in enumerate(cols):
@@ -968,12 +1012,10 @@ class CapTest(object):
     reg_fml : str
         Regression formula to be fit to measured and simulated data.  Must
         follow the requirements of statsmodels use of patsy.
-    tolerance : float
-        Tolerance for capacity test as a decimal NOT percentage.
-    err : str
+    tolerance : str
         String representing error band.  Ex. '+ 3', '+/- 3', '- 5'
         There must be space between the sign and number. Number is
-        interpreted as a percent.
+        interpreted as a percent.  For example, 5 percent is 5 not 0.05.
     """
 
     def __init__(self, das, sim, tolerance):
@@ -1415,6 +1457,11 @@ class CapTest(object):
             Time period returned will be centered on this date.
         inplace : bool
             Default true write back to CapTest.flt_sim or flt_das
+
+        Todo
+        ----
+        Add inverse options to remove time between start end rather than return
+        it
         """
         flt_cd = self.__flt_setup(data)
 
@@ -1914,6 +1961,42 @@ class CapTest(object):
             print("{:<30s}{}".format("Bounds:", bounds))
 
         return(cap_ratio)
+
+    def res_summary(self, nameplate):
+        """
+        Prints a summary of the regression results.
+
+        Parameters
+        ----------
+        nameplate : numeric
+            AC nameplate rating of the PV plant.
+
+        Prints:
+        Capacity ratio without setting parameters with high p-values to zero.
+        Capacity ratio after setting paramters with high p-values to zero.
+        P-values for simulated and measured regression coefficients.
+        Regression coefficients (parameters) for simulated and measured data.
+        """
+
+        das_pvals = self.ols_model_das.pvalues
+        sim_pvals = self.ols_model_sim.pvalues
+        das_params = self.ols_model_das.params
+        sim_params = self.ols_model_sim.params
+
+        df_pvals = pd.DataFrame([das_pvals, sim_pvals, das_params, sim_params])
+        df_pvals = df_pvals.transpose()
+        df_pvals.rename(columns={0: 'das_pvals', 1: 'sim_pvals',
+                                 2: 'das_params', 3: 'sim_params'}, inplace=True)
+
+        cprat = self.cp_results(2000, check_pvalues=False, print_res=False)
+        cprat_cpval = self.cp_results(2000, check_pvalues=True, print_res=False)
+
+        print('{} - Cap Ratio'.format(np.round(cprat, decimals=3)))
+        print('{} - Cap Ratio after pval check'.format(np.round(cprat_cpval,
+                                                       decimals=3)))
+        return(df_pvals.style.format('{:20,.5f}').apply(highlight_pvals,
+                                                 subset=['das_pvals',
+                                                         'sim_pvals']))
 
     def uncertainty():
         """Calculates random standard uncertainty of the regression
