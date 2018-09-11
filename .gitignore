@@ -6,6 +6,9 @@ __pycache__/
 # C extensions
 *.so
 
+# untracked_bin
+untracked_bin/
+
 # Distribution / packaging
 .Python
 env/

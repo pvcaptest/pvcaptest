@@ -1,0 +1,4 @@
+﻿"DateTime","locus_site  Site - Measured AC Power, avg (kW)","KZ GHI - Measured Irradiance Other, avg (W%2Fm%26%23178%3B)","KZ POA - Measured Irradiance Other, avg (W%2Fm%26%23178%3B)","Lufft Weather Station - Measured Temperature Ambient, avg (%26%23176%3BC)","Lufft Weather Station - Measured Wind Speed, avg (m%2Fs)","PVEL - Measured Irradiance Plane of Array, avg (W%2Fm%26%23178%3B)","ION RGM PCC 1 - Measured AC Power Factor, avg ()","ION RGM PCC 2 - Measured AC Power Factor, avg ()","ION RGM PCC 3 - Measured AC Power Factor, avg ()","ION RGM PCC 4 - Measured AC Power Factor, avg ()","ION RGM PCC 5 - Measured AC Power Factor, avg ()"
+"2018-08-02 00:00:00",-5.054,-1,-2,14.9,0.86,10.458,,1,0.674,0.539,0.477
+"2018-08-02 00:05:00",-5.066,-1,-1.2,14.78,1.74,10.239,,1,0.888,1,0.461
+"2018-08-02 00:10:00",-3.88,-1,-1.6,14.56,1.72,10.016,,1,1,1,0.675
