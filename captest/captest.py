@@ -883,7 +883,7 @@ class CapData(object):
         return self.df[lst]
 
     def plot(self, reindex=False, freq=None, marker='line', ncols=2,
-             width=400, height=350):
+             width=400, height=350, legends=False):
         """
         Plots a Bokeh line graph for each group of sensors in self.trans.
 
@@ -908,6 +908,14 @@ class CapData(object):
         marker : str, default 'line'
             Accepts 'line', 'circle', 'line-circle'.  These are bokeh marker
             options.
+        ncols : int, default 2
+            Number of columns in the bokeh gridplot.
+        width : int, default 400
+            Width of individual plots in gridplot.
+        height: int, default 350
+            Height of individual plots in gridplot.
+        legends : bool, default False
+            Turn on or off legends for individual plots.
 
         Returns
         -------
@@ -964,7 +972,8 @@ class CapData(object):
 
             legend = Legend(items=legend_items, location=(40, -5))
             legend.label_text_font_size = '8pt'
-            p.add_layout(legend, 'below')
+            if legends:
+                p.add_layout(legend, 'below')
 
             plots.append(p)
 
