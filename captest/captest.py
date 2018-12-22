@@ -882,7 +882,8 @@ class CapData(object):
             lst.extend(self.trans[key])
         return self.df[lst]
 
-    def plot(self, reindex=False, freq=None, marker='line', ncols=2):
+    def plot(self, reindex=False, freq=None, marker='line', ncols=2,
+             width=400, height=350):
         """
         Plots a Bokeh line graph for each group of sensors in self.trans.
 
@@ -942,11 +943,11 @@ class CapData(object):
                 continue
 
             if x_axis == None:
-                p = figure(title=key, plot_width=400, plot_height=350,
+                p = figure(title=key, plot_width=width, plot_height=height,
                            x_axis_type='datetime')
                 x_axis = p.x_range
             if j > 0:
-                p = figure(title=key, plot_width=400, plot_height=350,
+                p = figure(title=key, plot_width=width, plot_height=height,
                            x_axis_type='datetime', x_range=x_axis)
             legend_items = []
             for i, col in enumerate(cols):
