@@ -882,7 +882,7 @@ class CapData(object):
             lst.extend(self.trans[key])
         return self.df[lst]
 
-    def plot(self, reindex=False, freq=None, marker='line'):
+    def plot(self, reindex=False, freq=None, marker='line', ncols=2):
         """
         Plots a Bokeh line graph for each group of sensors in self.trans.
 
@@ -967,7 +967,7 @@ class CapData(object):
 
             plots.append(p)
 
-        grid = gridplot(plots, ncols=2)
+        grid = gridplot(plots, ncols=ncols)
         return show(grid)
 
 
