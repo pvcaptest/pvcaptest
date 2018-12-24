@@ -916,8 +916,24 @@ class CapData(object):
             lst.extend(self.trans[key])
         return self.df[lst]
 
+    def __comb_trans_keys(self, grp):
+        comb_keys = []
+
+        for key in self.trans_keys:
+            if key.find(grp) != -1:
+                comb_keys.append(key)
+
+        cols = []
+        for key in comb_keys:
+            cols.extend(self.trans[key])
+
+        grp_comb = grp + '_comb'
+        self.trans[grp_comb] = cols
+        self.trans_keys.extend([grp_comb])
+        print('Added new group: ' + grp_comb)
+
     def plot(self, reindex=False, freq=None, marker='line', ncols=2,
-             width=400, height=350, legends=False):
+             width=400, height=350, legends=False, merge_grps=['irr', 'temp']):
         """
         Plots a Bokeh line graph for each group of sensors in self.trans.
 
@@ -950,6 +966,11 @@ class CapData(object):
             Height of individual plots in gridplot.
         legends : bool, default False
             Turn on or off legends for individual plots.
+        merge_grps : list, default ['irr', 'temp']
+            List of strings to search for in the translation dictionary keys.
+            A new key and group is created in the translation dictionary for
+            each group.  By default will combine all irradiance measurements
+            into a group and temperature measurements into a group.
 
         Returns
         -------
@@ -957,6 +978,9 @@ class CapData(object):
             Command to show grid of figures.  Intended for use in jupyter
             notebook.
         """
+        for str_val in merge_grps:
+            self.__comb_trans_keys(str_val)
+
         dframe = self.df
 
         if reindex:
