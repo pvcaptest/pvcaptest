@@ -20,10 +20,17 @@ from sklearn.svm import OneClassSVM
 
 from bokeh.io import output_notebook, show
 from bokeh.plotting import figure
-from bokeh.palettes import Category10
+from bokeh.palettes import Category10, Category20c, Category20b
 from bokeh.layouts import gridplot
 from bokeh.models import Legend, HoverTool, tools, ColumnDataSource
 
+
+plot_colors_brewer = {'real_pwr': ['#2b8cbe', '#7bccc4', '#bae4bc', '#f0f9e8'],
+                      'irr-poa': ['#e31a1c', '#fd8d3c', '#fecc5c', '#ffffb2'],
+                      'irr-ghi': ['#91003f', '#e7298a', '#c994c7', '#e7e1ef'],
+                      'temp-amb': ['#238443', '#78c679', '#c2e699', '#ffffcc'],
+                      'temp-mod': ['#88419d', '#8c96c6', '#b3cde3', '#edf8fb'],
+                      'wind': ['#238b45', '#66c2a4', '#b2e2e2', '#edf8fb']}
 
 met_keys = ['poa', 't_amb', 'w_vel', 'power']
 
@@ -426,6 +433,11 @@ class CapData(object):
         Dictionary that is manually set to link abbreviations for
         for the independent variables of the ASTM Capacity test regression
         equation to the translation dictionary keys.
+    trans_abrev : dictionary
+        Enumerated translation dict keys mapped to original column names.
+        Enumerated translation dict keys are used in plot hover tooltip.
+    col_colors : dictionary
+        Original column names mapped to a color for use in plot function.
     """
 
     def __init__(self):
@@ -434,6 +446,8 @@ class CapData(object):
         self.trans = {}
         self.trans_keys = []
         self.reg_trans = {}
+        self.trans_abrev = {}
+        self.col_colors = {}
 
     def set_reg_trans(self, power='', poa='', t_amb='', w_vel=''):
         """
@@ -465,6 +479,8 @@ class CapData(object):
         cd_c.trans = copy.copy(self.trans)
         cd_c.trans_keys = copy.copy(self.trans_keys)
         cd_c.reg_trans = copy.copy(self.reg_trans)
+        cd_c.trans_abrev = copy.copy(self.trans_abrev)
+        cd_c.col_colors = copy.copy(self.col_colors)
         return cd_c
 
     def empty(self):
@@ -755,6 +771,22 @@ class CapData(object):
                         return key
         return ''
 
+    def set_plot_attributes(self):
+        dframe = self.df
+
+        for j, key in enumerate(self.trans_keys):
+            df = dframe[self.trans[key]]
+            cols = df.columns.tolist()
+            for i, col in enumerate(cols):
+                abbrev_col_name = key + str(i)
+                self.trans_abrev[abbrev_col_name] = col
+
+                col_key = key.split('-')[0] + '-' + key.split('-')[1]
+                try:
+                    self.col_colors[col] = plot_colors_brewer[col_key][i]
+                except KeyError:
+                    self.col_colors[col] = Category10[10][i]
+
     def __set_trans(self):
         """
         Creates a dict of raw column names paired to categorical column names.
@@ -811,6 +843,8 @@ class CapData(object):
             trans_keys.remove('index--')
         trans_keys.sort()
         self.trans_keys = trans_keys
+
+        self.set_plot_attributes()
 
     def drop_cols(self, columns):
         """
@@ -953,7 +987,7 @@ class CapData(object):
             ("Datetime", "@Timestamp{%D %H:%M}"),
             ("Value", "$y"),
         ]
-        hover.formatters = { "Timestamp": "datetime"}
+        hover.formatters = {"Timestamp": "datetime"}
 
         for j, key in enumerate(self.trans_keys):
             print(key)
@@ -983,7 +1017,8 @@ class CapData(object):
                 if marker == 'line':
                     # series = p.line(index, df[col], line_color=colors[i])
                     series = p.line('Timestamp', col, source=source,
-                                    line_color='orange', name=abbrev_col_name)
+                                    line_color=self.col_colors[col],
+                                    name=abbrev_col_name)
                 elif marker == 'circle':
                     series = p.circle(index, df[col], line_color=colors[i],
                                       size=2, fill_color="white")
