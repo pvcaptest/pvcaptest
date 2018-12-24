@@ -22,7 +22,7 @@ from bokeh.io import output_notebook, show
 from bokeh.plotting import figure
 from bokeh.palettes import Category10
 from bokeh.layouts import gridplot
-from bokeh.models import Legend, HoverTool, tools
+from bokeh.models import Legend, HoverTool, tools, ColumnDataSource
 
 
 met_keys = ['poa', 't_amb', 'w_vel', 'power']
@@ -942,7 +942,21 @@ class CapData(object):
         colors = Category10[10]
         plots = []
         x_axis = None
+
+        source = ColumnDataSource(dframe)
+
+        TOOLS = "pan, box_zoom, wheel_zoom, reset, hover, save"
+
+        hover = HoverTool()
+        hover.tooltips = [
+            ("Name", "$name"),
+            ("Datetime", "@Timestamp{%D %H:%M}"),
+            ("Value", "$y"),
+        ]
+        hover.formatters = { "Timestamp": "datetime"}
+
         for j, key in enumerate(self.trans_keys):
+            print(key)
             df = dframe[self.trans[key]]
             cols = df.columns.tolist()
             if len(cols) > len(colors):
@@ -951,16 +965,25 @@ class CapData(object):
                 continue
 
             if x_axis == None:
+                # p = figure(title=key, plot_width=width, plot_height=height,
+                #            x_axis_type='datetime')
                 p = figure(title=key, plot_width=width, plot_height=height,
                            x_axis_type='datetime')
+                p.tools.append(hover)
                 x_axis = p.x_range
             if j > 0:
                 p = figure(title=key, plot_width=width, plot_height=height,
                            x_axis_type='datetime', x_range=x_axis)
+                p.tools.append(hover)
             legend_items = []
             for i, col in enumerate(cols):
+                print(col)
+                abbrev_col_name = key + str(i)
+                print(abbrev_col_name)
                 if marker == 'line':
-                    series = p.line(index, df[col], line_color=colors[i])
+                    # series = p.line(index, df[col], line_color=colors[i])
+                    series = p.line('Timestamp', col, source=source,
+                                    line_color='orange', name=abbrev_col_name)
                 elif marker == 'circle':
                     series = p.circle(index, df[col], line_color=colors[i],
                                       size=2, fill_color="white")
