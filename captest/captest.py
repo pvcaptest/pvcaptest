@@ -956,14 +956,6 @@ class CapData(object):
         show(grid)
             Command to show grid of figures.  Intended for use in jupyter
             notebook.
-
-        Todo
-        ----
-        Add Hover Tooltip
-            Entire grid of plots fails to show if one of the legend on one of
-            the plots becomes too tall.  Fixed temporarily by increaseing plot
-            height.  Fix by removing legend and adding hover tooltip or letting
-            figure plot_height set dynamically.
         """
         dframe = self.df
 
@@ -979,8 +971,6 @@ class CapData(object):
 
         source = ColumnDataSource(dframe)
 
-        TOOLS = "pan, box_zoom, wheel_zoom, reset, hover, save"
-
         hover = HoverTool()
         hover.tooltips = [
             ("Name", "$name"),
@@ -990,7 +980,6 @@ class CapData(object):
         hover.formatters = {"Timestamp": "datetime"}
 
         for j, key in enumerate(self.trans_keys):
-            print(key)
             df = dframe[self.trans[key]]
             cols = df.columns.tolist()
             if len(cols) > len(colors):
@@ -999,8 +988,6 @@ class CapData(object):
                 continue
 
             if x_axis == None:
-                # p = figure(title=key, plot_width=width, plot_height=height,
-                #            x_axis_type='datetime')
                 p = figure(title=key, plot_width=width, plot_height=height,
                            x_axis_type='datetime')
                 p.tools.append(hover)
@@ -1011,21 +998,26 @@ class CapData(object):
                 p.tools.append(hover)
             legend_items = []
             for i, col in enumerate(cols):
-                print(col)
                 abbrev_col_name = key + str(i)
-                print(abbrev_col_name)
                 if marker == 'line':
-                    # series = p.line(index, df[col], line_color=colors[i])
                     series = p.line('Timestamp', col, source=source,
                                     line_color=self.col_colors[col],
                                     name=abbrev_col_name)
                 elif marker == 'circle':
-                    series = p.circle(index, df[col], line_color=colors[i],
-                                      size=2, fill_color="white")
+                    series = p.circle('Timestamp', col,
+                                      source=source,
+                                      line_color=self.col_colors[col],
+                                      size=2, fill_color="white",
+                                      name=abbrev_col_name)
                 if marker == 'line-circle':
-                    series = p.line(index, df[col], line_color=colors[i])
-                    series = p.circle(index, df[col], line_color=colors[i],
-                                      size=2, fill_color="white")
+                    series = p.line('Timestamp', col, source=source,
+                                    line_color=self.col_colors[col],
+                                    name=abbrev_col_name)
+                    series = p.circle('Timestamp', col,
+                                      source=source,
+                                      line_color=self.col_colors[col],
+                                      size=2, fill_color="white",
+                                      name=abbrev_col_name)
                 legend_items.append((col, [series, ]))
 
             legend = Legend(items=legend_items, location=(40, -5))
