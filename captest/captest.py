@@ -928,9 +928,10 @@ class CapData(object):
             cols.extend(self.trans[key])
 
         grp_comb = grp + '_comb'
-        self.trans[grp_comb] = cols
-        self.trans_keys.extend([grp_comb])
-        print('Added new group: ' + grp_comb)
+        if grp_comb not in self.trans_keys:
+            self.trans[grp_comb] = cols
+            self.trans_keys.extend([grp_comb])
+            print('Added new group: ' + grp_comb)
 
     def plot(self, reindex=False, freq=None, marker='line', ncols=2,
              width=400, height=350, legends=False, merge_grps=['irr', 'temp']):
@@ -983,6 +984,8 @@ class CapData(object):
 
         dframe = self.df
 
+        names_to_abrev = {val: key for key, val in self.trans_abrev.items()}
+
         if reindex:
             index = pd.DatetimeIndex(freq=freq, start=self.df.index[0],
                                      end=self.df.index[-1])
@@ -1026,22 +1029,22 @@ class CapData(object):
                 if marker == 'line':
                     series = p.line('Timestamp', col, source=source,
                                     line_color=self.col_colors[col],
-                                    name=abbrev_col_name)
+                                    name=names_to_abrev[col])
                 elif marker == 'circle':
                     series = p.circle('Timestamp', col,
                                       source=source,
                                       line_color=self.col_colors[col],
                                       size=2, fill_color="white",
-                                      name=abbrev_col_name)
+                                      name=names_to_abrev[col])
                 if marker == 'line-circle':
                     series = p.line('Timestamp', col, source=source,
                                     line_color=self.col_colors[col],
-                                    name=abbrev_col_name)
+                                    name=names_to_abrev[col])
                     series = p.circle('Timestamp', col,
                                       source=source,
                                       line_color=self.col_colors[col],
                                       size=2, fill_color="white",
-                                      name=abbrev_col_name)
+                                      name=names_to_abrev[col])
                 legend_items.append((col, [series, ]))
 
             legend = Legend(items=legend_items, location=(40, -5))
