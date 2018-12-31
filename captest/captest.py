@@ -934,7 +934,8 @@ class CapData(object):
             print('Added new group: ' + grp_comb)
 
     def plot(self, reindex=False, freq=None, marker='line', ncols=2,
-             width=400, height=350, legends=False, merge_grps=['irr', 'temp']):
+             width=400, height=350, legends=False, merge_grps=['irr', 'temp'],
+             subset=None):
         """
         Plots a Bokeh line graph for each group of sensors in self.trans.
 
@@ -972,6 +973,9 @@ class CapData(object):
             A new key and group is created in the translation dictionary for
             each group.  By default will combine all irradiance measurements
             into a group and temperature measurements into a group.
+        subset : list, default None
+            List of the translation dictionary keys to use to control order of
+            plots or to plot only a subset of the plots.
 
         Returns
         -------
@@ -1006,7 +1010,12 @@ class CapData(object):
         ]
         hover.formatters = {"Timestamp": "datetime"}
 
-        for j, key in enumerate(self.trans_keys):
+        if isinstance(subset, list):
+            plot_keys = subset
+        else:
+            plot_keys = self.trans_keys
+
+        for j, key in enumerate(plot_keys):
             df = dframe[self.trans[key]]
             cols = df.columns.tolist()
             if len(cols) > len(colors):
