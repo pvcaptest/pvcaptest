@@ -941,7 +941,7 @@ class CapData(object):
 
     def plot(self, reindex=False, freq=None, marker='line', ncols=2,
              width=400, height=350, legends=False, merge_grps=['irr', 'temp'],
-             subset=None):
+             subset=None, **kwargs):
         """
         Plots a Bokeh line graph for each group of sensors in self.trans.
 
@@ -983,6 +983,9 @@ class CapData(object):
         subset : list, default None
             List of the translation dictionary keys to use to control order of
             plots or to plot only a subset of the plots.
+        kwargs
+            Pass additional options to bokeh gridplot.  Merge_tools=False will
+            shows the hover tool icon, so it can be turned off.
 
         Returns
         -------
@@ -1065,7 +1068,7 @@ class CapData(object):
 
             plots.append(p)
 
-        grid = gridplot(plots, ncols=ncols)
+        grid = gridplot(plots, ncols=ncols, **kwargs)
         return show(grid)
 
 
