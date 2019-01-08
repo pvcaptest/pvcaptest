@@ -24,7 +24,6 @@ from bokeh.palettes import Category10, Category20c, Category20b
 from bokeh.layouts import gridplot
 from bokeh.models import Legend, HoverTool, tools, ColumnDataSource
 
-
 plot_colors_brewer = {'real_pwr': ['#2b8cbe', '#7bccc4', '#bae4bc', '#f0f9e8'],
                       'irr-poa': ['#e31a1c', '#fd8d3c', '#fecc5c', '#ffffb2'],
                       'irr-ghi': ['#91003f', '#e7298a', '#c994c7', '#e7e1ef'],
@@ -781,11 +780,18 @@ class CapData(object):
                 abbrev_col_name = key + str(i)
                 self.trans_abrev[abbrev_col_name] = col
 
-                col_key = key.split('-')[0] + '-' + key.split('-')[1]
+                col_key0 = key.split('-')[0]
+                col_key1 = key.split('-')[1]
+                if col_key0 in ('irr', 'temp'):
+                    col_key = col_key0 + '-' + col_key1
+                else:
+                    col_key = col_key0
+
+                j = i % 10
                 try:
-                    self.col_colors[col] = plot_colors_brewer[col_key][i]
+                    self.col_colors[col] = plot_colors_brewer[col_key][j]
                 except KeyError:
-                    self.col_colors[col] = Category10[10][i]
+                    self.col_colors[col] = Category10[10][j]
 
     def __set_trans(self):
         """
@@ -973,6 +979,7 @@ class CapData(object):
             A new key and group is created in the translation dictionary for
             each group.  By default will combine all irradiance measurements
             into a group and temperature measurements into a group.
+            Pass empty list to not merge any plots.
         subset : list, default None
             List of the translation dictionary keys to use to control order of
             plots or to plot only a subset of the plots.
@@ -996,7 +1003,6 @@ class CapData(object):
             dframe = self.df.reindex(index=index)
 
         index = dframe.index.tolist()
-        colors = Category10[10]
         plots = []
         x_axis = None
 
@@ -1018,12 +1024,8 @@ class CapData(object):
         for j, key in enumerate(plot_keys):
             df = dframe[self.trans[key]]
             cols = df.columns.tolist()
-            if len(cols) > len(colors):
-                print('Skipped {} because there are more than 10'
-                      'columns.'.format(key))
-                continue
 
-            if x_axis == None:
+            if x_axis is None:
                 p = figure(title=key, plot_width=width, plot_height=height,
                            x_axis_type='datetime')
                 p.tools.append(hover)
