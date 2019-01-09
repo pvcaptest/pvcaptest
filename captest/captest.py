@@ -773,7 +773,7 @@ class CapData(object):
     def set_plot_attributes(self):
         dframe = self.df
 
-        for j, key in enumerate(self.trans_keys):
+        for key in self.trans_keys:
             df = dframe[self.trans[key]]
             cols = df.columns.tolist()
             for i, col in enumerate(cols):
@@ -787,10 +787,11 @@ class CapData(object):
                 else:
                     col_key = col_key0
 
-                j = i % 10
                 try:
+                    j = i % 4
                     self.col_colors[col] = plot_colors_brewer[col_key][j]
                 except KeyError:
+                    j = i % 10
                     self.col_colors[col] = Category10[10][j]
 
     def __set_trans(self):
@@ -997,6 +998,7 @@ class CapData(object):
             self.__comb_trans_keys(str_val)
 
         dframe = self.df
+        dframe.index.name = 'Timestamp'
 
         names_to_abrev = {val: key for key, val in self.trans_abrev.items()}
 
