@@ -20,10 +20,16 @@ from sklearn.svm import OneClassSVM
 
 from bokeh.io import output_notebook, show
 from bokeh.plotting import figure
-from bokeh.palettes import Category10
+from bokeh.palettes import Category10, Category20c, Category20b
 from bokeh.layouts import gridplot
-from bokeh.models import Legend, HoverTool, tools
+from bokeh.models import Legend, HoverTool, tools, ColumnDataSource
 
+plot_colors_brewer = {'real_pwr': ['#2b8cbe', '#7bccc4', '#bae4bc', '#f0f9e8'],
+                      'irr-poa': ['#e31a1c', '#fd8d3c', '#fecc5c', '#ffffb2'],
+                      'irr-ghi': ['#91003f', '#e7298a', '#c994c7', '#e7e1ef'],
+                      'temp-amb': ['#238443', '#78c679', '#c2e699', '#ffffcc'],
+                      'temp-mod': ['#88419d', '#8c96c6', '#b3cde3', '#edf8fb'],
+                      'wind': ['#238b45', '#66c2a4', '#b2e2e2', '#edf8fb']}
 
 met_keys = ['poa', 't_amb', 'w_vel', 'power']
 
@@ -426,6 +432,11 @@ class CapData(object):
         Dictionary that is manually set to link abbreviations for
         for the independent variables of the ASTM Capacity test regression
         equation to the translation dictionary keys.
+    trans_abrev : dictionary
+        Enumerated translation dict keys mapped to original column names.
+        Enumerated translation dict keys are used in plot hover tooltip.
+    col_colors : dictionary
+        Original column names mapped to a color for use in plot function.
     """
 
     def __init__(self):
@@ -434,6 +445,8 @@ class CapData(object):
         self.trans = {}
         self.trans_keys = []
         self.reg_trans = {}
+        self.trans_abrev = {}
+        self.col_colors = {}
 
     def set_reg_trans(self, power='', poa='', t_amb='', w_vel=''):
         """
@@ -465,6 +478,8 @@ class CapData(object):
         cd_c.trans = copy.copy(self.trans)
         cd_c.trans_keys = copy.copy(self.trans_keys)
         cd_c.reg_trans = copy.copy(self.reg_trans)
+        cd_c.trans_abrev = copy.copy(self.trans_abrev)
+        cd_c.col_colors = copy.copy(self.col_colors)
         return cd_c
 
     def empty(self):
@@ -755,6 +770,29 @@ class CapData(object):
                         return key
         return ''
 
+    def set_plot_attributes(self):
+        dframe = self.df
+
+        for j, key in enumerate(self.trans_keys):
+            df = dframe[self.trans[key]]
+            cols = df.columns.tolist()
+            for i, col in enumerate(cols):
+                abbrev_col_name = key + str(i)
+                self.trans_abrev[abbrev_col_name] = col
+
+                col_key0 = key.split('-')[0]
+                col_key1 = key.split('-')[1]
+                if col_key0 in ('irr', 'temp'):
+                    col_key = col_key0 + '-' + col_key1
+                else:
+                    col_key = col_key0
+
+                j = i % 10
+                try:
+                    self.col_colors[col] = plot_colors_brewer[col_key][j]
+                except KeyError:
+                    self.col_colors[col] = Category10[10][j]
+
     def __set_trans(self):
         """
         Creates a dict of raw column names paired to categorical column names.
@@ -811,6 +849,8 @@ class CapData(object):
             trans_keys.remove('index--')
         trans_keys.sort()
         self.trans_keys = trans_keys
+
+        self.set_plot_attributes()
 
     def drop_cols(self, columns):
         """
@@ -882,7 +922,26 @@ class CapData(object):
             lst.extend(self.trans[key])
         return self.df[lst]
 
-    def plot(self, reindex=False, freq=None, marker='line'):
+    def __comb_trans_keys(self, grp):
+        comb_keys = []
+
+        for key in self.trans_keys:
+            if key.find(grp) != -1:
+                comb_keys.append(key)
+
+        cols = []
+        for key in comb_keys:
+            cols.extend(self.trans[key])
+
+        grp_comb = grp + '_comb'
+        if grp_comb not in self.trans_keys:
+            self.trans[grp_comb] = cols
+            self.trans_keys.extend([grp_comb])
+            print('Added new group: ' + grp_comb)
+
+    def plot(self, reindex=False, freq=None, marker='line', ncols=2,
+             width=400, height=350, legends=False, merge_grps=['irr', 'temp'],
+             subset=None, **kwargs):
         """
         Plots a Bokeh line graph for each group of sensors in self.trans.
 
@@ -907,22 +966,39 @@ class CapData(object):
         marker : str, default 'line'
             Accepts 'line', 'circle', 'line-circle'.  These are bokeh marker
             options.
+        ncols : int, default 2
+            Number of columns in the bokeh gridplot.
+        width : int, default 400
+            Width of individual plots in gridplot.
+        height: int, default 350
+            Height of individual plots in gridplot.
+        legends : bool, default False
+            Turn on or off legends for individual plots.
+        merge_grps : list, default ['irr', 'temp']
+            List of strings to search for in the translation dictionary keys.
+            A new key and group is created in the translation dictionary for
+            each group.  By default will combine all irradiance measurements
+            into a group and temperature measurements into a group.
+            Pass empty list to not merge any plots.
+        subset : list, default None
+            List of the translation dictionary keys to use to control order of
+            plots or to plot only a subset of the plots.
+        kwargs
+            Pass additional options to bokeh gridplot.  Merge_tools=False will
+            shows the hover tool icon, so it can be turned off.
 
         Returns
         -------
         show(grid)
             Command to show grid of figures.  Intended for use in jupyter
             notebook.
-
-        Todo
-        ----
-        Add Hover Tooltip
-            Entire grid of plots fails to show if one of the legend on one of
-            the plots becomes too tall.  Fixed temporarily by increaseing plot
-            height.  Fix by removing legend and adding hover tooltip or letting
-            figure plot_height set dynamically.
         """
+        for str_val in merge_grps:
+            self.__comb_trans_keys(str_val)
+
         dframe = self.df
+
+        names_to_abrev = {val: key for key, val in self.trans_abrev.items()}
 
         if reindex:
             index = pd.DatetimeIndex(freq=freq, start=self.df.index[0],
@@ -930,44 +1006,69 @@ class CapData(object):
             dframe = self.df.reindex(index=index)
 
         index = dframe.index.tolist()
-        colors = Category10[10]
         plots = []
         x_axis = None
-        for j, key in enumerate(self.trans_keys):
+
+        source = ColumnDataSource(dframe)
+
+        hover = HoverTool()
+        hover.tooltips = [
+            ("Name", "$name"),
+            ("Datetime", "@Timestamp{%D %H:%M}"),
+            ("Value", "$y"),
+        ]
+        hover.formatters = {"Timestamp": "datetime"}
+
+        if isinstance(subset, list):
+            plot_keys = subset
+        else:
+            plot_keys = self.trans_keys
+
+        for j, key in enumerate(plot_keys):
             df = dframe[self.trans[key]]
             cols = df.columns.tolist()
-            if len(cols) > len(colors):
-                print('Skipped {} because there are more than 10'
-                      'columns.'.format(key))
-                continue
 
-            if x_axis == None:
-                p = figure(title=key, plot_width=400, plot_height=350,
+            if x_axis is None:
+                p = figure(title=key, plot_width=width, plot_height=height,
                            x_axis_type='datetime')
+                p.tools.append(hover)
                 x_axis = p.x_range
             if j > 0:
-                p = figure(title=key, plot_width=400, plot_height=350,
+                p = figure(title=key, plot_width=width, plot_height=height,
                            x_axis_type='datetime', x_range=x_axis)
+                p.tools.append(hover)
             legend_items = []
             for i, col in enumerate(cols):
+                abbrev_col_name = key + str(i)
                 if marker == 'line':
-                    series = p.line(index, df[col], line_color=colors[i])
+                    series = p.line('Timestamp', col, source=source,
+                                    line_color=self.col_colors[col],
+                                    name=names_to_abrev[col])
                 elif marker == 'circle':
-                    series = p.circle(index, df[col], line_color=colors[i],
-                                      size=2, fill_color="white")
+                    series = p.circle('Timestamp', col,
+                                      source=source,
+                                      line_color=self.col_colors[col],
+                                      size=2, fill_color="white",
+                                      name=names_to_abrev[col])
                 if marker == 'line-circle':
-                    series = p.line(index, df[col], line_color=colors[i])
-                    series = p.circle(index, df[col], line_color=colors[i],
-                                      size=2, fill_color="white")
+                    series = p.line('Timestamp', col, source=source,
+                                    line_color=self.col_colors[col],
+                                    name=names_to_abrev[col])
+                    series = p.circle('Timestamp', col,
+                                      source=source,
+                                      line_color=self.col_colors[col],
+                                      size=2, fill_color="white",
+                                      name=names_to_abrev[col])
                 legend_items.append((col, [series, ]))
 
             legend = Legend(items=legend_items, location=(40, -5))
             legend.label_text_font_size = '8pt'
-            p.add_layout(legend, 'below')
+            if legends:
+                p.add_layout(legend, 'below')
 
             plots.append(p)
 
-        grid = gridplot(plots, ncols=2)
+        grid = gridplot(plots, ncols=ncols, **kwargs)
         return show(grid)
 
 
