@@ -1,23 +1,26 @@
+# standard library imports
 import os
-import numpy as np
-import pandas as pd
-import dateutil
 import datetime
 import re
-import matplotlib.pyplot as plt
 import math
 import copy
 import collections
-import holoviews as hv
 from functools import wraps
 
+# anaconda distribution defaults
+import dateutil
+import numpy as np
+import pandas as pd
+
+# statistics and machine learning imports
 import statsmodels.formula.api as smf
-
 from scipy import stats
-
 from sklearn.covariance import EllipticEnvelope
 from sklearn.svm import OneClassSVM
 
+# visualization library imports
+import matplotlib.pyplot as plt
+import holoviews as hv
 from bokeh.io import output_notebook, show
 from bokeh.plotting import figure
 from bokeh.palettes import Category10, Category20c, Category20b
