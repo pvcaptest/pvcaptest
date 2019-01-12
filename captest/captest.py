@@ -12,20 +12,24 @@ import dateutil
 import numpy as np
 import pandas as pd
 
+# anaconda distribution defaults
 # statistics and machine learning imports
 import statsmodels.formula.api as smf
 from scipy import stats
 from sklearn.covariance import EllipticEnvelope
 from sklearn.svm import OneClassSVM
 
+# anaconda distribution defaults
 # visualization library imports
 import matplotlib.pyplot as plt
-import holoviews as hv
 from bokeh.io import output_notebook, show
 from bokeh.plotting import figure
 from bokeh.palettes import Category10, Category20c, Category20b
 from bokeh.layouts import gridplot
 from bokeh.models import Legend, HoverTool, tools, ColumnDataSource
+
+# visualization library imports
+import holoviews as hv
 
 plot_colors_brewer = {'real_pwr': ['#2b8cbe', '#7bccc4', '#bae4bc', '#f0f9e8'],
                       'irr-poa': ['#e31a1c', '#fd8d3c', '#fecc5c', '#ffffb2'],
