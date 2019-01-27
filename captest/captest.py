@@ -6,6 +6,7 @@ import math
 import copy
 import collections
 from functools import wraps
+import warnings
 
 # anaconda distribution defaults
 import dateutil
@@ -16,8 +17,8 @@ import pandas as pd
 # statistics and machine learning imports
 import statsmodels.formula.api as smf
 from scipy import stats
-from sklearn.covariance import EllipticEnvelope
-from sklearn.svm import OneClassSVM
+# from sklearn.covariance import EllipticEnvelope
+import sklearn.covariance as sk_cv
 
 # anaconda distribution defaults
 # visualization library imports
@@ -30,6 +31,11 @@ from bokeh.models import Legend, HoverTool, tools, ColumnDataSource
 
 # visualization library imports
 import holoviews as hv
+
+# EllipticEnvelope gives warning about increasing determinate that prints
+# out in a loop and does not seem to affect result of removing outliers.
+warnings.filterwarnings(action='ignore', category=RuntimeWarning,
+                        module='sklearn')
 
 plot_colors_brewer = {'real_pwr': ['#2b8cbe', '#7bccc4', '#bae4bc', '#f0f9e8'],
                       'irr-poa': ['#e31a1c', '#fd8d3c', '#fecc5c', '#ffffb2'],
@@ -1628,7 +1634,7 @@ class CapTest(object):
             return flt_cd
 
     @update_summary
-    def filter_outliers(self, data, inplace=True):
+    def filter_outliers(self, data, inplace=True, **kwargs):
         """
         Apply eliptic envelope from scikit-learn to remove outliers.
 
@@ -1638,13 +1644,22 @@ class CapTest(object):
             'sim' or 'das' determines if filter is on sim or das data
         inplace : bool
             Default true write back to CapTest.flt_sim or flt_das
+        kwargs
+            Passed to sklearn EllipticEnvelope.  Contamination keyword
+            is useful to adjust proportion of outliers in dataset.
+            Default is 0.04.
         """
         flt_cd = self.__flt_setup(data)
 
         XandY = flt_cd.rview(['poa', 'power'])
         X1 = XandY.values
 
-        clf_1 = EllipticEnvelope(contamination=0.04)
+        if 'support_fraction' not in kwargs.keys():
+            kwargs['support_fraction'] = 0.9
+        if 'contamination' not in kwargs.keys():
+            kwargs['contamination'] = 0.04
+
+        clf_1 = sk_cv.EllipticEnvelope(**kwargs)
         clf_1.fit(X1)
 
         flt_cd.df = flt_cd.df[clf_1.predict(X1) == 1]
