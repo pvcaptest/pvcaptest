@@ -32,6 +32,8 @@ from bokeh.models import Legend, HoverTool, tools, ColumnDataSource
 # visualization library imports
 import holoviews as hv
 
+from captest.capdata import CapData, met_keys
+
 # EllipticEnvelope gives warning about increasing determinate that prints
 # out in a loop and does not seem to affect result of removing outliers.
 warnings.filterwarnings(action='ignore', category=RuntimeWarning,
