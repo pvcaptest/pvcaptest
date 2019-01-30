@@ -85,7 +85,7 @@ class Test_top_level_funcs(unittest.TestCase):
                          'Incorrect number of rows returned from filter.')
         self.assertEqual(df_flt.shape[1], 3,
                          'Incorrect number of columns returned from filter.')
-        self.assertIs(df.columns[2], 'weather_station irr poa W/m^2',
+        self.assertEqual(df_flt.columns[0], 'weather_station irr poa W/m^2',
                       'Filter column name inadverdently modified by method.')
         self.assertEqual(df_flt.iloc[0, 2], 50,
                          'Minimum value in returned data in filter column is'
