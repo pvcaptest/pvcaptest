@@ -689,12 +689,12 @@ class CapData(object):
 
             if x_axis is None:
                 p = figure(title=key, plot_width=width, plot_height=height,
-                           x_axis_type='datetime')
+                           x_axis_type='datetime', tools='pan, xwheel_pan, xwheel_zoom, box_zoom, save, reset')
                 p.tools.append(hover)
                 x_axis = p.x_range
             if j > 0:
                 p = figure(title=key, plot_width=width, plot_height=height,
-                           x_axis_type='datetime', x_range=x_axis)
+                           x_axis_type='datetime', x_range=x_axis, tools='pan, xwheel_pan, xwheel_zoom, box_zoom, save, reset')
                 p.tools.append(hover)
             legend_items = []
             for i, col in enumerate(cols):
