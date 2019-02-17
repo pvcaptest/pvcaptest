@@ -540,7 +540,7 @@ class Test_CapTest_cp_results_mult_coeff(unittest.TestCase):
         meas = pvc.CapData()
         sim = pvc.CapData()
         self.cptest = pvc.CapTest(meas, sim, '+/- 5')
-        self.cptest.rc = {'poa': 6, 't_amb': 5, 'w_vel': 3}
+        self.cptest.rc = {'poa': [6], 't_amb': [5], 'w_vel': [3]}
 
         nsample = 100
         e = np.random.normal(size=nsample)
