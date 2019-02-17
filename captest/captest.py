@@ -367,8 +367,8 @@ def predict(regs, rcs):
     """
     pred_cap = pd.Series()
     for i, mod in enumerate(regs):
-        RC_dict = rcs.iloc[i, :].to_dict()
-        pred_cap = pred_cap.append(mod.predict(RC_dict))
+        RC_df = pd.DataFrame(rcs.iloc[i, :]).T
+        pred_cap = pred_cap.append(mod.predict(RC_df))
     return pred_cap
 
 
@@ -1363,7 +1363,7 @@ class CapTest(object):
             else:
                 df = df.loc[start:end, :]
 
-        RCs = df.agg(func).to_dict()
+        RCs = pd.DataFrame(df.agg(func)).T
 
         check_freqs = ['BQ-JAN', 'BQ-FEB', 'BQ-APR', 'BQ-MAY', 'BQ-JUL',
                        'BQ-AUG', 'BQ-OCT', 'BQ-NOV']
