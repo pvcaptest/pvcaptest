@@ -76,9 +76,9 @@ class Test_top_level_funcs(unittest.TestCase):
 
     def test_flt_irr(self):
         rng = np.arange(0, 1000)
-        df = pd.DataFrame({'weather_station irr poa W/m^2':rng,
-                           'col_1':rng,
-                           'col_2':rng})
+        df = pd.DataFrame(np.array([rng, rng+100, rng+200]).T,
+                          columns = ['weather_station irr poa W/m^2',
+                                     'col_1', 'col_2'])
         df_flt = pvc.flt_irr(df, 'weather_station irr poa W/m^2', 50, 100)
 
         self.assertEqual(df_flt.shape[0], 51,
@@ -87,10 +87,10 @@ class Test_top_level_funcs(unittest.TestCase):
                          'Incorrect number of columns returned from filter.')
         self.assertEqual(df_flt.columns[0], 'weather_station irr poa W/m^2',
                       'Filter column name inadverdently modified by method.')
-        self.assertEqual(df_flt.iloc[0, 2], 50,
+        self.assertEqual(df_flt.iloc[0, 0], 50,
                          'Minimum value in returned data in filter column is'
                          'not equal to low argument.')
-        self.assertEqual(df_flt.iloc[-1, 2], 100,
+        self.assertEqual(df_flt.iloc[-1, 0], 100,
                          'Maximum value in returned data in filter column is'
                          'not equal to high argument.')
 
