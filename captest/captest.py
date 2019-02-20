@@ -7,6 +7,8 @@ import copy
 import collections
 from functools import wraps
 import warnings
+import importlib
+import warnings
 
 # anaconda distribution defaults
 import dateutil
@@ -30,7 +32,12 @@ from bokeh.layouts import gridplot
 from bokeh.models import Legend, HoverTool, tools, ColumnDataSource
 
 # visualization library imports
-import holoviews as hv
+hv_spec = importlib.util.find_spec('holoviews')
+if hv_spec is not None:
+    import holoviews as hv
+else:
+    warnings.warn('Some plotting functions will not work without the '
+                   'holoviews package.')
 
 from captest.capdata import CapData, met_keys
 
