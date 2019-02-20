@@ -10,6 +10,8 @@ __pycache__/
 untracked_bin/
 
 # Distribution / packaging
+get_ver.py
+build.sh
 .Python
 env/
 build/
