@@ -150,7 +150,7 @@ class Test_top_level_funcs(unittest.TestCase):
 
         df_regs = pvsyst.df.loc[:, ['E_Grid', 'GlobInc', 'TAmb', 'WindVel']]
         df_regs_day = df_regs.query('GlobInc > 0')
-        grps = df_regs_day.groupby(by=pd.TimeGrouper('M'))
+        grps = df_regs_day.groupby(pd.Grouper(freq='M', label='right'))
 
         ones = np.ones(12)
         irr_rc = ones * 500
