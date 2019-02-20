@@ -33,19 +33,6 @@ x fit_model
 x predict
 x pred_summary
 
-CapData
-    set_reg_trans- no test needed
-    x copy
-    empty
-    x load_das
-    x load_pvsyst
-    x load_data
-    x __series_type
-    __set_trans
-    drop_cols
-    view
-    rview
-    plot
 CapTest
     summary
     scatter
@@ -71,152 +58,6 @@ CapTest
     equip_counts- not used
 """
 
-test_files = ['test1.csv', 'test2.csv', 'test3.CSV', 'test4.txt',
-              'pvsyst.csv', 'pvsyst_data.csv']
-
-class TestLoadDataMethods(unittest.TestCase):
-    """Test for load data methods without setup."""
-
-    def test_load_pvsyst(self):
-        pvsyst = pvc.CapData()
-        pvsyst = pvsyst.load_pvsyst('./tests/data/',
-                                    'pvsyst_example_HourlyRes_2.CSV')
-        self.assertEqual(8760, pvsyst.shape[0],
-                         'Not the correct number of rows in imported data.')
-        self.assertIsInstance(pvsyst.index,
-                              pd.core.indexes.datetimes.DatetimeIndex,
-                              'Index is not a datetime index.')
-        self.assertIsInstance(pvsyst.columns,
-                              pd.core.indexes.base.Index,
-                              'Columns might be MultiIndex; should be base index')
-
-
-    def test_source_alsoenergy(self):
-        das_1 = pvc.CapData()
-        das_1.load_data(path='./tests/data/col_naming_examples/',
-                      fname='ae_site1.csv', source='AlsoEnergy')
-        col_names1 = ['Elkor Production Meter PowerFactor, ',
-                      'Elkor Production Meter KW, kW',
-                      'Weather Station 1 TempF, °F', 'Weather Station 2 Sun2, W/m²',
-                      'Weather Station 1 Sun, W/m²', 'Weather Station 1 WindSpeed, mph',
-                      'index']
-        self.assertTrue(all(das_1.df.columns == col_names1),
-                        'Column names are not expected value for ae_site1')
-
-        das_2 = pvc.CapData()
-        das_2.load_data(path='./tests/data/col_naming_examples/',
-                      fname='ae_site2.csv', source='AlsoEnergy')
-        col_names2 = ['Acuvim II Meter PowerFactor, PF', 'Acuvim II Meter KW, kW',
-                      'Weather Station 1 TempF, °F', 'Weather Station 3 TempF, °F',
-                      'Weather Station 2 Sun2, W/m²', 'Weather Station 4 Sun2, W/m²',
-                      'Weather Station 1 Sun, W/m²', 'Weather Station 3 Sun, W/m²',
-                      'Weather Station 1 WindSpeed, mph',
-                      'Weather Station 3 WindSpeed, mph',
-                      'index']
-        self.assertTrue(all(das_2.df.columns == col_names2),
-                        'Column names are not expected value for ae_site1')
-
-    def test_load_das(self):
-        das = pvc.CapData()
-        das = das.load_das('./tests/data/',
-                           'example_meas_data.csv')
-        self.assertEqual(1440, das.shape[0],
-                         'Not the correct number of rows in imported data.')
-        self.assertIsInstance(das.index,
-                              pd.core.indexes.datetimes.DatetimeIndex,
-                              'Index is not a datetime index.')
-        self.assertIsInstance(das.columns,
-                              pd.core.indexes.base.Index,
-                              'Columns might be MultiIndex; should be base index')
-
-
-
-class TestCapDataLoadMethods(unittest.TestCase):
-    """Tests for load_data method."""
-
-    def setUp(self):
-        os.mkdir('test_csvs')
-        for fname in test_files:
-            with open('test_csvs/' + fname, 'a') as f:
-                f.write('Date, val\n11/21/2017, 1')
-
-        self.capdata = pvc.CapData()
-        self.capdata.load_data(path='test_csvs/', set_trans=False)
-
-    def tearDown(self):
-        for fname in test_files:
-            os.remove('test_csvs/' + fname)
-        os.rmdir('test_csvs')
-
-    def test_read_csvs(self):
-        self.assertEqual(self.capdata.df.shape[0], 3,
-                         'imported a non csv or pvsyst file')
-
-
-class TestCapDataSeriesTypes(unittest.TestCase):
-    """Test CapData private methods assignment of type to each series of data."""
-
-    def setUp(self):
-        self.cdata = pvc.CapData()
-
-    def test_series_type(self):
-        name = 'weather station 1 weather station 1 ghi poa w/m2'
-        test_series = pd.Series(np.arange(0, 900, 100), name=name)
-        out = self.cdata._CapData__series_type(test_series, pvc.type_defs)
-
-        self.assertIsInstance(out, str,
-                              'Returned object is not a string.')
-        self.assertEqual(out, 'irr',
-                         'Returned object is not "irr".')
-
-    def test_series_type_caps_in_type_def(self):
-        name = 'weather station 1 weather station 1 ghi poa w/m2'
-        test_series = pd.Series(np.arange(0, 900, 100), name=name)
-        type_def = collections.OrderedDict([
-                     ('irr', [['IRRADIANCE', 'IRR', 'PLANE OF ARRAY', 'POA',
-                               'GHI', 'GLOBAL', 'GLOB', 'W/M^2', 'W/M2', 'W/M',
-                               'W/'],
-                              (-10, 1500)])])
-        out = self.cdata._CapData__series_type(test_series, type_def)
-
-        self.assertIsInstance(out, str,
-                              'Returned object is not a string.')
-        self.assertEqual(out, 'irr',
-                         'Returned object is not "irr".')
-
-    def test_series_type_repeatable(self):
-        name = 'weather station 1 weather station 1 ghi poa w/m2'
-        test_series = pd.Series(np.arange(0, 900, 100), name=name)
-        out = []
-        i = 0
-        while i < 100:
-            out.append(self.cdata._CapData__series_type(test_series, pvc.type_defs))
-            i += 1
-        out_np = np.array(out)
-
-        self.assertTrue(all(out_np == 'irr'),
-                        'Result is not consistent after repeated runs.')
-
-    def test_series_type_valErr(self):
-        name = 'weather station 1 weather station 1 ghi poa w/m2'
-        test_series = pd.Series(name=name)
-        out = self.cdata._CapData__series_type(test_series, pvc.type_defs)
-
-        self.assertIsInstance(out, str,
-                              'Returned object is not a string.')
-        self.assertEqual(out, 'irr-valuesError',
-                         'Returned object is not "irr-valuesError".')
-
-    def test_series_type_no_str(self):
-        name = 'should not return key string'
-        test_series = pd.Series(name=name)
-        out = self.cdata._CapData__series_type(test_series, pvc.type_defs)
-
-        self.assertIsInstance(out, str,
-                              'Returned object is not a string.')
-        self.assertIs(out, '',
-                      'Returned object is not empty string.')
-
 class Test_top_level_funcs(unittest.TestCase):
     def test_perc_wrap(self):
         """Test percent wrap function."""
@@ -235,21 +76,21 @@ class Test_top_level_funcs(unittest.TestCase):
 
     def test_flt_irr(self):
         rng = np.arange(0, 1000)
-        df = pd.DataFrame({'weather_station irr poa W/m^2':rng,
-                           'col_1':rng,
-                           'col_2':rng})
+        df = pd.DataFrame(np.array([rng, rng+100, rng+200]).T,
+                          columns = ['weather_station irr poa W/m^2',
+                                     'col_1', 'col_2'])
         df_flt = pvc.flt_irr(df, 'weather_station irr poa W/m^2', 50, 100)
 
         self.assertEqual(df_flt.shape[0], 51,
                          'Incorrect number of rows returned from filter.')
         self.assertEqual(df_flt.shape[1], 3,
                          'Incorrect number of columns returned from filter.')
-        self.assertIs(df.columns[2], 'weather_station irr poa W/m^2',
+        self.assertEqual(df_flt.columns[0], 'weather_station irr poa W/m^2',
                       'Filter column name inadverdently modified by method.')
-        self.assertEqual(df_flt.iloc[0, 2], 50,
+        self.assertEqual(df_flt.iloc[0, 0], 50,
                          'Minimum value in returned data in filter column is'
                          'not equal to low argument.')
-        self.assertEqual(df_flt.iloc[-1, 2], 100,
+        self.assertEqual(df_flt.iloc[-1, 0], 100,
                          'Maximum value in returned data in filter column is'
                          'not equal to high argument.')
 
@@ -309,7 +150,7 @@ class Test_top_level_funcs(unittest.TestCase):
 
         df_regs = pvsyst.df.loc[:, ['E_Grid', 'GlobInc', 'TAmb', 'WindVel']]
         df_regs_day = df_regs.query('GlobInc > 0')
-        grps = df_regs_day.groupby(by=pd.TimeGrouper('M'))
+        grps = df_regs_day.groupby(pd.Grouper(freq='M', label='right'))
 
         ones = np.ones(12)
         irr_rc = ones * 500
@@ -359,136 +200,7 @@ class Test_top_level_funcs(unittest.TestCase):
                                'Point quantity not equal to expected values in'
                                '{}'.format(mnth))
 
-class Test_CapData_methods_sim(unittest.TestCase):
-    """Test for top level irrRC_balanced function."""
 
-    def setUp(self):
-        self.pvsyst = pvc.CapData()
-        self.pvsyst.load_data(path='./tests/data/', load_pvsyst=True)
-        # self.jun = self.pvsyst.df.loc['06/1990']
-        # self.jun_cpy = self.jun.copy()
-        # self.low = 0.5
-        # self.high = 1.5
-        # (self.irr_RC, self.jun_flt) = pvc.irrRC_balanced(self.jun, self.low,
-        #                                                  self.high)
-        # self.jun_flt_irr = self.jun_flt['GlobInc']
-
-    def test_copy(self):
-        self.pvsyst.set_reg_trans(power='real_pwr--', poa='irr-ghi-',
-                                  t_amb='temp-amb-', w_vel='wind--')
-        pvsyst_copy = self.pvsyst.copy()
-        df_equality = pvsyst_copy.df.equals(self.pvsyst.df)
-
-        self.assertTrue(df_equality,
-                        'Dataframe of copy not equal to original')
-        self.assertEqual(pvsyst_copy.trans, self.pvsyst.trans,
-                         'Trans dict of copy is not equal to original')
-        self.assertEqual(pvsyst_copy.trans_keys, self.pvsyst.trans_keys,
-                         'Trans dict keys are not equal to original.')
-        self.assertEqual(pvsyst_copy.reg_trans, self.pvsyst.reg_trans,
-                         'Regression trans dict copy is not equal to orig.')
-
-    def test_irrRC_balanced(self):
-        jun = self.pvsyst.df.loc['06/1990']
-        jun_cpy = jun.copy()
-        low = 0.5
-        high = 1.5
-        (irr_RC, jun_flt) = pvc.irrRC_balanced(jun, low, high)
-        jun_flt_irr = jun_flt['GlobInc']
-        self.assertTrue(all(jun_flt.columns == jun.columns),
-                        'Columns of input df missing in filtered ouput df.')
-        self.assertGreater(jun_flt.shape[0], 0,
-                           'Returned df has no rows')
-        self.assertLess(jun_flt.shape[0], jun.shape[0],
-                        'No rows removed from filtered df.')
-        self.assertTrue(jun.equals(jun_cpy),
-                        'Input dataframe modified by function.')
-        self.assertGreater(irr_RC, jun[jun['GlobInc'] > 0]['GlobInc'].min(),
-                           'Reporting irr not greater than min irr in input data')
-        self.assertLess(irr_RC, jun['GlobInc'].max(),
-                        'Reporting irr no less than max irr in input data')
-
-        pts_below_irr = jun_flt_irr[jun_flt_irr.between(0, irr_RC)].shape[0]
-        perc_below = pts_below_irr / jun_flt_irr.shape[0]
-        self.assertLess(perc_below, 0.6,
-                        'More than 60 percent of points below reporting irr')
-        self.assertGreaterEqual(perc_below, 0.5,
-                                'Less than 50 percent of points below rep irr')
-
-        pts_above_irr = jun_flt_irr[jun_flt_irr.between(irr_RC, 1500)].shape[0]
-        perc_above = pts_above_irr / jun_flt_irr.shape[0]
-        self.assertGreater(perc_above, 0.4,
-                           'Less than 40 percent of points above reporting irr')
-        self.assertLessEqual(perc_above, 0.5,
-                             'More than 50 percent of points above reportin irr')
-
-    def test_rep_cond_pred(self):
-        """Test prediction option of reporting conditions method."""
-        vals = self.pvsyst.trans['--']
-        self.pvsyst.trans['--'] = vals[:-1]
-        self.pvsyst.trans['irr-ghi-'] = ['GlobInc']
-        self.pvsyst.set_reg_trans(poa='irr-ghi-', power='real_pwr--',
-                                  w_vel='wind--', t_amb='temp-amb-')
-        meas = pvc.CapData()
-        cptest = pvc.CapTest(meas, self.pvsyst, '+/- 5')
-
-        # Tests for typical monthly predictions
-        results = cptest.rep_cond('sim', 0.8, 1.2, inplace=False, freq='M',
-                                  pred=True)
-
-        self.assertEqual(results.shape[0], 12,
-                         'freq=M should give 12 rows in results dataframe')
-        self.assertEqual(results.index[0].month, 1,
-                         'First row should be for January.')
-        self.assertEqual(results.index[11].month, 12,
-                         'Last row should be for January.')
-
-        for val in results.index:
-            mnth_str = val.strftime('%m/%Y')
-
-            # Check irradiance values for each month
-            df_irr = self.pvsyst.df['GlobInc']
-            irr_result = results['poa'].loc[mnth_str][0]
-            np_result = np.percentile(df_irr.loc[mnth_str], 60,
-                                      interpolation='nearest')
-            self.assertAlmostEqual(np_result, irr_result, 7,
-                             'The 60th percentile from function does not match '
-                             'numpy percentile for {}'.format(mnth_str))
-
-            # Check wind speed values for each month
-            df_w_vel = self.pvsyst.df['WindVel']
-            w_result = results['w_vel'].loc[mnth_str][0]
-            w_result_pd = df_w_vel.loc[mnth_str].mean()
-            self.assertAlmostEqual(w_result_pd, w_result, 7,
-                             'The average wind speed result does not match '
-                             'pandas aveage for {}'.format(mnth_str))
-
-            # Check ambient temperature values for each month
-            df_t_amb = self.pvsyst.df['TAmb']
-            t_amb_result = results['t_amb'].loc[mnth_str][0]
-            t_amb_result_pd = df_t_amb.loc[mnth_str].mean()
-            self.assertAlmostEqual(t_amb_result_pd, t_amb_result, 7,
-                             'The average amb temp result does not match '
-                             'pandas aveage for {}'.format(mnth_str))
-
-        # Tests for seasonal predictions
-        check_freqs = ['BQ-JAN', 'BQ-FEB', 'BQ-MAR',
-                       'BQ-APR', 'BQ-MAY', 'BQ-JUN',
-                       'BQ-JUL', 'BQ-AUG', 'BQ-SEP',
-                       'BQ-OCT', 'BQ-NOV', 'BQ-DEC']
-        for freq in check_freqs:
-            results_qtr = cptest.rep_cond('sim', 0.8, 1.2, inplace=False,
-                                          freq=freq, pred=True)
-
-            self.assertEqual(results_qtr.shape[0], 4,
-                             '{} seasonal freq not aligned with input '
-                             'data'.format(freq))
-
-        cptest.rep_cond('sim', 0.8, 1.2, inplace=True, freq='M',
-                                  pred=True)
-        self.assertIsInstance(cptest.rc,
-                              pd.core.frame.DataFrame,
-                              'Results not saved to CapTest rc attribute')
 
 
 class Test_CapTest_cp_results_single_coeff(unittest.TestCase):
@@ -540,7 +252,7 @@ class Test_CapTest_cp_results_mult_coeff(unittest.TestCase):
         meas = pvc.CapData()
         sim = pvc.CapData()
         self.cptest = pvc.CapTest(meas, sim, '+/- 5')
-        self.cptest.rc = {'poa': [6], 't_amb': [5], 'w_vel': [3]}
+        self.cptest.rc = pd.DataFrame({'poa': [6], 't_amb': [5], 'w_vel': [3]})
 
         nsample = 100
         e = np.random.normal(size=nsample)
