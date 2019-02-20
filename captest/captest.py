@@ -368,8 +368,8 @@ def pred_summary(grps, rcs, allowance, **kwargs):
     for rc_col_name in rcs.columns:
         for param_col_name in params.columns:
             if rc_col_name == param_col_name:
-                params.rename_axis({param_col_name: param_col_name + '-param'},
-                                   axis=1, inplace=True)
+                params.rename(columns={param_col_name: param_col_name + '-param'},
+                              inplace=True)
 
     results = pd.concat([rcs, predictions, params], axis=1)
 
