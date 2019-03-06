@@ -21,6 +21,11 @@ from bokeh.palettes import Category10, Category20c, Category20b
 from bokeh.layouts import gridplot
 from bokeh.models import Legend, HoverTool, tools, ColumnDataSource
 
+# pvlib imports
+from pvlib.location import Location
+from pvlib.pvsystem import PVSystem
+from pvlib.tracking import SingleAxisTracker
+
 plot_colors_brewer = {'real_pwr': ['#2b8cbe', '#7bccc4', '#bae4bc', '#f0f9e8'],
                       'irr-poa': ['#e31a1c', '#fd8d3c', '#fecc5c', '#ffffb2'],
                       'irr-ghi': ['#91003f', '#e7298a', '#c994c7', '#e7e1ef'],
@@ -60,6 +65,36 @@ sub_type_defs = collections.OrderedDict([
 irr_sensors_defs = {'ref_cell': [['reference cell', 'reference', 'ref',
                                   'referance', 'pvel']],
                     'pyran': [['pyranometer', 'pyran']]}
+
+
+def csky_ghi(df, loc):
+    """
+    Creates a pvlib location object and returns clear sky GHI irradiance using
+    the get_clearsky method.
+
+    Parameters
+    ----------
+    df : dataframe with datetime index
+        Clear sky ghi is calculated for times in dataframe index.
+    loc : dict
+        Dictionary of values required to instantiate a pvlib Location object.
+
+        loc = {'latitude': float,
+               'longitude': float,
+               'altitude': float/int,
+               'tz': str, int, float, or pytz.timezone, default 'UTC'}
+        See
+        http://en.wikipedia.org/wiki/List_of_tz_database_time_zones
+        for a list of valid time zones.
+        pytz.timezone objects will be converted to strings.
+        ints and floats must be in hours from UTC.
+
+    Returns
+    -------
+    Tuple of the location object and the clear sky GHI as a series.
+    """
+    location = Location(**loc)
+    return (location, location.get_clearsky(times=df.index)['ghi'])
 
 
 class CapData(object):

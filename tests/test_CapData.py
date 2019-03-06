@@ -5,6 +5,8 @@ import numpy as np
 import pandas as pd
 import statsmodels.formula.api as smf
 
+import pvlib
+
 from .context import captest as pvc
 from .context import capdata as cpd
 
@@ -316,6 +318,41 @@ class Test_CapData_methods_sim(unittest.TestCase):
         self.assertIsInstance(cptest.rc,
                               pd.core.frame.DataFrame,
                               'Results not saved to CapTest rc attribute')
+
+class Test_csky(unittest.TestCase):
+    """ Test function wrapping pvlib get_clearsky method of Location."""
+    def test_csky_ghi(self):
+        loc = {'latitude': 30.274583,
+               'longitude': -97.740352,
+               'altitude': 500,
+               'tz': 'America/Chicago'}
+
+        # ix = pd.DatetimeIndex(start='1/1/2019', periods=8760, freq='H',
+        #                       tz='America/Chicago')
+        # df = pd.DataFrame(np.arange(0))
+
+        meas = pvc.CapData()
+        df = meas.load_das('./tests/data/', 'example_meas_data.csv')
+        # meas.df.index = meas.df.index.localize
+
+        loc_obj, ghi = cpd.csky_ghi(df, loc)
+
+        self.assertIsInstance(loc_obj,
+                              pvlib.location.Location,
+                              'First returned object is not an instance of\
+                               pvlib Location')
+        self.assertIsInstance(ghi,
+                              pd.core.series.Series,
+                              'Second returned object is not an instance of\
+                               pandas Series.')
+        self.assertEqual(ghi.name, 'ghi',
+                         'Series data returned is not named ghi')
+        self.assertEqual(ghi.shape[0], df.shape[0],
+                         'Returned ghi does not have the same number of rows\
+                          as the passed dataframe.')
+        self.assertEqual(df.index.tz, ghi.index.tz,
+                         'Returned series index has different timezone from\
+                          passed dataframe.')
 
 if __name__ == '__main__':
     unittest.main()
