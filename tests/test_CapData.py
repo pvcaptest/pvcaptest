@@ -327,15 +327,7 @@ class Test_csky(unittest.TestCase):
                'altitude': 500,
                'tz': 'America/Chicago'}
 
-        # ix = pd.DatetimeIndex(start='1/1/2019', periods=8760, freq='H',
-        #                       tz='America/Chicago')
-        # df = pd.DataFrame(np.arange(0))
-
-        meas = pvc.CapData()
-        df = meas.load_das('./tests/data/', 'example_meas_data.csv')
-        # meas.df.index = meas.df.index.localize
-
-        loc_obj = cpd.pvlib_location(df, loc)
+        loc_obj = cpd.pvlib_location(loc)
 
         self.assertIsInstance(loc_obj,
                               pvlib.location.Location,

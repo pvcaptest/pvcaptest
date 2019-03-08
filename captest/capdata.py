@@ -67,14 +67,12 @@ irr_sensors_defs = {'ref_cell': [['reference cell', 'reference', 'ref',
                     'pyran': [['pyranometer', 'pyran']]}
 
 
-def pvlib_location(df, loc):
+def pvlib_location(loc):
     """
     Creates a pvlib location object.
 
     Parameters
     ----------
-    df : dataframe with datetime index
-        Clear sky ghi is calculated for times in dataframe index.
     loc : dict
         Dictionary of values required to instantiate a pvlib Location object.
 
