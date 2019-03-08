@@ -25,6 +25,7 @@ from bokeh.models import Legend, HoverTool, tools, ColumnDataSource
 from pvlib.location import Location
 from pvlib.pvsystem import PVSystem
 from pvlib.tracking import SingleAxisTracker
+from pvlib.pvsystem import retrieve_sam
 
 plot_colors_brewer = {'real_pwr': ['#2b8cbe', '#7bccc4', '#bae4bc', '#f0f9e8'],
                       'irr-poa': ['#e31a1c', '#fd8d3c', '#fecc5c', '#ffffb2'],
@@ -91,6 +92,55 @@ def pvlib_location(loc):
     pvlib location object.
     """
     return Location(**loc)
+
+def pvlib_system(sys):
+    """
+    Creates a pvlib PVSystem or SingleAxisTracker object.
+
+    A SingleAxisTracker object is created if any of the keyword arguments for
+    initiating a SingleAxisTracker object are found in the keys of the passed
+    dictionary.
+
+    Parameters
+    ----------
+    sys : dict
+        Dictionary of keywords required to create a pvlib SingleAxisTracker
+        or PVSystem.
+
+        Example dictionaries:
+
+        fixed_sys = {'surface_tilt': 20,
+                     'surface_azimuth': 180,
+                     'albedo': 0.2}
+
+        tracker_sys1 = {'axis_tilt': 0, 'axis_azimuth': 0,
+                       'max_angle': 90, 'backtrack': True,
+                       'gcr': 0.2, 'albedo': 0.2}
+
+        Refer to pvlib documentation for details.
+        https://pvlib-python.readthedocs.io/en/latest/generated/pvlib.pvsystem.PVSystem.html
+        https://pvlib-python.readthedocs.io/en/latest/generated/pvlib.tracking.SingleAxisTracker.html
+
+    Returns
+    -------
+    pvlib PVSystem or SingleAxisTracker object.
+    """
+    sandia_modules = retrieve_sam('SandiaMod')
+    cec_inverters = retrieve_sam('cecinverter')
+    sandia_module = sandia_modules['Canadian_Solar_CS5P_220M___2009_']
+    cec_inverter = cec_inverters['ABB__MICRO_0_25_I_OUTD_US_208_208V__CEC_2014_']
+
+    trck_kwords = ['axis_tilt', 'axis_azimuth', 'max_angle', 'backtrack', 'gcr']
+    if any(kword in sys.keys() for kword in trck_kwords):
+        system = SingleAxisTracker(**sys,
+                                   module_parameters=sandia_module,
+                                   inverter_parameters=cec_inverter)
+    else:
+        system = PVSystem(**sys,
+                          module_parameters=sandia_module,
+                          inverter_parameters=cec_inverter)
+
+    return system
 
 
 class CapData(object):

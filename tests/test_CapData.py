@@ -334,6 +334,35 @@ class Test_csky(unittest.TestCase):
                               'Did not return instance of\
                                pvlib Location')
 
+    def test_pvlib_system(self):
+        fixed_sys = {'surface_tilt': 20,
+                     'surface_azimuth': 180,
+                     'albedo': 0.2}
+
+        tracker_sys1 = {'axis_tilt': 0, 'axis_azimuth': 0,
+                       'max_angle': 90, 'backtrack': True,
+                       'gcr': 0.2, 'albedo': 0.2}
+
+        tracker_sys2 = {'max_angle': 52, 'gcr': 0.3}
+
+        fx_sys = cpd.pvlib_system(fixed_sys)
+        trck_sys1 = cpd.pvlib_system(tracker_sys1)
+        trck_sys2 = cpd.pvlib_system(tracker_sys1)
+
+        self.assertIsInstance(fx_sys,
+                              pvlib.pvsystem.PVSystem,
+                              'Did not return instance of\
+                               pvlib PVSystem')
+
+        self.assertIsInstance(trck_sys1,
+                              pvlib.tracking.SingleAxisTracker,
+                              'Did not return instance of\
+                               pvlib SingleAxisTracker')
+
+        self.assertIsInstance(trck_sys2,
+                              pvlib.tracking.SingleAxisTracker,
+                              'Did not return instance of\
+                               pvlib SingleAxisTracker')
 
 # possible assertions for method returning ghi
         # self.assertIsInstance(ghi,
