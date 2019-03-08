@@ -321,7 +321,7 @@ class Test_CapData_methods_sim(unittest.TestCase):
 
 class Test_csky(unittest.TestCase):
     """ Test function wrapping pvlib get_clearsky method of Location."""
-    def test_csky_ghi(self):
+    def test_pvlib_location(self):
         loc = {'latitude': 30.274583,
                'longitude': -97.740352,
                'altitude': 500,
@@ -335,24 +335,58 @@ class Test_csky(unittest.TestCase):
         df = meas.load_das('./tests/data/', 'example_meas_data.csv')
         # meas.df.index = meas.df.index.localize
 
-        loc_obj, ghi = cpd.csky_ghi(df, loc)
+        loc_obj = cpd.pvlib_location(df, loc)
 
         self.assertIsInstance(loc_obj,
                               pvlib.location.Location,
-                              'First returned object is not an instance of\
+                              'Did not return instance of\
                                pvlib Location')
-        self.assertIsInstance(ghi,
-                              pd.core.series.Series,
-                              'Second returned object is not an instance of\
-                               pandas Series.')
-        self.assertEqual(ghi.name, 'ghi',
-                         'Series data returned is not named ghi')
-        self.assertEqual(ghi.shape[0], df.shape[0],
-                         'Returned ghi does not have the same number of rows\
-                          as the passed dataframe.')
-        self.assertEqual(df.index.tz, ghi.index.tz,
-                         'Returned series index has different timezone from\
-                          passed dataframe.')
+
+
+# possible assertions for method returning ghi
+        # self.assertIsInstance(ghi,
+        #                       pd.core.series.Series,
+        #                       'Second returned object is not an instance of\
+        #                        pandas Series.')
+        # self.assertEqual(ghi.name, 'ghi',
+        #                  'Series data returned is not named ghi')
+        # self.assertEqual(ghi.shape[0], df.shape[0],
+        #                  'Returned ghi does not have the same number of rows\
+        #                   as the passed dataframe.')
+        # self.assertEqual(df.index.tz, ghi.index.tz,
+        #                  'Returned series index has different timezone from\
+        #                   passed dataframe.')
+
+    def test_csky(self):
+        loc = {'latitude': 30.274583,
+               'longitude': -97.740352,
+               'altitude': 500,
+               'tz': 'America/Chicago'}
+
+        sys = {'surface_tilt': 20,
+               'surface_azimuth': 180,
+               'albedo': 0.2}
+
+        meas = pvc.CapData()
+        df = meas.load_das('./tests/data/', 'example_meas_data.csv')
+        # meas.df.index = meas.df.index.localize
+
+        csky_ghi_poa = cpd.csky(df, loc=loc, sys=sys)
+
+        self.assertIsInstance(cksy_ghi_poa, pandas.core.frame.DataFrame,
+                              'Did not return a pandas dataframe.')
+        self.assertGreater(csky_ghi_poa.loc['10/9/1990 12:30', 'poa'],
+                           csky_ghi_poa.loc['10/9/1990 12:30', 'ghi'],
+                           'POA is not greater than GHI at 12:30.')
+
+"""
+Change csky to two functions for creating pvlib location and system objects.
+Separate function calling location function to calculate GHI
+Separate function calling location and system to calculate POA
+- inplace gives concat or return option
+load_data calls final funtion with in place to get ghi and poa
+"""
+
 
 if __name__ == '__main__':
     unittest.main()

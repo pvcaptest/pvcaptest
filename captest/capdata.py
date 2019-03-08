@@ -67,10 +67,9 @@ irr_sensors_defs = {'ref_cell': [['reference cell', 'reference', 'ref',
                     'pyran': [['pyranometer', 'pyran']]}
 
 
-def csky_ghi(df, loc):
+def pvlib_location(df, loc):
     """
-    Creates a pvlib location object and returns clear sky GHI irradiance using
-    the get_clearsky method.
+    Creates a pvlib location object.
 
     Parameters
     ----------
@@ -91,10 +90,9 @@ def csky_ghi(df, loc):
 
     Returns
     -------
-    Tuple of the location object and the clear sky GHI as a series.
+    pvlib location object.
     """
-    location = Location(**loc)
-    return (location, location.get_clearsky(times=df.index)['ghi'])
+    return Location(**loc)
 
 
 class CapData(object):
