@@ -8,7 +8,6 @@ import collections
 from functools import wraps
 import warnings
 import importlib
-import warnings
 
 # anaconda distribution defaults
 import dateutil
