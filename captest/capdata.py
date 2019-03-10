@@ -143,6 +143,43 @@ def pvlib_system(sys):
     return system
 
 
+def get_tz_index(time_source, loc):
+    """
+    Creates DatetimeIndex with timezone aligned with location dictionary.
+
+    Handles generating a DatetimeIndex with a timezone for use as an agrument
+    to pvlib ModelChain prepare_inputs method or pvlib Location get_clearsky
+    method.
+
+    Parameters
+    ----------
+    time_source : dataframe or DatetimeIndex
+        If passing a dataframe the index of the dataframe will be used.  If the
+        index does not have a timezone the timezone will be set using the
+        timezone in the passed loc dictionary.
+        If passing a DatetimeIndex with a timezone it will be returned directly.
+        If passing a DatetimeIndex without a timezone the timezone in the
+        timezone dictionary will be used.
+
+    Returns
+    -------
+    DatetimeIndex with timezone
+    """
+
+    if isinstance(time_source, pd.core.indexes.datetimes.DatetimeIndex):
+        if time_source.tz is None:
+            time_source = time_source.tz_localize(loc['tz'], ambiguous='infer',
+                                                  errors='coerce')
+            return time_source
+        else:
+            # Also warn if tz is not the same as tz in loc dict?
+            return time_source
+    elif isinstance(time_source, pd.core.frame.DataFrame):
+        if time_source.index.tz is None:
+            return time_source.index.tz_localize(loc['tz'])
+        else:
+            return time_source.index
+
 class CapData(object):
     """
     Class to store capacity test data and translation of column names.
