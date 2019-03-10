@@ -7,6 +7,7 @@ import copy
 import collections
 from functools import wraps
 import warnings
+import pytz
 
 # anaconda distribution defaults
 import dateutil
@@ -172,7 +173,10 @@ def get_tz_index(time_source, loc):
                                                   errors='coerce')
             return time_source
         else:
-            # Also warn if tz is not the same as tz in loc dict?
+            if pytz.timezone(loc['tz']) != time_source.tz:
+                warnings.warn('Passed a DatetimeIndex with a timezone that '
+                              'does not match the timezone in the loc dict. '
+                              'Using the timezone of the DatetimeIndex.')
             return time_source
     elif isinstance(time_source, pd.core.frame.DataFrame):
         if time_source.index.tz is None:
