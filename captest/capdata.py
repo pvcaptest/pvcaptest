@@ -183,6 +183,10 @@ def get_tz_index(time_source, loc):
             return time_source.index.tz_localize(loc['tz'], ambiguous='infer',
                                                  errors='coerce')
         else:
+            if pytz.timezone(loc['tz']) != time_source.index.tz:
+                warnings.warn('Passed a DataFrame with a timezone that '
+                              'does not match the timezone in the loc dict. '
+                              'Using the timezone of the DataFrame.')
             return time_source.index
 
 class CapData(object):

@@ -439,6 +439,20 @@ class Test_csky(unittest.TestCase):
                          'Returned index does not have same timezone as\
                           the passed location dictionary.')
 
+    def test_get_tz_index_df_tz_warn(self):
+        """Test that get_tz_index function returns warns when datetime index\
+           of dataframe does not match loc dic timezone."""
+        # reindex test dataset to cover DST in the fall and spring
+        ix_3days = pd.DatetimeIndex(start='11/3/2018', periods=864, freq='5min',
+                                    tz='America/New_York')
+        ix_2days = pd.DatetimeIndex(start='3/9/2019', periods=576, freq='5min',
+                                    tz='America/New_York')
+        ix_dst = ix_3days.append(ix_2days)
+        self.df.index = ix_dst
+
+        with self.assertWarns(UserWarning):
+            self.tz_ix = cpd.get_tz_index(self.df, self.loc)
+
     def test_get_tz_index_ix_tz(self):
         """Test that get_tz_index function returns a datetime index
            with a timezone when passed a datetime index with a timezone."""
