@@ -440,7 +440,7 @@ class Test_csky(unittest.TestCase):
                           the passed location dictionary.')
 
     def test_get_tz_index_ix_tz(self):
-        """Test that get_tz_index function returns a datetime index\
+        """Test that get_tz_index function returns a datetime index
            with a timezone when passed a datetime index with a timezone."""
         self.ix = pd.DatetimeIndex(start='1/1/2019', periods=8760, freq='H',
                                    tz='America/Chicago')
@@ -457,8 +457,9 @@ class Test_csky(unittest.TestCase):
                           the passed index.')
 
     def test_get_tz_index_ix_tz_warn(self):
-        """Test that get_tz_index function returns a datetime index\
-           with a timezone when passed a datetime index with a timezone."""
+        """Test that get_tz_index function warns when DatetimeIndex timezone
+           does not match the location dic timezone.
+        """
         self.ix = pd.DatetimeIndex(start='1/1/2019', periods=8760, freq='H',
                                    tz='America/New_York')
 
