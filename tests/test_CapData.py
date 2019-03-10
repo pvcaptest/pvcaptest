@@ -399,6 +399,15 @@ class Test_csky(unittest.TestCase):
     def test_get_tz_index_df(self):
         """Test that get_tz_index function returns a datetime index\
            with a timezone when passed a dataframe."""
+        # reindex test dataset to cover DST in the fall and spring
+        ix_3days = pd.DatetimeIndex(start='11/3/2018', periods=864, freq='5min',
+                                    tz='America/Chicago')
+        ix_2days = pd.DatetimeIndex(start='3/9/2019', periods=576, freq='5min',
+                                    tz='America/Chicago')
+        ix_dst = ix_3days.append(ix_2days)
+        ix_dst = ix_dst.tz_localize(None)
+        self.df.index = ix_dst
+
         self.tz_ix = cpd.get_tz_index(self.df, self.loc)
 
         self.assertIsInstance(self.tz_ix,

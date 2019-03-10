@@ -176,7 +176,8 @@ def get_tz_index(time_source, loc):
             return time_source
     elif isinstance(time_source, pd.core.frame.DataFrame):
         if time_source.index.tz is None:
-            return time_source.index.tz_localize(loc['tz'])
+            return time_source.index.tz_localize(loc['tz'], ambiguous='infer',
+                                                 errors='coerce')
         else:
             return time_source.index
 
