@@ -499,54 +499,53 @@ class Test_csky(unittest.TestCase):
                          'Returned index does not have same timezone as\
                           the passed location dictionary.')
 
-    @unittest.skip('cksy funcion not written yet')
     def test_csky_concat(self):
         # concat=True by default
-        self.csky_ghi_poa = cpd.csky(self.df, loc=self.loc, sys=self.sys)
+        csky_ghi_poa = cpd.csky(self.df, loc=self.loc, sys=self.sys)
 
-        self.assertIsInstance(self.cksy_ghi_poa, pd.core.frame.DataFrame,
+        self.assertIsInstance(csky_ghi_poa, pd.core.frame.DataFrame,
                               'Did not return a pandas dataframe.')
-        self.assertEqual(self.cksy_ghi_poa.shape[1],
+        self.assertEqual(csky_ghi_poa.shape[1],
                          self.df.shape[1] + 2,
                          'Returned dataframe does not have 2 new columns.')
-        self.assertIn('ghi_mod_csky', self.csky_ghi_poa.columns,
+        self.assertIn('ghi_mod_csky', csky_ghi_poa.columns,
                       'Modeled clear sky ghi not in returned dataframe columns')
-        self.assertIn('poa_mod_csky', self.csky_ghi_poa.columns,
+        self.assertIn('poa_mod_csky', csky_ghi_poa.columns,
                       'Modeled clear sky poa not in returned dataframe columns')
         # assumes typical orientation is used to calculate the poa irradiance
-        self.assertGreater(self.csky_ghi_poa.loc['10/9/1990 12:30',
-                                                 'poa_mod_csky'],
-                           self.csky_ghi_poa.loc['10/9/1990 12:30',
-                                                 'ghi_mod_csky'],
+        self.assertGreater(csky_ghi_poa.loc['10/9/1990 12:30',
+                                            'poa_mod_csky'],
+                           csky_ghi_poa.loc['10/9/1990 12:30',
+                                            'ghi_mod_csky'],
                            'POA is not greater than GHI at 12:30.')
-        self.assertEqual(self.csky_ghi_poa.index,
-                         self.df.index,
-                         'Returned dataframe index is not the same as passed\
-                          dataframe.')
+        self.assertEqual(csky_ghi_poa.index.tz,
+                         self.df.index.tz,
+                         'Returned dataframe index timezone is not the same as\
+                          passed dataframe.')
 
     @unittest.skip('cksy funcion not written yet')
     def test_csky_not_concat(self):
-        self.csky_ghi_poa = cpd.csky(self.df, loc=self.loc, sys=self.sys,
+        csky_ghi_poa = cpd.csky(self.df, loc=self.loc, sys=self.sys,
                                      concat=False)
 
-        self.assertIsInstance(self.cksy_ghi_poa, pd.core.frame.DataFrame,
+        self.assertIsInstance(csky_ghi_poa, pd.core.frame.DataFrame,
                               'Did not return a pandas dataframe.')
-        self.assertEqual(self.cksy_ghi_poa.shape[1], 2,
+        self.assertEqual(csky_ghi_poa.shape[1], 2,
                          'Returned dataframe does not have 2 columns.')
-        self.assertIn('ghi_mod_csky', self.csky_ghi_poa.columns,
+        self.assertIn('ghi_mod_csky', csky_ghi_poa.columns,
                       'Modeled clear sky ghi not in returned dataframe columns')
-        self.assertIn('poa_mod_csky', self.csky_ghi_poa.columns,
+        self.assertIn('poa_mod_csky', csky_ghi_poa.columns,
                       'Modeled clear sky poa not in returned dataframe columns')
         # assumes typical orientation is used to calculate the poa irradiance
-        self.assertGreater(self.csky_ghi_poa.loc['10/9/1990 12:30',
-                                                 'poa_mod_csky'],
-                           self.csky_ghi_poa.loc['10/9/1990 12:30',
-                                                 'ghi_mod_csky'],
+        self.assertGreater(csky_ghi_poa.loc['10/9/1990 12:30',
+                                            'poa_mod_csky'],
+                           csky_ghi_poa.loc['10/9/1990 12:30',
+                                            'ghi_mod_csky'],
                            'POA is not greater than GHI at 12:30.')
-        self.assertEqual(self.csky_ghi_poa.index,
-                         self.df.index,
-                         'Returned dataframe index is not the same as passed\
-                          dataframe.')
+        self.assertEqual(self.csky_ghi_poa.index.tz,
+                         self.df.index.tz,
+                         'Returned dataframe index timezone is not the same as\
+                          passed dataframe.')
 
 """
 Change csky to two functions for creating pvlib location and system objects.

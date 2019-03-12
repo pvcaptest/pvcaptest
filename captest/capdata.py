@@ -27,6 +27,7 @@ from pvlib.location import Location
 from pvlib.pvsystem import PVSystem
 from pvlib.tracking import SingleAxisTracker
 from pvlib.pvsystem import retrieve_sam
+from pvlib.modelchain import ModelChain
 
 plot_colors_brewer = {'real_pwr': ['#2b8cbe', '#7bccc4', '#bae4bc', '#f0f9e8'],
                       'irr-poa': ['#e31a1c', '#fd8d3c', '#fecc5c', '#ffffb2'],
@@ -188,6 +189,90 @@ def get_tz_index(time_source, loc):
                               'does not match the timezone in the loc dict. '
                               'Using the timezone of the DataFrame.')
             return time_source.index
+
+def csky(time_source, loc=None, sys=None, concat=True, output='both'):
+    """
+    Calculate clear sky poa and ghi.
+
+    Parameters
+    ----------
+    time_source : dataframe or DatetimeIndex
+        If passing a dataframe the index of the dataframe will be used.  If the
+        index does not have a timezone the timezone will be set using the
+        timezone in the passed loc dictionary.
+        If passing a DatetimeIndex with a timezone it will be returned directly.
+        If passing a DatetimeIndex without a timezone the timezone in the
+        timezone dictionary will be used.
+    loc : dict
+        Dictionary of values required to instantiate a pvlib Location object.
+
+        loc = {'latitude': float,
+               'longitude': float,
+               'altitude': float/int,
+               'tz': str, int, float, or pytz.timezone, default 'UTC'}
+        See
+        http://en.wikipedia.org/wiki/List_of_tz_database_time_zones
+        for a list of valid time zones.
+        pytz.timezone objects will be converted to strings.
+        ints and floats must be in hours from UTC.
+    sys : dict
+        Dictionary of keywords required to create a pvlib SingleAxisTracker
+        or PVSystem.
+
+        Example dictionaries:
+
+        fixed_sys = {'surface_tilt': 20,
+                     'surface_azimuth': 180,
+                     'albedo': 0.2}
+
+        tracker_sys1 = {'axis_tilt': 0, 'axis_azimuth': 0,
+                       'max_angle': 90, 'backtrack': True,
+                       'gcr': 0.2, 'albedo': 0.2}
+
+        Refer to pvlib documentation for details.
+        https://pvlib-python.readthedocs.io/en/latest/generated/pvlib.pvsystem.PVSystem.html
+        https://pvlib-python.readthedocs.io/en/latest/generated/pvlib.tracking.SingleAxisTracker.html
+    concat : bool, default True
+        If concat is True then returns columns as defined by return argument
+        added to passed dataframe, otherwise returns just clear sky data.
+    output : str, default 'both'
+        both - returns only total poa and ghi
+        poa_all - returns all components of poa
+        ghi_all - returns all components of ghi
+        all - returns all components of poa and ghi
+    """
+    location = pvlib_location(loc)
+    system = pvlib_system(sys)
+    mc = ModelChain(system, location)
+    times = get_tz_index(time_source, loc)
+
+    if output == 'both':
+        ghi = location.get_clearsky(times=times)
+        mc.prepare_inputs(times=times)
+        csky_df = pd.DataFrame({'poa_mod_csky': mc.total_irrad['poa_global'],
+                                'ghi_mod_csky': ghi['ghi']})
+    if output == 'poa_all':
+        mc.prepare_inputs(times=ix)
+        csky_df = mc.total_irrad
+    if output == 'ghi':
+        csky_df = location.get_clearsky(times=times)
+    if output == 'all':
+        ghi = location.get_clearsky(times=times)
+        mc.prepare_inputs(times=ix)
+        csky_df = pd.concat([mc.total_irrad, ghi], axis=1)
+
+    csky_df.index = csky_df.index.tz_localize(None, ambiguous='infer',
+                                              errors='coerce')
+
+    if concat:
+        if isinstance(time_source, pd.core.frame.DataFrame):
+            return pd.concat([time_source, csky_df], axis=1)
+        else:
+            warnings.warn('time_source is not a dataframe; only clear sky data\
+                           returned')
+            return csky_df
+    else:
+        return csky_df
 
 class CapData(object):
     """
