@@ -523,7 +523,6 @@ class Test_csky(unittest.TestCase):
                          'Returned dataframe index timezone is not the same as\
                           passed dataframe.')
 
-    @unittest.skip('cksy funcion not written yet')
     def test_csky_not_concat(self):
         csky_ghi_poa = cpd.csky(self.df, loc=self.loc, sys=self.sys,
                                      concat=False)
@@ -542,7 +541,7 @@ class Test_csky(unittest.TestCase):
                            csky_ghi_poa.loc['10/9/1990 12:30',
                                             'ghi_mod_csky'],
                            'POA is not greater than GHI at 12:30.')
-        self.assertEqual(self.csky_ghi_poa.index.tz,
+        self.assertEqual(csky_ghi_poa.index.tz,
                          self.df.index.tz,
                          'Returned dataframe index timezone is not the same as\
                           passed dataframe.')
