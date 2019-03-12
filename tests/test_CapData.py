@@ -546,6 +546,64 @@ class Test_csky(unittest.TestCase):
                          'Returned dataframe index timezone is not the same as\
                           passed dataframe.')
 
+    def test_csky_not_concat_poa_all(self):
+        csky_ghi_poa = cpd.csky(self.df, loc=self.loc, sys=self.sys,
+                                     concat=False, output='poa_all')
+
+        self.assertIsInstance(csky_ghi_poa, pd.core.frame.DataFrame,
+                              'Did not return a pandas dataframe.')
+        self.assertEqual(csky_ghi_poa.shape[1], 5,
+                         'Returned dataframe does not have 5 columns.')
+        cols = ['poa_global', 'poa_direct', 'poa_diffuse', 'poa_sky_diffuse', 'poa_ground_diffuse', 'poa_ground_diffuse']
+        for col in cols:
+            self.assertIn(col, csky_ghi_poa.columns,
+                          '{} not in the columns of returned\
+                           dataframe'.format(col))
+        # assumes typical orientation is used to calculate the poa irradiance
+        self.assertEqual(csky_ghi_poa.index.tz,
+                         self.df.index.tz,
+                         'Returned dataframe index timezone is not the same as\
+                          passed dataframe.')
+
+    def test_csky_not_concat_ghi_all(self):
+        csky_ghi_poa = cpd.csky(self.df, loc=self.loc, sys=self.sys,
+                                concat=False, output='ghi_all')
+
+        self.assertIsInstance(csky_ghi_poa, pd.core.frame.DataFrame,
+                              'Did not return a pandas dataframe.')
+        self.assertEqual(csky_ghi_poa.shape[1], 3,
+                         'Returned dataframe does not have 5 columns.')
+        cols = ['ghi', 'dni', 'dhi']
+        for col in cols:
+            self.assertIn(col, csky_ghi_poa.columns,
+                          '{} not in the columns of returned\
+                           dataframe'.format(col))
+        # assumes typical orientation is used to calculate the poa irradiance
+        self.assertEqual(csky_ghi_poa.index.tz,
+                         self.df.index.tz,
+                         'Returned dataframe index timezone is not the same as\
+                          passed dataframe.')
+
+    def test_csky_not_concat_all(self):
+        csky_ghi_poa = cpd.csky(self.df, loc=self.loc, sys=self.sys,
+                                concat=False, output='all')
+
+        self.assertIsInstance(csky_ghi_poa, pd.core.frame.DataFrame,
+                              'Did not return a pandas dataframe.')
+        self.assertEqual(csky_ghi_poa.shape[1], 8,
+                         'Returned dataframe does not have 5 columns.')
+        cols = ['ghi', 'dni', 'dhi', 'poa_global', 'poa_direct', 'poa_diffuse',
+                'poa_sky_diffuse', 'poa_ground_diffuse', 'poa_ground_diffuse']
+        for col in cols:
+            self.assertIn(col, csky_ghi_poa.columns,
+                          '{} not in the columns of returned\
+                           dataframe'.format(col))
+        # assumes typical orientation is used to calculate the poa irradiance
+        self.assertEqual(csky_ghi_poa.index.tz,
+                         self.df.index.tz,
+                         'Returned dataframe index timezone is not the same as\
+                          passed dataframe.')
+
 """
 Change csky to two functions for creating pvlib location and system objects.
 Separate function calling location and system to calculate POA
