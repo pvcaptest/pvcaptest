@@ -511,8 +511,9 @@ class CapData(object):
         pvraw = pvraw.rename(columns={"T Amb": "TAmb"})
         return pvraw
 
-    def load_data(self, path='./data/', fname=None, set_trans=True, source=None,
-                  load_pvsyst=False, **kwargs):
+    def load_data(self, path='./data/', fname=None, set_trans=True,
+                  source=None, load_pvsyst=False, clear_sky=False, loc=None,
+                  sys=None, **kwargs):
         """
         Import data from csv files.
 
@@ -534,6 +535,13 @@ class CapData(object):
             By default skips any csv file that has 'pvsyst' in the name.  Is
             not case sensitive.  Set to true to import a csv with 'pvsyst' in
             the name and skip all other files.
+        clear_sky : bool, default False
+            Set to true and provide loc and sys arguments to add columns of
+            clear sky modeled poa and ghi to loaded data.
+        loc : dict
+            See the csky function for details on dictionary options.
+        sys : dict
+            See the csky function for details on dictionary options.
         **kwargs
             Will pass kwargs onto load_pvsyst or load_das, which will pass to
             Pandas.read_csv.  Useful to adjust the separator (Ex. sep=';').
@@ -578,6 +586,17 @@ class CapData(object):
         ix_ser = all_sensors.index.to_series()
         all_sensors['index'] = ix_ser.apply(lambda x: x.strftime('%m/%d/%Y %H %M'))
         self.df = all_sensors
+
+        if not load_pvsyst:
+            if clear_sky:
+                if loc is None:
+                    warings.warn('Must provide loc and sys dictionary with\
+                                  when clear_sky is True.  Loc dict missing.')
+                if sys is None:
+                    warings.warn('Must provide loc and sys dictionary with\
+                                  when clear_sky is True.  Sys dict missing.')
+                self.df = csky(self.df, loc=loc, sys=sys, concat=True,
+                               output='both')
 
         if set_trans:
             self.__set_trans()
