@@ -261,12 +261,14 @@ def csky(time_source, loc=None, sys=None, concat=True, output='both'):
         mc.prepare_inputs(times=times)
         csky_df = pd.concat([mc.total_irrad, ghi], axis=1)
 
-    csky_df.index = csky_df.index.tz_localize(None, ambiguous='infer',
-                                              errors='coerce')
+    ix_no_tz = csky_df.index.tz_localize(None, ambiguous='infer',
+                                         errors='coerce')
+    csky_df.index = ix_no_tz
 
     if concat:
         if isinstance(time_source, pd.core.frame.DataFrame):
-            return pd.concat([time_source, csky_df], axis=1)
+            df_with_csky = pd.concat([time_source, csky_df], axis=1)
+            return df_with_csky
         else:
             warnings.warn('time_source is not a dataframe; only clear sky data\
                            returned')

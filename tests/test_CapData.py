@@ -394,7 +394,6 @@ class Test_csky(unittest.TestCase):
 
         self.meas = pvc.CapData()
         self.df = self.meas.load_das('./tests/data/', 'example_meas_data.csv')
-        # meas.df.index = meas.df.index.localize
 
     def test_get_tz_index_df(self):
         """Test that get_tz_index function returns a datetime index\
