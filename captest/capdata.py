@@ -932,9 +932,14 @@ class CapData(object):
             legend_items = []
             for i, col in enumerate(cols):
                 abbrev_col_name = key + str(i)
+                if col.find('csky') == -1:
+                    line_dash = 'solid'
+                else:
+                    line_dash = (5, 2)
                 if marker == 'line':
                     series = p.line('Timestamp', col, source=source,
                                     line_color=self.col_colors[col],
+                                    line_dash=line_dash,
                                     name=names_to_abrev[col])
                 elif marker == 'circle':
                     series = p.circle('Timestamp', col,
