@@ -418,8 +418,8 @@ class CapTest(object):
         Identical to das_mindex for data from an energy production simulation.
     sim_summ_data : list of dicts
         Identical to das_summ_data for data from an energy production simulation.
-    rc : dict of lists
-        Dictionary of lists for the reporting conditions (poa, t_amb, and w_vel).
+    rc : DataFrame
+        Dataframe for the reporting conditions (poa, t_amb, and w_vel).
     ols_model_das : statsmodels linear regression model
         Holds the linear regression model object for the das data.
     ols_model_sim : statsmodels linear regression model
