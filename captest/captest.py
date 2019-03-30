@@ -1246,7 +1246,7 @@ class CapTest(object):
             return cd_obj
 
     @update_summary
-    def filter_clearsky(self, data, **args, inplace=True, **kwargs):
+    def filter_clearsky(self, data, **args, name=None, inplace=True, **kwargs):
     """
     Uses pvlib detect_clearsky to remove periods with unstable irradiance.
 
@@ -1257,6 +1257,12 @@ class CapTest(object):
     Parameters:
     data : str, 'sim' or 'das'
         'sim' or 'das' determines if filter is on sim or das data
+    name : str, default None
+        By default uses data identified by the translation dictionary as ghi
+        and modeled ghi.  Issues warning if there is no translation dictionary
+        category for ghi data, modeled ghi data, or the measured ghi data has
+        not been aggregated.
+        Or, a column name for specific column of measured ghi data.
     inplace : bool, default True
         When true removes periods with unstable irradiance.  When false returns
         pvlib detect_clearsky results, which by default is a series of booleans.
