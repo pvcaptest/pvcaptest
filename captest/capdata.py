@@ -67,7 +67,8 @@ sub_type_defs = collections.OrderedDict([
 
 irr_sensors_defs = {'ref_cell': [['reference cell', 'reference', 'ref',
                                   'referance', 'pvel']],
-                    'pyran': [['pyranometer', 'pyran']]}
+                    'pyran': [['pyranometer', 'pyran']],
+                    'clear_sky':[['csky']]}
 
 
 def pvlib_location(loc):
@@ -871,6 +872,8 @@ class CapData(object):
             each group.  By default will combine all irradiance measurements
             into a group and temperature measurements into a group.
             Pass empty list to not merge any plots.
+            Use 'irr-poa' and 'irr-ghi' to plot clear sky modeled with measured
+            data.
         subset : list, default None
             List of the translation dictionary keys to use to control order of
             plots or to plot only a subset of the plots.
