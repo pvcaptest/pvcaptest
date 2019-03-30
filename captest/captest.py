@@ -1246,6 +1246,23 @@ class CapTest(object):
             return cd_obj
 
     @update_summary
+    def filter_clearsky(self, data, **args, inplace=True, **kwargs):
+    """
+    Uses pvlib detect_clearsky to remove periods with unstable irradiance.
+
+    The pvlib detect_clearsky function compares modeled clear sky ghi against
+    measured clear sky ghi to detect periods of clear sky.  Refer to the pvlib
+    documentation for additional information.
+
+    Parameters:
+    data : str, 'sim' or 'das'
+        'sim' or 'das' determines if filter is on sim or das data
+    inplace : bool, default True
+        When true removes periods with unstable irradiance.  When false returns
+        pvlib detect_clearsky results, which by default is a series of booleans.
+    """
+
+    @update_summary
     def reg_cpt(self, data, filter=False, inplace=True, summary=True):
         """
         Performs regression with statsmodels on filtered data.
