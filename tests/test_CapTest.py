@@ -308,6 +308,29 @@ class Test_CapTest_cp_results_mult_coeff(unittest.TestCase):
                          'Coefficient that should be set to zero was not.')
 
 
+class Test_CapTest_filters(unittest.TestCase):
+    """
+    Tests for filtering methods.
+    """
+    def test_filter_clearsky(self):
+        pvsyst = pvc.CapData()
+        meas = pvc.CapData()
+        loc = {'latitude': 39.742, 'longitude': -105.18,
+               'altitude': 1828.8, 'tz': 'Etc/GMT+7'}
+        sys = {'surface_tilt': 40, 'surface_azimuth': 180,
+               'albedo': 0.2}
+        meas.load_data(path='./tests/data/', fname='nrel_data.csv',
+                       source='AlsoEnergy', clear_sky=True, loc=loc, sys=sys)
+        self.cptest = pvc.CapTest(meas, pvsyst, '+/- 5')
+
+        self.cptest.filter_clearsky('das', 20)
+
+        self.assertLess(self.cptest.flt_das.df.shape[0],
+                        self.cptest.das.df.shape[0],
+                        'Filtered dataframe should have less rows.')
+        self.assertEqual(self.cptest.flt_das.df.columns,
+                         self.cptest.das.df.columns,
+                         'Filter inadverdently changed columns.')
 
 # class TestFilterIrr(unittest.TestCase):
 #     """Tests for CapTest class."""
