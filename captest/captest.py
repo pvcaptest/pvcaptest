@@ -1316,7 +1316,7 @@ class CapTest(object):
                                     meas_ghi.index, window_length, **kwargs)
         if not any(clear_per):
             return warnings.warn('No clear periods detected. Try increasing the '
-                                  'window length.')
+                                 'window length.')
 
         cd_obj.df = cd_obj.df[clear_per]
 
