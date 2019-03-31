@@ -312,16 +312,18 @@ class Test_CapTest_filters(unittest.TestCase):
     """
     Tests for filtering methods.
     """
-    def test_filter_clearsky(self):
-        pvsyst = pvc.CapData()
-        meas = pvc.CapData()
+    def setUp(self):
+        self.pvsyst = pvc.CapData()
+        self.meas = pvc.CapData()
         loc = {'latitude': 39.742, 'longitude': -105.18,
                'altitude': 1828.8, 'tz': 'Etc/GMT+7'}
         sys = {'surface_tilt': 40, 'surface_azimuth': 180,
                'albedo': 0.2}
-        meas.load_data(path='./tests/data/', fname='nrel_data.csv',
+        self.meas.load_data(path='./tests/data/', fname='nrel_data.csv',
                        source='AlsoEnergy', clear_sky=True, loc=loc, sys=sys)
-        self.cptest = pvc.CapTest(meas, pvsyst, '+/- 5')
+
+    def test_filter_clearsky(self):
+        self.cptest = pvc.CapTest(self.meas, self.pvsyst, '+/- 5')
 
         self.cptest.filter_clearsky('das')
 
