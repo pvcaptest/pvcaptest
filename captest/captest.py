@@ -36,7 +36,14 @@ if hv_spec is not None:
     import holoviews as hv
 else:
     warnings.warn('Some plotting functions will not work without the '
-                   'holoviews package.')
+                  'holoviews package.')
+
+pvlib_spec = importlib.util.find_spec('pvlib')
+if pvlib_spec is not None:
+    import pvlib
+else:
+    warnings.warn('Clear sky functions will not work without the '
+                  'pvlib package.')
 
 from captest.capdata import CapData, met_keys
 

@@ -23,11 +23,17 @@ from bokeh.layouts import gridplot
 from bokeh.models import Legend, HoverTool, tools, ColumnDataSource
 
 # pvlib imports
-from pvlib.location import Location
-from pvlib.pvsystem import PVSystem
-from pvlib.tracking import SingleAxisTracker
-from pvlib.pvsystem import retrieve_sam
-from pvlib.modelchain import ModelChain
+pvlib_spec = importlib.util.find_spec('pvlib')
+if pvlib_spec is not None:
+    from pvlib.location import Location
+    from pvlib.pvsystem import PVSystem
+    from pvlib.tracking import SingleAxisTracker
+    from pvlib.pvsystem import retrieve_sam
+    from pvlib.modelchain import ModelChain
+else:
+    warnings.warn('Clear sky functions will not work without the '
+                  'pvlib package.')
+
 
 plot_colors_brewer = {'real_pwr': ['#2b8cbe', '#7bccc4', '#bae4bc', '#f0f9e8'],
                       'irr-poa': ['#e31a1c', '#fd8d3c', '#fecc5c', '#ffffb2'],
