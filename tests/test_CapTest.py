@@ -338,6 +338,15 @@ class Test_CapTest_filters(unittest.TestCase):
                              'Filter changed column {} to '
                              '{}'.format(self.cptest.das.df.columns[i], col))
 
+    def test_filter_clearsky_two_ghi_cols(self):
+        self.meas.df['ws 2 ghi W/m^2'] = self.meas.view('irr-ghi-') * 1.05
+        self.meas._CapData__set_trans()
+
+        self.cptest = pvc.CapTest(self.meas, self.pvsyst, '+/- 5')
+        with self.assertWarns(UserWarning):
+            self.cptest.filter_clearsky('das')
+
+
 # class TestFilterIrr(unittest.TestCase):
 #     """Tests for CapTest class."""
 #
