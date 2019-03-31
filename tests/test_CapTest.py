@@ -323,14 +323,18 @@ class Test_CapTest_filters(unittest.TestCase):
                        source='AlsoEnergy', clear_sky=True, loc=loc, sys=sys)
         self.cptest = pvc.CapTest(meas, pvsyst, '+/- 5')
 
-        self.cptest.filter_clearsky('das', 20)
+        self.cptest.filter_clearsky('das')
 
         self.assertLess(self.cptest.flt_das.df.shape[0],
                         self.cptest.das.df.shape[0],
                         'Filtered dataframe should have less rows.')
-        self.assertEqual(self.cptest.flt_das.df.columns,
-                         self.cptest.das.df.columns,
-                         'Filter inadverdently changed columns.')
+        self.assertEqual(self.cptest.flt_das.df.shape[1],
+                         self.cptest.das.df.shape[1],
+                         'Filtered dataframe should have equal number of cols.')
+        for i, col in enumerate(self.cptest.flt_das.df.columns):
+            self.assertEqual(col, self.cptest.das.df.columns[i],
+                             'Filter changed column {} to '
+                             '{}'.format(self.cptest.das.df.columns[i], col))
 
 # class TestFilterIrr(unittest.TestCase):
 #     """Tests for CapTest class."""
