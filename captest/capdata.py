@@ -653,17 +653,26 @@ class CapData(object):
                     continue
                 else:
                     if bounds_check:
-                        min_bool = series.min() >= type_defs[key][1][0]
-                        max_bool = series.max() <= type_defs[key][1][1]
+                        type_min = type_defs[key][1][0]
+                        type_max = type_defs[key][1][1]
+                        min_bool = series.min() >= type_min
+                        max_bool = series.max() <= type_max
                         if min_bool and max_bool:
                             return key
                         else:
                             if warnings:
-                                if not min_bool:
-                                    print('Values in {} exceed min values for {}'.format(series.name, key))
+                                if not min_bool and not max_bool:
+                                    print('Values in {} are below {} for '
+                                    '{}'.format(series.name, type_min, key))
+                                    print('Values in {} are above {} for '
+                                    '{}'.format(series.name, type_max, key))
+                                elif not min_bool:
+                                    print('Values in {} are below {} for '
+                                    '{}'.format(series.name, type_min, key))
                                 elif not max_bool:
-                                    print('Values in {} exceed max values for {}'.format(series.name, key))
-                            return key + '-valuesError'
+                                    print('Values in {} are above {} for '
+                                    '{}'.format(series.name, type_max, key))
+                            return key
                     else:
                         return key
         return ''
@@ -716,7 +725,8 @@ class CapData(object):
             Consider refactoring to have a list of type_def dictionaries as an
             input and loop over each dict in the list.
         """
-        col_types = self.df.apply(self.__series_type, args=(type_defs,)).tolist()
+        col_types = self.df.apply(self.__series_type, args=(type_defs,),
+                                  warnings=True).tolist()
         sub_types = self.df.apply(self.__series_type, args=(sub_type_defs,),
                                   bounds_check=False).tolist()
         irr_types = self.df.apply(self.__series_type, args=(irr_sensors_defs,),

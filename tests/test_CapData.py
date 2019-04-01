@@ -175,8 +175,8 @@ class TestCapDataSeriesTypes(unittest.TestCase):
 
         self.assertIsInstance(out, str,
                               'Returned object is not a string.')
-        self.assertEqual(out, 'irr-valuesError',
-                         'Returned object is not "irr-valuesError".')
+        self.assertEqual(out, 'irr',
+                         'Returned object is not "irr".')
 
     def test_series_type_no_str(self):
         name = 'should not return key string'
