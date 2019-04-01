@@ -522,8 +522,8 @@ class CapData(object):
         return pvraw
 
     def load_data(self, path='./data/', fname=None, set_trans=True,
-                  source=None, load_pvsyst=False, clear_sky=False, loc=None,
-                  sys=None, **kwargs):
+                  trans_report=True, source=None, load_pvsyst=False,
+                  clear_sky=False, loc=None, sys=None, **kwargs):
         """
         Import data from csv files.
 
@@ -537,6 +537,10 @@ class CapData(object):
         set_trans : bool, default True
             Generates translation dicitionary for column names after loading
             data.
+        trans_report : bool, default True
+            If set_trans is true, then method prints summary of translation
+            dictionary process including any possible data issues.  No effect
+            on method when set to False.
         source : str, default None
             Default of None uses general approach that concatenates header data.
             Set to 'AlsoEnergy' to use column heading parsing specific to
@@ -609,7 +613,7 @@ class CapData(object):
                                output='both')
 
         if set_trans:
-            self.__set_trans()
+            self.__set_trans(trans_report=trans_report)
 
     def __series_type(self, series, type_defs, bounds_check=True,
                       warnings=False):
@@ -701,7 +705,7 @@ class CapData(object):
                     j = i % 10
                     self.col_colors[col] = Category10[10][j]
 
-    def __set_trans(self):
+    def __set_trans(self, trans_report=True):
         """
         Creates a dict of raw column names paired to categorical column names.
 
@@ -712,7 +716,9 @@ class CapData(object):
 
         Parameters
         ----------
-        None
+        trans_report : bool, default True
+            Sets the warnings option of __series_type when applied to determine
+            the column types.
 
         Returns
         -------
@@ -726,7 +732,7 @@ class CapData(object):
             input and loop over each dict in the list.
         """
         col_types = self.df.apply(self.__series_type, args=(type_defs,),
-                                  warnings=True).tolist()
+                                  warnings=trans_report).tolist()
         sub_types = self.df.apply(self.__series_type, args=(sub_type_defs,),
                                   bounds_check=False).tolist()
         irr_types = self.df.apply(self.__series_type, args=(irr_sensors_defs,),
