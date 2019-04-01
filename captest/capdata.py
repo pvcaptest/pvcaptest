@@ -659,23 +659,29 @@ class CapData(object):
                     if bounds_check:
                         type_min = type_defs[key][1][0]
                         type_max = type_defs[key][1][1]
-                        min_bool = series.min() >= type_min
-                        max_bool = series.max() <= type_max
+                        ser_min = series.min()
+                        ser_max = series.max()
+                        min_bool = ser_min >= type_min
+                        max_bool = ser_max <= type_max
                         if min_bool and max_bool:
                             return key
                         else:
                             if warnings:
                                 if not min_bool and not max_bool:
-                                    print('Values in {} are below {} for '
-                                    '{}'.format(series.name, type_min, key))
-                                    print('Values in {} are above {} for '
-                                    '{}'.format(series.name, type_max, key))
+                                    print('{} in {} is below {} for '
+                                    '{}'.format(ser_min, series.name,
+                                    type_min, key))
+                                    print('{} in {} is above {} for '
+                                    '{}'.format(ser_max, series.name,
+                                    type_max, key))
                                 elif not min_bool:
-                                    print('Values in {} are below {} for '
-                                    '{}'.format(series.name, type_min, key))
+                                    print('{} in {} is below {} for '
+                                    '{}'.format(ser_min, series.name,
+                                    type_min, key))
                                 elif not max_bool:
-                                    print('Values in {} are above {} for '
-                                    '{}'.format(series.name, type_max, key))
+                                    print('{} in {} is above {} for '
+                                    '{}'.format(ser_max, series.name,
+                                    type_max, key))
                             return key
                     else:
                         return key
