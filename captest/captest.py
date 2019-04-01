@@ -1269,17 +1269,18 @@ class CapTest(object):
             Length of sliding time window in minutes. Must be greater than 2
             periods. Default of 20 works well for 5 minute data intervals.
             pvlib default of 10 minutes works well for 1min data.
-        name : str, default None
+        ghi_col : str, default None
             By default uses data identified by the translation dictionary as
-            ghi and modeled ghi.  Issues warning if there is no translation
-            dictionary
-            category for ghi data, modeled ghi data, or the measured ghi data
-            has not been aggregated.
+            ghi and modeled ghi.  Issues warning if there is no modeled ghi
+            data, or the measured ghi data has not been aggregated.
             Or, a column name for specific column of measured ghi data.
         inplace : bool, default True
             When true removes periods with unstable irradiance.  When false
             returns pvlib detect_clearsky results, which by default is a series
             of booleans.
+        **kwargs
+            kwargs are passed to pvlib detect_clearsky.  See pvlib documentation
+            for details.
         """
         cd_obj = self.__flt_setup(data)
 
