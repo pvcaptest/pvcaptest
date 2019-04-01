@@ -1,9 +1,12 @@
 import os
 import collections
 import unittest
+import pytz
 import numpy as np
 import pandas as pd
 import statsmodels.formula.api as smf
+
+import pvlib
 
 from .context import captest as pvc
 from .context import capdata as cpd
@@ -316,6 +319,297 @@ class Test_CapData_methods_sim(unittest.TestCase):
         self.assertIsInstance(cptest.rc,
                               pd.core.frame.DataFrame,
                               'Results not saved to CapTest rc attribute')
+
+class Test_pvlib_loc_sys(unittest.TestCase):
+    """ Test function wrapping pvlib get_clearsky method of Location."""
+    def test_pvlib_location(self):
+        loc = {'latitude': 30.274583,
+               'longitude': -97.740352,
+               'altitude': 500,
+               'tz': 'America/Chicago'}
+
+        loc_obj = cpd.pvlib_location(loc)
+
+        self.assertIsInstance(loc_obj,
+                              pvlib.location.Location,
+                              'Did not return instance of\
+                               pvlib Location')
+
+    def test_pvlib_system(self):
+        fixed_sys = {'surface_tilt': 20,
+                     'surface_azimuth': 180,
+                     'albedo': 0.2}
+
+        tracker_sys1 = {'axis_tilt': 0, 'axis_azimuth': 0,
+                       'max_angle': 90, 'backtrack': True,
+                       'gcr': 0.2, 'albedo': 0.2}
+
+        tracker_sys2 = {'max_angle': 52, 'gcr': 0.3}
+
+        fx_sys = cpd.pvlib_system(fixed_sys)
+        trck_sys1 = cpd.pvlib_system(tracker_sys1)
+        trck_sys2 = cpd.pvlib_system(tracker_sys1)
+
+        self.assertIsInstance(fx_sys,
+                              pvlib.pvsystem.PVSystem,
+                              'Did not return instance of\
+                               pvlib PVSystem')
+
+        self.assertIsInstance(trck_sys1,
+                              pvlib.tracking.SingleAxisTracker,
+                              'Did not return instance of\
+                               pvlib SingleAxisTracker')
+
+        self.assertIsInstance(trck_sys2,
+                              pvlib.tracking.SingleAxisTracker,
+                              'Did not return instance of\
+                               pvlib SingleAxisTracker')
+
+# possible assertions for method returning ghi
+        # self.assertIsInstance(ghi,
+        #                       pd.core.series.Series,
+        #                       'Second returned object is not an instance of\
+        #                        pandas Series.')
+        # self.assertEqual(ghi.name, 'ghi',
+        #                  'Series data returned is not named ghi')
+        # self.assertEqual(ghi.shape[0], df.shape[0],
+        #                  'Returned ghi does not have the same number of rows\
+        #                   as the passed dataframe.')
+        # self.assertEqual(df.index.tz, ghi.index.tz,
+        #                  'Returned series index has different timezone from\
+        #                   passed dataframe.')
+
+
+class Test_csky(unittest.TestCase):
+    """Test clear sky function which returns pvlib ghi and poa clear sky."""
+    def setUp(self):
+        self.loc = {'latitude': 30.274583,
+                    'longitude': -97.740352,
+                    'altitude': 500,
+                    'tz': 'America/Chicago'}
+
+        self.sys = {'surface_tilt': 20,
+                    'surface_azimuth': 180,
+                    'albedo': 0.2}
+
+        self.meas = pvc.CapData()
+        self.df = self.meas.load_das('./tests/data/', 'example_meas_data.csv')
+
+    def test_get_tz_index_df(self):
+        """Test that get_tz_index function returns a datetime index\
+           with a timezone when passed a dataframe without a timezone."""
+        # reindex test dataset to cover DST in the fall and spring
+        ix_3days = pd.DatetimeIndex(start='11/3/2018', periods=864, freq='5min',
+                                    tz='America/Chicago')
+        ix_2days = pd.DatetimeIndex(start='3/9/2019', periods=576, freq='5min',
+                                    tz='America/Chicago')
+        ix_dst = ix_3days.append(ix_2days)
+        ix_dst = ix_dst.tz_localize(None)
+        self.df.index = ix_dst
+
+        self.tz_ix = cpd.get_tz_index(self.df, self.loc)
+
+        self.assertIsInstance(self.tz_ix,
+                              pd.core.indexes.datetimes.DatetimeIndex,
+                              'Returned object is not a pandas DatetimeIndex.')
+        self.assertEqual(self.tz_ix.tz,
+                         pytz.timezone(self.loc['tz']),
+                         'Returned index does not have same timezone as\
+                          the passed location dictionary.')
+
+    def test_get_tz_index_df_tz(self):
+        """Test that get_tz_index function returns a datetime index\
+           with a timezone when passed a dataframe with a timezone."""
+        # reindex test dataset to cover DST in the fall and spring
+        ix_3days = pd.DatetimeIndex(start='11/3/2018', periods=864, freq='5min',
+                                    tz='America/Chicago')
+        ix_2days = pd.DatetimeIndex(start='3/9/2019', periods=576, freq='5min',
+                                    tz='America/Chicago')
+        ix_dst = ix_3days.append(ix_2days)
+        self.df.index = ix_dst
+
+        self.tz_ix = cpd.get_tz_index(self.df, self.loc)
+
+        self.assertIsInstance(self.tz_ix,
+                              pd.core.indexes.datetimes.DatetimeIndex,
+                              'Returned object is not a pandas DatetimeIndex.')
+        self.assertEqual(self.tz_ix.tz,
+                         pytz.timezone(self.loc['tz']),
+                         'Returned index does not have same timezone as\
+                          the passed location dictionary.')
+
+    def test_get_tz_index_df_tz_warn(self):
+        """Test that get_tz_index function returns warns when datetime index\
+           of dataframe does not match loc dic timezone."""
+        # reindex test dataset to cover DST in the fall and spring
+        ix_3days = pd.DatetimeIndex(start='11/3/2018', periods=864, freq='5min',
+                                    tz='America/New_York')
+        ix_2days = pd.DatetimeIndex(start='3/9/2019', periods=576, freq='5min',
+                                    tz='America/New_York')
+        ix_dst = ix_3days.append(ix_2days)
+        self.df.index = ix_dst
+
+        with self.assertWarns(UserWarning):
+            self.tz_ix = cpd.get_tz_index(self.df, self.loc)
+
+    def test_get_tz_index_ix_tz(self):
+        """Test that get_tz_index function returns a datetime index
+           with a timezone when passed a datetime index with a timezone."""
+        self.ix = pd.DatetimeIndex(start='1/1/2019', periods=8760, freq='H',
+                                   tz='America/Chicago')
+        self.tz_ix = cpd.get_tz_index(self.ix, self.loc)
+
+        self.assertIsInstance(self.tz_ix,
+                              pd.core.indexes.datetimes.DatetimeIndex,
+                              'Returned object is not a pandas DatetimeIndex.')
+        # If passing an index with a timezone use that timezone rather than
+        # the timezone in the location dictionary if there is one.
+        self.assertEqual(self.tz_ix.tz,
+                         self.ix.tz,
+                         'Returned index does not have same timezone as\
+                          the passed index.')
+
+    def test_get_tz_index_ix_tz_warn(self):
+        """Test that get_tz_index function warns when DatetimeIndex timezone
+           does not match the location dic timezone.
+        """
+        self.ix = pd.DatetimeIndex(start='1/1/2019', periods=8760, freq='H',
+                                   tz='America/New_York')
+
+        with self.assertWarns(UserWarning):
+            self.tz_ix = cpd.get_tz_index(self.ix, self.loc)
+
+    def test_get_tz_index_ix(self):
+        """Test that get_tz_index function returns a datetime index\
+           with a timezone when passed a datetime index without a timezone."""
+        self.ix = pd.DatetimeIndex(start='1/1/2019', periods=8760, freq='H',
+                                   tz='America/Chicago')
+        # remove timezone info but keep missing  hour and extra hour due to DST
+        self.ix = self.ix.tz_localize(None)
+        self.tz_ix = cpd.get_tz_index(self.ix, self.loc)
+
+        self.assertIsInstance(self.tz_ix,
+                              pd.core.indexes.datetimes.DatetimeIndex,
+                              'Returned object is not a pandas DatetimeIndex.')
+        # If passing an index without a timezone use returned index should have
+        # the timezone of the passed location dictionary.
+        self.assertEqual(self.tz_ix.tz,
+                         pytz.timezone(self.loc['tz']),
+                         'Returned index does not have same timezone as\
+                          the passed location dictionary.')
+
+    def test_csky_concat(self):
+        # concat=True by default
+        csky_ghi_poa = cpd.csky(self.df, loc=self.loc, sys=self.sys)
+
+        self.assertIsInstance(csky_ghi_poa, pd.core.frame.DataFrame,
+                              'Did not return a pandas dataframe.')
+        self.assertEqual(csky_ghi_poa.shape[1],
+                         self.df.shape[1] + 2,
+                         'Returned dataframe does not have 2 new columns.')
+        self.assertIn('ghi_mod_csky', csky_ghi_poa.columns,
+                      'Modeled clear sky ghi not in returned dataframe columns')
+        self.assertIn('poa_mod_csky', csky_ghi_poa.columns,
+                      'Modeled clear sky poa not in returned dataframe columns')
+        # assumes typical orientation is used to calculate the poa irradiance
+        self.assertGreater(csky_ghi_poa.loc['10/9/1990 12:30',
+                                            'poa_mod_csky'],
+                           csky_ghi_poa.loc['10/9/1990 12:30',
+                                            'ghi_mod_csky'],
+                           'POA is not greater than GHI at 12:30.')
+        self.assertEqual(csky_ghi_poa.index.tz,
+                         self.df.index.tz,
+                         'Returned dataframe index timezone is not the same as\
+                          passed dataframe.')
+
+    def test_csky_not_concat(self):
+        csky_ghi_poa = cpd.csky(self.df, loc=self.loc, sys=self.sys,
+                                     concat=False)
+
+        self.assertIsInstance(csky_ghi_poa, pd.core.frame.DataFrame,
+                              'Did not return a pandas dataframe.')
+        self.assertEqual(csky_ghi_poa.shape[1], 2,
+                         'Returned dataframe does not have 2 columns.')
+        self.assertIn('ghi_mod_csky', csky_ghi_poa.columns,
+                      'Modeled clear sky ghi not in returned dataframe columns')
+        self.assertIn('poa_mod_csky', csky_ghi_poa.columns,
+                      'Modeled clear sky poa not in returned dataframe columns')
+        # assumes typical orientation is used to calculate the poa irradiance
+        self.assertGreater(csky_ghi_poa.loc['10/9/1990 12:30',
+                                            'poa_mod_csky'],
+                           csky_ghi_poa.loc['10/9/1990 12:30',
+                                            'ghi_mod_csky'],
+                           'POA is not greater than GHI at 12:30.')
+        self.assertEqual(csky_ghi_poa.index.tz,
+                         self.df.index.tz,
+                         'Returned dataframe index timezone is not the same as\
+                          passed dataframe.')
+
+    def test_csky_not_concat_poa_all(self):
+        csky_ghi_poa = cpd.csky(self.df, loc=self.loc, sys=self.sys,
+                                     concat=False, output='poa_all')
+
+        self.assertIsInstance(csky_ghi_poa, pd.core.frame.DataFrame,
+                              'Did not return a pandas dataframe.')
+        self.assertEqual(csky_ghi_poa.shape[1], 5,
+                         'Returned dataframe does not have 5 columns.')
+        cols = ['poa_global', 'poa_direct', 'poa_diffuse', 'poa_sky_diffuse', 'poa_ground_diffuse', 'poa_ground_diffuse']
+        for col in cols:
+            self.assertIn(col, csky_ghi_poa.columns,
+                          '{} not in the columns of returned\
+                           dataframe'.format(col))
+        # assumes typical orientation is used to calculate the poa irradiance
+        self.assertEqual(csky_ghi_poa.index.tz,
+                         self.df.index.tz,
+                         'Returned dataframe index timezone is not the same as\
+                          passed dataframe.')
+
+    def test_csky_not_concat_ghi_all(self):
+        csky_ghi_poa = cpd.csky(self.df, loc=self.loc, sys=self.sys,
+                                concat=False, output='ghi_all')
+
+        self.assertIsInstance(csky_ghi_poa, pd.core.frame.DataFrame,
+                              'Did not return a pandas dataframe.')
+        self.assertEqual(csky_ghi_poa.shape[1], 3,
+                         'Returned dataframe does not have 5 columns.')
+        cols = ['ghi', 'dni', 'dhi']
+        for col in cols:
+            self.assertIn(col, csky_ghi_poa.columns,
+                          '{} not in the columns of returned\
+                           dataframe'.format(col))
+        # assumes typical orientation is used to calculate the poa irradiance
+        self.assertEqual(csky_ghi_poa.index.tz,
+                         self.df.index.tz,
+                         'Returned dataframe index timezone is not the same as\
+                          passed dataframe.')
+
+    def test_csky_not_concat_all(self):
+        csky_ghi_poa = cpd.csky(self.df, loc=self.loc, sys=self.sys,
+                                concat=False, output='all')
+
+        self.assertIsInstance(csky_ghi_poa, pd.core.frame.DataFrame,
+                              'Did not return a pandas dataframe.')
+        self.assertEqual(csky_ghi_poa.shape[1], 8,
+                         'Returned dataframe does not have 5 columns.')
+        cols = ['ghi', 'dni', 'dhi', 'poa_global', 'poa_direct', 'poa_diffuse',
+                'poa_sky_diffuse', 'poa_ground_diffuse', 'poa_ground_diffuse']
+        for col in cols:
+            self.assertIn(col, csky_ghi_poa.columns,
+                          '{} not in the columns of returned\
+                           dataframe'.format(col))
+        # assumes typical orientation is used to calculate the poa irradiance
+        self.assertEqual(csky_ghi_poa.index.tz,
+                         self.df.index.tz,
+                         'Returned dataframe index timezone is not the same as\
+                          passed dataframe.')
+
+"""
+Change csky to two functions for creating pvlib location and system objects.
+Separate function calling location and system to calculate POA
+- concat add columns to passed df or return just ghi and poa option
+load_data calls final function with in place to get ghi and poa
+"""
+
 
 if __name__ == '__main__':
     unittest.main()

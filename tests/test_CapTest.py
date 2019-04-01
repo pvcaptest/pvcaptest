@@ -308,6 +308,86 @@ class Test_CapTest_cp_results_mult_coeff(unittest.TestCase):
                          'Coefficient that should be set to zero was not.')
 
 
+class Test_Csky_Filter(unittest.TestCase):
+    """
+    Tests for filtering methods.
+    """
+    def setUp(self):
+        self.pvsyst = pvc.CapData()
+        self.meas = pvc.CapData()
+        loc = {'latitude': 39.742, 'longitude': -105.18,
+               'altitude': 1828.8, 'tz': 'Etc/GMT+7'}
+        sys = {'surface_tilt': 40, 'surface_azimuth': 180,
+               'albedo': 0.2}
+        self.meas.load_data(path='./tests/data/', fname='nrel_data.csv',
+                       source='AlsoEnergy', clear_sky=True, loc=loc, sys=sys)
+
+    def test_default(self):
+        self.cptest = pvc.CapTest(self.meas, self.pvsyst, '+/- 5')
+
+        self.cptest.filter_clearsky('das')
+
+        self.assertLess(self.cptest.flt_das.df.shape[0],
+                        self.cptest.das.df.shape[0],
+                        'Filtered dataframe should have less rows.')
+        self.assertEqual(self.cptest.flt_das.df.shape[1],
+                         self.cptest.das.df.shape[1],
+                         'Filtered dataframe should have equal number of cols.')
+        for i, col in enumerate(self.cptest.flt_das.df.columns):
+            self.assertEqual(col, self.cptest.das.df.columns[i],
+                             'Filter changed column {} to '
+                             '{}'.format(self.cptest.das.df.columns[i], col))
+
+    def test_two_ghi_cols(self):
+        self.meas.df['ws 2 ghi W/m^2'] = self.meas.view('irr-ghi-') * 1.05
+        self.meas._CapData__set_trans()
+
+        self.cptest = pvc.CapTest(self.meas, self.pvsyst, '+/- 5')
+        with self.assertWarns(UserWarning):
+            self.cptest.filter_clearsky('das')
+
+    def test_mult_ghi_categories(self):
+        cn = 'irrad ghi pyranometer W/m^2'
+        self.meas.df[cn] = self.meas.view('irr-ghi-') * 1.05
+        self.meas._CapData__set_trans()
+
+        self.cptest = pvc.CapTest(self.meas, self.pvsyst, '+/- 5')
+        with self.assertWarns(UserWarning):
+            self.cptest.filter_clearsky('das')
+
+    def test_no_clear_ghi(self):
+        self.meas.drop_cols('ghi_mod_csky')
+        # self.meas._CapData__set_trans()
+
+        self.cptest = pvc.CapTest(self.meas, self.pvsyst, '+/- 5')
+        with self.assertWarns(UserWarning):
+            self.cptest.filter_clearsky('das')
+
+    def test_specify_ghi_col(self):
+        self.meas.df['ws 2 ghi W/m^2'] = self.meas.view('irr-ghi-') * 1.05
+        self.meas._CapData__set_trans()
+        self.cptest = pvc.CapTest(self.meas, self.pvsyst, '+/- 5')
+
+        self.cptest.filter_clearsky('das', ghi_col='ws 2 ghi W/m^2')
+
+        self.assertLess(self.cptest.flt_das.df.shape[0],
+                        self.cptest.das.df.shape[0],
+                        'Filtered dataframe should have less rows.')
+        self.assertEqual(self.cptest.flt_das.df.shape[1],
+                         self.cptest.das.df.shape[1],
+                         'Filtered dataframe should have equal number of cols.')
+        for i, col in enumerate(self.cptest.flt_das.df.columns):
+            self.assertEqual(col, self.cptest.das.df.columns[i],
+                             'Filter changed column {} to '
+                             '{}'.format(self.cptest.das.df.columns[i], col))
+
+    def test_no_clear_sky(self):
+        self.cptest = pvc.CapTest(self.meas, self.pvsyst, '+/- 5')
+        with self.assertWarns(UserWarning):
+            self.cptest.filter_clearsky('das', window_length=2)
+
+
+
 
 # class TestFilterIrr(unittest.TestCase):
 #     """Tests for CapTest class."""

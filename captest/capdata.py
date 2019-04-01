@@ -7,6 +7,8 @@ import copy
 import collections
 from functools import wraps
 import warnings
+import pytz
+import importlib
 
 # anaconda distribution defaults
 import dateutil
@@ -20,6 +22,19 @@ from bokeh.plotting import figure
 from bokeh.palettes import Category10, Category20c, Category20b
 from bokeh.layouts import gridplot
 from bokeh.models import Legend, HoverTool, tools, ColumnDataSource
+
+# pvlib imports
+pvlib_spec = importlib.util.find_spec('pvlib')
+if pvlib_spec is not None:
+    from pvlib.location import Location
+    from pvlib.pvsystem import PVSystem
+    from pvlib.tracking import SingleAxisTracker
+    from pvlib.pvsystem import retrieve_sam
+    from pvlib.modelchain import ModelChain
+else:
+    warnings.warn('Clear sky functions will not work without the '
+                  'pvlib package.')
+
 
 plot_colors_brewer = {'real_pwr': ['#2b8cbe', '#7bccc4', '#bae4bc', '#f0f9e8'],
                       'irr-poa': ['#e31a1c', '#fd8d3c', '#fecc5c', '#ffffb2'],
@@ -59,8 +74,215 @@ sub_type_defs = collections.OrderedDict([
 
 irr_sensors_defs = {'ref_cell': [['reference cell', 'reference', 'ref',
                                   'referance', 'pvel']],
-                    'pyran': [['pyranometer', 'pyran']]}
+                    'pyran': [['pyranometer', 'pyran']],
+                    'clear_sky':[['csky']]}
 
+
+def pvlib_location(loc):
+    """
+    Creates a pvlib location object.
+
+    Parameters
+    ----------
+    loc : dict
+        Dictionary of values required to instantiate a pvlib Location object.
+
+        loc = {'latitude': float,
+               'longitude': float,
+               'altitude': float/int,
+               'tz': str, int, float, or pytz.timezone, default 'UTC'}
+        See
+        http://en.wikipedia.org/wiki/List_of_tz_database_time_zones
+        for a list of valid time zones.
+        pytz.timezone objects will be converted to strings.
+        ints and floats must be in hours from UTC.
+
+    Returns
+    -------
+    pvlib location object.
+    """
+    return Location(**loc)
+
+def pvlib_system(sys):
+    """
+    Creates a pvlib PVSystem or SingleAxisTracker object.
+
+    A SingleAxisTracker object is created if any of the keyword arguments for
+    initiating a SingleAxisTracker object are found in the keys of the passed
+    dictionary.
+
+    Parameters
+    ----------
+    sys : dict
+        Dictionary of keywords required to create a pvlib SingleAxisTracker
+        or PVSystem.
+
+        Example dictionaries:
+
+        fixed_sys = {'surface_tilt': 20,
+                     'surface_azimuth': 180,
+                     'albedo': 0.2}
+
+        tracker_sys1 = {'axis_tilt': 0, 'axis_azimuth': 0,
+                       'max_angle': 90, 'backtrack': True,
+                       'gcr': 0.2, 'albedo': 0.2}
+
+        Refer to pvlib documentation for details.
+        https://pvlib-python.readthedocs.io/en/latest/generated/pvlib.pvsystem.PVSystem.html
+        https://pvlib-python.readthedocs.io/en/latest/generated/pvlib.tracking.SingleAxisTracker.html
+
+    Returns
+    -------
+    pvlib PVSystem or SingleAxisTracker object.
+    """
+    sandia_modules = retrieve_sam('SandiaMod')
+    cec_inverters = retrieve_sam('cecinverter')
+    sandia_module = sandia_modules['Canadian_Solar_CS5P_220M___2009_']
+    cec_inverter = cec_inverters['ABB__MICRO_0_25_I_OUTD_US_208_208V__CEC_2014_']
+
+    trck_kwords = ['axis_tilt', 'axis_azimuth', 'max_angle', 'backtrack', 'gcr']
+    if any(kword in sys.keys() for kword in trck_kwords):
+        system = SingleAxisTracker(**sys,
+                                   module_parameters=sandia_module,
+                                   inverter_parameters=cec_inverter)
+    else:
+        system = PVSystem(**sys,
+                          module_parameters=sandia_module,
+                          inverter_parameters=cec_inverter)
+
+    return system
+
+
+def get_tz_index(time_source, loc):
+    """
+    Creates DatetimeIndex with timezone aligned with location dictionary.
+
+    Handles generating a DatetimeIndex with a timezone for use as an agrument
+    to pvlib ModelChain prepare_inputs method or pvlib Location get_clearsky
+    method.
+
+    Parameters
+    ----------
+    time_source : dataframe or DatetimeIndex
+        If passing a dataframe the index of the dataframe will be used.  If the
+        index does not have a timezone the timezone will be set using the
+        timezone in the passed loc dictionary.
+        If passing a DatetimeIndex with a timezone it will be returned directly.
+        If passing a DatetimeIndex without a timezone the timezone in the
+        timezone dictionary will be used.
+
+    Returns
+    -------
+    DatetimeIndex with timezone
+    """
+
+    if isinstance(time_source, pd.core.indexes.datetimes.DatetimeIndex):
+        if time_source.tz is None:
+            time_source = time_source.tz_localize(loc['tz'], ambiguous='infer',
+                                                  errors='coerce')
+            return time_source
+        else:
+            if pytz.timezone(loc['tz']) != time_source.tz:
+                warnings.warn('Passed a DatetimeIndex with a timezone that '
+                              'does not match the timezone in the loc dict. '
+                              'Using the timezone of the DatetimeIndex.')
+            return time_source
+    elif isinstance(time_source, pd.core.frame.DataFrame):
+        if time_source.index.tz is None:
+            return time_source.index.tz_localize(loc['tz'], ambiguous='infer',
+                                                 errors='coerce')
+        else:
+            if pytz.timezone(loc['tz']) != time_source.index.tz:
+                warnings.warn('Passed a DataFrame with a timezone that '
+                              'does not match the timezone in the loc dict. '
+                              'Using the timezone of the DataFrame.')
+            return time_source.index
+
+def csky(time_source, loc=None, sys=None, concat=True, output='both'):
+    """
+    Calculate clear sky poa and ghi.
+
+    Parameters
+    ----------
+    time_source : dataframe or DatetimeIndex
+        If passing a dataframe the index of the dataframe will be used.  If the
+        index does not have a timezone the timezone will be set using the
+        timezone in the passed loc dictionary.
+        If passing a DatetimeIndex with a timezone it will be returned directly.
+        If passing a DatetimeIndex without a timezone the timezone in the
+        timezone dictionary will be used.
+    loc : dict
+        Dictionary of values required to instantiate a pvlib Location object.
+
+        loc = {'latitude': float,
+               'longitude': float,
+               'altitude': float/int,
+               'tz': str, int, float, or pytz.timezone, default 'UTC'}
+        See
+        http://en.wikipedia.org/wiki/List_of_tz_database_time_zones
+        for a list of valid time zones.
+        pytz.timezone objects will be converted to strings.
+        ints and floats must be in hours from UTC.
+    sys : dict
+        Dictionary of keywords required to create a pvlib SingleAxisTracker
+        or PVSystem.
+
+        Example dictionaries:
+
+        fixed_sys = {'surface_tilt': 20,
+                     'surface_azimuth': 180,
+                     'albedo': 0.2}
+
+        tracker_sys1 = {'axis_tilt': 0, 'axis_azimuth': 0,
+                       'max_angle': 90, 'backtrack': True,
+                       'gcr': 0.2, 'albedo': 0.2}
+
+        Refer to pvlib documentation for details.
+        https://pvlib-python.readthedocs.io/en/latest/generated/pvlib.pvsystem.PVSystem.html
+        https://pvlib-python.readthedocs.io/en/latest/generated/pvlib.tracking.SingleAxisTracker.html
+    concat : bool, default True
+        If concat is True then returns columns as defined by return argument
+        added to passed dataframe, otherwise returns just clear sky data.
+    output : str, default 'both'
+        both - returns only total poa and ghi
+        poa_all - returns all components of poa
+        ghi_all - returns all components of ghi
+        all - returns all components of poa and ghi
+    """
+    location = pvlib_location(loc)
+    system = pvlib_system(sys)
+    mc = ModelChain(system, location)
+    times = get_tz_index(time_source, loc)
+
+    if output == 'both':
+        ghi = location.get_clearsky(times=times)
+        mc.prepare_inputs(times=times)
+        csky_df = pd.DataFrame({'poa_mod_csky': mc.total_irrad['poa_global'],
+                                'ghi_mod_csky': ghi['ghi']})
+    if output == 'poa_all':
+        mc.prepare_inputs(times=times)
+        csky_df = mc.total_irrad
+    if output == 'ghi_all':
+        csky_df = location.get_clearsky(times=times)
+    if output == 'all':
+        ghi = location.get_clearsky(times=times)
+        mc.prepare_inputs(times=times)
+        csky_df = pd.concat([mc.total_irrad, ghi], axis=1)
+
+    ix_no_tz = csky_df.index.tz_localize(None, ambiguous='infer',
+                                         errors='coerce')
+    csky_df.index = ix_no_tz
+
+    if concat:
+        if isinstance(time_source, pd.core.frame.DataFrame):
+            df_with_csky = pd.concat([time_source, csky_df], axis=1)
+            return df_with_csky
+        else:
+            warnings.warn('time_source is not a dataframe; only clear sky data\
+                           returned')
+            return csky_df
+    else:
+        return csky_df
 
 class CapData(object):
     """
@@ -299,8 +521,9 @@ class CapData(object):
         pvraw = pvraw.rename(columns={"T Amb": "TAmb"})
         return pvraw
 
-    def load_data(self, path='./data/', fname=None, set_trans=True, source=None,
-                  load_pvsyst=False, **kwargs):
+    def load_data(self, path='./data/', fname=None, set_trans=True,
+                  source=None, load_pvsyst=False, clear_sky=False, loc=None,
+                  sys=None, **kwargs):
         """
         Import data from csv files.
 
@@ -322,6 +545,13 @@ class CapData(object):
             By default skips any csv file that has 'pvsyst' in the name.  Is
             not case sensitive.  Set to true to import a csv with 'pvsyst' in
             the name and skip all other files.
+        clear_sky : bool, default False
+            Set to true and provide loc and sys arguments to add columns of
+            clear sky modeled poa and ghi to loaded data.
+        loc : dict
+            See the csky function for details on dictionary options.
+        sys : dict
+            See the csky function for details on dictionary options.
         **kwargs
             Will pass kwargs onto load_pvsyst or load_das, which will pass to
             Pandas.read_csv.  Useful to adjust the separator (Ex. sep=';').
@@ -366,6 +596,17 @@ class CapData(object):
         ix_ser = all_sensors.index.to_series()
         all_sensors['index'] = ix_ser.apply(lambda x: x.strftime('%m/%d/%Y %H %M'))
         self.df = all_sensors
+
+        if not load_pvsyst:
+            if clear_sky:
+                if loc is None:
+                    warings.warn('Must provide loc and sys dictionary with\
+                                  when clear_sky is True.  Loc dict missing.')
+                if sys is None:
+                    warings.warn('Must provide loc and sys dictionary with\
+                                  when clear_sky is True.  Sys dict missing.')
+                self.df = csky(self.df, loc=loc, sys=sys, concat=True,
+                               output='both')
 
         if set_trans:
             self.__set_trans()
@@ -638,6 +879,8 @@ class CapData(object):
             each group.  By default will combine all irradiance measurements
             into a group and temperature measurements into a group.
             Pass empty list to not merge any plots.
+            Use 'irr-poa' and 'irr-ghi' to plot clear sky modeled with measured
+            data.
         subset : list, default None
             List of the translation dictionary keys to use to control order of
             plots or to plot only a subset of the plots.
@@ -699,9 +942,14 @@ class CapData(object):
             legend_items = []
             for i, col in enumerate(cols):
                 abbrev_col_name = key + str(i)
+                if col.find('csky') == -1:
+                    line_dash = 'solid'
+                else:
+                    line_dash = (5, 2)
                 if marker == 'line':
                     series = p.line('Timestamp', col, source=source,
                                     line_color=self.col_colors[col],
+                                    line_dash=line_dash,
                                     name=names_to_abrev[col])
                 elif marker == 'circle':
                     series = p.circle('Timestamp', col,
