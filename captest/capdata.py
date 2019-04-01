@@ -600,10 +600,10 @@ class CapData(object):
         if not load_pvsyst:
             if clear_sky:
                 if loc is None:
-                    warings.warn('Must provide loc and sys dictionary with\
+                    warnings.warn('Must provide loc and sys dictionary\
                                   when clear_sky is True.  Loc dict missing.')
                 if sys is None:
-                    warings.warn('Must provide loc and sys dictionary with\
+                    warnings.warn('Must provide loc and sys dictionary\
                                   when clear_sky is True.  Sys dict missing.')
                 self.df = csky(self.df, loc=loc, sys=sys, concat=True,
                                output='both')
