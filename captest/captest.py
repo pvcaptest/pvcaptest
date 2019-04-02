@@ -266,38 +266,6 @@ def cntg_eoy(df, start, end):
     df_return['index'] = ix_ser.apply(lambda x: x.strftime('%m/%d/%Y %H %M'))
     return df_return
 
-
-def flt_irr(df, irr_col, low, high, ref_val=None):
-    """
-    Top level filter on irradiance values.
-
-    Parameters
-    ----------
-    irr_col : str
-        String that is the name of the column with the irradiance data.
-    low : float or int
-        Minimum value as fraction (0.8) or absolute 200 (W/m^2)
-    high : float or int
-        Max value as fraction (1.2) or absolute 800 (W/m^2)
-    ref_val : float or int
-        Must provide arg when min/max are fractions
-
-    Returns
-    -------
-    DataFrame
-    """
-    if ref_val is not None:
-        low *= ref_val
-        high *= ref_val
-
-    df_renamed = df.rename(columns={irr_col: 'poa'})
-
-    flt_str = '@low <= ' + 'poa' + ' <= @high'
-    indx = df_renamed.query(flt_str).index
-
-    return df.loc[indx, :]
-
-
 def fit_model(df, fml='power ~ poa + I(poa * poa) + I(poa * t_amb) + I(poa * w_vel) - 1'):
     """
     Fits linear regression using statsmodels to dataframe passed.

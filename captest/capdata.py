@@ -77,6 +77,87 @@ irr_sensors_defs = {'ref_cell': [['reference cell', 'reference', 'ref',
                     'pyran': [['pyranometer', 'pyran']],
                     'clear_sky':[['csky']]}
 
+columns = ['pts_before_filter', 'pts_removed', 'filter_arguments']
+
+def update_summary(func):
+    """
+    Todo
+    ----
+    not in place
+        Check if summary is updated when function is called with inplace=False.
+        It should not be.
+    """
+    @wraps(func)
+    def wrapper(self, *args, **kwargs):
+        pts_before = self.df_flt.shape[0]
+        if pts_before == 0:
+            pts_before = self.df.shape[0]
+            self.summary_ix.append((self.name, 'count'))
+            self.summary.append({columns[0]: pts_before,
+                                 columns[1]: 0,
+                                 columns[2]: 'no filters'})
+
+        ret_val = func(self, *args, **kwargs)
+
+        arg_str = args.__repr__()
+        lst = arg_str.split(',')
+        arg_lst = [item.strip("'() ") for item in lst]
+        # arg_lst_one = arg_lst[0]
+        # if arg_lst_one == 'das' or arg_lst_one == 'sim':
+        #     arg_lst = arg_lst[1:]
+        # arg_str = ', '.join(arg_lst)
+
+        kwarg_str = kwargs.__repr__()
+        kwarg_str = kwarg_str.strip('{}')
+
+        if len(arg_str) == 0 and len(kwarg_str) == 0:
+            arg_str = 'no arguments'
+        elif len(arg_str) == 0:
+            arg_str = kwarg_str
+        else:
+            arg_str = arg_str + ', ' + kwarg_str
+
+        pts_after = self.df_flt.shape[0]
+        pts_removed = pts_before - pts_after
+        self.summary_ix.append((self.name, func.__name__))
+        self.summary.append({columns[0]: pts_after,
+                             columns[1]: pts_removed,
+                             columns[2]: arg_str})
+
+        return ret_val
+    return wrapper
+
+def flt_irr(df, irr_col, low, high, ref_val=None):
+    """
+    Top level filter on irradiance values.
+
+    Parameters
+    ----------
+    df : DataFrame
+        Dataframe to be filtered.
+    irr_col : str
+        String that is the name of the column with the irradiance data.
+    low : float or int
+        Minimum value as fraction (0.8) or absolute 200 (W/m^2)
+    high : float or int
+        Max value as fraction (1.2) or absolute 800 (W/m^2)
+    ref_val : float or int
+        Must provide arg when min/max are fractions
+
+    Returns
+    -------
+    DataFrame
+    """
+    if ref_val is not None:
+        low *= ref_val
+        high *= ref_val
+
+    df_renamed = df.rename(columns={irr_col: 'poa'})
+
+    flt_str = '@low <= ' + 'poa' + ' <= @high'
+    indx = df_renamed.query(flt_str).index
+
+    return df.loc[indx, :]
 
 def pvlib_location(loc):
     """
@@ -284,6 +365,7 @@ def csky(time_source, loc=None, sys=None, concat=True, output='both'):
     else:
         return csky_df
 
+
 class CapData(object):
     """
     Class to store capacity test data and translation of column names.
@@ -298,9 +380,13 @@ class CapData(object):
 
     Parameters
     ----------
-
+    name : str
+        Name for the CapData object.
     df : pandas dataframe
         Used to store measured or simulated data imported from csv.
+    df_flt : pandas dataframe
+        Holds filtered data.  Filtering methods act on and write to this
+        attribute.
     trans : dictionary
         A dictionary with keys that are algorithimically determined based on
         the data of each imported column in the dataframe and values that are
@@ -316,16 +402,35 @@ class CapData(object):
         Enumerated translation dict keys are used in plot hover tooltip.
     col_colors : dictionary
         Original column names mapped to a color for use in plot function.
+    summary_ix : list of tuples
+        Holds the row index data modified by the update_summary decorator
+        function.
+    summary : list of dicts
+        Holds the data modifiedby the update_summary decorator function.
+    rc : DataFrame
+        Dataframe for the reporting conditions (poa, t_amb, and w_vel).
+    ols_model : statsmodels linear regression model
+        Holds the linear regression model object.
+    reg_fml : str
+        Regression formula to be fit to measured and simulated data.  Must
+        follow the requirements of statsmodels use of patsy.
     """
 
-    def __init__(self):
+    def __init__(self, name):
         super(CapData, self).__init__()
+        self.name = name
         self.df = pd.DataFrame()
+        self.df_flt = None
         self.trans = {}
         self.trans_keys = []
         self.reg_trans = {}
         self.trans_abrev = {}
         self.col_colors = {}
+        self.summary_ix = []
+        self.summary = []
+        self.rc = pd.DataFrame()
+        self.ols_model = None
+        self.reg_fml = 'power ~ poa + I(poa * poa) + I(poa * t_amb) + I(poa * w_vel) - 1'
 
     def set_reg_trans(self, power='', poa='', t_amb='', w_vel=''):
         """
@@ -615,6 +720,8 @@ class CapData(object):
         if set_trans:
             self.__set_trans(trans_report=trans_report)
 
+        self.df_flt = self.df.copy()
+
     def __series_type(self, series, type_defs, bounds_check=True,
                       warnings=False):
         """
@@ -819,7 +926,7 @@ class CapData(object):
 
         return self.df[keys]
 
-    def rview(self, ind_var):
+    def rview(self, ind_var, filtered_data=False):
         """
         Convience fucntion to return regression independent variable.
 
@@ -841,7 +948,10 @@ class CapData(object):
         lst = []
         for key in keys:
             lst.extend(self.trans[key])
-        return self.df[lst]
+        if filtered_data:
+            return self.df_flt[lst]
+        else:
+            return self.df[lst]
 
     def __comb_trans_keys(self, grp):
         comb_keys = []
@@ -999,3 +1109,70 @@ class CapData(object):
 
         grid = gridplot(plots, ncols=ncols, **kwargs)
         return show(grid)
+
+    @update_summary
+    def filter_irr(self, low, high, ref_val=None, col_name=None, inplace=True):
+        """
+        Filter on irradiance values.
+
+        Parameters
+        ----------
+        low : float or int
+            Minimum value as fraction (0.8) or absolute 200 (W/m^2)
+        high : float or int
+            Max value as fraction (1.2) or absolute 800 (W/m^2)
+        ref_val : float or int
+            Must provide arg when min/max are fractions
+        col_name : str, default None
+            Column name of irradiance data to filter.  By default uses the POA
+            irradiance set in reg_trans attribute or average of the POA columns.
+        inplace : bool
+            Default true write back to CapTest.flt_sim or flt_das
+
+        Returns
+        -------
+        DataFrame
+            Filtered dataframe if inplace is False.
+        """
+        if col_name is None:
+            poa_cols = self.trans[self.reg_trans['poa']]
+            if len(poa_cols) > 1:
+                return warnings.warn('{} columns of irradiance data. '
+                                     'Use col_name to specify a single '
+                                     'column.'.format(len(poa_cols)))
+            else:
+                irr_col = poa_cols[0]
+        else:
+            irr_col = col_name
+
+        df_flt = flt_irr(self.df_flt, irr_col, low, high,
+                         ref_val=ref_val)
+        if inplace:
+            self.df_flt = df_flt
+        else:
+            return df_flt
+
+    def get_summary(self):
+        """
+        Prints summary dataframe of the filtering applied df_flt attribute.
+
+        The summary dataframe shows the history of the filtering steps applied
+        to the data including the timestamps remaining after each step, the
+        timestamps removed by each step and the arguments used to call each
+        filtering method.
+
+        Parameters
+        ----------
+        None
+
+        Returns
+        -------
+        Pandas DataFrame
+        """
+        try:
+            df = pd.DataFrame(data=self.summary,
+                              index=pd.MultiIndex.from_tuples(self.summary_ix),
+                              columns=columns)
+            return df
+        except TypeError:
+            print('No filters have been run.')
