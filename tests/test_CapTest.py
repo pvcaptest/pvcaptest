@@ -310,7 +310,7 @@ class Test_CapTest_cp_results_mult_coeff(unittest.TestCase):
 
 class Test_Csky_Filter(unittest.TestCase):
     """
-    Tests for filtering methods.
+    Tests for filter_clearsky method.
     """
     def setUp(self):
         self.pvsyst = pvc.CapData()
