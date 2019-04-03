@@ -51,7 +51,7 @@ type_defs = collections.OrderedDict([
                        'global', 'glob', 'w/m^2', 'w/m2', 'w/m', 'w/'],
                       (-10, 1500)]),
              ('temp', [['temperature', 'temp', 'degrees', 'deg', 'ambient',
-                        'amb', 'cell temperature'],
+                        'amb', 'cell temperature', 'TArray'],
                        (-49, 127)]),
              ('wind', [['wind', 'speed'],
                        (0, 18)]),
@@ -62,13 +62,16 @@ type_defs = collections.OrderedDict([
              ('real_pwr', [['real power', 'ac power', 'e_grid'],
                            (-1000000, 1000000000000)]),  # set to very lax bounds
              ('shade', [['fshdbm', 'shd', 'shade'], (0, 1)]),
+             ('pvsyt_losses', [['IL Pmax', 'IL Pmin', 'IL Vmax', 'IL Vmin'],
+                               (-1000000000, 100000000)]),
              ('index', [['index'], ('', 'z')])])
 
 sub_type_defs = collections.OrderedDict([
-                 ('ghi', [['sun2', 'global horizontal', 'ghi', 'global', 'glob']]),
-                 ('poa', [['sun', 'plane of array', 'poa']]),
+                 ('ghi', [['sun2', 'global horizontal', 'ghi', 'global',
+                           'GlobHor']]),
+                 ('poa', [['sun', 'plane of array', 'poa', 'GlobInc']]),
                  ('amb', [['TempF', 'ambient', 'amb']]),
-                 ('mod', [['Temp1', 'module', 'mod']]),
+                 ('mod', [['Temp1', 'module', 'mod', 'TArray']]),
                  ('mtr', [['revenue meter', 'rev meter', 'billing meter', 'meter']]),
                  ('inv', [['inverter', 'inv']])])
 
@@ -126,6 +129,11 @@ def update_summary(func):
 
         return ret_val
     return wrapper
+
+def perc_wrap(p):
+    def numpy_percentile(x):
+        return np.percentile(x.T, p, interpolation='nearest')
+    return numpy_percentile
 
 def flt_irr(df, irr_col, low, high, ref_val=None):
     """
@@ -1103,6 +1111,20 @@ class CapData(object):
         grid = gridplot(plots, ncols=ncols, **kwargs)
         return show(grid)
 
+    def reset_flt(self):
+        """
+        Copies over filtered dataframe with raw data and removes all summary
+        history.
+
+        Parameters
+        ----------
+        data : str
+            'sim' or 'das' determines if filter is on sim or das data.
+        """
+        self.df_flt = self.df.copy()
+        self.summary_ix = []
+        self.summary = []
+
     @update_summary
     def filter_irr(self, low, high, ref_val=None, col_name=None, inplace=True):
         """
@@ -1119,7 +1141,7 @@ class CapData(object):
         col_name : str, default None
             Column name of irradiance data to filter.  By default uses the POA
             irradiance set in reg_trans attribute or average of the POA columns.
-        inplace : bool
+        inplace : bool, default True
             Default true write back to df_flt or return filtered dataframe.
 
         Returns
@@ -1169,3 +1191,186 @@ class CapData(object):
             return df
         except TypeError:
             print('No filters have been run.')
+
+    @update_summary
+    def rep_cond(self, *args, test_date=None, days=60, reshape_tmy=False,
+                 func={'poa': perc_wrap(60), 't_amb': 'mean', 'w_vel': 'mean'},
+                 freq=None, irr_bal=False, w_vel=None, inplace=True, **kwargs):
+
+        """
+        Calculate reporting conditons.
+
+        NOTE: Can pass additional positional arguments for low/high irradiance
+        filter.
+
+        Parameters
+        ----------
+        test_date: str, 'mm/dd/yyyy', optional
+            Date to center reporting conditions aggregation functions around.
+            When not used specified reporting conditions for all data passed
+            are returned grouped by the freq provided.
+        days: int, default 60
+            Number of days to use when calculating reporting conditons.
+            Typically no less than 30 and no more than 90.
+        reshape_tmy : bool, default False
+            Set to true to reshape a tmy file so it is continuous through the
+            new year.
+        freq: str
+            String pandas offset alias to specify aggregattion frequency
+            for reporting condition calculation. Ex '60D' for 60 Days or
+            'M' for months. Typical 'M', '2M', or 'BQ-NOV'.
+            'BQ-NOV' is business quarterly year ending in Novemnber i.e. seasons.
+        func: callable, string, dictionary, or list of string/callables
+            Determines how the reporting condition is calculated.
+            Default is a dictionary poa - 60th numpy_percentile, t_amb - mean
+                                          w_vel - mean
+            Can pass a string function ('mean') to calculate each reporting
+            condition the same way.
+        irr_bal: boolean, default False
+            If true, pred is set to True, and frequency is specified then the
+            predictions for each group of reporting conditions use the
+            irrRC_balanced function to determine the reporting conditions.
+        w_vel: int
+            If w_vel is not none, then wind reporting condition will be set to
+            value specified for predictions. Does not affect output unless pred
+            is True and irr_bal is True.
+        inplace: bool, True by default
+            When true updates object rc parameter, when false returns dicitionary
+            of reporting conditions.
+
+        Returns
+        -------
+        dict
+            Returns a dictionary of reporting conditions if inplace=False
+            otherwise returns None.
+        pandas DataFrame
+            If pred=True, then returns a pandas dataframe of results.
+        """
+        df = self.rview(['power', 'poa', 't_amb', 'w_vel'],
+                        filtered_data=True)
+        df = df.rename(columns={df.columns[0]: 'power',
+                                df.columns[1]: 'poa',
+                                df.columns[2]: 't_amb',
+                                df.columns[3]: 'w_vel'})
+
+        if test_date is not None:
+            date = pd.to_datetime(test_date)
+            offset = pd.DateOffset(days=days / 2)
+            start = date - offset
+            end = date + offset
+
+        if not reshape_tmy and test_date is not None:
+            if start < df.index[0]:
+                start = df.index[0]
+            if end > df.index[-1]:
+                end = df.index[-1]
+            df = df.loc[start:end, :]
+
+        elif reshape_tmy and test_date is not None:
+            if spans_year(start, end):
+                df = cntg_eoy(df, start, end)
+            else:
+                df = df.loc[start:end, :]
+
+        RCs_df = pd.DataFrame(df.agg(func)).T
+
+        if w_vel is not None:
+            RCs_df['w_vel'][0] = w_vel
+
+        if freq is not None and test_date is None:
+            check_freqs = ['BQ-JAN', 'BQ-FEB', 'BQ-APR', 'BQ-MAY', 'BQ-JUL',
+                           'BQ-AUG', 'BQ-OCT', 'BQ-NOV']
+            mnth_int = {'JAN': 1, 'FEB': 2, 'APR': 4, 'MAY': 5, 'JUL': 7,
+                        'AUG': 8, 'OCT': 10, 'NOV': 11}
+
+            if freq in check_freqs:
+                mnth = mnth_int[freq.split('-')[1]]
+                year = df.index[0].year
+                mnths_eoy = 12 - mnth
+                mnths_boy = 3 - mnths_eoy
+                if int(mnth) >= 10:
+                    str_date = str(mnths_boy) + '/' + str(year)
+                else:
+                    str_date = str(mnth) + '/' + str(year)
+                tdelta = df.index[1] - df.index[0]
+                date_to_offset = df.loc[str_date].index[-1].to_pydatetime()
+                start = date_to_offset + tdelta
+                end = date_to_offset + pd.DateOffset(years=1)
+                if mnth < 8 or mnth >= 10:
+                    df = cntg_eoy(df, start, end)
+                else:
+                    df = cntg_eoy(df, end, start)
+
+            df_grpd = df.groupby(pd.Grouper(freq=freq, label='left'))
+            RCs_df = df_grpd.agg(func)
+            RCs = RCs_df.to_dict('list')
+
+            if irr_bal:
+                RCs_df = pd.DataFrame()
+                flt_dfs = pd.DataFrame()
+                for name, mnth in df_grpd:
+                    results = irrRC_balanced(mnth, *args, irr_col='poa',
+                                             **kwargs)
+                    flt_df = results[1]
+                    flt_dfs = flt_dfs.append(results[1])
+                    temp_RC = flt_df['t_amb'].mean()
+                    wind_RC = flt_df['w_vel'].mean()
+                    if w_vel is not None:
+                        wind_RC = w_vel
+                    RCs_df = RCs_df.append({'poa': results[0],
+                                            't_amb': temp_RC,
+                                            'w_vel': wind_RC}, ignore_index=True)
+                # df_grpd = flt_dfs.groupby(by=pd.Grouper(freq='M'))
+
+        if inplace:
+            print('Reporting conditions saved to rc attribute.')
+            print(RCs_df)
+            self.rc = RCs_df
+        else:
+            return RCs_df
+
+    # def pred_rcs(self):
+    #     """
+    #     Calculate expected capacities.
+    #
+    #     pred: boolean, default False
+    #         If true and frequency is specified, then method returns a dataframe
+    #         with reporting conditions, regression parameters, predicted
+    #         capacites, and point quantities for each group.
+    #     """
+    #             if predict:
+    #                 if irr_bal:
+    #                     RCs_df = pd.DataFrame()
+    #                     flt_dfs = pd.DataFrame()
+    #                     for name, mnth in df_grpd:
+    #                         results = irrRC_balanced(mnth, *args, irr_col='poa',
+    #                                                  **kwargs)
+    #                         flt_df = results[1]
+    #                         flt_dfs = flt_dfs.append(results[1])
+    #                         temp_RC = flt_df['t_amb'].mean()
+    #                         wind_RC = flt_df['w_vel'].mean()
+    #                         if w_vel is not None:
+    #                             wind_RC = w_vel
+    #                         RCs_df = RCs_df.append({'poa': results[0],
+    #                                                 't_amb': temp_RC,
+    #                                                 'w_vel': wind_RC}, ignore_index=True)
+    #                     df_grpd = flt_dfs.groupby(by=pd.Grouper(freq='M'))
+    #
+    #                 error = float(self.tolerance.split(sep=' ')[1]) / 100
+    #                 results = pred_summary(df_grpd, RCs_df, error,
+    #                                        fml=self.reg_fml)
+    #
+    #         if inplace:
+    #             if pred:
+    #                 print('Results dataframe saved to rc attribute.')
+    #                 print(results)
+    #                 self.rc = results
+    #             else:
+    #                 print('Reporting conditions saved to rc attribute.')
+    #                 print(RCs)
+    #                 self.rc = RCs
+    #         else:
+    #             if pred:
+    #                 return results
+    #             else:
+    #                 return RCs
