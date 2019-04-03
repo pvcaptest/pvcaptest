@@ -970,9 +970,9 @@ class CapData(object):
             self.trans_keys.extend([grp_comb])
             print('Added new group: ' + grp_comb)
 
-    def plot(self, reindex=False, freq=None, marker='line', ncols=2,
-             width=400, height=350, legends=False, merge_grps=['irr', 'temp'],
-             subset=None, **kwargs):
+    def plot(self, marker='line', ncols=2, width=400, height=350,
+             legends=False, merge_grps=['irr', 'temp'], subset=None,
+             filtered=False, **kwargs):
         """
         Plots a Bokeh line graph for each group of sensors in self.trans.
 
@@ -988,12 +988,6 @@ class CapData(object):
 
         Parameters
         ----------
-        reindex : Boolean, default False
-            Use with the freq argument to reset index of dataframe, which will
-            shows the gaps were data was removed by filtering steps.
-        freq : str
-            Pandas offset alias to use for frequency of new index, when reindex
-            is set to True.
         marker : str, default 'line'
             Accepts 'line', 'circle', 'line-circle'.  These are bokeh marker
             options.
@@ -1016,6 +1010,8 @@ class CapData(object):
         subset : list, default None
             List of the translation dictionary keys to use to control order of
             plots or to plot only a subset of the plots.
+        filtered : bool, default False
+            Set to true to plot the filtered data.
         kwargs
             Pass additional options to bokeh gridplot.  Merge_tools=False will
             shows the hover tool icon, so it can be turned off.
@@ -1029,17 +1025,14 @@ class CapData(object):
         for str_val in merge_grps:
             self.__comb_trans_keys(str_val)
 
-        dframe = self.df
+        if filtered:
+            dframe = self.df_flt
+        else:
+            dframe = self.df
         dframe.index.name = 'Timestamp'
 
         names_to_abrev = {val: key for key, val in self.trans_abrev.items()}
 
-        if reindex:
-            index = pd.DatetimeIndex(freq=freq, start=self.df.index[0],
-                                     end=self.df.index[-1])
-            dframe = self.df.reindex(index=index)
-
-        index = dframe.index.tolist()
         plots = []
         x_axis = None
 
@@ -1127,7 +1120,7 @@ class CapData(object):
             Column name of irradiance data to filter.  By default uses the POA
             irradiance set in reg_trans attribute or average of the POA columns.
         inplace : bool
-            Default true write back to CapTest.flt_sim or flt_das
+            Default true write back to df_flt or return filtered dataframe.
 
         Returns
         -------
