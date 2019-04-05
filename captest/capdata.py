@@ -436,7 +436,7 @@ class CapData(object):
         self.col_colors = {}
         self.summary_ix = []
         self.summary = []
-        self.rc = pd.DataFrame()
+        self.rc = None
         self.ols_model = None
         self.reg_fml = 'power ~ poa + I(poa * poa) + I(poa * t_amb) + I(poa * w_vel) - 1'
 
@@ -1192,7 +1192,7 @@ class CapData(object):
         except TypeError:
             print('No filters have been run.')
 
-    @update_summary
+    # @update_summary
     def rep_cond(self, *args,
                  func={'poa': perc_wrap(60), 't_amb': 'mean', 'w_vel': 'mean'},
                  freq=None, irr_bal=False, w_vel=None, inplace=True, **kwargs):
@@ -1236,14 +1236,26 @@ class CapData(object):
         pandas DataFrame
             If pred=True, then returns a pandas dataframe of results.
         """
-        df = self.rview(['power', 'poa', 't_amb', 'w_vel'],
+        df = self.rview(['poa', 't_amb', 'w_vel'],
                         filtered_data=True)
-        df = df.rename(columns={df.columns[0]: 'power',
-                                df.columns[1]: 'poa',
-                                df.columns[2]: 't_amb',
-                                df.columns[3]: 'w_vel'})
+        df = df.rename(columns={df.columns[0]: 'poa',
+                                df.columns[1]: 't_amb',
+                                df.columns[2]: 'w_vel'})
 
         RCs_df = pd.DataFrame(df.agg(func)).T
+
+        if irr_bal:
+            results = irrRC_balanced(mnth, *args, irr_col='poa',
+                                     **kwargs)
+            flt_df = results[1]
+            flt_dfs = flt_dfs.append(results[1])
+            temp_RC = flt_df['t_amb'].mean()
+            wind_RC = flt_df['w_vel'].mean()
+            if w_vel is not None:
+                wind_RC = w_vel
+            RCs_df = RCs_df.append({'poa': results[0],
+                                    't_amb': temp_RC,
+                                    'w_vel': wind_RC}, ignore_index=True)
 
         if w_vel is not None:
             RCs_df['w_vel'][0] = w_vel
@@ -1274,7 +1286,7 @@ class CapData(object):
 
             df_grpd = df.groupby(pd.Grouper(freq=freq, label='left'))
             RCs_df = df_grpd.agg(func)
-            RCs = RCs_df.to_dict('list')
+            # RCs = RCs_df.to_dict('list')
 
             if irr_bal:
                 RCs_df = pd.DataFrame()
@@ -1286,12 +1298,12 @@ class CapData(object):
                     flt_dfs = flt_dfs.append(results[1])
                     temp_RC = flt_df['t_amb'].mean()
                     wind_RC = flt_df['w_vel'].mean()
-                    if w_vel is not None:
-                        wind_RC = w_vel
                     RCs_df = RCs_df.append({'poa': results[0],
                                             't_amb': temp_RC,
                                             'w_vel': wind_RC}, ignore_index=True)
                 # df_grpd = flt_dfs.groupby(by=pd.Grouper(freq='M'))
+            if w_vel is not None:
+                RCs_df['w_vel'] = w_vel
 
         if inplace:
             print('Reporting conditions saved to rc attribute.')

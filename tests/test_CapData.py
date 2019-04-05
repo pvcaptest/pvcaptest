@@ -15,7 +15,7 @@ data = np.arange(0, 1300, 54.167)
 index = pd.DatetimeIndex(start='1/1/2017', freq='H', periods=24)
 df = pd.DataFrame(data=data, index=index, columns=['poa'])
 
-capdata = pvc.CapData()
+capdata = pvc.CapData('capdata')
 capdata.df = df
 
 """
@@ -609,6 +609,27 @@ Separate function calling location and system to calculate POA
 - concat add columns to passed df or return just ghi and poa option
 load_data calls final function with in place to get ghi and poa
 """
+
+class TestRepCond(unittest.TestCase):
+    def setUp(self):
+        self.meas = pvc.CapData('meas')
+        self.meas.load_data('./tests/data/', 'nrel_data.csv',
+                            source='AlsoEnergy')
+        self.meas.set_reg_trans(power='', poa='irr-poa-',
+                                t_amb='temp--', w_vel='wind--')
+
+    def test_defaults(self):
+        self.meas.rep_cond()
+        self.assertIsInstance(self.meas.rc, pd.core.frame.DataFrame,
+                              'No dataframe stored in the rc attribute.')
+
+    def test_defaults_not_inplace(self):
+        df = self.meas.rep_cond(inplace=False)
+        self.assertIsNone(self.meas.rc,
+                          'Method result stored instead of returned.')
+        self.assertIsInstance(df, pd.core.frame.DataFrame,
+                              'No dataframe returned from method.')
+
 
 
 if __name__ == '__main__':
