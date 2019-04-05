@@ -634,12 +634,28 @@ class TestRepCond(unittest.TestCase):
         self.meas.filter_irr(0.1, 2000)
         meas2 = self.meas.copy()
         meas2.rep_cond()
-        self.meas.rep_cond(0.8, 1.2, irr_bal=True)
+        self.meas.rep_cond(irr_bal=True, perc_flt=20)
         self.assertIsInstance(self.meas.rc, pd.core.frame.DataFrame,
                               'No dataframe stored in the rc attribute.')
         self.assertNotEqual(self.meas.rc['poa'][0], meas2.rc['poa'][0],
                             'Irr_bal function returned same result\
                              as w/o irr_bal')
+
+    # test for passing irr_bal True w/o perc_flt to check for warning
+
+class TestTopLevelFuncs(unittest.TestCase):
+    def test_perc_bounds_perc(self):
+        bounds = cpd.perc_bounds(20)
+        self.assertEqual(bounds[0], 0.8,
+                         '{} for 20 perc is not 0.8'.format(bounds[0]))
+        self.assertEqual(bounds[1], 1.2,
+                         '{} for 20 perc is not 1.2'.format(bounds[1]))
+    def test_perc_bounds_tuple(self):
+        bounds = cpd.perc_bounds((15, 40))
+        self.assertEqual(bounds[0], 0.85,
+                         '{} for 15 perc is not 0.85'.format(bounds[0]))
+        self.assertEqual(bounds[1], 1.4,
+                         '{} for 40 perc is not 1.4'.format(bounds[1]))
 
 
 

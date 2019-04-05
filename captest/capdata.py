@@ -137,10 +137,30 @@ def update_summary(func):
         return ret_val
     return wrapper
 
+
 def perc_wrap(p):
     def numpy_percentile(x):
         return np.percentile(x.T, p, interpolation='nearest')
     return numpy_percentile
+
+
+def perc_bounds(perc):
+    """
+    perc_flt : float or tuple, default None
+        Percentage or tuple of percentages used to filter around reporting
+        irradiance in the irrRC_balanced function.  Required argument when
+            irr_bal is True.
+    """
+    if isinstance(perc, tuple):
+        perc_low = perc[0] / 100
+        perc_high = perc[1] / 100
+    else:
+        perc_low = perc / 100
+        perc_high = perc / 100
+    low = 1 - (perc_low)
+    high = 1 + (perc_high)
+    return (low, high)
+
 
 def flt_irr(df, irr_col, low, high, ref_val=None):
     """
@@ -1271,18 +1291,25 @@ class CapData(object):
             print('No filters have been run.')
 
     # @update_summary
-    def rep_cond(self, *args,
+    def rep_cond(self, irr_bal=False, perc_flt=None, w_vel=None, inplace=True,
                  func={'poa': perc_wrap(60), 't_amb': 'mean', 'w_vel': 'mean'},
-                 freq=None, irr_bal=False, w_vel=None, inplace=True, **kwargs):
+                 freq=None, **kwargs):
 
         """
         Calculate reporting conditons.
 
-        NOTE: Can pass additional positional arguments for low/high irradiance
-        filter.
-
         Parameters
         ----------
+        irr_bal: boolean, default False
+            If true, uses the irrRC_balanced function to determine the reporting
+            conditions. Replaces the calculations specified by func with or
+            without freq.
+        perc_flt : float or tuple, default None
+            Percentage or tuple of percentages used to filter around reporting
+            irradiance in the irrRC_balanced function.  Required argument when
+            irr_bal is True.
+            Tuple option allows specifying different percentage for above and
+            below reporting irradiance. (below, above)
         func: callable, string, dictionary, or list of string/callables
             Determines how the reporting condition is calculated.
             Default is a dictionary poa - 60th numpy_percentile, t_amb - mean
@@ -1294,10 +1321,6 @@ class CapData(object):
             for reporting condition calculation. Ex '60D' for 60 Days or
             'M' for months. Typical 'M', '2M', or 'BQ-NOV'.
             'BQ-NOV' is business quarterly year ending in Novemnber i.e. seasons.
-        irr_bal: boolean, default False
-            If true, uses the irrRC_balanced function to determine the reporting
-            conditions. Replaces the calculations specified by func with or
-            without freq.
         w_vel: int
             If w_vel is not none, then wind reporting condition will be set to
             value specified for predictions. Does not affect output unless pred
@@ -1323,14 +1346,19 @@ class CapData(object):
         RCs_df = pd.DataFrame(df.agg(func)).T
 
         if irr_bal:
-            results = irrRC_balanced(df, *args, irr_col='poa',
-                                     **kwargs)
-            flt_df = results[1]
-            temp_RC = flt_df['t_amb'].mean()
-            wind_RC = flt_df['w_vel'].mean()
-            RCs_df = pd.DataFrame({'poa': results[0],
-                                   't_amb': temp_RC,
-                                   'w_vel': wind_RC}, index=[0])
+            if perc_flt is None:
+                return warnings.warn('perc_flt required when irr_bal is True')
+            else:
+                low, high = perc_bounds(perc_flt)
+
+                results = irrRC_balanced(df, low, high, irr_col='poa',
+                                         **kwargs)
+                flt_df = results[1]
+                temp_RC = flt_df['t_amb'].mean()
+                wind_RC = flt_df['w_vel'].mean()
+                RCs_df = pd.DataFrame({'poa': results[0],
+                                       't_amb': temp_RC,
+                                       'w_vel': wind_RC}, index=[0])
 
         if w_vel is not None:
             RCs_df['w_vel'][0] = w_vel
