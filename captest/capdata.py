@@ -1193,7 +1193,7 @@ class CapData(object):
             print('No filters have been run.')
 
     @update_summary
-    def rep_cond(self, *args, test_date=None, days=60, reshape_tmy=False,
+    def rep_cond(self, *args,
                  func={'poa': perc_wrap(60), 't_amb': 'mean', 'w_vel': 'mean'},
                  freq=None, irr_bal=False, w_vel=None, inplace=True, **kwargs):
 
@@ -1205,27 +1205,17 @@ class CapData(object):
 
         Parameters
         ----------
-        test_date: str, 'mm/dd/yyyy', optional
-            Date to center reporting conditions aggregation functions around.
-            When not used specified reporting conditions for all data passed
-            are returned grouped by the freq provided.
-        days: int, default 60
-            Number of days to use when calculating reporting conditons.
-            Typically no less than 30 and no more than 90.
-        reshape_tmy : bool, default False
-            Set to true to reshape a tmy file so it is continuous through the
-            new year.
-        freq: str
-            String pandas offset alias to specify aggregattion frequency
-            for reporting condition calculation. Ex '60D' for 60 Days or
-            'M' for months. Typical 'M', '2M', or 'BQ-NOV'.
-            'BQ-NOV' is business quarterly year ending in Novemnber i.e. seasons.
         func: callable, string, dictionary, or list of string/callables
             Determines how the reporting condition is calculated.
             Default is a dictionary poa - 60th numpy_percentile, t_amb - mean
                                           w_vel - mean
             Can pass a string function ('mean') to calculate each reporting
             condition the same way.
+        freq: str
+            String pandas offset alias to specify aggregattion frequency
+            for reporting condition calculation. Ex '60D' for 60 Days or
+            'M' for months. Typical 'M', '2M', or 'BQ-NOV'.
+            'BQ-NOV' is business quarterly year ending in Novemnber i.e. seasons.
         irr_bal: boolean, default False
             If true, pred is set to True, and frequency is specified then the
             predictions for each group of reporting conditions use the
@@ -1253,31 +1243,12 @@ class CapData(object):
                                 df.columns[2]: 't_amb',
                                 df.columns[3]: 'w_vel'})
 
-        if test_date is not None:
-            date = pd.to_datetime(test_date)
-            offset = pd.DateOffset(days=days / 2)
-            start = date - offset
-            end = date + offset
-
-        if not reshape_tmy and test_date is not None:
-            if start < df.index[0]:
-                start = df.index[0]
-            if end > df.index[-1]:
-                end = df.index[-1]
-            df = df.loc[start:end, :]
-
-        elif reshape_tmy and test_date is not None:
-            if spans_year(start, end):
-                df = cntg_eoy(df, start, end)
-            else:
-                df = df.loc[start:end, :]
-
         RCs_df = pd.DataFrame(df.agg(func)).T
 
         if w_vel is not None:
             RCs_df['w_vel'][0] = w_vel
 
-        if freq is not None and test_date is None:
+        if freq is not None:
             check_freqs = ['BQ-JAN', 'BQ-FEB', 'BQ-APR', 'BQ-MAY', 'BQ-JUL',
                            'BQ-AUG', 'BQ-OCT', 'BQ-NOV']
             mnth_int = {'JAN': 1, 'FEB': 2, 'APR': 4, 'MAY': 5, 'JUL': 7,
