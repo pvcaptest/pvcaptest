@@ -630,6 +630,17 @@ class TestRepCond(unittest.TestCase):
         self.assertIsInstance(df, pd.core.frame.DataFrame,
                               'No dataframe returned from method.')
 
+    def test_irr_bal_inplace(self):
+        self.meas.filter_irr(0.1, 2000)
+        meas2 = self.meas.copy()
+        meas2.rep_cond()
+        self.meas.rep_cond(0.8, 1.2, irr_bal=True)
+        self.assertIsInstance(self.meas.rc, pd.core.frame.DataFrame,
+                              'No dataframe stored in the rc attribute.')
+        self.assertNotEqual(self.meas.rc['poa'][0], meas2.rc['poa'][0],
+                            'Irr_bal function returned same result\
+                             as w/o irr_bal')
+
 
 
 if __name__ == '__main__':

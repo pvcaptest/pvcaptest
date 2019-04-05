@@ -16,6 +16,13 @@ import numpy as np
 import pandas as pd
 
 # anaconda distribution defaults
+# statistics and machine learning imports
+import statsmodels.formula.api as smf
+from scipy import stats
+# from sklearn.covariance import EllipticEnvelope
+import sklearn.covariance as sk_cv
+
+# anaconda distribution defaults
 # visualization library imports
 from bokeh.io import output_notebook, show
 from bokeh.plotting import figure
@@ -166,6 +173,75 @@ def flt_irr(df, irr_col, low, high, ref_val=None):
     indx = df_renamed.query(flt_str).index
 
     return df.loc[indx, :]
+
+
+def irrRC_balanced(df, low, high, irr_col='GlobInc', plot=False):
+    """
+    Calculates max irradiance reporting condition that is below 60th percentile.
+
+    Parameters
+    ----------
+    df: pandas DataFrame
+        DataFrame containing irradiance data for calculating the irradiance
+        reporting condition.
+    low: float
+        Bottom value for irradiance filter, usually between 0.5 and 0.8.
+    high: float
+        Top value for irradiance filter, usually between 1.2 and 1.5.
+    irr_col: str
+        String that is the name of the column with the irradiance data.
+    plot: bool, default False
+        Plots graphical view of algorithim searching for reporting irradiance.
+        Useful for troubleshooting or understanding the method.
+
+    Returns
+    -------
+    Tuple
+        Float reporting irradiance and filtered dataframe.
+
+    """
+    if plot:
+        irr = df[irr_col].values
+        x = np.ones(irr.shape[0])
+        plt.plot(x, irr, 'o', markerfacecolor=(0.5, 0.7, 0.5, 0.1))
+        plt.ylabel('irr')
+        x_inc = 1.01
+
+    vals_above = 10
+    perc = 100.
+    pt_qty = 0
+    loop_cnt = 0
+    pt_qty_array = []
+    # print('--------------- MONTH START --------------')
+    while perc > 0.6 or pt_qty < 50:
+        # print('####### LOOP START #######')
+        df_count = df.shape[0]
+        df_perc = 1 - (vals_above / df_count)
+        # print('in percent: {}'.format(df_perc))
+        irr_RC = (df[irr_col].agg(perc_wrap(df_perc * 100)))
+        # print('ref irr: {}'.format(irr_RC))
+        flt_df = flt_irr(df, irr_col, low, high, ref_val=irr_RC)
+        # print('number of vals: {}'.format(df.shape))
+        pt_qty = flt_df.shape[0]
+        # print('flt pt qty: {}'.format(pt_qty))
+        perc = stats.percentileofscore(flt_df[irr_col], irr_RC) / 100
+        # print('out percent: {}'.format(perc))
+        vals_above += 1
+        pt_qty_array.append(pt_qty)
+        if perc <= 0.6 and pt_qty <= pt_qty_array[loop_cnt - 1]:
+            break
+        loop_cnt += 1
+
+        if plot:
+            x_inc += 0.02
+            y1 = irr_RC * low
+            y2 = irr_RC * high
+            plt.plot(x_inc, irr_RC, 'ro')
+            plt.plot([x_inc, x_inc], [y1, y2])
+
+    if plot:
+        plt.show()
+    return(irr_RC, flt_df)
 
 def pvlib_location(loc):
     """
@@ -465,13 +541,15 @@ class CapData(object):
 
     def copy(self):
         """Creates and returns a copy of self."""
-        cd_c = CapData()
+        cd_c = CapData('')
         cd_c.df = self.df.copy()
+        cd_c.df_flt = self.df_flt.copy()
         cd_c.trans = copy.copy(self.trans)
         cd_c.trans_keys = copy.copy(self.trans_keys)
         cd_c.reg_trans = copy.copy(self.reg_trans)
         cd_c.trans_abrev = copy.copy(self.trans_abrev)
         cd_c.col_colors = copy.copy(self.col_colors)
+        cd_c.name = copy.copy(self.name)
         return cd_c
 
     def empty(self):
@@ -1217,9 +1295,9 @@ class CapData(object):
             'M' for months. Typical 'M', '2M', or 'BQ-NOV'.
             'BQ-NOV' is business quarterly year ending in Novemnber i.e. seasons.
         irr_bal: boolean, default False
-            If true, pred is set to True, and frequency is specified then the
-            predictions for each group of reporting conditions use the
-            irrRC_balanced function to determine the reporting conditions.
+            If true, uses the irrRC_balanced function to determine the reporting
+            conditions. Replaces the calculations specified by func with or
+            without freq.
         w_vel: int
             If w_vel is not none, then wind reporting condition will be set to
             value specified for predictions. Does not affect output unless pred
@@ -1245,17 +1323,14 @@ class CapData(object):
         RCs_df = pd.DataFrame(df.agg(func)).T
 
         if irr_bal:
-            results = irrRC_balanced(mnth, *args, irr_col='poa',
+            results = irrRC_balanced(df, *args, irr_col='poa',
                                      **kwargs)
             flt_df = results[1]
-            flt_dfs = flt_dfs.append(results[1])
             temp_RC = flt_df['t_amb'].mean()
             wind_RC = flt_df['w_vel'].mean()
-            if w_vel is not None:
-                wind_RC = w_vel
-            RCs_df = RCs_df.append({'poa': results[0],
-                                    't_amb': temp_RC,
-                                    'w_vel': wind_RC}, ignore_index=True)
+            RCs_df = pd.DataFrame({'poa': results[0],
+                                   't_amb': temp_RC,
+                                   'w_vel': wind_RC}, index=[0])
 
         if w_vel is not None:
             RCs_df['w_vel'][0] = w_vel
