@@ -623,6 +623,11 @@ class TestRepCond(unittest.TestCase):
         self.assertIsInstance(self.meas.rc, pd.core.frame.DataFrame,
                               'No dataframe stored in the rc attribute.')
 
+    def test_defaults_wvel(self):
+        self.meas.rep_cond(w_vel=50)
+        self.assertEqual(self.meas.rc['w_vel'][0], 50,
+                         'Wind velocity not overwritten by user value')
+
     def test_defaults_not_inplace(self):
         df = self.meas.rep_cond(inplace=False)
         self.assertIsNone(self.meas.rc,
@@ -641,7 +646,15 @@ class TestRepCond(unittest.TestCase):
                             'Irr_bal function returned same result\
                              as w/o irr_bal')
 
-    # test for passing irr_bal True w/o perc_flt to check for warning
+    def test_irr_bal_inplace_wvel(self):
+        self.meas.rep_cond(irr_bal=True, perc_flt=20, w_vel=50)
+        self.assertEqual(self.meas.rc['w_vel'][0], 50,
+                         'Wind velocity not overwritten by user value')
+
+    def test_irr_bal_inplace_no_perc_flt(self):
+        with self.assertWarns(UserWarning):
+            self.meas.rep_cond(irr_bal=True, perc_flt=None)
+
 
 class TestTopLevelFuncs(unittest.TestCase):
     def test_perc_bounds_perc(self):
