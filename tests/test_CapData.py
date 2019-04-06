@@ -680,6 +680,13 @@ class TestRepCondFreq(unittest.TestCase):
         self.assertEqual(self.pvsyst.rc.shape[0], 12,
                          'Rep conditions dataframe does not have 12 rows.')
 
+    def test_seas_no_irr_bal(self):
+        self.pvsyst.rep_cond(freq='BQ-NOV', irr_bal=False)
+        self.assertIsInstance(self.pvsyst.rc, pd.core.frame.DataFrame,
+                              'No dataframe stored in the rc attribute.')
+        self.assertEqual(self.pvsyst.rc.shape[0], 4,
+                         'Rep conditions dataframe does not have 4 rows.')
+
 
 class TestFilterIrr(unittest.TestCase):
     def setUp(self):
