@@ -670,6 +670,25 @@ class TestTopLevelFuncs(unittest.TestCase):
         self.assertEqual(bounds[1], 1.4,
                          '{} for 40 perc is not 1.4'.format(bounds[1]))
 
+    def test_flt_irr(self):
+        rng = np.arange(0, 1000)
+        df = pd.DataFrame(np.array([rng, rng+100, rng+200]).T,
+                          columns = ['weather_station irr poa W/m^2',
+                                     'col_1', 'col_2'])
+        df_flt = cpd.flt_irr(df, 'weather_station irr poa W/m^2', 50, 100)
+
+        self.assertEqual(df_flt.shape[0], 51,
+                         'Incorrect number of rows returned from filter.')
+        self.assertEqual(df_flt.shape[1], 3,
+                         'Incorrect number of columns returned from filter.')
+        self.assertEqual(df_flt.columns[0], 'weather_station irr poa W/m^2',
+                      'Filter column name inadverdently modified by method.')
+        self.assertEqual(df_flt.iloc[0, 0], 50,
+                         'Minimum value in returned data in filter column is'
+                         'not equal to low argument.')
+        self.assertEqual(df_flt.iloc[-1, 0], 100,
+                         'Maximum value in returned data in filter column is'
+                         'not equal to high argument.')
 
 
 if __name__ == '__main__':
