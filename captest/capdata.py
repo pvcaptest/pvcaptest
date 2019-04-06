@@ -139,6 +139,99 @@ def update_summary(func):
     return wrapper
 
 
+def cntg_eoy(df, start, end):
+    """
+    Shifts data before or after new year to form a contigous time period.
+
+    This function shifts data from the end of the year a year back or data from
+    the begining of the year a year forward, to create a contiguous time period.
+    Intended to be used on historical typical year data.
+
+    If start date is in dataframe, then data at the beginning of the year will
+    be moved ahead one year.  If end date is in dataframe, then data at the end
+    of the year will be moved back one year.
+
+    cntg (contiguous); eoy (end of year)
+
+    Parameters
+    ----------
+    df: pandas DataFrame
+        Dataframe to be adjusted.
+    start: pandas Timestamp
+        Start date for time period.
+    end: pandas Timestamp
+        End date for time period.
+
+    Todo
+    ----
+    Need to test and debug this for years not matching.
+    """
+    if df.index[0].year == start.year:
+        df_beg = df.loc[start:, :]
+
+        df_end = df.copy()
+        df_end.index = df_end.index + pd.DateOffset(days=365)
+        df_end = df_end.loc[:end, :]
+
+    elif df.index[0].year == end.year:
+        df_end = df.loc[:end, :]
+
+        df_beg = df.copy()
+        df_beg.index = df_beg.index - pd.DateOffset(days=365)
+        df_beg = df_beg.loc[start:, :]
+
+    df_return = pd.concat([df_beg, df_end], axis=0)
+    ix_ser = df_return.index.to_series()
+    df_return['index'] = ix_ser.apply(lambda x: x.strftime('%m/%d/%Y %H %M'))
+    return df_return
+
+
+def wrap_seasons(df, freq):
+    """
+    Rearrange an 8760 so a quarterly groupby will result in seasonal groups.
+
+    Parameters
+    ----------
+    df : DataFrame
+        Dataframe to be rearranged.
+    freq : str
+        String pandas offset alias to specify aggregattion frequency
+        for reporting condition calculation.
+
+    Returns
+    -------
+    DataFrame
+
+    Todo
+    ----
+    Write tests for this method.
+    """
+    check_freqs = ['BQ-JAN', 'BQ-FEB', 'BQ-APR', 'BQ-MAY', 'BQ-JUL',
+                   'BQ-AUG', 'BQ-OCT', 'BQ-NOV']
+    mnth_int = {'JAN': 1, 'FEB': 2, 'APR': 4, 'MAY': 5, 'JUL': 7,
+                'AUG': 8, 'OCT': 10, 'NOV': 11}
+
+    if freq in check_freqs:
+        mnth = mnth_int[freq.split('-')[1]]
+        year = df.index[0].year
+        mnths_eoy = 12 - mnth
+        mnths_boy = 3 - mnths_eoy
+        if int(mnth) >= 10:
+            str_date = str(mnths_boy) + '/' + str(year)
+        else:
+            str_date = str(mnth) + '/' + str(year)
+        tdelta = df.index[1] - df.index[0]
+        date_to_offset = df.loc[str_date].index[-1].to_pydatetime()
+        start = date_to_offset + tdelta
+        end = date_to_offset + pd.DateOffset(years=1)
+        if mnth < 8 or mnth >= 10:
+            df = cntg_eoy(df, start, end)
+        else:
+            df = cntg_eoy(df, end, start)
+        return df
+    else:
+        return df
+
 def perc_wrap(p):
     def numpy_percentile(x):
         return np.percentile(x.T, p, interpolation='nearest')
@@ -1374,28 +1467,10 @@ class CapData(object):
             RCs_df['w_vel'][0] = w_vel
 
         if freq is not None:
-            check_freqs = ['BQ-JAN', 'BQ-FEB', 'BQ-APR', 'BQ-MAY', 'BQ-JUL',
-                           'BQ-AUG', 'BQ-OCT', 'BQ-NOV']
-            mnth_int = {'JAN': 1, 'FEB': 2, 'APR': 4, 'MAY': 5, 'JUL': 7,
-                        'AUG': 8, 'OCT': 10, 'NOV': 11}
-
-            if freq in check_freqs:
-                mnth = mnth_int[freq.split('-')[1]]
-                year = df.index[0].year
-                mnths_eoy = 12 - mnth
-                mnths_boy = 3 - mnths_eoy
-                if int(mnth) >= 10:
-                    str_date = str(mnths_boy) + '/' + str(year)
-                else:
-                    str_date = str(mnth) + '/' + str(year)
-                tdelta = df.index[1] - df.index[0]
-                date_to_offset = df.loc[str_date].index[-1].to_pydatetime()
-                start = date_to_offset + tdelta
-                end = date_to_offset + pd.DateOffset(years=1)
-                if mnth < 8 or mnth >= 10:
-                    df = cntg_eoy(df, start, end)
-                else:
-                    df = cntg_eoy(df, end, start)
+            # wrap_seasons passes df through unchanged unless freq is one of
+            # 'BQ-JAN', 'BQ-FEB', 'BQ-APR', 'BQ-MAY', 'BQ-JUL',
+            # 'BQ-AUG', 'BQ-OCT', 'BQ-NOV'
+            df = wrap_seasons(df, freq)
 
             df_grpd = df.groupby(pd.Grouper(freq=freq, label='left'))
             RCs_df = df_grpd.agg(func)

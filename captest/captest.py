@@ -220,52 +220,6 @@ def spans_year(start_date, end_date):
         return False
 
 
-def cntg_eoy(df, start, end):
-    """
-    Shifts data before or after new year to form a contigous time period.
-
-    This function shifts data from the end of the year a year back or data from
-    the begining of the year a year forward, to create a contiguous time period.
-    Intended to be used on historical typical year data.
-
-    If start date is in dataframe, then data at the beginning of the year will
-    be moved ahead one year.  If end date is in dataframe, then data at the end
-    of the year will be moved back one year.
-
-    cntg (contiguous); eoy (end of year)
-
-    Parameters
-    ----------
-    df: pandas DataFrame
-        Dataframe to be adjusted.
-    start: pandas Timestamp
-        Start date for time period.
-    end: pandas Timestamp
-        End date for time period.
-
-    Todo
-    ----
-    Need to test and debug this for years not matching.
-    """
-    if df.index[0].year == start.year:
-        df_beg = df.loc[start:, :]
-
-        df_end = df.copy()
-        df_end.index = df_end.index + pd.DateOffset(days=365)
-        df_end = df_end.loc[:end, :]
-
-    elif df.index[0].year == end.year:
-        df_end = df.loc[:end, :]
-
-        df_beg = df.copy()
-        df_beg.index = df_beg.index - pd.DateOffset(days=365)
-        df_beg = df_beg.loc[start:, :]
-
-    df_return = pd.concat([df_beg, df_end], axis=0)
-    ix_ser = df_return.index.to_series()
-    df_return['index'] = ix_ser.apply(lambda x: x.strftime('%m/%d/%Y %H %M'))
-    return df_return
-
 def fit_model(df, fml='power ~ poa + I(poa * poa) + I(poa * t_amb) + I(poa * w_vel) - 1'):
     """
     Fits linear regression using statsmodels to dataframe passed.
