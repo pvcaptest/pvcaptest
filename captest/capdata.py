@@ -1402,10 +1402,12 @@ class CapData(object):
             # RCs = RCs_df.to_dict('list')
 
             if irr_bal:
+                low, high = perc_bounds(perc_flt)
                 RCs_df = pd.DataFrame()
                 flt_dfs = pd.DataFrame()
+
                 for name, mnth in df_grpd:
-                    results = irrRC_balanced(mnth, *args, irr_col='poa',
+                    results = irrRC_balanced(mnth, low, high, irr_col='poa',
                                              **kwargs)
                     flt_df = results[1]
                     flt_dfs = flt_dfs.append(results[1])
