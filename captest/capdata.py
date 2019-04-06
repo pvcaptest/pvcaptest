@@ -24,6 +24,7 @@ import sklearn.covariance as sk_cv
 
 # anaconda distribution defaults
 # visualization library imports
+import matplotlib.pyplot as plt
 from bokeh.io import output_notebook, show
 from bokeh.plotting import figure
 from bokeh.palettes import Category10, Category20c, Category20b
@@ -1223,6 +1224,21 @@ class CapData(object):
         self.summary_ix = []
         self.summary = []
 
+    def __get_poa_col(self):
+        """
+        Returns poa column name from translation dictionary.
+
+        Also, issues warning if there are more than one poa columns in the
+        translation dictionary.
+        """
+        poa_cols = self.trans[self.reg_trans['poa']]
+        if len(poa_cols) > 1:
+            return warnings.warn('{} columns of irradiance data. '
+                                 'Use col_name to specify a single '
+                                 'column.'.format(len(poa_cols)))
+        else:
+            return poa_cols[0]
+
     @update_summary
     def filter_irr(self, low, high, ref_val=None, col_name=None, inplace=True):
         """
@@ -1248,13 +1264,7 @@ class CapData(object):
             Filtered dataframe if inplace is False.
         """
         if col_name is None:
-            poa_cols = self.trans[self.reg_trans['poa']]
-            if len(poa_cols) > 1:
-                return warnings.warn('{} columns of irradiance data. '
-                                     'Use col_name to specify a single '
-                                     'column.'.format(len(poa_cols)))
-            else:
-                irr_col = poa_cols[0]
+            irr_col = self.__get_poa_col()
         else:
             irr_col = col_name
 
