@@ -656,6 +656,71 @@ class TestRepCond(unittest.TestCase):
             self.meas.rep_cond(irr_bal=True, perc_flt=None)
 
 
+class TestFilterIrr(unittest.TestCase):
+    def setUp(self):
+        self.meas = pvc.CapData('meas')
+        self.meas.load_data('./tests/data/', 'nrel_data.csv',
+                            source='AlsoEnergy')
+        self.meas.set_reg_trans(power='', poa='irr-poa-',
+                                t_amb='temp--', w_vel='wind--')
+
+    def test_get_poa_col(self):
+        col = self.meas._CapData__get_poa_col()
+        self.assertEqual(col, 'POA 40-South CMP11 [W/m^2]',
+                         'POA column not returned')
+
+    def test_get_poa_col_multcols(self):
+        self.meas.df['POA second column'] = self.meas.rview('poa').values
+        self.meas._CapData__set_trans()
+        with self.assertWarns(UserWarning):
+            col = self.meas._CapData__get_poa_col()
+
+    def test_lowhigh_nocol(self):
+        pts_before = self.meas.df_flt.shape[0]
+        self.meas.filter_irr(500, 600, ref_val=None, col_name=None,
+                             inplace=True)
+        self.assertLess(self.meas.df_flt.shape[0], pts_before,
+                        'Filter did not remove points.')
+
+    def test_lowhigh_colname(self):
+        pts_before = self.meas.df_flt.shape[0]
+        self.meas.df['POA second column'] = self.meas.rview('poa').values
+        self.meas._CapData__set_trans()
+        self.meas.df_flt = self.meas.df.copy()
+        self.meas.filter_irr(500, 600, ref_val=None,
+                             col_name='POA second column', inplace=True)
+        self.assertLess(self.meas.df_flt.shape[0], pts_before,
+                        'Filter did not remove points.')
+
+    def test_refval_nocol(self):
+        pts_before = self.meas.df_flt.shape[0]
+        self.meas.filter_irr(0.8, 1.2, ref_val=500, col_name=None,
+                             inplace=True)
+        self.assertLess(self.meas.df_flt.shape[0], pts_before,
+                        'Filter did not remove points.')
+
+    def test_refval_withcol(self):
+        pts_before = self.meas.df_flt.shape[0]
+        self.meas.df['POA second column'] = self.meas.rview('poa').values
+        self.meas._CapData__set_trans()
+        self.meas.df_flt = self.meas.df.copy()
+        self.meas.filter_irr(0.8, 1.2, ref_val=500,
+                             col_name='POA second column', inplace=True)
+        self.assertLess(self.meas.df_flt.shape[0], pts_before,
+                        'Filter did not remove points.')
+
+    def test_refval_withcol_notinplace(self):
+        pts_before = self.meas.df_flt.shape[0]
+        df = self.meas.filter_irr(500, 600, ref_val=None, col_name=None,
+                                  inplace=False)
+        self.assertEqual(self.meas.df_flt.shape[0], pts_before,
+                         'Filter removed points from df_flt.')
+        self.assertIsInstance(df, pd.core.frame.DataFrame,
+                              'Did not return DataFrame object.')
+        self.assertLess(df.shape[0], pts_before,
+                        'Filter did not remove points from returned DataFrame.')
+
+
 class TestTopLevelFuncs(unittest.TestCase):
     def test_perc_bounds_perc(self):
         bounds = cpd.perc_bounds(20)
