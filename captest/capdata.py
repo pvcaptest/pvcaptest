@@ -1300,7 +1300,7 @@ class CapData(object):
         except TypeError:
             print('No filters have been run.')
 
-    # @update_summary
+    @update_summary
     def rep_cond(self, irr_bal=False, perc_flt=None, w_vel=None, inplace=True,
                  func={'poa': perc_wrap(60), 't_amb': 'mean', 'w_vel': 'mean'},
                  freq=None, **kwargs):
