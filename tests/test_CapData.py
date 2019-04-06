@@ -610,10 +610,11 @@ Separate function calling location and system to calculate POA
 load_data calls final function with in place to get ghi and poa
 """
 
-class TestRepCond(unittest.TestCase):
+
+class TestRepCondNoFreq(unittest.TestCase):
     def setUp(self):
         self.meas = pvc.CapData('meas')
-        self.meas.load_data('./tests/data/', 'nrel_data.csv',
+        self.meas.load_data(path='./tests/data/', fname='nrel_data.csv',
                             source='AlsoEnergy')
         self.meas.set_reg_trans(power='', poa='irr-poa-',
                                 t_amb='temp--', w_vel='wind--')
@@ -654,6 +655,30 @@ class TestRepCond(unittest.TestCase):
     def test_irr_bal_inplace_no_perc_flt(self):
         with self.assertWarns(UserWarning):
             self.meas.rep_cond(irr_bal=True, perc_flt=None)
+
+
+class TestRepCondFreq(unittest.TestCase):
+    def setUp(self):
+        self.pvsyst = pvc.CapData('pvsyst')
+        self.pvsyst.load_data(path='./tests/data/',
+                              fname='pvsyst_example_HourlyRes_2.CSV',
+                              load_pvsyst=True)
+        self.pvsyst.set_reg_trans(power='real_pwr--', poa='irr-poa-',
+                                 t_amb='temp-amb-', w_vel='wind--')
+
+    def test_monthly_no_irr_bal(self):
+        self.pvsyst.rep_cond(freq='M')
+        self.assertIsInstance(self.pvsyst.rc, pd.core.frame.DataFrame,
+                              'No dataframe stored in the rc attribute.')
+        self.assertEqual(self.pvsyst.rc.shape[0], 12,
+                         'Rep conditions dataframe does not have 12 rows.')
+
+    def test_monthly_irr_bal(self):
+        self.pvsyst.rep_cond(freq='M', irr_bal=True, perc_flt=20)
+        self.assertIsInstance(self.pvsyst.rc, pd.core.frame.DataFrame,
+                              'No dataframe stored in the rc attribute.')
+        self.assertEqual(self.pvsyst.rc.shape[0], 12,
+                         'Rep conditions dataframe does not have 12 rows.')
 
 
 class TestFilterIrr(unittest.TestCase):
