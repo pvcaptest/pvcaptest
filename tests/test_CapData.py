@@ -787,6 +787,31 @@ class TestTopLevelFuncs(unittest.TestCase):
                          'Maximum value in returned data in filter column is'
                          'not equal to high argument.')
 
+    def test_filter_grps(self):
+        pvsyst = pvc.CapData('pvsyst')
+        pvsyst.load_data(path='./tests/data/',
+                         fname='pvsyst_example_HourlyRes_2.CSV',
+                         load_pvsyst=True)
+        pvsyst.set_reg_trans(power='real_pwr--', poa='irr-poa-',
+                             t_amb='temp-amb-', w_vel='wind--')
+        pvsyst.filter_irr(200, 800)
+        pvsyst.rep_cond(freq='M')
+        grps = pvsyst.df_flt.groupby(pd.Grouper(freq='M', label='left'))
+        poa_col = pvsyst.trans[pvsyst.reg_trans['poa']][0]
+
+        grps_flt = cpd.filter_grps(grps, pvsyst.rc, poa_col, 0.8, 1.2)
+
+        self.assertIsInstance(grps_flt, pd.core.groupby.groupby.DataFrameGroupBy,
+                              'Returned object is not a dataframe groupby.')
+
+        self.assertEqual(grps.ngroups, grps_flt.ngroups,
+                         'Returned groubpy does not have the same number of\
+                          groups as passed groupby.')
+
+        cnts_before_flt = grps.count()[poa_col]
+        cnts_after_flt = grps_flt.count()[poa_col]
+        less_than = all(cnts_after_flt < cnts_before_flt)
+        self.assertTrue(less_than, 'Points were not removed for each group.')
 
 if __name__ == '__main__':
     unittest.main()

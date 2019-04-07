@@ -289,6 +289,37 @@ def flt_irr(df, irr_col, low, high, ref_val=None):
     return df.loc[indx, :]
 
 
+def filter_grps(grps, rcs, irr_col, low, high):
+    """
+    Apply irradiance filter around passsed reporting irradiances to groupby.
+
+    For each group in the grps argument the irradiance is filtered by a
+    percentage around the reporting irradiance provided in rcs.
+
+    Parameters
+    ----------
+    grps : pandas groupby
+        Groupby object with time groups (months, seasons, etc.).
+    rcs : pandas DataFrame
+        Dataframe of reporting conditions.  Use the rep_cond method to generate
+        a dataframe for this argument.
+
+    Returns
+    -------
+    pandas groupby
+    """
+    flt_dfs = []
+    freq = list(grps.groups.keys())[0].freq
+    for grp_name, grp_df in grps:
+        ref_val = rcs.loc[grp_name, 'poa']
+        grp_df_flt = flt_irr(grp_df, irr_col, low, high, ref_val=ref_val)
+        flt_dfs.append(grp_df_flt)
+    df_flt = pd.concat(flt_dfs)
+    df_flt_grpby = df_flt.groupby(pd.Grouper(freq=freq, label='left'))
+    return df_flt_grpby
+
+
+
 def irrRC_balanced(df, low, high, irr_col='GlobInc', plot=False):
     """
     Calculates max irradiance reporting condition that is below 60th percentile.
@@ -1502,7 +1533,7 @@ class CapData(object):
         else:
             return RCs_df
 
-    # def pred_rcs(self):
+    # def pred_rcs(self, freq='M'):
     #     """
     #     Calculate expected capacities.
     #
