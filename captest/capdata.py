@@ -388,6 +388,101 @@ def irrRC_balanced(df, low, high, irr_col='GlobInc', plot=False):
         plt.show()
     return(irr_RC, flt_df)
 
+
+def fit_model(df, fml='power ~ poa + I(poa * poa) + I(poa * t_amb) + I(poa * w_vel) - 1'):
+    """
+    Fits linear regression using statsmodels to dataframe passed.
+
+    Dataframe must be first argument for use with pandas groupby object
+    apply method.
+
+    Parameters
+    ----------
+    df : pandas dataframe
+    fml : str
+        Formula to fit refer to statsmodels and patsy documentation for format.
+        Default is the formula in ASTM E2848.
+
+    Returns
+    -------
+    Statsmodels linear model regression results wrapper object.
+    """
+    mod = smf.ols(formula=fml, data=df)
+    reg = mod.fit()
+    return reg
+
+
+def predict(regs, rcs):
+    """
+    Calculates predicted values for given linear models and predictor values.
+
+    Evaluates the first linear model in the iterable with the first row of the
+    predictor values in the dataframe.  Passed arguments must be aligned.
+
+    Parameters
+    ----------
+    regs : iterable of statsmodels regression results wrappers
+    rcs : pandas dataframe
+        Dataframe of predictor values used to evaluate each linear model.
+        The column names must match the strings used in the regression formuala.
+
+    Returns
+    -------
+    Pandas series of predicted values.
+    """
+    pred_cap = pd.Series()
+    for i, mod in enumerate(regs):
+        RC_df = pd.DataFrame(rcs.iloc[i, :]).T
+        pred_cap = pred_cap.append(mod.predict(RC_df))
+    return pred_cap
+
+
+def pred_summary(grps, rcs, allowance, **kwargs):
+    """
+    Creates summary table of reporting conditions, pred cap, and gauranteed cap.
+
+    This method does not calculate reporting conditions.
+
+    Parameters
+    ----------
+    grps : pandas groupby object
+        Solar data grouped by season or month used to calculate reporting
+        conditions.  This argument is used to fit models for each group.
+    rcs : pandas dataframe
+        Dataframe of reporting conditions used to predict capacities.
+    allowance : float
+        Percent allowance to calculate gauranteed capacity from predicted capacity.
+
+    Returns
+    -------
+    Dataframe of reporting conditions, model coefficients, predicted capacities
+    gauranteed capacities, and points in each grouping.
+    """
+
+    regs = grps.apply(fit_model, **kwargs)
+    predictions = predict(regs, rcs)
+    params = regs.apply(lambda x: x.params.transpose())
+    pt_qty = grps.agg('count').iloc[:, 0]
+    predictions.index = pt_qty.index
+
+    params.index = pt_qty.index
+    rcs.index = pt_qty.index
+    predictions.name = 'PredCap'
+
+    for rc_col_name in rcs.columns:
+        for param_col_name in params.columns:
+            if rc_col_name == param_col_name:
+                params.rename(columns={param_col_name: param_col_name + '-param'},
+                              inplace=True)
+
+    results = pd.concat([rcs, predictions, params], axis=1)
+
+    results['guaranteedCap'] = results['PredCap'] * (1 - allowance)
+    results['pt_qty'] = pt_qty.values
+
+    return results
+
+
 def pvlib_location(loc):
     """
     Creates a pvlib location object.
