@@ -688,6 +688,26 @@ class TestRepCondFreq(unittest.TestCase):
                          'Rep conditions dataframe does not have 4 rows.')
 
 
+class TestPredictCapacities(unittest.TestCase):
+    def setUp(self):
+        self.pvsyst = pvc.CapData('pvsyst')
+        self.pvsyst.load_data(path='./tests/data/',
+                              fname='pvsyst_example_HourlyRes_2.CSV',
+                              load_pvsyst=True)
+        self.pvsyst.set_reg_trans(power='real_pwr--', poa='irr-poa-',
+                                 t_amb='temp-amb-', w_vel='wind--')
+        self.pvsyst.filter_irr(200, 800)
+        self.pvsyst.tolerance = '+/- 5'
+
+    def test_monthly(self):
+        self.pvsyst.rep_cond(freq='M')
+        pred_caps = self.pvsyst.predict_capacities(irr_flt=True, perc_flt=20)
+        self.assertIsInstance(pred_caps, pd.core.frame.DataFrame,
+                              'Returned object is not a Dataframe.')
+        self.assertEqual(pred_caps.shape[0], 12,
+                         'Predicted capacities does not have 12 rows.')
+
+
 class TestFilterIrr(unittest.TestCase):
     def setUp(self):
         self.meas = pvc.CapData('meas')

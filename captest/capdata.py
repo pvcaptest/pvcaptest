@@ -1633,48 +1633,41 @@ class CapData(object):
         else:
             return RCs_df
 
-    # def pred_rcs(self, freq='M'):
-    #     """
-    #     Calculate expected capacities.
-    #
-    #     pred: boolean, default False
-    #         If true and frequency is specified, then method returns a dataframe
-    #         with reporting conditions, regression parameters, predicted
-    #         capacites, and point quantities for each group.
-    #     """
-    #             if predict:
-    #                 if irr_bal:
-    #                     RCs_df = pd.DataFrame()
-    #                     flt_dfs = pd.DataFrame()
-    #                     for name, mnth in df_grpd:
-    #                         results = irrRC_balanced(mnth, *args, irr_col='poa',
-    #                                                  **kwargs)
-    #                         flt_df = results[1]
-    #                         flt_dfs = flt_dfs.append(results[1])
-    #                         temp_RC = flt_df['t_amb'].mean()
-    #                         wind_RC = flt_df['w_vel'].mean()
-    #                         if w_vel is not None:
-    #                             wind_RC = w_vel
-    #                         RCs_df = RCs_df.append({'poa': results[0],
-    #                                                 't_amb': temp_RC,
-    #                                                 'w_vel': wind_RC}, ignore_index=True)
-    #                     df_grpd = flt_dfs.groupby(by=pd.Grouper(freq='M'))
-    #
-    #                 error = float(self.tolerance.split(sep=' ')[1]) / 100
-    #                 results = pred_summary(df_grpd, RCs_df, error,
-    #                                        fml=self.reg_fml)
-    #
-    #         if inplace:
-    #             if pred:
-    #                 print('Results dataframe saved to rc attribute.')
-    #                 print(results)
-    #                 self.rc = results
-    #             else:
-    #                 print('Reporting conditions saved to rc attribute.')
-    #                 print(RCs)
-    #                 self.rc = RCs
-    #         else:
-    #             if pred:
-    #                 return results
-    #             else:
-    #                 return RCs
+    def predict_capacities(self, irr_flt=True, perc_flt=20):
+        """
+        Calculate expected capacities.
+
+        Parameters
+        ----------
+        irr_flt : bool, default True
+        perc_flt : float or int or tuple, default 20
+            Percentage or tuple of percentages used to filter around reporting
+            irradiance in the irrRC_balanced function.  Required argument when
+            irr_bal is True.
+            Tuple option allows specifying different percentage for above and
+            below reporting irradiance. (below, above)
+        """
+        df = self.rview(['poa', 't_amb', 'w_vel', 'power'],
+                        filtered_data=True)
+        df = df.rename(columns={df.columns[0]: 'poa',
+                                df.columns[1]: 't_amb',
+                                df.columns[2]: 'w_vel',
+                                df.columns[3]: 'power'})
+
+        if self.rc is None:
+            return warnings.warn('Reporting condition attribute is None.\
+                                 Use rep_cond to generate RCs.')
+
+        low, high = perc_bounds(perc_flt)
+
+        grps = df.groupby(by=pd.Grouper(freq=self.rc.index.freq,
+                          label='left'))
+
+        if irr_flt:
+            grps = filter_grps(grps, self.rc, 'poa', low, high)
+
+        error = float(self.tolerance.split(sep=' ')[1]) / 100
+        results = pred_summary(grps, self.rc, error,
+                               fml=self.reg_fml)
+
+        return results
