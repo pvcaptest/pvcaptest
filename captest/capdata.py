@@ -738,6 +738,10 @@ class CapData(object):
     reg_fml : str
         Regression formula to be fit to measured and simulated data.  Must
         follow the requirements of statsmodels use of patsy.
+    tolerance : str
+        String representing error band.  Ex. '+ 3', '+/- 3', '- 5'
+        There must be space between the sign and number. Number is
+        interpreted as a percent.  For example, 5 percent is 5 not 0.05.
     """
 
     def __init__(self, name):
@@ -755,6 +759,7 @@ class CapData(object):
         self.rc = None
         self.ols_model = None
         self.reg_fml = 'power ~ poa + I(poa * poa) + I(poa * t_amb) + I(poa * w_vel) - 1'
+        self.tolerance = None
 
     def set_reg_trans(self, power='', poa='', t_amb='', w_vel=''):
         """
