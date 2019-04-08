@@ -1609,13 +1609,11 @@ class CapData(object):
             if irr_bal:
                 low, high = perc_bounds(perc_flt)
                 RCs_df = pd.DataFrame()
-                flt_dfs = pd.DataFrame()
 
                 for name, mnth in df_grpd:
                     results = irrRC_balanced(mnth, low, high, irr_col='poa',
                                              **kwargs)
                     flt_df = results[1]
-                    flt_dfs = flt_dfs.append(results[1])
                     temp_RC = flt_df['t_amb'].mean()
                     wind_RC = flt_df['w_vel'].mean()
                     RCs_df = RCs_df.append({'poa': results[0],
