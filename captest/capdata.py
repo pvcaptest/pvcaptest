@@ -1602,23 +1602,28 @@ class CapData(object):
             # 'BQ-JAN', 'BQ-FEB', 'BQ-APR', 'BQ-MAY', 'BQ-JUL',
             # 'BQ-AUG', 'BQ-OCT', 'BQ-NOV'
             df = wrap_seasons(df, freq)
-
             df_grpd = df.groupby(pd.Grouper(freq=freq, label='left'))
-            RCs_df = df_grpd.agg(func)
 
             if irr_bal:
+                freq = list(df_grpd.groups.keys())[0].freq
+                ix = pd.DatetimeIndex(list(df_grpd.groups.keys()), freq=freq)
                 low, high = perc_bounds(perc_flt)
-                RCs_df = pd.DataFrame()
-
+                poa_RC = []
+                temp_RC = []
+                wind_RC = []
                 for name, mnth in df_grpd:
                     results = irrRC_balanced(mnth, low, high, irr_col='poa',
                                              **kwargs)
+                    poa_RC.append(results[0])
                     flt_df = results[1]
-                    temp_RC = flt_df['t_amb'].mean()
-                    wind_RC = flt_df['w_vel'].mean()
-                    RCs_df = RCs_df.append({'poa': results[0],
-                                            't_amb': temp_RC,
-                                            'w_vel': wind_RC}, ignore_index=True)
+                    temp_RC.append(flt_df['t_amb'].mean())
+                    wind_RC.append(flt_df['w_vel'].mean())
+                RCs_df = pd.DataFrame({'poa': poa_RC,
+                                        't_amb': temp_RC,
+                                        'w_vel': wind_RC}, index=ix)
+            else:
+                RCs_df = df_grpd.agg(func)
+
             if w_vel is not None:
                 RCs_df['w_vel'] = w_vel
 
