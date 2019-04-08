@@ -1605,7 +1605,6 @@ class CapData(object):
 
             df_grpd = df.groupby(pd.Grouper(freq=freq, label='left'))
             RCs_df = df_grpd.agg(func)
-            # RCs = RCs_df.to_dict('list')
 
             if irr_bal:
                 low, high = perc_bounds(perc_flt)
@@ -1622,7 +1621,6 @@ class CapData(object):
                     RCs_df = RCs_df.append({'poa': results[0],
                                             't_amb': temp_RC,
                                             'w_vel': wind_RC}, ignore_index=True)
-                # df_grpd = flt_dfs.groupby(by=pd.Grouper(freq='M'))
             if w_vel is not None:
                 RCs_df['w_vel'] = w_vel
 
