@@ -212,6 +212,10 @@ def wrap_seasons(df, freq):
                 'AUG': 8, 'OCT': 10, 'NOV': 11}
 
     if freq in check_freqs:
+        warnings.warn('DataFrame index adjusted to be continous through new'
+                      'year, but not returned or set to attribute for user.'
+                      'This is not an issue if using RCs with'
+                      'predict_capacities.')
         if isinstance(freq, str):
             mnth = mnth_int[freq.split('-')[1]]
         else:
