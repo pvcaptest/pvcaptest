@@ -707,6 +707,23 @@ class TestPredictCapacities(unittest.TestCase):
         self.assertEqual(pred_caps.shape[0], 12,
                          'Predicted capacities does not have 12 rows.')
 
+    def test_no_irr_flt(self):
+        self.pvsyst.rep_cond(freq='M')
+        pred_caps = self.pvsyst.predict_capacities(irr_flt=False)
+        self.assertIsInstance(pred_caps, pd.core.frame.DataFrame,
+                              'Returned object is not a Dataframe.')
+        self.assertEqual(pred_caps.shape[0], 12,
+                         'Predicted capacities does not have 12 rows.')
+
+    def test_rc_from_irrBal(self):
+        self.pvsyst.rep_cond(freq='M', irr_bal=True, perc_flt=20)
+        pred_caps = self.pvsyst.predict_capacities(irr_flt=False)
+        self.assertIsInstance(pred_caps, pd.core.frame.DataFrame,
+                              'Returned object is {} not a\
+                               Dataframe.'.format(type(pred_caps)))
+        self.assertEqual(pred_caps.shape[0], 12,
+                         'Predicted capacities does not have 12 rows.')
+
 
 class TestFilterIrr(unittest.TestCase):
     def setUp(self):
