@@ -212,7 +212,10 @@ def wrap_seasons(df, freq):
                 'AUG': 8, 'OCT': 10, 'NOV': 11}
 
     if freq in check_freqs:
-        mnth = mnth_int[freq.split('-')[1]]
+        if isinstance(freq, str):
+            mnth = mnth_int[freq.split('-')[1]]
+        else:
+            mnth = freq.startingMonth
         year = df.index[0].year
         mnths_eoy = 12 - mnth
         mnths_boy = 3 - mnths_eoy
@@ -1660,9 +1663,9 @@ class CapData(object):
                                  Use rep_cond to generate RCs.')
 
         low, high = perc_bounds(perc_flt)
-
-        grps = df.groupby(by=pd.Grouper(freq=self.rc.index.freq,
-                          label='left'))
+        freq = self.rc.index.freq
+        df = wrap_seasons(df, freq)
+        grps = df.groupby(by=pd.Grouper(freq=freq, label='left'))
 
         if irr_flt:
             grps = filter_grps(grps, self.rc, 'poa', low, high)

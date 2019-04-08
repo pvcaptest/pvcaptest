@@ -724,6 +724,16 @@ class TestPredictCapacities(unittest.TestCase):
         self.assertEqual(pred_caps.shape[0], 12,
                          'Predicted capacities does not have 12 rows.')
 
+    def test_seasonal_freq(self):
+        self.pvsyst.rep_cond(freq='BQ-NOV')
+        pred_caps = self.pvsyst.predict_capacities(irr_flt=True, perc_flt=20)
+        self.assertIsInstance(pred_caps, pd.core.frame.DataFrame,
+                              'Returned object is {} not a\
+                               Dataframe.'.format(type(pred_caps)))
+        self.assertEqual(pred_caps.shape[0], 4,
+                         'Predicted capacities has {} rows instead of 4\
+                          rows.'.format(pred_caps.shape[0]))
+
 
 class TestFilterIrr(unittest.TestCase):
     def setUp(self):
