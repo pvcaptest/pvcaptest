@@ -1507,7 +1507,7 @@ class CapData(object):
             return df_flt
 
     @update_summary
-    def filter_pvsyst(self, data, shade=1.0, inplace=True):
+    def filter_pvsyst(self, shade=1.0, inplace=True):
         """
         Filter pvsyst data for shading and off mppt operation.
 
@@ -1515,11 +1515,8 @@ class CapData(object):
         Filters the 'IL Pmin', IL Vmin', 'IL Pmax', 'IL Vmax' values if they are
         greater than 0.
 
-
         Parameters
         ----------
-        data: str, 'sim'
-            This function is only intended to be run on simulated data.
         shade: float, default 1.0
             Filters on the PVsyst output variable FShdBm.  Default is to remove
             any averaging interval with FshdBm < 1.0.
