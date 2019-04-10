@@ -204,7 +204,9 @@ def wrap_seasons(df, freq):
 
     Todo
     ----
-    Write tests for this method.
+    Write unit test
+    BQ-NOV vs BQS vs QS
+        Need to review if BQ is the correct offset alias vs BQS or QS.
     """
     check_freqs = ['BQ-JAN', 'BQ-FEB', 'BQ-APR', 'BQ-MAY', 'BQ-JUL',
                    'BQ-AUG', 'BQ-OCT', 'BQ-NOV']
@@ -1598,8 +1600,7 @@ class CapData(object):
         freq: str
             String pandas offset alias to specify aggregattion frequency
             for reporting condition calculation. Ex '60D' for 60 Days or
-            'M' for months. Typical 'M', '2M', or 'BQ-NOV'.
-            'BQ-NOV' is business quarterly year ending in Novemnber i.e. seasons.
+            'MS' for months start.
         w_vel: int
             If w_vel is not none, then wind reporting condition will be set to
             value specified for predictions. Does not affect output unless pred
@@ -1610,7 +1611,7 @@ class CapData(object):
         **kwargs
             Passed to pandas Grouper to control label and closed side of
             intervals. See pandas Grouper doucmentation for details. Default is
-             left labeled and left closed.
+            left labeled and left closed.
 
 
         Returns
