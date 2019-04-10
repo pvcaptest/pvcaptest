@@ -296,7 +296,7 @@ def flt_irr(df, irr_col, low, high, ref_val=None):
     return df.loc[indx, :]
 
 
-def filter_grps(grps, rcs, irr_col, low, high):
+def filter_grps(grps, rcs, irr_col, low, high, **kwargs):
     """
     Apply irradiance filter around passsed reporting irradiances to groupby.
 
@@ -310,6 +310,10 @@ def filter_grps(grps, rcs, irr_col, low, high):
     rcs : pandas DataFrame
         Dataframe of reporting conditions.  Use the rep_cond method to generate
         a dataframe for this argument.
+    **kwargs
+        Passed to pandas Grouper to control label and closed side of intervals.
+        See pandas Grouper doucmentation for details. Default is left labeled
+        and left closed.
 
     Returns
     -------
@@ -322,7 +326,7 @@ def filter_grps(grps, rcs, irr_col, low, high):
         grp_df_flt = flt_irr(grp_df, irr_col, low, high, ref_val=ref_val)
         flt_dfs.append(grp_df_flt)
     df_flt = pd.concat(flt_dfs)
-    df_flt_grpby = df_flt.groupby(pd.Grouper(freq=freq, label='left'))
+    df_flt_grpby = df_flt.groupby(pd.Grouper(freq=freq, **kwargs))
     return df_flt_grpby
 
 
@@ -1604,6 +1608,9 @@ class CapData(object):
             When true updates object rc parameter, when false returns dicitionary
             of reporting conditions.
         **kwargs
+            Passed to pandas Grouper to control label and closed side of
+            intervals. See pandas Grouper doucmentation for details. Default is
+             left labeled and left closed.
 
 
         Returns
@@ -1644,7 +1651,7 @@ class CapData(object):
             # 'BQ-JAN', 'BQ-FEB', 'BQ-APR', 'BQ-MAY', 'BQ-JUL',
             # 'BQ-AUG', 'BQ-OCT', 'BQ-NOV'
             df = wrap_seasons(df, freq)
-            df_grpd = df.groupby(pd.Grouper(freq=freq, label='left'))
+            df_grpd = df.groupby(pd.Grouper(freq=freq, **kwargs))
 
             if irr_bal:
                 freq = list(df_grpd.groups.keys())[0].freq
@@ -1675,7 +1682,7 @@ class CapData(object):
         else:
             return RCs_df
 
-    def predict_capacities(self, irr_flt=True, perc_flt=20):
+    def predict_capacities(self, irr_flt=True, perc_flt=20, **kwargs):
         """
         Calculate expected capacities.
 
@@ -1688,6 +1695,12 @@ class CapData(object):
             irr_bal is True.
             Tuple option allows specifying different percentage for above and
             below reporting irradiance. (below, above)
+        **kwargs
+            NOTE: Should match kwargs used to calculate reporting conditions.
+            Passed to filter_grps which passes on to pandas Grouper to control
+            label and closed side of intervals.
+            See pandas Grouper doucmentation for details. Default is left
+            labeled and left closed.
         """
         df = self.rview(['poa', 't_amb', 'w_vel', 'power'],
                         filtered_data=True)
@@ -1703,7 +1716,7 @@ class CapData(object):
         low, high = perc_bounds(perc_flt)
         freq = self.rc.index.freq
         df = wrap_seasons(df, freq)
-        grps = df.groupby(by=pd.Grouper(freq=freq, label='left'))
+        grps = df.groupby(by=pd.Grouper(freq=freq, **kwargs))
 
         if irr_flt:
             grps = filter_grps(grps, self.rc, 'poa', low, high)
