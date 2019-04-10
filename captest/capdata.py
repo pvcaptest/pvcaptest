@@ -1690,6 +1690,9 @@ class CapData(object):
         Parameters
         ----------
         irr_flt : bool, default True
+            When true will filter each group of data by a percentage around the
+            reporting irradiance for that group.  The data groups are determined
+            from the reporting irradiance attribute.
         perc_flt : float or int or tuple, default 20
             Percentage or tuple of percentages used to filter around reporting
             irradiance in the irrRC_balanced function.  Required argument when
