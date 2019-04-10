@@ -326,7 +326,6 @@ def filter_grps(grps, rcs, irr_col, low, high):
     return df_flt_grpby
 
 
-
 def irrRC_balanced(df, low, high, irr_col='GlobInc', plot=False):
     """
     Calculates max irradiance reporting condition that is below 60th percentile.
@@ -1604,6 +1603,8 @@ class CapData(object):
         inplace: bool, True by default
             When true updates object rc parameter, when false returns dicitionary
             of reporting conditions.
+        **kwargs
+
 
         Returns
         -------
@@ -1627,8 +1628,7 @@ class CapData(object):
             else:
                 low, high = perc_bounds(perc_flt)
 
-                results = irrRC_balanced(df, low, high, irr_col='poa',
-                                         **kwargs)
+                results = irrRC_balanced(df, low, high, irr_col='poa')
                 flt_df = results[1]
                 temp_RC = flt_df['t_amb'].mean()
                 wind_RC = flt_df['w_vel'].mean()
@@ -1654,8 +1654,7 @@ class CapData(object):
                 temp_RC = []
                 wind_RC = []
                 for name, mnth in df_grpd:
-                    results = irrRC_balanced(mnth, low, high, irr_col='poa',
-                                             **kwargs)
+                    results = irrRC_balanced(mnth, low, high, irr_col='poa')
                     poa_RC.append(results[0])
                     flt_df = results[1]
                     temp_RC.append(flt_df['t_amb'].mean())
