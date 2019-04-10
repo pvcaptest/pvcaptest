@@ -700,12 +700,31 @@ class TestPredictCapacities(unittest.TestCase):
         self.pvsyst.tolerance = '+/- 5'
 
     def test_monthly(self):
-        self.pvsyst.rep_cond(freq='M')
+        self.pvsyst.rep_cond(freq='MS')
         pred_caps = self.pvsyst.predict_capacities(irr_flt=True, perc_flt=20)
+        july_grpby = pred_caps.loc['1990-07-01', 'PredCap']
+
         self.assertIsInstance(pred_caps, pd.core.frame.DataFrame,
                               'Returned object is not a Dataframe.')
         self.assertEqual(pred_caps.shape[0], 12,
                          'Predicted capacities does not have 12 rows.')
+
+        self.pvsyst.df_flt = self.pvsyst.df_flt.loc['7/1/90':'7/31/90', :]
+        self.pvsyst.rep_cond()
+        self.pvsyst.filter_irr(0.8, 1.2, ref_val=self.pvsyst.rc['poa'][0])
+        df = self.pvsyst.rview(['power', 'poa', 't_amb', 'w_vel'],
+                               filtered_data=True)
+        rename = {df.columns[0]: 'power',
+                  df.columns[1]: 'poa',
+                  df.columns[2]: 't_amb',
+                  df.columns[3]: 'w_vel'}
+        df = df.rename(columns=rename)
+        reg = cpd.fit_model(df)
+        july_manual = reg.predict(self.pvsyst.rc)[0]
+        self.assertEqual(july_manual, july_grpby,
+                         'Manual prediction for July {} is not equal'
+                         'to the predict_capacites groupby'
+                         'prediction {}'.format(july_manual, july_grpby))
 
     def test_no_irr_flt(self):
         self.pvsyst.rep_cond(freq='M')
