@@ -364,33 +364,6 @@ class CapTest(object):
                 self.flt_sim = self.sim.copy()
             return self.flt_sim
 
-    def filter_pf(self, data, pf):
-        """
-        Keep timestamps where all power factors are greater than or equal to pf.
-
-        Parameters
-        ----------
-        data: str
-            'sim' or 'das' determines if filter is on sim or das data
-        pf: float
-            0.999 or similar to remove timestamps with lower PF values
-        inplace : bool
-            Default true write back to CapTest.flt_sim or flt_das
-        """
-        flt_cd = self.__flt_setup(data)
-
-        for key in flt_cd.trans_keys:
-            if key.find('pf') == 0:
-                selection = key
-
-        df = flt_cd.df[flt_cd.trans[selection]]
-        flt_cd.df = flt_cd.df[(np.abs(df) >= pf).all(axis=1)]
-
-        if data == 'das':
-            self.flt_das = flt_cd
-        if data == 'sim':
-            self.flt_sim = flt_cd
-
     def filter_op_state(self, data, op_state, mult_inv=None, inplace=True):
         """
         Filter on inverter operation state.

@@ -886,6 +886,26 @@ class TestFilterTime(unittest.TestCase):
             self.pvsyst.filter_time(test_date='2/1/90')
 
 
+class TestFilterPF(unittest.TestCase):
+    def setUp(self):
+        self.meas = pvc.CapData('meas')
+        self.meas.load_data(path='./tests/data/', fname='nrel_data.csv',
+                            source='AlsoEnergy')
+        self.meas.set_reg_trans(power='', poa='irr-poa-',
+                                t_amb='temp--', w_vel='wind--')
+
+    def test_pf(self):
+        pf = np.ones(5)
+        pf = np.append(pf, np.ones(5) * -1)
+        pf = np.append(pf, np.arange(0, 1, 0.1))
+        self.meas.df['pf'] = np.tile(pf, 576)
+        self.meas.df_flt = self.meas.df.copy()
+        self.meas._CapData__set_trans()
+        self.meas.filter_pf(1)
+        self.assertEqual(self.meas.df_flt.shape[0], 5760,
+                         'Incorrect number of points removed.')
+
+
 class TestTopLevelFuncs(unittest.TestCase):
     def test_perc_bounds_perc(self):
         bounds = cpd.perc_bounds(20)

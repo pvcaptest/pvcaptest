@@ -1680,6 +1680,41 @@ class CapData(object):
         else:
             return self.df_flt[clf_1.predict(X1) == 1]
 
+    @update_summary
+    def filter_pf(self, pf, inplace=True):
+        """
+        Keep timestamps where all power factors are greater than or equal to
+        pf.
+
+        Parameters
+        ----------
+        pf: float
+            0.999 or similar to remove timestamps with lower PF values
+        inplace : bool
+            Default of true writes filtered dataframe back to df_flt attribute.
+
+        Returns
+        -------
+        Dataframe when inplace is False.
+
+        Todo
+        ----
+        Spec pf column
+            Increase options to specify which columns are used in the filter.
+        """
+        for key in self.trans_keys:
+            if key.find('pf') == 0:
+                selection = key
+
+        df = self.df_flt[self.trans[selection]]
+
+        df_flt = self.df_flt[(np.abs(df) >= pf).all(axis=1)]
+
+        if inplace:
+            self.df_flt = df_flt
+        else:
+            return df_flt
+
     def get_summary(self):
         """
         Prints summary dataframe of the filtering applied df_flt attribute.
