@@ -1715,6 +1715,74 @@ class CapData(object):
         else:
             return df_flt
 
+    def filter_op_state(self, op_state, mult_inv=None, inplace=True):
+        """
+        NOT CURRENTLY IMPLEMENTED - Filter on inverter operation state.
+
+        This filter is rarely useful in practice, but will be re-implemented
+        if requested.
+
+        Parameters
+        ----------
+        data : str
+            'sim' or 'das' determines if filter is on sim or das data
+        op_state : int
+            integer inverter operating state to keep
+        mult_inv : list of tuples, [(start, stop, op_state), ...]
+            List of tuples where start is the first column of an type of
+            inverter, stop is the last column and op_state is the operating
+            state for the inverter type.
+        inplace : bool, default True
+            When True writes over current filtered dataframe.  When False
+            returns CapData object.
+
+        Returns
+        -------
+        CapData
+            Returns filtered CapData object when inplace is False.
+
+        Todo
+        ----
+        Complete move to capdata
+            Needs to be updated to work as capdata rather than captest method.
+            Remove call to __flt_setup and related subsequent use of flt_cd.
+        """
+        pass
+        # if data == 'sim':
+        #     print('Method not implemented for pvsyst data.')
+        #     return None
+        #
+        # flt_cd = self.__flt_setup(data)
+        #
+        # for key in flt_cd.trans_keys:
+        #     if key.find('op') == 0:
+        #         selection = key
+        #
+        # df = flt_cd.df[flt_cd.trans[selection]]
+        # # print('df shape: {}'.format(df.shape))
+        #
+        # if mult_inv is not None:
+        #     return_index = flt_cd.df.index
+        #     for pos_tup in mult_inv:
+        #         # print('pos_tup: {}'.format(pos_tup))
+        #         inverters = df.iloc[:, pos_tup[0]:pos_tup[1]]
+        #         # print('inv shape: {}'.format(inverters.shape))
+        #         df_temp = flt_cd.df[(inverters == pos_tup[2]).all(axis=1)]
+        #         # print('df_temp shape: {}'.format(df_temp.shape))
+        #         return_index = return_index.intersection(df_temp.index)
+        #     flt_cd.df = flt_cd.df.loc[return_index, :]
+        # else:
+        #     flt_cd.df = flt_cd.df[(df == op_state).all(axis=1)]
+        #
+        # if inplace:
+        #     if data == 'das':
+        #         self.flt_das = flt_cd
+        #     if data == 'sim':
+        #         # should not run as 'sim' is not implemented
+        #         self.flt_sim = flt_cd
+        # else:
+        #     return flt_cd
+
     def get_summary(self):
         """
         Prints summary dataframe of the filtering applied df_flt attribute.
