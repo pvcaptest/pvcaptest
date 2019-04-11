@@ -364,22 +364,6 @@ class CapTest(object):
                 self.flt_sim = self.sim.copy()
             return self.flt_sim
 
-    def filter_missing(self, data, **kwargs):
-        """
-        Remove timestamps with missing data.
-
-        Parameters
-        ----------
-        data: str
-            'sim' or 'das' determines if filter is on sim or das data
-        """
-        flt_cd = self.__flt_setup(data)
-        flt_cd.df = flt_cd.df.dropna(axis=0, inplace=False, **kwargs)
-        if data == 'das':
-            self.flt_das = flt_cd
-        if data == 'sim':
-            self.flt_sim = flt_cd
-
     def __std_filter(self, series, std_devs=3):
         mean = series.mean()
         std = series.std()

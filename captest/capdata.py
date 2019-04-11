@@ -1715,6 +1715,51 @@ class CapData(object):
         else:
             return df_flt
 
+    @update_summary
+    def custom_filter(self, func, *args, **kwargs):
+        """
+        Applies update_summary to custom function.
+
+        Parameters
+        ----------
+        func : function
+            Any function that takes a dataframe as the first argument and
+            returns a dataframe.
+            Many pandas dataframe methods meet this requirement, like
+            pd.DataFrame.between_time.
+        *args
+            Additional positional arguments passed to func.
+        **kwds
+            Additional keyword arguments passed to func.
+
+        Examples
+        --------
+        Example use of the pandas dropna method to remove rows with missing
+        data.
+
+        >>> das.custom_filter(pd.DataFrame.dropna, axis=0, how='any')
+        >>> summary = das.get_summary()
+        >>> summary['pts_before_filter'][0]
+        1424
+        >>> summary['pts_removed'][0]
+        16
+
+        Example use of the pandas between_time method to remove time periods.
+
+        >>> das.reset_flt()
+        >>> das.custom_filter(pd.DataFrame.between_time, '9:00', '13:00')
+        >>> summary = das.get_summary()
+        >>> summary['pts_before_filter'][0]
+        245
+        >>> summary['pts_removed'][0]
+        1195
+        >>> das.df_flt.index[0].hour
+        9
+        >>> das.df_flt.index[-1].hour
+        13
+        """
+        self.df_flt = func(self.df_flt, *args, **kwargs)
+
     def filter_op_state(self, op_state, mult_inv=None, inplace=True):
         """
         NOT CURRENTLY IMPLEMENTED - Filter on inverter operation state.
@@ -1967,3 +2012,15 @@ class CapData(object):
                                fml=self.reg_fml)
 
         return results
+
+if __name__ == "__main__":
+    import doctest
+    import pandas as pd
+
+    das = CapData('das')
+    das.load_data(path='../examples/data/', fname='example_meas_data.csv',
+                  source='AlsoEnergy')
+    das.set_reg_trans(power='-mtr-', poa='irr-poa-', t_amb='temp-amb-',
+                      w_vel='wind--')
+
+    doctest.testmod()
