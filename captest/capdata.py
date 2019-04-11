@@ -187,6 +187,22 @@ def cntg_eoy(df, start, end):
     return df_return
 
 
+def spans_year(start_date, end_date):
+    """
+    Returns boolean indicating if dates passes are in the same year.
+
+    Parameters
+    ----------
+
+    start_date: pandas Timestamp
+    end_date: pandas Timestamp
+    """
+    if start_date.year != end_date.year:
+        return True
+    else:
+        return False
+
+
 def wrap_seasons(df, freq):
     """
     Rearrange an 8760 so a quarterly groupby will result in seasonal groups.
@@ -1549,6 +1565,85 @@ class CapData(object):
             self.df_flt = self.df_flt.loc[index, :]
         else:
             return self.df_flt.loc[index, :]
+
+    @update_summary
+    def filter_time(self, start=None, end=None, days=None, test_date=None,
+                    inplace=True, wrap_year=False):
+        """
+        Function wrapping pandas dataframe selection methods.
+
+        Parameters
+        ----------
+        start: str
+            Start date for data to be returned.  Must be in format that can be
+            converted by pandas.to_datetime.  Not required if test_date and days
+            arguments are passed.
+        end: str
+            End date for data to be returned.  Must be in format that can be
+            converted by pandas.to_datetime.  Not required if test_date and days
+            arguments are passed.
+        days: int
+            Days in time period to be returned.  Not required if start and end
+            are specified.
+        test_date: str
+            Must be format that can be converted by pandas.to_datetime.  Not
+            required if start and end are specified.  Requires days argument.
+            Time period returned will be centered on this date.
+        inplace : bool
+            Default true write back to CapTest.flt_sim or flt_das
+
+        Todo
+        ----
+        Add inverse options to remove time between start end rather than return
+        it
+        """
+        if start is not None and end is not None:
+            start = pd.to_datetime(start)
+            end = pd.to_datetime(end)
+            if wrap_year and spans_year(start, end):
+                df_temp = cntg_eoy(self.df_flt, start, end)
+            else:
+                df_temp = self.df_flt.loc[start:end, :]
+
+        if start is not None and end is None:
+            if days is None:
+                return warnings.warn("Must specify end date or days.")
+            else:
+                start = pd.to_datetime(start)
+                end = start + pd.DateOffset(days=days)
+                if wrap_year and spans_year(start, end):
+                    df_temp = cntg_eoy(self.df_flt, start, end)
+                else:
+                    df_temp = self.df_flt.loc[start:end, :]
+
+        if start is None and end is not None:
+            if days is None:
+                return warnings.warn("Must specify end date or days.")
+            else:
+                end = pd.to_datetime(end)
+                start = end - pd.DateOffset(days=days)
+                if wrap_year and spans_year(start, end):
+                    df_temp = cntg_eoy(self.df_flt, start, end)
+                else:
+                    df_temp = self.df_flt.loc[start:end, :]
+
+        if test_date is not None:
+            test_date = pd.to_datetime(test_date)
+            if days is None:
+                return warnings.warn("Must specify days")
+            else:
+                offset = pd.DateOffset(days=days // 2)
+                start = test_date - offset
+                end = test_date + offset
+                if wrap_year and spans_year(start, end):
+                    df_temp = cntg_eoy(self.df_flt, start, end)
+                else:
+                    df_temp = self.df_flt.loc[start:end, :]
+
+        if inplace:
+            self.df_flt = df_temp
+        else:
+            return df_temp
 
     def get_summary(self):
         """

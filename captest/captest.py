@@ -61,22 +61,6 @@ def highlight_pvals(s):
     return ['background-color: yellow' if v else '' for v in is_greaterthan]
 
 
-def spans_year(start_date, end_date):
-    """
-    Returns boolean indicating if dates passes are in the same year.
-
-    Parameters
-    ----------
-
-    start_date: pandas Timestamp
-    end_date: pandas Timestamp
-    """
-    if start_date.year != end_date.year:
-        return True
-    else:
-        return False
-
-
 def equip_counts(df):
     """
     Returns list of integers that are a count of columns with the same name.
@@ -294,7 +278,6 @@ class CapTest(object):
         """
         pass
 
-
     def agg_sensors(self, data, irr='median', temp='mean', wind='mean',
                     real_pwr='sum', inplace=True, keep=True):
         """
@@ -381,94 +364,6 @@ class CapTest(object):
                 self.flt_sim = self.sim.copy()
             return self.flt_sim
 
-    @update_summary
-    def filter_time(self, data, start=None, end=None, days=None, test_date=None,
-                    inplace=True):
-        """
-        Function wrapping pandas dataframe selection methods.
-
-        Parameters
-        ----------
-        data: str
-            'sim' or 'das' determines if filter is on sim or das data
-        start: str
-            Start date for data to be returned.  Must be in format that can be
-            converted by pandas.to_datetime.  Not required if test_date and days
-            arguments are passed.
-        end: str
-            End date for data to be returned.  Must be in format that can be
-            converted by pandas.to_datetime.  Not required if test_date and days
-            arguments are passed.
-        days: int
-            Days in time period to be returned.  Not required if start and end
-            are specified.
-        test_date: str
-            Must be format that can be converted by pandas.to_datetime.  Not
-            required if start and end are specified.  Requires days argument.
-            Time period returned will be centered on this date.
-        inplace : bool
-            Default true write back to CapTest.flt_sim or flt_das
-
-        Todo
-        ----
-        Add inverse options to remove time between start end rather than return
-        it
-        """
-        flt_cd = self.__flt_setup(data)
-
-        if start != None and end != None:
-            start = pd.to_datetime(start)
-            end = pd.to_datetime(end)
-            if data == 'sim' and spans_year(start, end):
-                flt_cd.df = cntg_eoy(flt_cd.df, start, end)
-            else:
-                flt_cd.df = flt_cd.df.loc[start:end, :]
-
-        if start != None and end == None:
-            if days == None:
-                print("Must specify end date or days.")
-            else:
-                start = pd.to_datetime(start)
-                end = start + pd.DateOffset(days=days)
-                if data == 'sim' and spans_year(start, end):
-                    flt_cd.df = cntg_eoy(flt_cd.df, start, end)
-                else:
-                    flt_cd.df = flt_cd.df.loc[start:end, :]
-
-        if start == None and end != None:
-            if days == None:
-                print("Must specify end date or days.")
-            else:
-                end = pd.to_datetime(end)
-                start = end - pd.DateOffset(days=days)
-                if data == 'sim' and spans_year(start, end):
-                    flt_cd.df = cntg_eoy(flt_cd.df, start, end)
-                else:
-                    flt_cd.df = flt_cd.df.loc[start:end, :]
-
-        if test_date != None:
-            test_date = pd.to_datetime(test_date)
-            if days == None:
-                print("Must specify days")
-                return
-            else:
-                offset = pd.DateOffset(days=days/2)
-                start = test_date - offset
-                end = test_date + offset
-                if data == 'sim' and spans_year(start, end):
-                    flt_cd.df = cntg_eoy(flt_cd.df, start, end)
-                else:
-                    flt_cd.df = flt_cd.df.loc[start:end, :]
-
-        if inplace:
-            if data == 'das':
-                self.flt_das = flt_cd
-            if data == 'sim':
-                self.flt_sim = flt_cd
-        else:
-            return flt_cd
-
-    @update_summary
     def filter_outliers(self, data, inplace=True, **kwargs):
         """
         Apply eliptic envelope from scikit-learn to remove outliers.
@@ -507,7 +402,6 @@ class CapTest(object):
         else:
             return flt_cd
 
-    @update_summary
     def filter_pf(self, data, pf):
         """
         Keep timestamps where all power factors are greater than or equal to pf.
@@ -535,7 +429,6 @@ class CapTest(object):
         if data == 'sim':
             self.flt_sim = flt_cd
 
-    @update_summary
     def filter_op_state(self, data, op_state, mult_inv=None, inplace=True):
         """
         Filter on inverter operation state.
@@ -594,7 +487,6 @@ class CapTest(object):
         else:
             return flt_cd
 
-    @update_summary
     def filter_missing(self, data, **kwargs):
         """
         Remove timestamps with missing data.
@@ -628,7 +520,6 @@ class CapTest(object):
             sens_2 = df.iloc[:, 1]
             return df[abs((sens_1 - sens_2) / sens_1) <= perc_diff].index
 
-    @update_summary
     def filter_sensors(self, data, skip_strs=[], perc_diff=0.05, inplace=True,
                        reg_trans=True):
         """
@@ -702,7 +593,6 @@ class CapTest(object):
         else:
             return cd_obj
 
-    @update_summary
     def filter_clearsky(self, data, window_length=20, ghi_col=None, inplace=True,
                         **kwargs):
         """
@@ -779,7 +669,6 @@ class CapTest(object):
         else:
             return cd_obj
 
-    @update_summary
     def reg_cpt(self, data, filter=False, inplace=True, summary=True):
         """
         Performs regression with statsmodels on filtered data.
