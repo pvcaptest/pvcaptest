@@ -364,44 +364,6 @@ class CapTest(object):
                 self.flt_sim = self.sim.copy()
             return self.flt_sim
 
-    def filter_outliers(self, data, inplace=True, **kwargs):
-        """
-        Apply eliptic envelope from scikit-learn to remove outliers.
-
-        Parameters
-        ----------
-        data: str
-            'sim' or 'das' determines if filter is on sim or das data
-        inplace : bool
-            Default true write back to CapTest.flt_sim or flt_das
-        kwargs
-            Passed to sklearn EllipticEnvelope.  Contamination keyword
-            is useful to adjust proportion of outliers in dataset.
-            Default is 0.04.
-        """
-        flt_cd = self.__flt_setup(data)
-
-        XandY = flt_cd.rview(['poa', 'power'])
-        X1 = XandY.values
-
-        if 'support_fraction' not in kwargs.keys():
-            kwargs['support_fraction'] = 0.9
-        if 'contamination' not in kwargs.keys():
-            kwargs['contamination'] = 0.04
-
-        clf_1 = sk_cv.EllipticEnvelope(**kwargs)
-        clf_1.fit(X1)
-
-        flt_cd.df = flt_cd.df[clf_1.predict(X1) == 1]
-
-        if inplace:
-            if data == 'das':
-                self.flt_das = flt_cd
-            if data == 'sim':
-                self.flt_sim = flt_cd
-        else:
-            return flt_cd
-
     def filter_pf(self, data, pf):
         """
         Keep timestamps where all power factors are greater than or equal to pf.

@@ -1645,6 +1645,41 @@ class CapData(object):
         else:
             return df_temp
 
+    @update_summary
+    def filter_outliers(self, inplace=True, **kwargs):
+        """
+        Apply eliptic envelope from scikit-learn to remove outliers.
+
+        Parameters
+        ----------
+        inplace : bool
+            Default of true writes filtered dataframe back to df_flt attribute.
+        **kwargs
+            Passed to sklearn EllipticEnvelope.  Contamination keyword
+            is useful to adjust proportion of outliers in dataset.
+            Default is 0.04.
+        Todo
+        ----
+        Add plot option
+            Add option to return plot showing envelope with points not removed
+            alpha decreased.
+        """
+        XandY = self.rview(['poa', 'power'], filtered_data=True)
+        X1 = XandY.values
+
+        if 'support_fraction' not in kwargs.keys():
+            kwargs['support_fraction'] = 0.9
+        if 'contamination' not in kwargs.keys():
+            kwargs['contamination'] = 0.04
+
+        clf_1 = sk_cv.EllipticEnvelope(**kwargs)
+        clf_1.fit(X1)
+
+        if inplace:
+            self.df_flt = self.df_flt[clf_1.predict(X1) == 1]
+        else:
+            return self.df_flt[clf_1.predict(X1) == 1]
+
     def get_summary(self):
         """
         Prints summary dataframe of the filtering applied df_flt attribute.
