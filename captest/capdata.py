@@ -90,6 +90,7 @@ irr_sensors_defs = {'ref_cell': [['reference cell', 'reference', 'ref',
 
 columns = ['pts_before_filter', 'pts_removed', 'filter_arguments']
 
+
 def update_summary(func):
     """
     Todo
@@ -240,6 +241,7 @@ def wrap_seasons(df, freq):
         return df
     else:
         return df
+
 
 def perc_wrap(p):
     def numpy_percentile(x):
@@ -520,6 +522,7 @@ def pvlib_location(loc):
     """
     return Location(**loc)
 
+
 def pvlib_system(sys):
     """
     Creates a pvlib PVSystem or SingleAxisTracker object.
@@ -614,6 +617,7 @@ def get_tz_index(time_source, loc):
                               'does not match the timezone in the loc dict. '
                               'Using the timezone of the DataFrame.')
             return time_source.index
+
 
 def csky(time_source, loc=None, sys=None, concat=True, output='both'):
     """

@@ -52,74 +52,6 @@ from captest.capdata import CapData, met_keys
 warnings.filterwarnings(action='ignore', category=RuntimeWarning,
                         module='sklearn')
 
-columns = ['pts_before_filter', 'pts_removed', 'filter_arguments']
-
-
-def update_summary(func):
-    """
-    Todo
-    ----
-    not in place
-        Check if summary is updated when function is called with inplace=False.
-        It should not be.
-    """
-    @wraps(func)
-    def wrapper(self, *args, **kwargs):
-        if 'sim' in args:
-            pts_before = self.flt_sim.df.shape[0]
-            if pts_before == 0:
-                pts_before = self.sim.df.shape[0]
-                self.sim_mindex.append(('sim', 'sim_count'))
-                self.sim_summ_data.append({columns[0]: pts_before,
-                                           columns[1]: 0,
-                                           columns[2]: 'no filters'})
-        if 'das' in args:
-            pts_before = self.flt_das.df.shape[0]
-            if pts_before == 0:
-                pts_before = self.das.df.shape[0]
-                self.das_mindex.append(('das', 'das_count'))
-                self.das_summ_data.append({columns[0]: pts_before,
-                                           columns[1]: 0,
-                                           columns[2]: 'no filters'})
-
-        ret_val = func(self, *args, **kwargs)
-
-        arg_str = args.__repr__()
-        lst = arg_str.split(',')
-        arg_lst = [item.strip("'() ") for item in lst]
-        arg_lst_one = arg_lst[0]
-        if arg_lst_one == 'das' or arg_lst_one == 'sim':
-            arg_lst = arg_lst[1:]
-        arg_str = ', '.join(arg_lst)
-
-        kwarg_str = kwargs.__repr__()
-        kwarg_str = kwarg_str.strip('{}')
-
-        if len(arg_str) == 0 and len(kwarg_str) == 0:
-            arg_str = 'no arguments'
-        elif len(arg_str) == 0:
-            arg_str = kwarg_str
-        else:
-            arg_str = arg_str + ', ' + kwarg_str
-
-        if 'sim' in args:
-            pts_after = self.flt_sim.df.shape[0]
-            pts_removed = pts_before - pts_after
-            self.sim_mindex.append(('sim', func.__name__))
-            self.sim_summ_data.append({columns[0]: pts_after,
-                                       columns[1]: pts_removed,
-                                       columns[2]: arg_str})
-        if 'das' in args:
-            pts_after = self.flt_das.df.shape[0]
-            pts_removed = pts_before - pts_after
-            self.das_mindex.append(('das', func.__name__))
-            self.das_summ_data.append({columns[0]: pts_after,
-                                       columns[1]: pts_removed,
-                                       columns[2]: arg_str})
-
-        return ret_val
-    return wrapper
-
 
 def highlight_pvals(s):
     """
@@ -127,81 +59,6 @@ def highlight_pvals(s):
     """
     is_greaterthan = s >= 0.05
     return ['background-color: yellow' if v else '' for v in is_greaterthan]
-
-
-def perc_wrap(p):
-    def numpy_percentile(x):
-        return np.percentile(x.T, p, interpolation='nearest')
-    return numpy_percentile
-
-
-def irrRC_balanced(df, low, high, irr_col='GlobInc', plot=False):
-    """
-    Calculates max irradiance reporting condition that is below 60th percentile.
-
-    Parameters
-    ----------
-    df: pandas DataFrame
-        DataFrame containing irradiance data for calculating the irradiance
-        reporting condition.
-    low: float
-        Bottom value for irradiance filter, usually between 0.5 and 0.8.
-    high: float
-        Top value for irradiance filter, usually between 1.2 and 1.5.
-    irr_col: str
-        String that is the name of the column with the irradiance data.
-    plot: bool, default False
-        Plots graphical view of algorithim searching for reporting irradiance.
-        Useful for troubleshooting or understanding the method.
-
-    Returns
-    -------
-    Tuple
-        Float reporting irradiance and filtered dataframe.
-
-    """
-    if plot:
-        irr = df[irr_col].values
-        x = np.ones(irr.shape[0])
-        plt.plot(x, irr, 'o', markerfacecolor=(0.5, 0.7, 0.5, 0.1))
-        plt.ylabel('irr')
-        x_inc = 1.01
-
-    vals_above = 10
-    perc = 100.
-    pt_qty = 0
-    loop_cnt = 0
-    pt_qty_array = []
-    # print('--------------- MONTH START --------------')
-    while perc > 0.6 or pt_qty < 50:
-        # print('####### LOOP START #######')
-        df_count = df.shape[0]
-        df_perc = 1 - (vals_above / df_count)
-        # print('in percent: {}'.format(df_perc))
-        irr_RC = (df[irr_col].agg(perc_wrap(df_perc * 100)))
-        # print('ref irr: {}'.format(irr_RC))
-        flt_df = flt_irr(df, irr_col, low, high, ref_val=irr_RC)
-        # print('number of vals: {}'.format(df.shape))
-        pt_qty = flt_df.shape[0]
-        # print('flt pt qty: {}'.format(pt_qty))
-        perc = stats.percentileofscore(flt_df[irr_col], irr_RC) / 100
-        # print('out percent: {}'.format(perc))
-        vals_above += 1
-        pt_qty_array.append(pt_qty)
-        if perc <= 0.6 and pt_qty <= pt_qty_array[loop_cnt - 1]:
-            break
-        loop_cnt += 1
-
-        if plot:
-            x_inc += 0.02
-            y1 = irr_RC * low
-            y2 = irr_RC * high
-            plt.plot(x_inc, irr_RC, 'ro')
-            plt.plot([x_inc, x_inc], [y1, y2])
-
-    if plot:
-        plt.show()
-    return(irr_RC, flt_df)
 
 
 def spans_year(start_date, end_date):
@@ -218,6 +75,36 @@ def spans_year(start_date, end_date):
         return True
     else:
         return False
+
+
+def equip_counts(df):
+    """
+    Returns list of integers that are a count of columns with the same name.
+
+    Todo
+    ----
+    Recycle
+        Determine if code might be useful somewhere.
+    """
+    equip_counts = {}
+    eq_cnt_lst = []
+    col_names = df.columns.tolist()
+    for i, col_name in enumerate(col_names):
+        # print('################')
+        # print('loop: {}'.format(i))
+        # print(col_name)
+        if i == 0:
+            equip_counts[col_name] = 1
+            eq_cnt_lst.append(equip_counts[col_name])
+            continue
+        if col_name not in equip_counts.keys():
+            equip_counts[col_name] = 1
+            eq_cnt_lst.append(equip_counts[col_name])
+        else:
+            equip_counts[col_name] += 1
+            eq_cnt_lst.append(equip_counts[col_name])
+#         print(eq_cnt_lst[i])
+    return eq_cnt_lst
 
 
 class CapTest(object):
@@ -407,156 +294,6 @@ class CapTest(object):
         """
         pass
 
-    @update_summary
-    def rep_cond(self, data, *args, test_date=None, days=60, inplace=True,
-                 freq=None, func={'poa': perc_wrap(60), 't_amb': 'mean',
-                                  'w_vel': 'mean'},
-                 pred=False, irr_bal=False, w_vel=None, **kwargs):
-
-        """
-        Calculate reporting conditons.
-
-        NOTE: Can pass additional positional arguments for low/high irradiance
-        filter.
-
-        Parameters
-        ----------
-        data: str, 'sim' or 'das'
-            'sim' or 'das' determines if filter is on sim or das data
-        test_date: str, 'mm/dd/yyyy', optional
-            Date to center reporting conditions aggregation functions around.
-            When not used specified reporting conditions for all data passed
-            are returned grouped by the freq provided.
-        days: int, default 60
-            Number of days to use when calculating reporting conditons.
-            Typically no less than 30 and no more than 90.
-        inplace: bool, True by default
-            When true updates object rc parameter, when false returns dicitionary
-            of reporting conditions.
-        freq: str
-            String pandas offset alias to specify aggregattion frequency
-            for reporting condition calculation. Ex '60D' for 60 Days or
-            'M' for months. Typical 'M', '2M', or 'BQ-NOV'.
-            'BQ-NOV' is business quarterly year ending in Novemnber i.e. seasons.
-        func: callable, string, dictionary, or list of string/callables
-            Determines how the reporting condition is calculated.
-            Default is a dictionary poa - 60th numpy_percentile, t_amb - mean
-                                          w_vel - mean
-            Can pass a string function ('mean') to calculate each reporting
-            condition the same way.
-        pred: boolean, default False
-            If true and frequency is specified, then method returns a dataframe
-            with reporting conditions, regression parameters, predicted
-            capacites, and point quantities for each group.
-        irr_bal: boolean, default False
-            If true, pred is set to True, and frequency is specified then the
-            predictions for each group of reporting conditions use the
-            irrRC_balanced function to determine the reporting conditions.
-        w_vel: int
-            If w_vel is not none, then wind reporting condition will be set to
-            value specified for predictions. Does not affect output unless pred
-            is True and irr_bal is True.
-
-        Returns
-        -------
-        dict
-            Returns a dictionary of reporting conditions if inplace=False
-            otherwise returns None.
-        pandas DataFrame
-            If pred=True, then returns a pandas dataframe of results.
-        """
-        flt_cd = self.__flt_setup(data)
-        df = flt_cd.rview(['power', 'poa', 't_amb', 'w_vel'])
-        df = df.rename(columns={df.columns[0]: 'power',
-                                df.columns[1]: 'poa',
-                                df.columns[2]: 't_amb',
-                                df.columns[3]: 'w_vel'})
-
-        if test_date is not None:
-            date = pd.to_datetime(test_date)
-            offset = pd.DateOffset(days=days / 2)
-            start = date - offset
-            end = date + offset
-
-        if data == 'das' and test_date is not None:
-            if start < df.index[0]:
-                start = df.index[0]
-            if end > df.index[-1]:
-                end = df.index[-1]
-            df = df.loc[start:end, :]
-
-        elif data == 'sim' and test_date is not None:
-            if spans_year(start, end):
-                df = cntg_eoy(df, start, end)
-            else:
-                df = df.loc[start:end, :]
-
-        RCs = pd.DataFrame(df.agg(func)).T
-
-        check_freqs = ['BQ-JAN', 'BQ-FEB', 'BQ-APR', 'BQ-MAY', 'BQ-JUL',
-                       'BQ-AUG', 'BQ-OCT', 'BQ-NOV']
-        mnth_int = {'JAN': 1, 'FEB': 2, 'APR': 4, 'MAY': 5, 'JUL': 7,
-                    'AUG': 8, 'OCT': 10, 'NOV': 11}
-
-        if freq is not None and test_date is None:
-            if freq in check_freqs:
-                mnth = mnth_int[freq.split('-')[1]]
-                year = df.index[0].year
-                mnths_eoy = 12 - mnth
-                mnths_boy = 3 - mnths_eoy
-                if int(mnth) >= 10:
-                    str_date = str(mnths_boy) + '/' + str(year)
-                else:
-                    str_date = str(mnth) + '/' + str(year)
-                tdelta = df.index[1] - df.index[0]
-                date_to_offset = df.loc[str_date].index[-1].to_pydatetime()
-                start = date_to_offset + tdelta
-                end = date_to_offset + pd.DateOffset(years=1)
-                if mnth < 8 or mnth >= 10:
-                    df = cntg_eoy(df, start, end)
-                else:
-                    df = cntg_eoy(df, end, start)
-
-            df_grpd = df.groupby(pd.Grouper(freq=freq, label='right'))
-            RCs_df = df_grpd.agg(func)
-            RCs = RCs_df.to_dict('list')
-
-            if predict:
-                if irr_bal:
-                    RCs_df = pd.DataFrame()
-                    flt_dfs = pd.DataFrame()
-                    for name, mnth in df_grpd:
-                        results = irrRC_balanced(mnth, *args, irr_col='poa',
-                                                 **kwargs)
-                        flt_df = results[1]
-                        flt_dfs = flt_dfs.append(results[1])
-                        temp_RC = flt_df['t_amb'].mean()
-                        wind_RC = flt_df['w_vel'].mean()
-                        if w_vel is not None:
-                            wind_RC = w_vel
-                        RCs_df = RCs_df.append({'poa': results[0],
-                                                't_amb': temp_RC,
-                                                'w_vel': wind_RC}, ignore_index=True)
-                    df_grpd = flt_dfs.groupby(by=pd.Grouper(freq='M'))
-
-                error = float(self.tolerance.split(sep=' ')[1]) / 100
-                results = pred_summary(df_grpd, RCs_df, error,
-                                       fml=self.reg_fml)
-
-        if inplace:
-            if pred:
-                print('Results dataframe saved to rc attribute.')
-                print(results)
-                self.rc = results
-            else:
-                print('Reporting conditions saved to rc attribute.')
-                print(RCs)
-                self.rc = RCs
-        else:
-            if pred:
-                return results
-            else:
-                return RCs
 
     def agg_sensors(self, data, irr='median', temp='mean', wind='mean',
                     real_pwr='sum', inplace=True, keep=True):
@@ -631,14 +368,6 @@ class CapTest(object):
         """
         pass
 
-    """
-    Filtering methods must do the following:
-    -add name of filter, pts before, and pts after to a self.DataFrame
-    -possibly also add argument values filter function is called with
-    -check if this is the first filter function run, if True copy raw_data
-    -determine if filter methods return new object (copy data) or modify df
-    """
-
     def __flt_setup(self, data):
         """
         Returns the filtered sim or das CapData object or a copy of the raw data.
@@ -651,27 +380,6 @@ class CapTest(object):
             if self.flt_sim.empty():
                 self.flt_sim = self.sim.copy()
             return self.flt_sim
-
-    def reset_flt(self, data):
-        """
-        Copies over filtered dataframe with raw data and removes all summary
-        history.
-
-        Parameters
-        ----------
-        data : str
-            'sim' or 'das' determines if filter is on sim or das data.
-        """
-        if data == 'das':
-            self.flt_das = self.das.copy()
-            self.das_mindex = []
-            self.das_summ_data = []
-        elif data == 'sim':
-            self.flt_sim = self.sim.copy()
-            self.sim_mindex = []
-            self.sim_summ_data = []
-        else:
-            print("'data must be 'das' or 'sim'")
 
     @update_summary
     def filter_time(self, data, start=None, end=None, days=None, test_date=None,
@@ -826,45 +534,6 @@ class CapTest(object):
             self.flt_das = flt_cd
         if data == 'sim':
             self.flt_sim = flt_cd
-
-    @update_summary
-    def filter_irr(self, data, low, high, ref_val=None, inplace=True):
-        """
-        Filter on irradiance values.
-
-        Parameters
-        ----------
-        data : str
-            'sim' or 'das' determines if filter is on sim or das data
-        low : float or int
-            Minimum value as fraction (0.8) or absolute 200 (W/m^2)
-        high : float or int
-            Max value as fraction (1.2) or absolute 800 (W/m^2)
-        ref_val : float or int
-            Must provide arg when min/max are fractions
-        inplace : bool
-            Default true write back to CapTest.flt_sim or flt_das
-
-        Returns
-        -------
-        CapData object
-            Filtered CapData object if inplace is False.
-        """
-        flt_cd = self.__flt_setup(data)
-
-        df = flt_cd.rview('poa')
-        irr_col = df.columns[0]
-
-        df_flt = flt_irr(df, irr_col, low, high, ref_val=ref_val)
-        flt_cd.df = flt_cd.df.loc[df_flt.index, :]
-
-        if inplace:
-            if data == 'das':
-                self.flt_das = flt_cd
-            if data == 'sim':
-                self.flt_sim = flt_cd
-        else:
-            return flt_cd
 
     @update_summary
     def filter_op_state(self, data, op_state, mult_inv=None, inplace=True):
@@ -1312,32 +981,3 @@ class CapTest(object):
         sy = SEE * np.sqrt(leverage)
 
         return(sy)
-
-def equip_counts(df):
-    """
-    Returns list of integers that are a count of columns with the same name.
-
-    Todo
-    ----
-    Recycle
-        Determine if code might be useful somewhere.
-    """
-    equip_counts = {}
-    eq_cnt_lst = []
-    col_names = df.columns.tolist()
-    for i, col_name in enumerate(col_names):
-        # print('################')
-        # print('loop: {}'.format(i))
-        # print(col_name)
-        if i == 0:
-            equip_counts[col_name] = 1
-            eq_cnt_lst.append(equip_counts[col_name])
-            continue
-        if col_name not in equip_counts.keys():
-            equip_counts[col_name] = 1
-            eq_cnt_lst.append(equip_counts[col_name])
-        else:
-            equip_counts[col_name] += 1
-            eq_cnt_lst.append(equip_counts[col_name])
-#         print(eq_cnt_lst[i])
-    return eq_cnt_lst
