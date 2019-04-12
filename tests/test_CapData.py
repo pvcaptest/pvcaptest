@@ -906,6 +906,77 @@ class TestFilterPF(unittest.TestCase):
                          'Incorrect number of points removed.')
 
 
+class Test_Csky_Filter(unittest.TestCase):
+    """
+    Tests for filter_clearsky method.
+    """
+    def setUp(self):
+        self.meas = pvc.CapData('meas')
+        loc = {'latitude': 39.742, 'longitude': -105.18,
+               'altitude': 1828.8, 'tz': 'Etc/GMT+7'}
+        sys = {'surface_tilt': 40, 'surface_azimuth': 180,
+               'albedo': 0.2}
+        self.meas.load_data(path='./tests/data/', fname='nrel_data.csv',
+                       source='AlsoEnergy', clear_sky=True, loc=loc, sys=sys)
+
+    def test_default(self):
+        self.meas.filter_clearsky()
+
+        self.assertLess(self.meas.df_flt.shape[0],
+                        self.meas.df.shape[0],
+                        'Filtered dataframe should have less rows.')
+        self.assertEqual(self.meas.df_flt.shape[1],
+                         self.meas.df.shape[1],
+                         'Filtered dataframe should have equal number of cols.')
+        for i, col in enumerate(self.meas.df_flt.columns):
+            self.assertEqual(col, self.meas.df.columns[i],
+                             'Filter changed column {} to '
+                             '{}'.format(self.meas.df.columns[i], col))
+
+    def test_two_ghi_cols(self):
+        self.meas.df['ws 2 ghi W/m^2'] = self.meas.view('irr-ghi-') * 1.05
+        self.meas._CapData__set_trans()
+
+        with self.assertWarns(UserWarning):
+            self.meas.filter_clearsky()
+
+    def test_mult_ghi_categories(self):
+        cn = 'irrad ghi pyranometer W/m^2'
+        self.meas.df[cn] = self.meas.view('irr-ghi-') * 1.05
+        self.meas._CapData__set_trans()
+
+        with self.assertWarns(UserWarning):
+            self.meas.filter_clearsky()
+
+    def test_no_clear_ghi(self):
+        self.meas.drop_cols('ghi_mod_csky')
+
+        with self.assertWarns(UserWarning):
+            self.meas.filter_clearsky()
+
+    def test_specify_ghi_col(self):
+        self.meas.df['ws 2 ghi W/m^2'] = self.meas.view('irr-ghi-') * 1.05
+        self.meas._CapData__set_trans()
+        self.meas.df_flt = self.meas.df.copy()
+
+        self.meas.filter_clearsky(ghi_col='ws 2 ghi W/m^2')
+
+        self.assertLess(self.meas.df_flt.shape[0],
+                        self.meas.df.shape[0],
+                        'Filtered dataframe should have less rows.')
+        self.assertEqual(self.meas.df_flt.shape[1],
+                         self.meas.df.shape[1],
+                         'Filtered dataframe should have equal number of cols.')
+        for i, col in enumerate(self.meas.df_flt.columns):
+            self.assertEqual(col, self.meas.df.columns[i],
+                             'Filter changed column {} to '
+                             '{}'.format(self.meas.df.columns[i], col))
+
+    def test_no_clear_sky(self):
+        with self.assertWarns(UserWarning):
+            self.meas.filter_clearsky(window_length=2)
+
+
 class TestTopLevelFuncs(unittest.TestCase):
     def test_perc_bounds_perc(self):
         bounds = cpd.perc_bounds(20)

@@ -39,6 +39,7 @@ if pvlib_spec is not None:
     from pvlib.tracking import SingleAxisTracker
     from pvlib.pvsystem import retrieve_sam
     from pvlib.modelchain import ModelChain
+    from pvlib.clearsky import detect_clearsky
 else:
     warnings.warn('Clear sky functions will not work without the '
                   'pvlib package.')
@@ -1249,7 +1250,8 @@ class CapData(object):
 
         Parameters
         ----------
-        Columns (list) List of columns to drop.
+        Columns : list
+            List of columns to drop.
 
         Todo
         ----
@@ -1263,8 +1265,9 @@ class CapData(object):
                 except ValueError:
                     continue
         self.df.drop(columns, axis=1, inplace=True)
+        self.df_flt.drop(columns, axis=1, inplace=True)
 
-    def view(self, tkey):
+    def view(self, tkey, filtered_data=False):
         """
         Convience function returns columns using translation dictionary names.
 
@@ -1287,7 +1290,10 @@ class CapData(object):
         elif tkey in self.trans_keys:
             keys = self.trans[tkey]
 
-        return self.df[keys]
+        if filtered_data:
+            return self.df_flt[keys]
+        else:
+            return self.df[keys]
 
     def rview(self, ind_var, filtered_data=False):
         """
@@ -1839,6 +1845,75 @@ class CapData(object):
                 index = self.__sensor_filter(df, perc_diff)
 
         df_out = self.df_flt.loc[index, :]
+
+        if inplace:
+            self.df_flt = df_out
+        else:
+            return df_out
+
+    def filter_clearsky(self, window_length=20, ghi_col=None, inplace=True,
+                        **kwargs):
+        """
+        Uses pvlib detect_clearsky to remove periods with unstable irradiance.
+
+        The pvlib detect_clearsky function compares modeled clear sky ghi
+        against measured clear sky ghi to detect periods of clear sky.  Refer
+        to the pvlib documentation for additional information.
+
+        Parameters:
+        window_length : int, default 20
+            Length of sliding time window in minutes. Must be greater than 2
+            periods. Default of 20 works well for 5 minute data intervals.
+            pvlib default of 10 minutes works well for 1min data.
+        ghi_col : str, default None
+            By default uses data identified by the translation dictionary as
+            ghi and modeled ghi.  Issues warning if there is no modeled ghi
+            data, or the measured ghi data has not been aggregated.
+            Or, a column name for specific column of measured ghi data.
+        inplace : bool, default True
+            When true removes periods with unstable irradiance.  When false
+            returns pvlib detect_clearsky results, which by default is a series
+            of booleans.
+        **kwargs
+            kwargs are passed to pvlib detect_clearsky.  See pvlib documentation
+            for details.
+        """
+        if 'ghi_mod_csky' not in self.df_flt.columns:
+            return warnings.warn('Modeled clear sky data must be availabe to '
+                                 'run this filter method. Use CapData '
+                                 'load_data clear_sky option.')
+        if ghi_col is None:
+            ghi_keys = []
+            for key in self.trans_keys:
+                defs = key.split('-')
+                if len(defs) == 1:
+                    continue
+                if 'ghi' == key.split('-')[1]:
+                    ghi_keys.append(key)
+            ghi_keys.remove('irr-ghi-clear_sky')
+
+            if len(ghi_keys) > 1:
+                return warnings.warn('Too many ghi categories. Pass column '
+                                     'name to ghi_col to use a specific '
+                                     'column.')
+            else:
+                meas_ghi = ghi_keys[0]
+
+            meas_ghi = self.view(meas_ghi, filtered_data=False)
+            if meas_ghi.shape[1] > 1:
+                warnings.warn('Averaging measured GHI data.  Pass column name to '
+                              'ghi_col to use a specific column.')
+            meas_ghi = meas_ghi.mean(axis=1)
+        else:
+            meas_ghi = self.df_flt[ghi_col]
+
+        clear_per = detect_clearsky(meas_ghi, self.df_flt['ghi_mod_csky'],
+                                    meas_ghi.index, window_length, **kwargs)
+        if not any(clear_per):
+            return warnings.warn('No clear periods detected. Try increasing the'
+                                 ' window length.')
+
+        df_out = self.df_flt[clear_per]
 
         if inplace:
             self.df_flt = df_out
