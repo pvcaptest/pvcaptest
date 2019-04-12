@@ -1760,6 +1760,91 @@ class CapData(object):
         """
         self.df_flt = func(self.df_flt, *args, **kwargs)
 
+    def __std_filter(self, series, std_devs=3):
+        mean = series.mean()
+        std = series.std()
+        min_bound = mean - std * std_devs
+        max_bound = mean + std * std_devs
+        return all(series.apply(lambda x: min_bound < x < max_bound))
+
+    def __sensor_filter(self, df, perc_diff):
+        if df.shape[1] > 2:
+            return df[df.apply(self.__std_filter, axis=1)].index
+        elif df.shape[1] == 1:
+            return df.index
+        else:
+            sens_1 = df.iloc[:, 0]
+            sens_2 = df.iloc[:, 1]
+            return df[abs((sens_1 - sens_2) / sens_1) <= perc_diff].index
+
+    @update_summary
+    def filter_sensors(self, skip_strs=[], perc_diff=0.05, inplace=True,
+                       reg_trans=True):
+        """
+        Drop suspicious measurments by comparing values from different sensors.
+
+        Parameters
+        ----------
+        skip_strs : list like
+            Strings to search for in column label. If found, skip column.
+        perc_diff : float
+            Percent difference cutoff for readings of the same measurement from
+            different sensors.
+        inplace : bool, default True
+            If True, writes over current filtered dataframe. If False, returns
+            CapData object.
+        reg_trans : bool, default True
+            By default only filters using columns identified by the reg_trans
+            dictionary as poa, t_amb, w_vel.
+
+        Returns
+        -------
+        CapData
+            Returns filtered CapData if inplace is False.
+
+        Todo
+        ----
+        perc_diff dict
+            perc_diff can be dict of sensor type keys paired with per_diff
+            values
+        adjust standard deviation
+            Add kwarg for the number of standard deviations to filter. Argument
+            will be passed to __std_filter.
+        """
+        if reg_trans:
+            cols = self.reg_trans.values()
+        else:
+            cols = self.trans_keys
+
+        for i, label in enumerate(cols):
+            skip_col = False
+            if len(skip_strs) != 0:
+                for string in skip_strs:
+                    if label.find(string) != -1:
+                        skip_col = True
+            if skip_col:
+                continue
+            if 'index' in locals():
+                # if index has been assigned then take intersection
+                # print(label)
+                # print(pm.df[pm.trans[label]].head(1))
+                df = self.df_flt[self.trans[label]]
+                next_index = self.__sensor_filter(df, perc_diff)
+                index = index.intersection(next_index)
+            else:
+                # if index has not been assigned then assign it
+                # print(label)
+                # print(pm.df[pm.trans[label]].head(1))
+                df = self.df_flt[self.trans[label]]
+                index = self.__sensor_filter(df, perc_diff)
+
+        df_out = self.df_flt.loc[index, :]
+
+        if inplace:
+            self.df_flt = df_out
+        else:
+            return df_out
+
     def filter_op_state(self, op_state, mult_inv=None, inplace=True):
         """
         NOT CURRENTLY IMPLEMENTED - Filter on inverter operation state.
