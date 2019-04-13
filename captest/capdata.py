@@ -1501,6 +1501,60 @@ class CapData(object):
         else:
             return poa_cols[0]
 
+    def agg_sensors(self, irr='median', temp='mean', wind='mean',
+                    real_pwr='sum', inplace=True, keep=True):
+        """
+        Aggregate measurments of the same variable from different sensors.
+
+        Parameters
+        ----------
+        irr: str, default 'median'
+            Aggregates irradiance columns using the specified method.
+        temp: str, default 'mean'
+            Aggregates temperature columns using the specified method.
+        wind: str, default 'mean'
+            Aggregates wind speed columns using the specified method.
+        real_pwr: str, default 'sum'
+            Aggregates real power columns using the specified method.
+        inplace: bool, default True
+            True writes over current filtered dataframe.
+            False returns an aggregated dataframe.
+        keep: bool, default True
+            Keeps non regression columns in returned dataframe.
+
+        Returns
+        -------
+        CapData obj
+            If inplace is False, then returns a modified CapData object.
+        """
+        agg_series = []
+        agg_series.append((self.rview('poa', filtered_data=True)).agg(irr, axis=1))
+        agg_series.append((self.rview('t_amb', filtered_data=True)).agg(temp, axis=1))
+        agg_series.append((self.rview('w_vel', filtered_data=True)).agg(wind, axis=1))
+        agg_series.append((self.rview('power', filtered_data=True)).agg(real_pwr, axis=1))
+
+        comb_names = []
+        for key in met_keys:
+            comb_name = 'AGG-' + key
+            comb_names.append(comb_name)
+            if inplace:
+                self.trans[self.reg_trans[key]] = [comb_name, ]
+
+        temp_dict = {key: val for key, val in zip(comb_names, agg_series)}
+        df = pd.DataFrame(temp_dict)
+
+        if keep:
+            lst = []
+            for value in self.reg_trans.values():
+                lst.extend(self.trans[value])
+            sel = [i for i, name in enumerate(self.df_flt) if name not in lst]
+            df = pd.concat([df, self.df_flt.iloc[:, sel]], axis=1)
+
+        if inplace:
+            self.df_flt = df
+        else:
+            return df
+
     @update_summary
     def filter_irr(self, low, high, ref_val=None, col_name=None, inplace=True):
         """
