@@ -1524,23 +1524,24 @@ class CapData(object):
         agg_map : dict, default None
             Dictionary specifying types of aggregations to be performed for
             the column groups defined by the trans attribute.  The dictionary
-            keys should be aggregation functions or tuples of aggregation
-            functions.  The dictionary values should be keys or lists of keys
-            of the trans dictionary attribute.
-            By default an agg_map dictionary is created to aggregate the
+            keys should be keys of the trans dictionary attribute. The
+            dictionary values should be aggregation functions or lists of
+            aggregation functions.
+            By default an agg_map dictionary within the method to aggregate the
             regression parameters as follows:
             - sum power
             - mean of poa, t_amb, w_vel
         inplace: bool, default True
-            True writes over current filtered dataframe.
+            True writes over current filtered dataframe in df_flt attribute.
             False returns an aggregated dataframe.
         keep: bool, default True
-            Keeps non regression columns in returned dataframe.
+            Appends aggregation results columns to df_flt rather than returning
+            or overwriting df_flt with just the aggregation results.
 
         Returns
         -------
-        CapData obj
-            If inplace is False, then returns a modified CapData object.
+        DataFrame
+            If inplace is False, then returns a pandas DataFrame.
         """
         if agg_map is None:
             agg_map = {self.reg_trans['power']: 'sum',
@@ -1549,21 +1550,25 @@ class CapData(object):
                        self.reg_trans['w_vel']: 'mean'}
 
         dfs_to_concat = []
-        for agg_funcs, trans_keys in agg_map.items():
-            inverted = inv_trans_dict(self.trans, trans_keys=trans_keys)
-        #     print(inverted)
-            if isinstance(agg_funcs, tuple):
-                agg_funcs = list(agg_funcs)
-        #     print(type(agg_funcs))
-        #     print(agg_funcs)
-            grps = self.df.groupby(inverted, axis=1)
-            for name, df in grps:
-                agg = df.agg(agg_funcs, axis=1)
-                if isinstance(agg, pd.core.series.Series):
-                    agg = pd.DataFrame(agg)
-        #         print('name: {}'.format(name))
-                agg.rename(columns=(lambda x: name + str(x)), inplace=True)
-                dfs_to_concat.append(agg)
+        for trans_key, agg_funcs in agg_map.items():
+            df = self.view(trans_key, filtered_data=True)
+            df = df.agg(agg_funcs, axis=1)
+            # print('tkey: {}'.format(trans_key))
+            # print(type(df))
+            if not isinstance(agg_funcs, list):
+                if isinstance(agg_funcs, str):
+                    # print('in isinstance')
+                    df = pd.DataFrame(df)
+                    # print(type(df))
+                    col_name = trans_key + agg_funcs
+                    df.rename(columns={df.columns[0]: col_name}, inplace=True)
+                else:
+                    warnings.warn('Aggregation function for {} not\
+                                   concatenated to column\
+                                   name'.format(trans_key))
+            else:
+                df.rename(columns=(lambda x: trans_key + x), inplace=True)
+            dfs_to_concat.append(df)
 
 
         # agg_series = []
