@@ -1515,7 +1515,8 @@ class CapData(object):
         else:
             return poa_cols[0]
 
-    def agg_sensors(self, agg_map=None, inplace=True, keep=True):
+    def agg_sensors(self, agg_map=None, keep=True, update_reg_trans=True,
+                    inplace=True):
         """
         Aggregate measurments of the same variable from different sensors.
 
@@ -1531,12 +1532,16 @@ class CapData(object):
             regression parameters as follows:
             - sum power
             - mean of poa, t_amb, w_vel
-        inplace: bool, default True
-            True writes over current filtered dataframe in df_flt attribute.
-            False returns an aggregated dataframe.
-        keep: bool, default True
+        keep : bool, default True
             Appends aggregation results columns to df_flt rather than returning
             or overwriting df_flt with just the aggregation results.
+        update_reg_trans : bool, default True
+            By default updates the reg_trans dictionary attribute to map the
+            regression variable to the aggregation column. The reg_trans
+            attribute is not updated if inplace is False.
+        inplace : bool, default True
+            True writes over current filtered dataframe in df_flt attribute.
+            False returns an aggregated dataframe.
 
         Returns
         -------
@@ -1556,6 +1561,7 @@ class CapData(object):
             # print('tkey: {}'.format(trans_key))
             # print(type(df))
             if not isinstance(agg_funcs, list):
+                df = pd.DataFrame(df)
                 if isinstance(agg_funcs, str):
                     # print('in isinstance')
                     df = pd.DataFrame(df)
@@ -1563,9 +1569,11 @@ class CapData(object):
                     col_name = trans_key + agg_funcs
                     df.rename(columns={df.columns[0]: col_name}, inplace=True)
                 else:
-                    warnings.warn('Aggregation function for {} not\
-                                   concatenated to column\
-                                   name'.format(trans_key))
+                    col_name = trans_key + agg_funcs.__name__
+                    df.rename(columns={df.columns[0]: col_name}, inplace=True)
+                    # warnings.warn('Aggregation function for {} not\
+                    #                concatenated to column\
+                    #                name'.format(trans_key))
             else:
                 df.rename(columns=(lambda x: trans_key + x), inplace=True)
             dfs_to_concat.append(df)
@@ -1596,6 +1604,22 @@ class CapData(object):
             # df = pd.concat([df, self.df_flt.iloc[:, sel]], axis=1)
 
         if inplace:
+            if update_reg_trans:
+                for reg_var, trans_group in self.reg_trans.items():
+                    if trans_group in agg_map.keys():
+                        if isinstance(agg_map[trans_group], list):
+                            if len(agg_map[trans_group]) > 1:
+                                warn_str = 'Multiple aggregation functions\
+                                            specified for regression\
+                                            variable.  Reset reg_trans\
+                                            manually.'
+                                warnings.warn(warn_str)
+                                break
+                        try:
+                            agg_col = trans_group + agg_map[trans_group]
+                        except TypeError:
+                            agg_col = trans_group + col_name
+                        self.reg_trans[reg_var] = agg_col
             self.df_flt = pd.concat(dfs_to_concat, axis=1)
         else:
             return pd.concat(dfs_to_concat, axis=1)
