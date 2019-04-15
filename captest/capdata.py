@@ -141,6 +141,20 @@ def update_summary(func):
     return wrapper
 
 
+def inv_trans_dict(trans_dict, trans_keys=None):
+    inverted = {}
+    for col_type, lst_cols in trans_dict.items():
+        if len(lst_cols) > 1:
+            for col in lst_cols:
+                if col is not 'index':
+                    if trans_keys is not None:
+                        if col_type in trans_keys:
+                            inverted[col] = col_type
+                    else:
+                        inverted[col] = col_type
+    return inverted
+
+
 def cntg_eoy(df, start, end):
     """
     Shifts data before or after new year to form a contigous time period.
@@ -1501,21 +1515,22 @@ class CapData(object):
         else:
             return poa_cols[0]
 
-    def agg_sensors(self, irr='median', temp='mean', wind='mean',
-                    real_pwr='sum', inplace=True, keep=True):
+    def agg_sensors(self, agg_map=None, inplace=True, keep=True):
         """
         Aggregate measurments of the same variable from different sensors.
 
         Parameters
         ----------
-        irr: str, default 'median'
-            Aggregates irradiance columns using the specified method.
-        temp: str, default 'mean'
-            Aggregates temperature columns using the specified method.
-        wind: str, default 'mean'
-            Aggregates wind speed columns using the specified method.
-        real_pwr: str, default 'sum'
-            Aggregates real power columns using the specified method.
+        agg_map : dict, default None
+            Dictionary specifying types of aggregations to be performed for
+            the column groups defined by the trans attribute.  The dictionary
+            keys should be aggregation functions or tuples of aggregation
+            functions.  The dictionary values should be keys or lists of keys
+            of the trans dictionary attribute.
+            By default an agg_map dictionary is created to aggregate the
+            regression parameters as follows:
+            - sum power
+            - mean of poa, t_amb, w_vel
         inplace: bool, default True
             True writes over current filtered dataframe.
             False returns an aggregated dataframe.
@@ -1527,33 +1542,58 @@ class CapData(object):
         CapData obj
             If inplace is False, then returns a modified CapData object.
         """
-        agg_series = []
-        agg_series.append((self.rview('poa', filtered_data=True)).agg(irr, axis=1))
-        agg_series.append((self.rview('t_amb', filtered_data=True)).agg(temp, axis=1))
-        agg_series.append((self.rview('w_vel', filtered_data=True)).agg(wind, axis=1))
-        agg_series.append((self.rview('power', filtered_data=True)).agg(real_pwr, axis=1))
+        if agg_map is None:
+            agg_map = {self.reg_trans['power']: 'sum',
+                       self.reg_trans['poa']: 'mean',
+                       self.reg_trans['t_amb']: 'mean',
+                       self.reg_trans['w_vel']: 'mean'}
 
-        comb_names = []
-        for key in met_keys:
-            comb_name = 'AGG-' + key
-            comb_names.append(comb_name)
-            if inplace:
-                self.trans[self.reg_trans[key]] = [comb_name, ]
+        dfs_to_concat = []
+        for agg_funcs, trans_keys in agg_map.items():
+            inverted = inv_trans_dict(self.trans, trans_keys=trans_keys)
+        #     print(inverted)
+            if isinstance(agg_funcs, tuple):
+                agg_funcs = list(agg_funcs)
+        #     print(type(agg_funcs))
+        #     print(agg_funcs)
+            grps = self.df.groupby(inverted, axis=1)
+            for name, df in grps:
+                agg = df.agg(agg_funcs, axis=1)
+                if isinstance(agg, pd.core.series.Series):
+                    agg = pd.DataFrame(agg)
+        #         print('name: {}'.format(name))
+                agg.rename(columns=(lambda x: name + str(x)), inplace=True)
+                dfs_to_concat.append(agg)
 
-        temp_dict = {key: val for key, val in zip(comb_names, agg_series)}
-        df = pd.DataFrame(temp_dict)
+
+        # agg_series = []
+        # agg_series.append((self.rview('poa', filtered_data=True)).agg(irr, axis=1))
+        # agg_series.append((self.rview('t_amb', filtered_data=True)).agg(temp, axis=1))
+        # agg_series.append((self.rview('w_vel', filtered_data=True)).agg(wind, axis=1))
+        # agg_series.append((self.rview('power', filtered_data=True)).agg(real_pwr, axis=1))
+        #
+        # comb_names = []
+        # for key in met_keys:
+        #     comb_name = 'AGG-' + key
+        #     comb_names.append(comb_name)
+        #     if inplace:
+        #         self.trans[self.reg_trans[key]] = [comb_name, ]
+        #
+        # temp_dict = {key: val for key, val in zip(comb_names, agg_series)}
+        # df = pd.DataFrame(temp_dict)
 
         if keep:
-            lst = []
-            for value in self.reg_trans.values():
-                lst.extend(self.trans[value])
-            sel = [i for i, name in enumerate(self.df_flt) if name not in lst]
-            df = pd.concat([df, self.df_flt.iloc[:, sel]], axis=1)
+            dfs_to_concat.append(self.df_flt)
+            # lst = []
+            # for value in self.reg_trans.values():
+            #     lst.extend(self.trans[value])
+            # sel = [i for i, name in enumerate(self.df_flt) if name not in lst]
+            # df = pd.concat([df, self.df_flt.iloc[:, sel]], axis=1)
 
         if inplace:
-            self.df_flt = df
+            self.df_flt = pd.concat(dfs_to_concat, axis=1)
         else:
-            return df
+            return pd.concat(dfs_to_concat, axis=1)
 
     @update_summary
     def filter_irr(self, low, high, ref_val=None, col_name=None, inplace=True):
