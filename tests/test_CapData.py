@@ -609,6 +609,94 @@ Separate function calling location and system to calculate POA
 - concat add columns to passed df or return just ghi and poa option
 load_data calls final function with in place to get ghi and poa
 """
+class TestAggSensors(unittest.TestCase):
+    def setUp(self):
+        self.das = pvc.CapData('das')
+        self.das.load_data(path='./examples/data/',
+                           fname='example_meas_data.csv', source='AlsoEnergy')
+        self.das.set_reg_trans(power='-mtr-', poa='irr-poa-',
+                               t_amb='temp-amb-', w_vel='wind--')
+
+    def test_agg_map_none(self):
+        self.das.agg_sensors()
+        self.assertEqual(self.das.df_flt.shape[1], self.das.df.shape[1] + 4,
+                         'Returned df does not include 4 additional cols.')
+        self.assertEqual(self.das.df_flt.shape[0], self.das.df.shape[0],
+                         'Agg method inadverdently changed number of rows.')
+        self.assertIn('-mtr-sum', self.das.df_flt.columns,
+                      'Sum of power trans group not in aggregated df.')
+        self.assertIn('irr-poa-mean', self.das.df_flt.columns,
+                      'Mean of poa trans group not in aggregated df.')
+        self.assertIn('temp-amb-mean', self.das.df_flt.columns,
+                      'Mean of amb temp trans group not in aggregated df.')
+        self.assertIn('wind--mean', self.das.df_flt.columns,
+                      'Mean of wind trans group not in aggregated df.')
+
+    def test_agg_map_none_inplace_false(self):
+        df_flt_copy = self.das.df_flt.copy()
+        df = self.das.agg_sensors(inplace=False)
+        self.assertEqual(df.shape[1], self.das.df.shape[1] + 4,
+                         'Returned df does not include 4 additional cols.')
+        self.assertEqual(df.shape[0], self.das.df.shape[0],
+                         'Agg method inadverdently changed number of rows.')
+        self.assertIn('-mtr-sum', df.columns,
+                      'Sum of power trans group not in aggregated df.')
+        self.assertIn('irr-poa-mean', df.columns,
+                      'Mean of poa trans group not in aggregated df.')
+        self.assertIn('temp-amb-mean', df.columns,
+                      'Mean of amb temp trans group not in aggregated df.')
+        self.assertIn('wind--mean', df.columns,
+                      'Mean of wind trans group not in aggregated df.')
+        self.assertTrue(df_flt_copy.equals(self.das.df_flt),
+                        'Method with inplace false changed df_flt attribute.')
+
+    def test_agg_map_none_keep_false(self):
+        self.das.agg_sensors(keep=False)
+        self.assertEqual(self.das.df_flt.shape[1], 4,
+                         'Returned dataframe does not have 4 columns.')
+        self.assertEqual(self.das.df_flt.shape[0], self.das.df.shape[0],
+                         'Agg method inadverdently changed number of rows.')
+        self.assertIn('-mtr-sum', self.das.df_flt.columns,
+                      'Sum of power trans group not in aggregated df.')
+        self.assertIn('irr-poa-mean', self.das.df_flt.columns,
+                      'Mean of poa trans group not in aggregated df.')
+        self.assertIn('temp-amb-mean', self.das.df_flt.columns,
+                      'Mean of amb temp trans group not in aggregated df.')
+        self.assertIn('wind--mean', self.das.df_flt.columns,
+                      'Mean of wind trans group not in aggregated df.')
+
+    def test_agg_map_non_str_func(self):
+        self.das.agg_sensors(agg_map={'irr-poa-': np.mean})
+        self.assertEqual(self.das.df_flt.shape[1], self.das.df.shape[1] + 1,
+                         'Returned df does not include 1 additional col.')
+        self.assertEqual(self.das.df_flt.shape[0], self.das.df.shape[0],
+                         'Agg method inadverdently changed number of rows.')
+        self.assertIn('irr-poa-mean', self.das.df_flt.columns,
+                      'Mean of poa trans group not in aggregated df.')
+
+    def test_agg_map_mix_funcs(self):
+        self.das.agg_sensors(agg_map={'irr-poa-': [np.mean, 'sum']})
+        self.assertEqual(self.das.df_flt.shape[1], self.das.df.shape[1] + 2,
+                         'Returned df does not include 2 additional col.')
+        self.assertEqual(self.das.df_flt.shape[0], self.das.df.shape[0],
+                         'Agg method inadverdently changed number of rows.')
+        self.assertIn('irr-poa-mean', self.das.df_flt.columns,
+                      'Mean of poa trans group not in aggregated df.')
+        self.assertIn('irr-poa-sum', self.das.df_flt.columns,
+                      'Sum of poa trans group not in aggregated df.')
+
+    def test_agg_map_update_reg_trans(self):
+        self.das.agg_sensors()
+        self.assertEqual(self.das.reg_trans['power'], '-mtr-sum',
+                         'Power reg_trans not updated to agg column.')
+        self.assertEqual(self.das.reg_trans['poa'], 'irr-poa-mean',
+                         'POA reg_trans not updated to agg column.')
+        self.assertEqual(self.das.reg_trans['t_amb'], 'temp-amb-mean',
+                         'Amb temp reg_trans not updated to agg column.')
+        self.assertEqual(self.das.reg_trans['w_vel'], 'wind--mean',
+                         'Wind velocity reg_trans not updated to agg column.')
+    # test for updates to reg_trans and trans
+
 
 
 class TestRepCondNoFreq(unittest.TestCase):
