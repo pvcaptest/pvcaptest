@@ -1533,14 +1533,15 @@ class CapData(object):
             - sum power
             - mean of poa, t_amb, w_vel
         keep : bool, default True
-            Appends aggregation results columns to df_flt rather than returning
-            or overwriting df_flt with just the aggregation results.
+            Appends aggregation results columns rather than returning
+            or overwriting df_flt and df attributes with just the aggregation
+            results.
         update_reg_trans : bool, default True
             By default updates the reg_trans dictionary attribute to map the
             regression variable to the aggregation column. The reg_trans
             attribute is not updated if inplace is False.
         inplace : bool, default True
-            True writes over current filtered dataframe in df_flt attribute.
+            True writes over dataframe in df and df_flt attribute.
             False returns an aggregated dataframe.
 
         Returns
@@ -1556,7 +1557,7 @@ class CapData(object):
 
         dfs_to_concat = []
         for trans_key, agg_funcs in agg_map.items():
-            df = self.view(trans_key, filtered_data=True)
+            df = self.view(trans_key, filtered_data=False)
             df = df.agg(agg_funcs, axis=1)
             # print('tkey: {}'.format(trans_key))
             # print(type(df))
@@ -1566,16 +1567,17 @@ class CapData(object):
                     # print('in isinstance')
                     df = pd.DataFrame(df)
                     # print(type(df))
-                    col_name = trans_key + agg_funcs
+                    col_name = trans_key + agg_funcs + '-agg'
                     df.rename(columns={df.columns[0]: col_name}, inplace=True)
                 else:
-                    col_name = trans_key + agg_funcs.__name__
+                    col_name = trans_key + agg_funcs.__name__ + '-agg'
                     df.rename(columns={df.columns[0]: col_name}, inplace=True)
                     # warnings.warn('Aggregation function for {} not\
                     #                concatenated to column\
                     #                name'.format(trans_key))
             else:
-                df.rename(columns=(lambda x: trans_key + x), inplace=True)
+                df.rename(columns=(lambda x: trans_key + x + '-agg'),
+                          inplace=True)
             dfs_to_concat.append(df)
 
 
@@ -1596,7 +1598,7 @@ class CapData(object):
         # df = pd.DataFrame(temp_dict)
 
         if keep:
-            dfs_to_concat.append(self.df_flt)
+            dfs_to_concat.append(self.df)
             # lst = []
             # for value in self.reg_trans.values():
             #     lst.extend(self.trans[value])
@@ -1616,11 +1618,13 @@ class CapData(object):
                                 warnings.warn(warn_str)
                                 break
                         try:
-                            agg_col = trans_group + agg_map[trans_group]
+                            agg_col = trans_group + agg_map[trans_group] + '-agg'
                         except TypeError:
-                            agg_col = trans_group + col_name
+                            agg_col = trans_group + col_name + '-agg'
                         self.reg_trans[reg_var] = agg_col
-            self.df_flt = pd.concat(dfs_to_concat, axis=1)
+            self.df = pd.concat(dfs_to_concat, axis=1)
+            self.df_flt = self.df.copy()
+            self.__set_trans(trans_report=False)
         else:
             return pd.concat(dfs_to_concat, axis=1)
 

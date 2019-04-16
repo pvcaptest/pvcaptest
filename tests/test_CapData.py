@@ -619,17 +619,17 @@ class TestAggSensors(unittest.TestCase):
 
     def test_agg_map_none(self):
         self.das.agg_sensors()
-        self.assertEqual(self.das.df_flt.shape[1], self.das.df.shape[1] + 4,
-                         'Returned df does not include 4 additional cols.')
+        self.assertEqual(self.das.df_flt.shape[1], self.das.df.shape[1],
+                         'df and df_flt should have same number of rows.')
         self.assertEqual(self.das.df_flt.shape[0], self.das.df.shape[0],
                          'Agg method inadverdently changed number of rows.')
-        self.assertIn('-mtr-sum', self.das.df_flt.columns,
+        self.assertIn('-mtr-sum-agg', self.das.df_flt.columns,
                       'Sum of power trans group not in aggregated df.')
-        self.assertIn('irr-poa-mean', self.das.df_flt.columns,
+        self.assertIn('irr-poa-mean-agg', self.das.df_flt.columns,
                       'Mean of poa trans group not in aggregated df.')
-        self.assertIn('temp-amb-mean', self.das.df_flt.columns,
+        self.assertIn('temp-amb-mean-agg', self.das.df_flt.columns,
                       'Mean of amb temp trans group not in aggregated df.')
-        self.assertIn('wind--mean', self.das.df_flt.columns,
+        self.assertIn('wind--mean-agg', self.das.df_flt.columns,
                       'Mean of wind trans group not in aggregated df.')
 
     def test_agg_map_none_inplace_false(self):
@@ -639,13 +639,13 @@ class TestAggSensors(unittest.TestCase):
                          'Returned df does not include 4 additional cols.')
         self.assertEqual(df.shape[0], self.das.df.shape[0],
                          'Agg method inadverdently changed number of rows.')
-        self.assertIn('-mtr-sum', df.columns,
+        self.assertIn('-mtr-sum-agg', df.columns,
                       'Sum of power trans group not in aggregated df.')
-        self.assertIn('irr-poa-mean', df.columns,
+        self.assertIn('irr-poa-mean-agg', df.columns,
                       'Mean of poa trans group not in aggregated df.')
-        self.assertIn('temp-amb-mean', df.columns,
+        self.assertIn('temp-amb-mean-agg', df.columns,
                       'Mean of amb temp trans group not in aggregated df.')
-        self.assertIn('wind--mean', df.columns,
+        self.assertIn('wind--mean-agg', df.columns,
                       'Mean of wind trans group not in aggregated df.')
         self.assertTrue(df_flt_copy.equals(self.das.df_flt),
                         'Method with inplace false changed df_flt attribute.')
@@ -656,46 +656,47 @@ class TestAggSensors(unittest.TestCase):
                          'Returned dataframe does not have 4 columns.')
         self.assertEqual(self.das.df_flt.shape[0], self.das.df.shape[0],
                          'Agg method inadverdently changed number of rows.')
-        self.assertIn('-mtr-sum', self.das.df_flt.columns,
+        self.assertIn('-mtr-sum-agg', self.das.df_flt.columns,
                       'Sum of power trans group not in aggregated df.')
-        self.assertIn('irr-poa-mean', self.das.df_flt.columns,
+        self.assertIn('irr-poa-mean-agg', self.das.df_flt.columns,
                       'Mean of poa trans group not in aggregated df.')
-        self.assertIn('temp-amb-mean', self.das.df_flt.columns,
+        self.assertIn('temp-amb-mean-agg', self.das.df_flt.columns,
                       'Mean of amb temp trans group not in aggregated df.')
-        self.assertIn('wind--mean', self.das.df_flt.columns,
+        self.assertIn('wind--mean-agg', self.das.df_flt.columns,
                       'Mean of wind trans group not in aggregated df.')
 
     def test_agg_map_non_str_func(self):
         self.das.agg_sensors(agg_map={'irr-poa-': np.mean})
-        self.assertEqual(self.das.df_flt.shape[1], self.das.df.shape[1] + 1,
-                         'Returned df does not include 1 additional col.')
+        self.assertEqual(self.das.df_flt.shape[1], self.das.df.shape[1],
+                         'df and df_flt should have same number of rows.')
         self.assertEqual(self.das.df_flt.shape[0], self.das.df.shape[0],
                          'Agg method inadverdently changed number of rows.')
-        self.assertIn('irr-poa-mean', self.das.df_flt.columns,
+        self.assertIn('irr-poa-mean-agg', self.das.df_flt.columns,
                       'Mean of poa trans group not in aggregated df.')
 
     def test_agg_map_mix_funcs(self):
         self.das.agg_sensors(agg_map={'irr-poa-': [np.mean, 'sum']})
-        self.assertEqual(self.das.df_flt.shape[1], self.das.df.shape[1] + 2,
-                         'Returned df does not include 2 additional col.')
+        self.assertEqual(self.das.df_flt.shape[1], self.das.df.shape[1],
+                         'df and df_flt should have same number of rows.')
         self.assertEqual(self.das.df_flt.shape[0], self.das.df.shape[0],
                          'Agg method inadverdently changed number of rows.')
-        self.assertIn('irr-poa-mean', self.das.df_flt.columns,
+        self.assertIn('irr-poa-mean-agg', self.das.df_flt.columns,
                       'Mean of poa trans group not in aggregated df.')
-        self.assertIn('irr-poa-sum', self.das.df_flt.columns,
+        self.assertIn('irr-poa-sum-agg', self.das.df_flt.columns,
                       'Sum of poa trans group not in aggregated df.')
 
     def test_agg_map_update_reg_trans(self):
         self.das.agg_sensors()
-        self.assertEqual(self.das.reg_trans['power'], '-mtr-sum',
+        self.assertEqual(self.das.reg_trans['power'], '-mtr-sum-agg',
                          'Power reg_trans not updated to agg column.')
-        self.assertEqual(self.das.reg_trans['poa'], 'irr-poa-mean',
+        self.assertEqual(self.das.reg_trans['poa'], 'irr-poa-mean-agg',
                          'POA reg_trans not updated to agg column.')
-        self.assertEqual(self.das.reg_trans['t_amb'], 'temp-amb-mean',
+        self.assertEqual(self.das.reg_trans['t_amb'], 'temp-amb-mean-agg',
                          'Amb temp reg_trans not updated to agg column.')
-        self.assertEqual(self.das.reg_trans['w_vel'], 'wind--mean',
+        self.assertEqual(self.das.reg_trans['w_vel'], 'wind--mean-agg',
                          'Wind velocity reg_trans not updated to agg column.')
     # test for updates to reg_trans and trans
+    # test for correct rview after updating reg_trans
 
 
 
