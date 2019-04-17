@@ -695,9 +695,6 @@ class TestAggSensors(unittest.TestCase):
                          'Amb temp reg_trans not updated to agg column.')
         self.assertEqual(self.das.reg_trans['w_vel'], 'wind--mean-agg',
                          'Wind velocity reg_trans not updated to agg column.')
-    # test for updates to reg_trans and trans
-    # test for correct rview after updating reg_trans
-
 
 
 class TestRepCondNoFreq(unittest.TestCase):
