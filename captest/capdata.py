@@ -1330,7 +1330,10 @@ class CapData(object):
 
         lst = []
         for key in keys:
-            lst.extend(self.trans[key])
+            if key in self.df.columns:
+                lst.extend([key])
+            else:
+                lst.extend(self.trans[key])
         if filtered_data:
             return self.df_flt[lst]
         else:
@@ -1516,7 +1519,7 @@ class CapData(object):
             return poa_cols[0]
 
     def agg_sensors(self, agg_map=None, keep=True, update_reg_trans=True,
-                    inplace=True):
+                    inplace=True, inv_sum_vs_power=True):
         """
         Aggregate measurments of the same variable from different sensors.
 
@@ -1533,15 +1536,21 @@ class CapData(object):
             - sum power
             - mean of poa, t_amb, w_vel
         keep : bool, default True
-            Appends aggregation results columns to df_flt rather than returning
-            or overwriting df_flt with just the aggregation results.
+            Appends aggregation results columns rather than returning
+            or overwriting df_flt and df attributes with just the aggregation
+            results.
         update_reg_trans : bool, default True
             By default updates the reg_trans dictionary attribute to map the
             regression variable to the aggregation column. The reg_trans
             attribute is not updated if inplace is False.
         inplace : bool, default True
-            True writes over current filtered dataframe in df_flt attribute.
+            True writes over dataframe in df and df_flt attribute.
             False returns an aggregated dataframe.
+        inv_sum_vs_power : bool, default True
+            When true method attempts to identify a summation of inverters and
+            move it to the same translation dictionary grouping as the meter
+            data to facilitate.  If False the inv sum aggregation column is
+            left in the inverter translation dictionary group.
 
         Returns
         -------
@@ -1556,52 +1565,24 @@ class CapData(object):
 
         dfs_to_concat = []
         for trans_key, agg_funcs in agg_map.items():
-            df = self.view(trans_key, filtered_data=True)
+            df = self.view(trans_key, filtered_data=False)
             df = df.agg(agg_funcs, axis=1)
-            # print('tkey: {}'.format(trans_key))
-            # print(type(df))
             if not isinstance(agg_funcs, list):
                 df = pd.DataFrame(df)
                 if isinstance(agg_funcs, str):
-                    # print('in isinstance')
                     df = pd.DataFrame(df)
-                    # print(type(df))
-                    col_name = trans_key + agg_funcs
+                    col_name = trans_key + agg_funcs + '-agg'
                     df.rename(columns={df.columns[0]: col_name}, inplace=True)
                 else:
-                    col_name = trans_key + agg_funcs.__name__
+                    col_name = trans_key + agg_funcs.__name__ + '-agg'
                     df.rename(columns={df.columns[0]: col_name}, inplace=True)
-                    # warnings.warn('Aggregation function for {} not\
-                    #                concatenated to column\
-                    #                name'.format(trans_key))
             else:
-                df.rename(columns=(lambda x: trans_key + x), inplace=True)
+                df.rename(columns=(lambda x: trans_key + x + '-agg'),
+                          inplace=True)
             dfs_to_concat.append(df)
 
-
-        # agg_series = []
-        # agg_series.append((self.rview('poa', filtered_data=True)).agg(irr, axis=1))
-        # agg_series.append((self.rview('t_amb', filtered_data=True)).agg(temp, axis=1))
-        # agg_series.append((self.rview('w_vel', filtered_data=True)).agg(wind, axis=1))
-        # agg_series.append((self.rview('power', filtered_data=True)).agg(real_pwr, axis=1))
-        #
-        # comb_names = []
-        # for key in met_keys:
-        #     comb_name = 'AGG-' + key
-        #     comb_names.append(comb_name)
-        #     if inplace:
-        #         self.trans[self.reg_trans[key]] = [comb_name, ]
-        #
-        # temp_dict = {key: val for key, val in zip(comb_names, agg_series)}
-        # df = pd.DataFrame(temp_dict)
-
         if keep:
-            dfs_to_concat.append(self.df_flt)
-            # lst = []
-            # for value in self.reg_trans.values():
-            #     lst.extend(self.trans[value])
-            # sel = [i for i, name in enumerate(self.df_flt) if name not in lst]
-            # df = pd.concat([df, self.df_flt.iloc[:, sel]], axis=1)
+            dfs_to_concat.append(self.df)
 
         if inplace:
             if update_reg_trans:
@@ -1616,11 +1597,34 @@ class CapData(object):
                                 warnings.warn(warn_str)
                                 break
                         try:
-                            agg_col = trans_group + agg_map[trans_group]
+                            agg_col = trans_group + agg_map[trans_group] + '-agg'
                         except TypeError:
-                            agg_col = trans_group + col_name
+                            agg_col = trans_group + col_name + '-agg'
                         self.reg_trans[reg_var] = agg_col
-            self.df_flt = pd.concat(dfs_to_concat, axis=1)
+
+            self.df = pd.concat(dfs_to_concat, axis=1)
+            self.df_flt = self.df.copy()
+            self.__set_trans(trans_report=False)
+            inv_sum_in_cols = [True for col
+                               in self.df.columns if '-inv-sum-agg' in col]
+            if inv_sum_in_cols and inv_sum_vs_power:
+                for key in self.trans_keys:
+                    if 'inv' in key:
+                        inv_key = key
+                for col_name in self.trans[inv_key]:
+                    if '-inv-sum-agg' in col_name:
+                        inv_sum_col = col_name
+                mtr_cols = [col for col
+                            in self.trans_keys
+                            if 'mtr' in col or 'real_pwr' in col]
+                if len(mtr_cols) > 1:
+                    warnings.warn('Multiple meter cols unclear what trans\
+                                   group to place inv sum in.')
+                else:
+                    inv_cols = self.trans[inv_key]
+                    inv_cols.remove(inv_sum_col)
+                    self.trans[inv_key] = inv_cols
+                    self.trans[mtr_cols[0]].append(inv_sum_col)
         else:
             return pd.concat(dfs_to_concat, axis=1)
 
