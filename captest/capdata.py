@@ -1533,7 +1533,11 @@ class CapData(object):
         Also, issues warning if there are more than one poa columns in the
         translation dictionary.
         """
-        poa_cols = self.trans[self.reg_trans['poa']]
+        poa_trans_key = self.reg_trans['poa']
+        if poa_trans_key in self.df.columns:
+            return poa_trans_key
+        else:
+            poa_cols = self.trans[poa_grp]
         if len(poa_cols) > 1:
             return warnings.warn('{} columns of irradiance data. '
                                  'Use col_name to specify a single '
