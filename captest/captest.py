@@ -185,28 +185,6 @@ class CapTest(object):
         except TypeError:
             print('No filters have been run.')
 
-    def scatter(self, data):
-        """
-        Create scatter plot of irradiance vs power.
-
-        Parameters
-        ----------
-        data: str
-            'sim' or 'das' determines if plot is of sim or das data.
-        """
-        flt_cd = self.__flt_setup(data)
-
-        df = flt_cd.rview(['power', 'poa'])
-
-        if df.shape[1] != 2:
-            print('Aggregate sensors before using this method.')
-            return None
-
-        df = df.rename(columns={df.columns[0]: 'power', df.columns[1]: 'poa'})
-        plt = df.plot(kind='scatter', x='poa', y='power',
-                      title=data, alpha=0.2)
-        return(plt)
-
     def scatter_hv(self, data, timeseries=False):
         """
         Create holoview scatter plot of irradiance vs power.  Optional linked

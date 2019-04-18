@@ -1356,6 +1356,29 @@ class CapData(object):
             self.trans_keys.extend([grp_comb])
             print('Added new group: ' + grp_comb)
 
+    def scatter(self, filtered=True):
+        """
+        Create scatter plot of irradiance vs power.
+
+        Parameters
+        ----------
+        filtered : bool, default true
+            Plots filtered data when true and all data when false.
+        """
+
+        if filtered:
+            df = self.rview(['power', 'poa'], filtered_data=True)
+        else:
+            df = self.rview(['power', 'poa'], filtered_data=False)
+
+        if df.shape[1] != 2:
+            return warnings.warn('Aggregate sensors before using this method.')
+
+        df = df.rename(columns={df.columns[0]: 'power', df.columns[1]: 'poa'})
+        plt = df.plot(kind='scatter', x='poa', y='power',
+                      title=self.name, alpha=0.2)
+        return(plt)
+
     def plot(self, marker='line', ncols=2, width=400, height=350,
              legends=False, merge_grps=['irr', 'temp'], subset=None,
              filtered=False, **kwargs):
