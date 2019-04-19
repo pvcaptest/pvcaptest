@@ -185,19 +185,6 @@ class CapTest(object):
         except TypeError:
             print('No filters have been run.')
 
-    def __flt_setup(self, data):
-        """
-        Returns the filtered sim or das CapData object or a copy of the raw data.
-        """
-        if data == 'das':
-            if self.flt_das.empty():
-                self.flt_das = self.das.copy()
-            return self.flt_das
-        if data == 'sim':
-            if self.flt_sim.empty():
-                self.flt_sim = self.sim.copy()
-            return self.flt_sim
-
     def cp_results(self, nameplate, check_pvalues=False, pval=0.05,
                    print_res=True):
         """
