@@ -1623,7 +1623,7 @@ class CapData(object):
         if poa_trans_key in self.df.columns:
             return poa_trans_key
         else:
-            poa_cols = self.trans[poa_grp]
+            poa_cols = self.trans[poa_trans_key]
         if len(poa_cols) > 1:
             return warnings.warn('{} columns of irradiance data. '
                                  'Use col_name to specify a single '
