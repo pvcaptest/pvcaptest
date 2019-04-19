@@ -206,13 +206,6 @@ class CapTest(object):
         df.drop(['t_amb', 'w_vel'], axis=1, inplace=True)
         return(pd.plotting.scatter_matrix(df))
 
-    def sim_apply_losses(self):
-        """
-        Apply post sim losses to sim data.
-        xfmr loss, mv voltage drop, availability
-        """
-        pass
-
     def __flt_setup(self, data):
         """
         Returns the filtered sim or das CapData object or a copy of the raw data.
