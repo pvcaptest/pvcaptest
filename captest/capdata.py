@@ -745,6 +745,11 @@ def csky(time_source, loc=None, sys=None, concat=True, output='both'):
         return csky_df
 
 
+def get_summary(*args):
+    summaries = [cd.get_summary() for cd in args]
+    return pd.concat(summaries)
+
+
 class CapData(object):
     """
     Class to store capacity test data and translation of column names.
