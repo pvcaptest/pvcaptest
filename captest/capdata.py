@@ -797,30 +797,26 @@ def cp_results(sim, das, nameplate, tolerance, check_pvalues=False, pval=0.05,
     -------
     Capacity test ratio
     """
+    sim_int = sim.copy()
+    das_int = das.copy()
     if check_pvalues:
-        sim_params = sim.ols_model.params.copy()
-        das_params = das.ols_model.params.copy()
-        for cd in [sim, das]:
+        for cd in [sim_int, das_int]:
             for key, val in cd.ols_model.pvalues.iteritems():
                 if val > pval:
                     cd.ols_model.params[key] = 0
 
-    rc = pick_attr(sim, das, 'rc')
-    print('Using reporting conditions from {}. \n'.format(rc[1]))
+    rc = pick_attr(sim_int, das_int, 'rc')
+    if print_res:
+        print('Using reporting conditions from {}. \n'.format(rc[1]))
     rc = rc[0]
 
-    actual = das.ols_model.predict(rc)[0]
-    expected = sim.ols_model.predict(rc)[0]
+    actual = das_int.ols_model.predict(rc)[0]
+    expected = sim_int.ols_model.predict(rc)[0]
     cap_ratio = actual / expected
     if cap_ratio < 0.01:
         cap_ratio *= 1000
         actual *= 1000
     capacity = nameplate * cap_ratio
-
-    #reset params after calculating results to avoid side effect
-    if check_pvalues:
-        sim.ols_model.params = sim_params
-        das.ols_model.params = das_params
 
     sign = tolerance.split(sep=' ')[0]
     error = int(tolerance.split(sep=' ')[1])
@@ -860,9 +856,70 @@ def cp_results(sim, das, nameplate, tolerance, check_pvalues=False, pval=0.05,
                                       capacity)
               )
 
-        print("{:<30s}{}".format("Bounds:", bounds))
+        print("{:<30s}{}\n\n".format("Bounds:", bounds))
 
     return(cap_ratio)
+
+
+def highlight_pvals(s):
+    """
+    Highlight vals greater than or equal to 0.05 in a Series yellow.
+    """
+    is_greaterthan = s >= 0.05
+    return ['background-color: yellow' if v else '' for v in is_greaterthan]
+
+
+def res_summary(sim, das, nameplate, tolerance, print_res=False, **kwargs):
+    """
+    Prints a summary of the regression results.
+
+    Parameters
+    ----------
+    sim : CapData
+        CapData object for simulated data.
+    das : CapData
+        CapData object for measured data.
+    nameplate : numeric
+        Nameplate rating of the PV plant.
+    tolerance : str
+        String representing error band.  Ex. '+ 3', '+/- 3', '- 5'
+        There must be space between the sign and number. Number is
+        interpreted as a percent.  For example, 5 percent is 5 not 0.05.
+    print_res : boolean, default True
+        Set to False to prevent printing results.
+    **kwargs
+        kwargs are passed to cp_results.  See documentation for cp_results for
+        options. check_pvalues is set in this method, so do not pass again.
+
+    Prints:
+    Capacity ratio without setting parameters with high p-values to zero.
+    Capacity ratio after setting paramters with high p-values to zero.
+    P-values for simulated and measured regression coefficients.
+    Regression coefficients (parameters) for simulated and measured data.
+    """
+
+    das_pvals = das.ols_model.pvalues
+    sim_pvals = sim.ols_model.pvalues
+    das_params = das.ols_model.params
+    sim_params = sim.ols_model.params
+
+    df_pvals = pd.DataFrame([das_pvals, sim_pvals, das_params, sim_params])
+    df_pvals = df_pvals.transpose()
+    df_pvals.rename(columns={0: 'das_pvals', 1: 'sim_pvals',
+                             2: 'das_params', 3: 'sim_params'}, inplace=True)
+
+    cprat = cp_results(sim, das, nameplate, tolerance,
+                       print_res=print_res, check_pvalues=False, **kwargs)
+    cprat_cpval = cp_results(sim, das, nameplate, tolerance,
+                             print_res=print_res, check_pvalues=True, **kwargs)
+
+    cprat_rounded = np.round(cprat, decimals=4) * 100
+    cprat_cpval_rounded = np.round(cprat_cpval, decimals=4) * 100
+    print('{}% - Cap Ratio'.format(cprat_rounded))
+    print('{}% - Cap Ratio after pval check'.format(cprat_cpval_rounded))
+    return(df_pvals.style.format('{:20,.5f}').apply(highlight_pvals,
+                                                    subset=['das_pvals',
+                                                            'sim_pvals']))
 
 
 class CapData(object):
@@ -962,6 +1019,7 @@ class CapData(object):
     def copy(self):
         """Creates and returns a copy of self."""
         cd_c = CapData('')
+        cd_c.name = copy.copy(self.name)
         cd_c.df = self.df.copy()
         cd_c.df_flt = self.df_flt.copy()
         cd_c.trans = copy.copy(self.trans)
@@ -969,7 +1027,12 @@ class CapData(object):
         cd_c.reg_trans = copy.copy(self.reg_trans)
         cd_c.trans_abrev = copy.copy(self.trans_abrev)
         cd_c.col_colors = copy.copy(self.col_colors)
-        cd_c.name = copy.copy(self.name)
+        cd_c.col_colors = copy.copy(self.col_colors)
+        cd_c.summary_ix = copy.copy(self.summary_ix)
+        cd_c.summary = copy.copy(self.summary)
+        cd_c.rc = copy.copy(self.rc)
+        cd_c.ols_model = copy.deepcopy(self.ols_model)
+        cd_c.reg_fml = copy.copy(self.reg_fml)
         return cd_c
 
     def empty(self):

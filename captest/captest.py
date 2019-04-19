@@ -53,14 +53,6 @@ warnings.filterwarnings(action='ignore', category=RuntimeWarning,
                         module='sklearn')
 
 
-def highlight_pvals(s):
-    """
-    Highlight vals greater than or equal to 0.05 in a Series yellow.
-    """
-    is_greaterthan = s >= 0.05
-    return ['background-color: yellow' if v else '' for v in is_greaterthan]
-
-
 def equip_counts(df):
     """
     Returns list of integers that are a count of columns with the same name.
@@ -184,42 +176,6 @@ class CapTest(object):
             return df
         except TypeError:
             print('No filters have been run.')
-
-    def res_summary(self, nameplate):
-        """
-        Prints a summary of the regression results.
-
-        Parameters
-        ----------
-        nameplate : numeric
-            AC nameplate rating of the PV plant.
-
-        Prints:
-        Capacity ratio without setting parameters with high p-values to zero.
-        Capacity ratio after setting paramters with high p-values to zero.
-        P-values for simulated and measured regression coefficients.
-        Regression coefficients (parameters) for simulated and measured data.
-        """
-
-        das_pvals = self.ols_model_das.pvalues
-        sim_pvals = self.ols_model_sim.pvalues
-        das_params = self.ols_model_das.params
-        sim_params = self.ols_model_sim.params
-
-        df_pvals = pd.DataFrame([das_pvals, sim_pvals, das_params, sim_params])
-        df_pvals = df_pvals.transpose()
-        df_pvals.rename(columns={0: 'das_pvals', 1: 'sim_pvals',
-                                 2: 'das_params', 3: 'sim_params'}, inplace=True)
-
-        cprat = self.cp_results(2000, check_pvalues=False, print_res=False)
-        cprat_cpval = self.cp_results(2000, check_pvalues=True, print_res=False)
-
-        print('{} - Cap Ratio'.format(np.round(cprat, decimals=3)))
-        print('{} - Cap Ratio after pval check'.format(np.round(cprat_cpval,
-                                                       decimals=3)))
-        return(df_pvals.style.format('{:20,.5f}').apply(highlight_pvals,
-                                                 subset=['das_pvals',
-                                                         'sim_pvals']))
 
     def uncertainty():
         """Calculates random standard uncertainty of the regression
