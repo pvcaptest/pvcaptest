@@ -213,15 +213,6 @@ class CapTest(object):
         """
         pass
 
-    def reg_data(self, arg):
-        """
-        Todo
-        ----
-        See rview and renaming code in reg_cpt method.  Move this to this
-        function or a top level function.
-        """
-        pass
-
     def __flt_setup(self, data):
         """
         Returns the filtered sim or das CapData object or a copy of the raw data.
