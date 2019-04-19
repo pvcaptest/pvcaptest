@@ -749,6 +749,117 @@ def get_summary(*args):
     summaries = [cd.get_summary() for cd in args]
     return pd.concat(summaries)
 
+def pick_attr(sim, das, name):
+    sim_attr = getattr(sim, name)
+    das_attr = getattr(das, name)
+    if sim_attr is None and das_attr is None:
+        return warnings.warn('{} must be set for\
+                              either sim or das'.format(name))
+    elif sim_attr is None and das_attr is not None:
+        return (das_attr, 'das')
+    elif sim_attr is not None and das_attr is None:
+        return (sim_attr, 'sim')
+    elif sim_attr is not None and das_attr is not None:
+        return warnings.warn('{} found for sim and das\
+                              set {} to None for one of\
+                              the two'.format(name, name))
+
+
+def cp_results(sim, das, nameplate, tolerance, check_pvalues=False, pval=0.05,
+               print_res=True):
+    """
+    Prints a summary indicating if system passed or failed capacity test.
+
+    NOTE: Method will try to adjust for 1000x differences in units.
+
+    Parameters
+    ----------
+    nameplate : numeric
+        AC nameplate rating of the PV plant.
+    tolerance : str
+        String representing error band.  Ex. '+ 3', '+/- 3', '- 5'
+        There must be space between the sign and number. Number is
+        interpreted as a percent.  For example, 5 percent is 5 not 0.05.
+    check_pvalues : boolean, default False
+        Set to true to check p values for each coefficient.  If p values is
+        greater than pval, then the coefficient is set to zero.
+    pval : float, default 0.05
+        p value to use as cutoff.  Regresion coefficients with a p value
+        greater than pval will be set to zero.
+    print_res : boolean, default True
+        Set to False to prevent printing results.
+
+    Returns
+    -------
+    Capacity test ratio
+    """
+    if check_pvalues:
+        sim_params = sim.ols_model.params.copy()
+        das_params = das.ols_model.params.copy()
+        for cd in [sim, das]:
+            for key, val in cd.ols_model.pvalues.iteritems():
+                if val > pval:
+                    cd.ols_model.params[key] = 0
+
+    rc = pick_attr(sim, das, 'rc')
+    print('Using reporting conditions from {}. \n'.format(rc[1]))
+    rc = rc[0]
+
+    actual = das.ols_model.predict(rc)[0]
+    expected = sim.ols_model.predict(rc)[0]
+    cap_ratio = actual / expected
+    if cap_ratio < 0.01:
+        cap_ratio *= 1000
+        actual *= 1000
+    capacity = nameplate * cap_ratio
+
+    #reset params after calculating results to avoid side effect
+    if check_pvalues:
+        sim.ols_model.params = sim_params
+        das.ols_model.params = das_params
+
+    sign = tolerance.split(sep=' ')[0]
+    error = int(tolerance.split(sep=' ')[1])
+
+    nameplate_plus_error = nameplate * (1 + error / 100)
+    nameplate_minus_error = nameplate * (1 - error / 100)
+
+    if print_res:
+        if sign == '+/-' or sign == '-/+':
+            if nameplate_minus_error <= capacity <= nameplate_plus_error:
+                print("{:<30s}{}".format("Capacity Test Result:", "PASS"))
+            else:
+                print("{:<25s}{}".format("Capacity Test Result:", "FAIL"))
+            bounds = str(nameplate_minus_error) + ', ' + str(nameplate_plus_error)
+        elif sign == '+':
+            if nameplate <= capacity <= nameplate_plus_error:
+                print("{:<30s}{}".format("Capacity Test Result:", "PASS"))
+            else:
+                print("{:<25s}{}".format("Capacity Test Result:", "FAIL"))
+            bounds = str(nameplate) + ', ' + str(nameplate_plus_error)
+        elif sign == '-':
+            if nameplate_minus_error <= capacity <= nameplate:
+                print("{:<30s}{}".format("Capacity Test Result:", "PASS"))
+            else:
+                print("{:<25s}{}".format("Capacity Test Result:", "FAIL"))
+            bounds = str(nameplate_minus_error) + ', ' + str(nameplate)
+        else:
+            print("Sign must be '+', '-', '+/-', or '-/+'.")
+
+        print("{:<30s}{:0.3f}".format("Modeled test output:",
+                                      expected) + "\n" +
+              "{:<30s}{:0.3f}".format("Actual test output:",
+                                      actual) + "\n" +
+              "{:<30s}{:0.3f}".format("Tested output ratio:",
+                                      cap_ratio) + "\n" +
+              "{:<30s}{:0.3f}".format("Tested Capacity:",
+                                      capacity)
+              )
+
+        print("{:<30s}{}".format("Bounds:", bounds))
+
+    return(cap_ratio)
+
 
 class CapData(object):
     """
