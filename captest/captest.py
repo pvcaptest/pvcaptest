@@ -185,27 +185,6 @@ class CapTest(object):
         except TypeError:
             print('No filters have been run.')
 
-    def reg_scatter_matrix(self, data):
-        """
-        Create pandas scatter matrix of regression variables.
-
-        Parameters
-        ----------
-        data (str) - 'sim' or 'das' determines if filter is on sim or das data
-        """
-        cd_obj = self.__flt_setup(data)
-
-        df = cd_obj.rview(['poa', 't_amb', 'w_vel'])
-        rename = {df.columns[0]: 'poa',
-                  df.columns[1]: 't_amb',
-                  df.columns[2]: 'w_vel'}
-        df = df.rename(columns=rename)
-        df['poa_poa'] = df['poa'] * df['poa']
-        df['poa_t_amb'] = df['poa'] * df['t_amb']
-        df['poa_w_vel'] = df['poa'] * df['w_vel']
-        df.drop(['t_amb', 'w_vel'], axis=1, inplace=True)
-        return(pd.plotting.scatter_matrix(df))
-
     def __flt_setup(self, data):
         """
         Returns the filtered sim or das CapData object or a copy of the raw data.

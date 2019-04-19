@@ -1389,6 +1389,18 @@ class CapData(object):
             self.trans_keys.extend([grp_comb])
             print('Added new group: ' + grp_comb)
 
+    # PLOTTING METHODS
+    def reg_scatter_matrix(self):
+        """
+        Create pandas scatter matrix of regression variables.
+        """
+        df = self.get_reg_cols(reg_vars=['poa', 't_amb', 'w_vel'])
+        df['poa_poa'] = df['poa'] * df['poa']
+        df['poa_t_amb'] = df['poa'] * df['t_amb']
+        df['poa_w_vel'] = df['poa'] * df['w_vel']
+        df.drop(['t_amb', 'w_vel'], axis=1, inplace=True)
+        return(pd.plotting.scatter_matrix(df))
+
     def scatter(self, filtered=True):
         """
         Create scatter plot of irradiance vs power.
