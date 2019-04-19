@@ -185,49 +185,6 @@ class CapTest(object):
         except TypeError:
             print('No filters have been run.')
 
-    def scatter_hv(self, data, timeseries=False):
-        """
-        Create holoview scatter plot of irradiance vs power.  Optional linked
-        time series plot of the same data.
-
-        Parameters
-        ----------
-        data: str
-            'sim' or 'das' determines if plot is of sim or das data.
-        timeseries : boolean, default False
-            True adds timeseries plot of power data with linked brushing.
-        """
-        flt_cd = self.__flt_setup(data)
-        new_names = ['power', 'poa', 't_amb', 'w_vel']
-        df = flt_cd.rview(new_names).copy()
-        rename = {old: new for old, new in zip(df.columns, new_names)}
-        df.rename(columns=rename, inplace=True)
-        df['index'] = flt_cd.df.loc[:,'index']
-        df.index.name = 'date_index'
-        df['date'] = df.index.values
-
-        opt_dict = {'Scatter': {'style': dict(size=5),
-                                'plot': dict(tools=['box_select', 'lasso_select',
-                                                    'hover'],
-                                             legend_position='right',
-                                             height=400, width=500,
-                                             shared_datasource=True,)},
-                    'Curve': {'plot': dict(tools=['box_select', 'lasso_select',
-                                                  'hover'],
-                                           shared_datasource=True, height=400,
-                                           width=800)},
-                    'Layout': {'plot': dict(shared_datasource=True)},
-                    'VLine': {'style': dict(color='gray', line_width=1)}}
-
-        poa_vs_kw = hv.Scatter(df, 'poa', ['power', 'poa', 'w_vel', 'index'])
-        poa_vs_time = hv.Curve(df, 'date', 'power')
-        layout_scatter = (poa_vs_kw).opts(opt_dict)
-        layout_timeseries = (poa_vs_kw + poa_vs_time).opts(opt_dict)
-        if timeseries:
-            return(layout_timeseries.cols(1))
-        else:
-            return(layout_scatter)
-
     def reg_scatter_matrix(self, data):
         """
         Create pandas scatter matrix of regression variables.

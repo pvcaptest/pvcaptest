@@ -31,6 +31,14 @@ from bokeh.palettes import Category10, Category20c, Category20b
 from bokeh.layouts import gridplot
 from bokeh.models import Legend, HoverTool, tools, ColumnDataSource
 
+# visualization library imports
+hv_spec = importlib.util.find_spec('holoviews')
+if hv_spec is not None:
+    import holoviews as hv
+else:
+    warnings.warn('Some plotting functions will not work without the '
+                  'holoviews package.')
+
 # pvlib imports
 pvlib_spec = importlib.util.find_spec('pvlib')
 if pvlib_spec is not None:
@@ -1403,6 +1411,47 @@ class CapData(object):
         plt = df.plot(kind='scatter', x='poa', y='power',
                       title=self.name, alpha=0.2)
         return(plt)
+
+    def scatter_hv(self, timeseries=False):
+        """
+        Create holoview scatter plot of irradiance vs power.  Optional linked
+        time series plot of the same data.
+
+        Parameters
+        ----------
+        timeseries : boolean, default False
+            True adds timeseries plot of power data with linked brushing.
+        """
+        new_names = ['power', 'poa', 't_amb', 'w_vel']
+        df = self.get_reg_cols(reg_vars=new_names, filtered_data=True)
+        df['index'] = self.df_flt.loc[:, 'index']
+        df.index.name = 'date_index'
+        df['date'] = df.index.values
+
+        opt_dict = {'Scatter': {'style': dict(size=5),
+                                'plot': dict(tools=['box_select',
+                                                    'lasso_select',
+                                                    'hover'],
+                                             legend_position='right',
+                                             height=400, width=500,
+                                             shared_datasource=True,)},
+                    'Curve': {'plot': dict(tools=['box_select', 'lasso_select',
+                                                  'hover'],
+                                           shared_datasource=True, height=400,
+                                           width=800)},
+                    'Layout': {'plot': dict(shared_datasource=True)},
+                    'VLine': {'style': dict(color='gray', line_width=1)}}
+        # before moving to CapData included poa in kdims
+        # removed poa from kdims resolved hv pandas error
+        # poa_vs_kw = hv.Scatter(df, 'poa', ['power', 'poa', 'w_vel', 'index'])
+        poa_vs_kw = hv.Scatter(df, 'poa', ['power', 'w_vel', 'index'])
+        poa_vs_time = hv.Curve(df, 'date', 'power')
+        layout_scatter = (poa_vs_kw).opts(opt_dict)
+        layout_timeseries = (poa_vs_kw + poa_vs_time).opts(opt_dict)
+        if timeseries:
+            return(layout_timeseries.cols(1))
+        else:
+            return(layout_scatter)
 
     def plot(self, marker='line', ncols=2, width=400, height=350,
              legends=False, merge_grps=['irr', 'temp'], subset=None,
