@@ -609,6 +609,51 @@ Separate function calling location and system to calculate POA
 - concat add columns to passed df or return just ghi and poa option
 load_data calls final function with in place to get ghi and poa
 """
+
+class TestGetRegCols(unittest.TestCase):
+    def setUp(self):
+        self.das = pvc.CapData('das')
+        self.das.load_data(path='./examples/data/',
+                           fname='example_meas_data.csv', source='AlsoEnergy')
+        self.das.set_reg_trans(power='-mtr-', poa='irr-poa-',
+                               t_amb='temp-amb-', w_vel='wind--')
+        self.das.agg_sensors()
+
+    def test_all_coeffs(self):
+        cols = ['power', 'poa', 't_amb', 'w_vel']
+        df = self.das.get_reg_cols()
+        self.assertEqual(len(df.columns), 4,
+                         'Returned number of columns is incorrect.')
+        self.assertEqual(df.columns.to_list(), cols,
+                         'Columns are not renamed properly.')
+        self.assertEqual(self.das.df['-mtr-sum-agg'].iloc[100],
+                         df['power'].iloc[100],
+                         'Data in column labeled power is not power.')
+        self.assertEqual(self.das.df['irr-poa-mean-agg'].iloc[100],
+                         df['poa'].iloc[100],
+                         'Data in column labeled poa is not poa.')
+        self.assertEqual(self.das.df['temp-amb-mean-agg'].iloc[100],
+                         df['t_amb'].iloc[100],
+                         'Data in column labeled t_amb is not t_amb.')
+        self.assertEqual(self.das.df['wind--mean-agg'].iloc[100],
+                         df['w_vel'].iloc[100],
+                         'Data in column labeled w_vel is not w_vel.')
+
+    def test_poa_power(self):
+        cols = ['poa', 'power']
+        df = self.das.get_reg_cols(reg_vars=cols)
+        self.assertEqual(len(df.columns), 2,
+                         'Returned number of columns is incorrect.')
+        self.assertEqual(df.columns.to_list(), cols,
+                         'Columns are not renamed properly.')
+        self.assertEqual(self.das.df['-mtr-sum-agg'].iloc[100],
+                         df['power'].iloc[100],
+                         'Data in column labeled power is not power.')
+        self.assertEqual(self.das.df['irr-poa-mean-agg'].iloc[100],
+                         df['poa'].iloc[100],
+                         'Data in column labeled poa is not poa.')
+
+
 class TestAggSensors(unittest.TestCase):
     def setUp(self):
         self.das = pvc.CapData('das')

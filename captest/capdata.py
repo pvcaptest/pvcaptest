@@ -1281,6 +1281,31 @@ class CapData(object):
         self.df.drop(columns, axis=1, inplace=True)
         self.df_flt.drop(columns, axis=1, inplace=True)
 
+    def get_reg_cols(self, reg_vars=['power', 'poa', 't_amb', 'w_vel'],
+                     filtered_data=True):
+        """
+        Get and rename the regression columns.
+
+        Parameters
+        ----------
+        reg_vars : list
+            Default is all of 'power', 'poa', 't_amb', 'w_vel'.  Any
+            combination of the four is valid.
+        filtered_data : bool, default true
+            Return filtered or unfiltered dataself.
+        Returns
+        -------
+        DataFrame
+
+        Todo
+        ----
+        Pass list of reg coeffs to rename default all of them.
+        """
+        df = self.rview(reg_vars, filtered_data=filtered_data).copy()
+        rename = {old: new for old, new in zip(df.columns, reg_vars)}
+        df.rename(columns=rename, inplace=True)
+        return df
+
     def view(self, tkey, filtered_data=False):
         """
         Convience function returns columns using translation dictionary names.
