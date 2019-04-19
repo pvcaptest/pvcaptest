@@ -774,8 +774,12 @@ def cp_results(sim, das, nameplate, tolerance, check_pvalues=False, pval=0.05,
 
     Parameters
     ----------
+    sim : CapData
+        CapData object for simulated data.
+    das : CapData
+        CapData object for measured data.
     nameplate : numeric
-        AC nameplate rating of the PV plant.
+        Nameplate rating of the PV plant.
     tolerance : str
         String representing error band.  Ex. '+ 3', '+/- 3', '- 5'
         There must be space between the sign and number. Number is
