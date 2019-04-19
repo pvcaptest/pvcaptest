@@ -749,20 +749,21 @@ def get_summary(*args):
     summaries = [cd.get_summary() for cd in args]
     return pd.concat(summaries)
 
+
 def pick_attr(sim, das, name):
     sim_attr = getattr(sim, name)
     das_attr = getattr(das, name)
     if sim_attr is None and das_attr is None:
-        return warnings.warn('{} must be set for\
-                              either sim or das'.format(name))
+        warn_str = '{} must be set for either sim or das'.format(name)
+        return warnings.warn(warn_str)
     elif sim_attr is None and das_attr is not None:
         return (das_attr, 'das')
     elif sim_attr is not None and das_attr is None:
         return (sim_attr, 'sim')
     elif sim_attr is not None and das_attr is not None:
-        return warnings.warn('{} found for sim and das\
-                              set {} to None for one of\
-                              the two'.format(name, name))
+        warn_str = '{} found for sim and das set {} to None for one of '
+                   'the two'.format(name, name)
+        return warnings.warn(warn_str)
 
 
 def cp_results(sim, das, nameplate, tolerance, check_pvalues=False, pval=0.05,
@@ -799,6 +800,11 @@ def cp_results(sim, das, nameplate, tolerance, check_pvalues=False, pval=0.05,
     """
     sim_int = sim.copy()
     das_int = das.copy()
+
+    if sim_int.reg_fml != das_int.reg_fml:
+        warnings.warn('CapData objects do not have the same regression '
+                      'formula.')
+
     if check_pvalues:
         for cd in [sim_int, das_int]:
             for key, val in cd.ols_model.pvalues.iteritems():
