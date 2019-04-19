@@ -139,31 +139,3 @@ class CapTest(object):
         self.ols_model_das = None
         self.ols_model_sim = None
         self.reg_fml = 'power ~ poa + I(poa * poa) + I(poa * t_amb) + I(poa * w_vel) - 1'
-
-    def uncertainty():
-        """Calculates random standard uncertainty of the regression
-        (SEE times the square root of the leverage of the reporting
-        conditions).
-
-        NO TESTS YET!
-        """
-
-        SEE = np.sqrt(self.ols_model_das.mse_resid)
-
-        cd_obj = self.__flt_setup('das')
-        df = cd_obj.rview(['power', 'poa', 't_amb', 'w_vel'])
-        new_names = ['power', 'poa', 't_amb', 'w_vel']
-        rename = {new: old for new, old in zip(df.columns, new_names)}
-        df = df.rename(columns=rename)
-
-        rc_pt = {key: val[0] for key, val in self.rc.items()}
-        rc_pt['power'] = actual
-        df.append([rc_pt])
-
-        reg = fit_model(df, fml=self.reg_fml)
-
-        infl = reg.get_influence()
-        leverage = infl.hat_matrix_diag[-1]
-        sy = SEE * np.sqrt(leverage)
-
-        return(sy)

@@ -2644,6 +2644,31 @@ class CapData(object):
                 print(reg.summary())
             self.ols_model = reg
 
+    def uncertainty():
+        """Calculates random standard uncertainty of the regression
+        (SEE times the square root of the leverage of the reporting
+        conditions).
+
+        Not fully implemented yet.  Need to review and determine what actual
+        variable should be.
+        """
+        pass
+        # SEE = np.sqrt(self.ols_model.mse_resid)
+        #
+        # df = self.get_reg_cols()
+        #
+        # rc_pt = {key: val[0] for key, val in self.rc.items()}
+        # rc_pt['power'] = actual
+        # df.append([rc_pt])
+        #
+        # reg = fit_model(df, fml=self.reg_fml)
+        #
+        # infl = reg.get_influence()
+        # leverage = infl.hat_matrix_diag[-1]
+        # sy = SEE * np.sqrt(leverage)
+        #
+        # return(sy)
+
 if __name__ == "__main__":
     import doctest
     import pandas as pd
