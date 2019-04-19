@@ -219,62 +219,6 @@ class CapTest(object):
                 self.flt_sim = self.sim.copy()
             return self.flt_sim
 
-    def reg_cpt(self, data, filter=False, inplace=True, summary=True):
-        """
-        Performs regression with statsmodels on filtered data.
-
-        Parameters
-        ----------
-        data: str, 'sim' or 'das'
-            'sim' or 'das' determines if filter is on sim or das data
-        filter: bool, default False
-            When true removes timestamps where the residuals are greater than
-            two standard deviations.  When false just calcualtes ordinary least
-            squares regression.
-        inplace: bool, default True
-            If filter is true and inplace is true, then function overwrites the
-            filtered data for sim or das.  If false returns a CapData object.
-        summary: bool, default True
-            Set to false to not print regression summary.
-
-        Returns
-        -------
-        CapData
-            Returns a filtered CapData object if filter is True and inplace is
-            False.
-        """
-        cd_obj = self.__flt_setup(data)
-
-        df = cd_obj.rview(['power', 'poa', 't_amb', 'w_vel'])
-        rename = {df.columns[0]: 'power',
-                  df.columns[1]: 'poa',
-                  df.columns[2]: 't_amb',
-                  df.columns[3]: 'w_vel'}
-        df = df.rename(columns=rename)
-
-        reg = fit_model(df, fml=self.reg_fml)
-
-        if filter:
-            print('NOTE: Regression used to filter outlying points.\n\n')
-            if summary:
-                print(reg.summary())
-            df = df[np.abs(reg.resid) < 2 * np.sqrt(reg.scale)]
-            cd_obj.df = cd_obj.df.loc[df.index, :]
-            if inplace:
-                if data == 'das':
-                    self.flt_das = cd_obj
-                elif data == 'sim':
-                    self.flt_sim = cd_obj
-            else:
-                return cd_obj
-        else:
-            if summary:
-                print(reg.summary())
-            if data == 'das':
-                self.ols_model_das = reg
-            elif data == 'sim':
-                self.ols_model_sim = reg
-
     def cp_results(self, nameplate, check_pvalues=False, pval=0.05,
                    print_res=True):
         """

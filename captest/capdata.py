@@ -2401,6 +2401,48 @@ class CapData(object):
 
         return results
 
+    @update_summary
+    def reg_cpt(self, filter=False, inplace=True, summary=True):
+        """
+        Performs regression with statsmodels on filtered data.
+
+        Parameters
+        ----------
+        filter: bool, default False
+            When true removes timestamps where the residuals are greater than
+            two standard deviations.  When false just calcualtes ordinary least
+            squares regression.
+        inplace: bool, default True
+            If filter is true and inplace is true, then function overwrites the
+            filtered data for sim or das.  If false returns a CapData object.
+        summary: bool, default True
+            Set to false to not print regression summary.
+
+        Returns
+        -------
+        CapData
+            Returns a filtered CapData object if filter is True and inplace is
+            False.
+        """
+        df = self.get_reg_cols()
+
+        reg = fit_model(df, fml=self.reg_fml)
+
+        if filter:
+            print('NOTE: Regression used to filter outlying points.\n\n')
+            if summary:
+                print(reg.summary())
+            df = df[np.abs(reg.resid) < 2 * np.sqrt(reg.scale)]
+            dframe_flt = self.df_flt.loc[df.index, :]
+            if inplace:
+                self.df_flt = dframe_flt
+            else:
+                return dframe_flt
+        else:
+            if summary:
+                print(reg.summary())
+            self.ols_model = reg
+
 if __name__ == "__main__":
     import doctest
     import pandas as pd
