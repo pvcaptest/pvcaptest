@@ -140,43 +140,6 @@ class CapTest(object):
         self.ols_model_sim = None
         self.reg_fml = 'power ~ poa + I(poa * poa) + I(poa * t_amb) + I(poa * w_vel) - 1'
 
-    def summary(self):
-        """
-        Prints summary dataframe of the filtering applied to flt_das and flt_sim.
-
-        The summary dataframe shows the history of the filtering steps applied
-        to the measured and simulated data including the timestamps remaining
-        after each step, the timestamps removed by each step and the arguments
-        used to call each filtering method.
-
-        Parameters
-        ----------
-        None
-
-        Returns
-        -------
-        Pandas DataFrame
-        """
-        summ_data, mindex = [], []
-        if len(self.das_summ_data) != 0 and len(self.sim_summ_data) != 0:
-            summ_data.extend(self.das_summ_data)
-            summ_data.extend(self.sim_summ_data)
-            mindex.extend(self.das_mindex)
-            mindex.extend(self.sim_mindex)
-        elif len(self.das_summ_data) != 0:
-            summ_data.extend(self.das_summ_data)
-            mindex.extend(self.das_mindex)
-        else:
-            summ_data.extend(self.sim_summ_data)
-            mindex.extend(self.sim_mindex)
-        try:
-            df = pd.DataFrame(data=summ_data,
-                              index=pd.MultiIndex.from_tuples(mindex),
-                              columns=columns)
-            return df
-        except TypeError:
-            print('No filters have been run.')
-
     def uncertainty():
         """Calculates random standard uncertainty of the regression
         (SEE times the square root of the leverage of the reporting
