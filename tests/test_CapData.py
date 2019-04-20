@@ -45,6 +45,7 @@ CapData
 test_files = ['test1.csv', 'test2.csv', 'test3.CSV', 'test4.txt',
               'pvsyst.csv', 'pvsyst_data.csv']
 
+
 class TestLoadDataMethods(unittest.TestCase):
     """Test for load data methods without setup."""
 
@@ -99,7 +100,6 @@ class TestLoadDataMethods(unittest.TestCase):
         self.assertIsInstance(das.columns,
                               pd.core.indexes.base.Index,
                               'Columns might be MultiIndex; should be base index')
-
 
 
 class TestCapDataLoadMethods(unittest.TestCase):
@@ -320,6 +320,7 @@ class Test_CapData_methods_sim(unittest.TestCase):
                               pd.core.frame.DataFrame,
                               'Results not saved to CapTest rc attribute')
 
+
 class Test_pvlib_loc_sys(unittest.TestCase):
     """ Test function wrapping pvlib get_clearsky method of Location."""
     def test_pvlib_location(self):
@@ -364,6 +365,7 @@ class Test_pvlib_loc_sys(unittest.TestCase):
                               pvlib.tracking.SingleAxisTracker,
                               'Did not return instance of\
                                pvlib SingleAxisTracker')
+
 
 # possible assertions for method returning ghi
         # self.assertIsInstance(ghi,
@@ -617,9 +619,13 @@ class TestGetRegCols(unittest.TestCase):
                            fname='example_meas_data.csv', source='AlsoEnergy')
         self.das.set_reg_trans(power='-mtr-', poa='irr-poa-',
                                t_amb='temp-amb-', w_vel='wind--')
-        self.das.agg_sensors()
+
+    def test_not_aggregated(self):
+        with self.assertWarns(UserWarning):
+            self.das.get_reg_cols()
 
     def test_all_coeffs(self):
+        self.das.agg_sensors()
         cols = ['power', 'poa', 't_amb', 'w_vel']
         df = self.das.get_reg_cols()
         self.assertEqual(len(df.columns), 4,
@@ -640,6 +646,7 @@ class TestGetRegCols(unittest.TestCase):
                          'Data in column labeled w_vel is not w_vel.')
 
     def test_poa_power(self):
+        self.das.agg_sensors()
         cols = ['poa', 'power']
         df = self.das.get_reg_cols(reg_vars=cols)
         self.assertEqual(len(df.columns), 2,

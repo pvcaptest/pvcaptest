@@ -761,8 +761,8 @@ def pick_attr(sim, das, name):
     elif sim_attr is not None and das_attr is None:
         return (sim_attr, 'sim')
     elif sim_attr is not None and das_attr is not None:
-        warn_str = '{} found for sim and das set {} to None for one of '
-                   'the two'.format(name, name)
+        warn_str = ('{} found for sim and das set {} to None for one of '
+                   'the two'.format(name, name))
         return warnings.warn(warn_str)
 
 
@@ -1498,6 +1498,17 @@ class CapData(object):
         ----
         Pass list of reg coeffs to rename default all of them.
         """
+        reg_trans_vals_are_colNames = [self.reg_trans[reg_var] in
+                                       self.df_flt.columns for
+                                       reg_var in reg_vars]
+        if not any(reg_trans_vals_are_colNames):
+            reg_var_one_col = [len(self.trans[self.reg_trans[reg_var]]) == 1 for
+                               reg_var in reg_vars]
+            # want true if any trans groups have more than 1 column
+            if not all(reg_var_one_col):
+                return warnings.warn('Multiple columns per translation '
+                                     'dictionary group. Run agg_sensors before'
+                                     ' this method.')
         df = self.rview(reg_vars, filtered_data=filtered_data).copy()
         rename = {old: new for old, new in zip(df.columns, reg_vars)}
         df.rename(columns=rename, inplace=True)
