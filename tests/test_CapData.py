@@ -45,6 +45,192 @@ test_files = ['test1.csv', 'test2.csv', 'test3.CSV', 'test4.txt',
               'pvsyst.csv', 'pvsyst_data.csv']
 
 
+class TestTopLevelFuncs(unittest.TestCase):
+    def test_perc_wrap(self):
+        """Test percent wrap function."""
+        rng = np.arange(1, 100, 1)
+        rng_cpy = rng.copy()
+        df = pd.DataFrame({'vals': rng})
+        df_cpy = df.copy()
+        bool_array = []
+        for val in rng:
+            np_perc = np.percentile(rng, val, interpolation='nearest')
+            wrap_perc = df.agg(pvc.perc_wrap(val)).values[0]
+            bool_array.append(np_perc == wrap_perc)
+        self.assertTrue(all(bool_array),
+                        'np.percentile wrapper gives different value than np perc')
+        self.assertTrue(all(df == df_cpy), 'perc_wrap function modified input df')
+
+    def test_flt_irr(self):
+        rng = np.arange(0, 1000)
+        df = pd.DataFrame(np.array([rng, rng+100, rng+200]).T,
+                          columns = ['weather_station irr poa W/m^2',
+                                     'col_1', 'col_2'])
+        df_flt = pvc.flt_irr(df, 'weather_station irr poa W/m^2', 50, 100)
+
+        self.assertEqual(df_flt.shape[0], 51,
+                         'Incorrect number of rows returned from filter.')
+        self.assertEqual(df_flt.shape[1], 3,
+                         'Incorrect number of columns returned from filter.')
+        self.assertEqual(df_flt.columns[0], 'weather_station irr poa W/m^2',
+                      'Filter column name inadverdently modified by method.')
+        self.assertEqual(df_flt.iloc[0, 0], 50,
+                         'Minimum value in returned data in filter column is'
+                         'not equal to low argument.')
+        self.assertEqual(df_flt.iloc[-1, 0], 100,
+                         'Maximum value in returned data in filter column is'
+                         'not equal to high argument.')
+
+    def test_fit_model(self):
+        """
+        Test fit model func which wraps statsmodels ols.fit for dataframe.
+        """
+        rng = np.random.RandomState(1)
+        x = 50 * abs(rng.rand(50))
+        y = 2 * x - 5 + 5 * rng.randn(50)
+        df = pd.DataFrame({'x': x, 'y': y})
+        fml = 'y ~ x - 1'
+        passed_ind_vars = fml.split('~')[1].split()[::2]
+        try:
+            passed_ind_vars.remove('1')
+        except ValueError:
+            pass
+
+        reg = pvc.fit_model(df, fml=fml)
+
+        for var in passed_ind_vars:
+            self.assertIn(var, reg.params.index,
+                          '{} ind variable in formula argument not in model'
+                          'parameters'.format(var))
+
+    def test_predict(self):
+        x = np.arange(0, 50)
+        y1 = x
+        y2 = x * 2
+        y3 = x * 10
+
+        dfs = [pd.DataFrame({'x': x, 'y': y1}),
+               pd.DataFrame({'x': x, 'y': y2}),
+               pd.DataFrame({'x': x, 'y': y3})]
+
+        reg_lst = []
+        for df in dfs:
+            reg_lst.append(pvc.fit_model(df, fml='y ~ x'))
+        reg_ser = pd.Series(reg_lst)
+
+        for regs in [reg_lst, reg_ser]:
+            preds = pvc.predict(regs, pd.DataFrame({'x': [10, 10, 10]}))
+            self.assertAlmostEqual(preds.iloc[0], 10, 7, 'Pred for x = y wrong.')
+            self.assertAlmostEqual(preds.iloc[1], 20, 7, 'Pred for x = y * 2 wrong.')
+            self.assertAlmostEqual(preds.iloc[2], 100, 7, 'Pred for x = y * 10 wrong.')
+            self.assertEqual(3, preds.shape[0], 'Each of the three input'
+                                                'regressions should have a'
+                                                'prediction')
+
+    def test_pred_summary(self):
+        """Test aggregation of reporting conditions and predicted results."""
+        """
+        grpby -> df of regressions
+        regs -> series of predicted values
+        df of reg parameters
+        """
+        pvsyst = pvc.CapData('pvsyst')
+        pvsyst.load_data(path='./tests/data/', load_pvsyst=True)
+
+        df_regs = pvsyst.df.loc[:, ['E_Grid', 'GlobInc', 'TAmb', 'WindVel']]
+        df_regs_day = df_regs.query('GlobInc > 0')
+        grps = df_regs_day.groupby(pd.Grouper(freq='M', label='right'))
+
+        ones = np.ones(12)
+        irr_rc = ones * 500
+        temp_rc = ones * 20
+        w_vel = ones
+        rcs = pd.DataFrame({'GlobInc': irr_rc, 'TAmb': temp_rc, 'WindVel': w_vel})
+
+        results = pvc.pred_summary(grps, rcs, 0.05,
+                                   fml='E_Grid ~ GlobInc +'
+                                                 'I(GlobInc * GlobInc) +'
+                                                 'I(GlobInc * TAmb) +'
+                                                 'I(GlobInc * WindVel) - 1')
+
+        self.assertEqual(results.shape[0], 12, 'Not all months in results.')
+        self.assertEqual(results.shape[1], 10, 'Not all cols in results.')
+
+        self.assertIsInstance(results.index,
+                              pd.core.indexes.datetimes.DatetimeIndex,
+                              'Index is not pandas DatetimeIndex')
+
+        col_length = len(results.columns.values)
+        col_set_length = len(set(results.columns.values))
+        self.assertEqual(col_set_length, col_length,
+                         'There is a duplicate column name in the results df.')
+
+        pt_qty_exp = [341, 330, 392, 390, 403, 406,
+                           456, 386, 390, 346, 331, 341]
+        gaur_cap_exp = [3089550.4039329495, 3103610.4635679387,
+                        3107035.251399103, 3090681.1145782764,
+                        3058186.270209293, 3059784.2309170915,
+                        3088294.50827525, 3087081.0026879036,
+                        3075251.990424683, 3093287.331878834,
+                        3097089.7852036236, 3084318.093294242]
+        for i, mnth in enumerate(results.index):
+            self.assertLess(results.loc[mnth, 'guaranteedCap'],
+                            results.loc[mnth, 'PredCap'],
+                            'Gauranteed capacity is greater than predicted in'
+                            'month {}'.format(mnth))
+            self.assertGreater(results.loc[mnth, 'guaranteedCap'], 0,
+                               'Gauranteed capacity is less than 0 in'
+                               'month {}'.format(mnth))
+            self.assertAlmostEqual(results.loc[mnth, 'guaranteedCap'],
+                                   gaur_cap_exp[i], 7,
+                                   'Gauranted capacity not equal to expected'
+                                   'value in {}'.format(mnth))
+            self.assertEqual(results.loc[mnth, 'pt_qty'], pt_qty_exp[i],
+                               'Point quantity not equal to expected values in'
+                               '{}'.format(mnth))
+
+    def test_perc_bounds_perc(self):
+        bounds = pvc.perc_bounds(20)
+        self.assertEqual(bounds[0], 0.8,
+                         '{} for 20 perc is not 0.8'.format(bounds[0]))
+        self.assertEqual(bounds[1], 1.2,
+                         '{} for 20 perc is not 1.2'.format(bounds[1]))
+
+    def test_perc_bounds_tuple(self):
+        bounds = pvc.perc_bounds((15, 40))
+        self.assertEqual(bounds[0], 0.85,
+                         '{} for 15 perc is not 0.85'.format(bounds[0]))
+        self.assertEqual(bounds[1], 1.4,
+                         '{} for 40 perc is not 1.4'.format(bounds[1]))
+
+    def test_filter_grps(self):
+        pvsyst = pvc.CapData('pvsyst')
+        pvsyst.load_data(path='./tests/data/',
+                         fname='pvsyst_example_HourlyRes_2.CSV',
+                         load_pvsyst=True)
+        pvsyst.set_reg_trans(power='real_pwr--', poa='irr-poa-',
+                             t_amb='temp-amb-', w_vel='wind--')
+        pvsyst.filter_irr(200, 800)
+        pvsyst.rep_cond(freq='MS')
+        grps = pvsyst.df_flt.groupby(pd.Grouper(freq='MS', label='left'))
+        poa_col = pvsyst.trans[pvsyst.reg_trans['poa']][0]
+
+        grps_flt = pvc.filter_grps(grps, pvsyst.rc, poa_col, 0.8, 1.2)
+
+        self.assertIsInstance(grps_flt,
+                              pd.core.groupby.generic.DataFrameGroupBy,
+                              'Returned object is not a dataframe groupby.')
+
+        self.assertEqual(grps.ngroups, grps_flt.ngroups,
+                         'Returned groubpy does not have the same number of\
+                          groups as passed groupby.')
+
+        cnts_before_flt = grps.count()[poa_col]
+        cnts_after_flt = grps_flt.count()[poa_col]
+        less_than = all(cnts_after_flt < cnts_before_flt)
+        self.assertTrue(less_than, 'Points were not removed for each group.')
+
+
 class TestLoadDataMethods(unittest.TestCase):
     """Test for load data methods without setup."""
 
@@ -132,7 +318,7 @@ class TestCapDataSeriesTypes(unittest.TestCase):
     def test_series_type(self):
         name = 'weather station 1 weather station 1 ghi poa w/m2'
         test_series = pd.Series(np.arange(0, 900, 100), name=name)
-        out = self.cdata._CapData__series_type(test_series, cpd.type_defs)
+        out = self.cdata._CapData__series_type(test_series, pvc.type_defs)
 
         self.assertIsInstance(out, str,
                               'Returned object is not a string.')
@@ -160,7 +346,7 @@ class TestCapDataSeriesTypes(unittest.TestCase):
         out = []
         i = 0
         while i < 100:
-            out.append(self.cdata._CapData__series_type(test_series, cpd.type_defs))
+            out.append(self.cdata._CapData__series_type(test_series, pvc.type_defs))
             i += 1
         out_np = np.array(out)
 
@@ -170,7 +356,7 @@ class TestCapDataSeriesTypes(unittest.TestCase):
     def test_series_type_valErr(self):
         name = 'weather station 1 weather station 1 ghi poa w/m2'
         test_series = pd.Series(name=name)
-        out = self.cdata._CapData__series_type(test_series, cpd.type_defs)
+        out = self.cdata._CapData__series_type(test_series, pvc.type_defs)
 
         self.assertIsInstance(out, str,
                               'Returned object is not a string.')
@@ -180,7 +366,7 @@ class TestCapDataSeriesTypes(unittest.TestCase):
     def test_series_type_no_str(self):
         name = 'should not return key string'
         test_series = pd.Series(name=name)
-        out = self.cdata._CapData__series_type(test_series, cpd.type_defs)
+        out = self.cdata._CapData__series_type(test_series, pvc.type_defs)
 
         self.assertIsInstance(out, str,
                               'Returned object is not a string.')
@@ -328,7 +514,7 @@ class Test_pvlib_loc_sys(unittest.TestCase):
                'altitude': 500,
                'tz': 'America/Chicago'}
 
-        loc_obj = cpd.pvlib_location(loc)
+        loc_obj = pvc.pvlib_location(loc)
 
         self.assertIsInstance(loc_obj,
                               pvlib.location.Location,
@@ -346,9 +532,9 @@ class Test_pvlib_loc_sys(unittest.TestCase):
 
         tracker_sys2 = {'max_angle': 52, 'gcr': 0.3}
 
-        fx_sys = cpd.pvlib_system(fixed_sys)
-        trck_sys1 = cpd.pvlib_system(tracker_sys1)
-        trck_sys2 = cpd.pvlib_system(tracker_sys1)
+        fx_sys = pvc.pvlib_system(fixed_sys)
+        trck_sys1 = pvc.pvlib_system(tracker_sys1)
+        trck_sys2 = pvc.pvlib_system(tracker_sys1)
 
         self.assertIsInstance(fx_sys,
                               pvlib.pvsystem.PVSystem,
@@ -408,7 +594,7 @@ class Test_csky(unittest.TestCase):
         ix_dst = ix_dst.tz_localize(None)
         self.df.index = ix_dst
 
-        self.tz_ix = cpd.get_tz_index(self.df, self.loc)
+        self.tz_ix = pvc.get_tz_index(self.df, self.loc)
 
         self.assertIsInstance(self.tz_ix,
                               pd.core.indexes.datetimes.DatetimeIndex,
@@ -429,7 +615,7 @@ class Test_csky(unittest.TestCase):
         ix_dst = ix_3days.append(ix_2days)
         self.df.index = ix_dst
 
-        self.tz_ix = cpd.get_tz_index(self.df, self.loc)
+        self.tz_ix = pvc.get_tz_index(self.df, self.loc)
 
         self.assertIsInstance(self.tz_ix,
                               pd.core.indexes.datetimes.DatetimeIndex,
@@ -451,14 +637,14 @@ class Test_csky(unittest.TestCase):
         self.df.index = ix_dst
 
         with self.assertWarns(UserWarning):
-            self.tz_ix = cpd.get_tz_index(self.df, self.loc)
+            self.tz_ix = pvc.get_tz_index(self.df, self.loc)
 
     def test_get_tz_index_ix_tz(self):
         """Test that get_tz_index function returns a datetime index
            with a timezone when passed a datetime index with a timezone."""
         self.ix = pd.DatetimeIndex(start='1/1/2019', periods=8760, freq='H',
                                    tz='America/Chicago')
-        self.tz_ix = cpd.get_tz_index(self.ix, self.loc)
+        self.tz_ix = pvc.get_tz_index(self.ix, self.loc)
 
         self.assertIsInstance(self.tz_ix,
                               pd.core.indexes.datetimes.DatetimeIndex,
@@ -478,7 +664,7 @@ class Test_csky(unittest.TestCase):
                                    tz='America/New_York')
 
         with self.assertWarns(UserWarning):
-            self.tz_ix = cpd.get_tz_index(self.ix, self.loc)
+            self.tz_ix = pvc.get_tz_index(self.ix, self.loc)
 
     def test_get_tz_index_ix(self):
         """Test that get_tz_index function returns a datetime index\
@@ -487,7 +673,7 @@ class Test_csky(unittest.TestCase):
                                    tz='America/Chicago')
         # remove timezone info but keep missing  hour and extra hour due to DST
         self.ix = self.ix.tz_localize(None)
-        self.tz_ix = cpd.get_tz_index(self.ix, self.loc)
+        self.tz_ix = pvc.get_tz_index(self.ix, self.loc)
 
         self.assertIsInstance(self.tz_ix,
                               pd.core.indexes.datetimes.DatetimeIndex,
@@ -501,7 +687,7 @@ class Test_csky(unittest.TestCase):
 
     def test_csky_concat(self):
         # concat=True by default
-        csky_ghi_poa = cpd.csky(self.df, loc=self.loc, sys=self.sys)
+        csky_ghi_poa = pvc.csky(self.df, loc=self.loc, sys=self.sys)
 
         self.assertIsInstance(csky_ghi_poa, pd.core.frame.DataFrame,
                               'Did not return a pandas dataframe.')
@@ -524,7 +710,7 @@ class Test_csky(unittest.TestCase):
                           passed dataframe.')
 
     def test_csky_not_concat(self):
-        csky_ghi_poa = cpd.csky(self.df, loc=self.loc, sys=self.sys,
+        csky_ghi_poa = pvc.csky(self.df, loc=self.loc, sys=self.sys,
                                      concat=False)
 
         self.assertIsInstance(csky_ghi_poa, pd.core.frame.DataFrame,
@@ -547,7 +733,7 @@ class Test_csky(unittest.TestCase):
                           passed dataframe.')
 
     def test_csky_not_concat_poa_all(self):
-        csky_ghi_poa = cpd.csky(self.df, loc=self.loc, sys=self.sys,
+        csky_ghi_poa = pvc.csky(self.df, loc=self.loc, sys=self.sys,
                                      concat=False, output='poa_all')
 
         self.assertIsInstance(csky_ghi_poa, pd.core.frame.DataFrame,
@@ -566,7 +752,7 @@ class Test_csky(unittest.TestCase):
                           passed dataframe.')
 
     def test_csky_not_concat_ghi_all(self):
-        csky_ghi_poa = cpd.csky(self.df, loc=self.loc, sys=self.sys,
+        csky_ghi_poa = pvc.csky(self.df, loc=self.loc, sys=self.sys,
                                 concat=False, output='ghi_all')
 
         self.assertIsInstance(csky_ghi_poa, pd.core.frame.DataFrame,
@@ -585,7 +771,7 @@ class Test_csky(unittest.TestCase):
                           passed dataframe.')
 
     def test_csky_not_concat_all(self):
-        csky_ghi_poa = cpd.csky(self.df, loc=self.loc, sys=self.sys,
+        csky_ghi_poa = pvc.csky(self.df, loc=self.loc, sys=self.sys,
                                 concat=False, output='all')
 
         self.assertIsInstance(csky_ghi_poa, pd.core.frame.DataFrame,
@@ -856,7 +1042,7 @@ class TestPredictCapacities(unittest.TestCase):
                   df.columns[2]: 't_amb',
                   df.columns[3]: 'w_vel'}
         df = df.rename(columns=rename)
-        reg = cpd.fit_model(df)
+        reg = pvc.fit_model(df)
         july_manual = reg.predict(self.pvsyst.rc)[0]
         self.assertEqual(july_manual, july_grpby,
                          'Manual prediction for July {} is not equal'
@@ -1113,66 +1299,6 @@ class Test_Csky_Filter(unittest.TestCase):
         with self.assertWarns(UserWarning):
             self.meas.filter_clearsky(window_length=2)
 
-
-class TestTopLevelFuncs(unittest.TestCase):
-    def test_perc_bounds_perc(self):
-        bounds = cpd.perc_bounds(20)
-        self.assertEqual(bounds[0], 0.8,
-                         '{} for 20 perc is not 0.8'.format(bounds[0]))
-        self.assertEqual(bounds[1], 1.2,
-                         '{} for 20 perc is not 1.2'.format(bounds[1]))
-    def test_perc_bounds_tuple(self):
-        bounds = cpd.perc_bounds((15, 40))
-        self.assertEqual(bounds[0], 0.85,
-                         '{} for 15 perc is not 0.85'.format(bounds[0]))
-        self.assertEqual(bounds[1], 1.4,
-                         '{} for 40 perc is not 1.4'.format(bounds[1]))
-
-    def test_flt_irr(self):
-        rng = np.arange(0, 1000)
-        df = pd.DataFrame(np.array([rng, rng+100, rng+200]).T,
-                          columns = ['weather_station irr poa W/m^2',
-                                     'col_1', 'col_2'])
-        df_flt = cpd.flt_irr(df, 'weather_station irr poa W/m^2', 50, 100)
-
-        self.assertEqual(df_flt.shape[0], 51,
-                         'Incorrect number of rows returned from filter.')
-        self.assertEqual(df_flt.shape[1], 3,
-                         'Incorrect number of columns returned from filter.')
-        self.assertEqual(df_flt.columns[0], 'weather_station irr poa W/m^2',
-                      'Filter column name inadverdently modified by method.')
-        self.assertEqual(df_flt.iloc[0, 0], 50,
-                         'Minimum value in returned data in filter column is'
-                         'not equal to low argument.')
-        self.assertEqual(df_flt.iloc[-1, 0], 100,
-                         'Maximum value in returned data in filter column is'
-                         'not equal to high argument.')
-
-    def test_filter_grps(self):
-        pvsyst = pvc.CapData('pvsyst')
-        pvsyst.load_data(path='./tests/data/',
-                         fname='pvsyst_example_HourlyRes_2.CSV',
-                         load_pvsyst=True)
-        pvsyst.set_reg_trans(power='real_pwr--', poa='irr-poa-',
-                             t_amb='temp-amb-', w_vel='wind--')
-        pvsyst.filter_irr(200, 800)
-        pvsyst.rep_cond(freq='M')
-        grps = pvsyst.df_flt.groupby(pd.Grouper(freq='M', label='left'))
-        poa_col = pvsyst.trans[pvsyst.reg_trans['poa']][0]
-
-        grps_flt = cpd.filter_grps(grps, pvsyst.rc, poa_col, 0.8, 1.2)
-
-        self.assertIsInstance(grps_flt, pd.core.groupby.groupby.DataFrameGroupBy,
-                              'Returned object is not a dataframe groupby.')
-
-        self.assertEqual(grps.ngroups, grps_flt.ngroups,
-                         'Returned groubpy does not have the same number of\
-                          groups as passed groupby.')
-
-        cnts_before_flt = grps.count()[poa_col]
-        cnts_after_flt = grps_flt.count()[poa_col]
-        less_than = all(cnts_after_flt < cnts_before_flt)
-        self.assertTrue(less_than, 'Points were not removed for each group.')
 
 if __name__ == '__main__':
     unittest.main()
