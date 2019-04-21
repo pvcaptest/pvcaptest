@@ -23,39 +23,9 @@ Run individual tests:
 
 -m flag imports unittest as module rather than running as script
 
-update_summary
-x  perc_wrap
-x irrRC_balanced
-spans_year
-cntg_eoy
-x flt_irr
-x fit_model
-x predict
-x pred_summary
 
-CapTest
-    summary
-    scatter
-    reg_scatter_matrix
-    sim_apply_losses- blank
-    pred_rcs- future
-    rep_cond
-    x rep_cond(pred=True)
-    agg_sensors
-    reg_data
-    __flt_setup
-    reset_flt
-    filter_outliers
-    filter_pf
-    filter_irr
-    filter_op_state
-    filter_missing
-    __std_filter
-    __sensor_filter
-    filter_sensors
-    reg_cpt
-    cp_results
-    equip_counts- not used
+
+
 """
 
 if __name__ == '__main__':
