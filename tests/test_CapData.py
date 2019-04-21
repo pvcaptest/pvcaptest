@@ -266,7 +266,7 @@ class TestLoadDataMethods(unittest.TestCase):
     """Test for load data methods without setup."""
 
     def test_load_pvsyst(self):
-        pvsyst = pvc.CapData()
+        pvsyst = pvc.CapData('pvsyst')
         pvsyst = pvsyst.load_pvsyst('./tests/data/',
                                     'pvsyst_example_HourlyRes_2.CSV')
         self.assertEqual(8760, pvsyst.shape[0],
@@ -280,7 +280,7 @@ class TestLoadDataMethods(unittest.TestCase):
 
 
     def test_source_alsoenergy(self):
-        das_1 = pvc.CapData()
+        das_1 = pvc.CapData('das_1')
         das_1.load_data(path='./tests/data/col_naming_examples/',
                       fname='ae_site1.csv', source='AlsoEnergy')
         col_names1 = ['Elkor Production Meter PowerFactor, ',
@@ -291,7 +291,7 @@ class TestLoadDataMethods(unittest.TestCase):
         self.assertTrue(all(das_1.df.columns == col_names1),
                         'Column names are not expected value for ae_site1')
 
-        das_2 = pvc.CapData()
+        das_2 = pvc.CapData('das_2')
         das_2.load_data(path='./tests/data/col_naming_examples/',
                       fname='ae_site2.csv', source='AlsoEnergy')
         col_names2 = ['Acuvim II Meter PowerFactor, PF', 'Acuvim II Meter KW, kW',
@@ -305,7 +305,7 @@ class TestLoadDataMethods(unittest.TestCase):
                         'Column names are not expected value for ae_site1')
 
     def test_load_das(self):
-        das = pvc.CapData()
+        das = pvc.CapData('das')
         das = das.load_das('./tests/data/',
                            'example_meas_data.csv')
         self.assertEqual(1440, das.shape[0],
@@ -327,7 +327,7 @@ class TestCapDataLoadMethods(unittest.TestCase):
             with open('test_csvs/' + fname, 'a') as f:
                 f.write('Date, val\n11/21/2017, 1')
 
-        self.capdata = pvc.CapData()
+        self.capdata = pvc.CapData('capdata')
         self.capdata.load_data(path='test_csvs/', set_trans=False)
 
     def tearDown(self):
@@ -344,7 +344,7 @@ class TestCapDataSeriesTypes(unittest.TestCase):
     """Test CapData private methods assignment of type to each series of data."""
 
     def setUp(self):
-        self.cdata = pvc.CapData()
+        self.cdata = pvc.CapData('cdata')
 
     def test_series_type(self):
         name = 'weather station 1 weather station 1 ghi poa w/m2'
@@ -409,7 +409,7 @@ class Test_CapData_methods_sim(unittest.TestCase):
     """Test for top level irrRC_balanced function."""
 
     def setUp(self):
-        self.pvsyst = pvc.CapData()
+        self.pvsyst = pvc.CapData('pvsyst')
         self.pvsyst.load_data(path='./tests/data/', load_pvsyst=True)
         # self.jun = self.pvsyst.df.loc['06/1990']
         # self.jun_cpy = self.jun.copy()
@@ -610,7 +610,7 @@ class Test_csky(unittest.TestCase):
                     'surface_azimuth': 180,
                     'albedo': 0.2}
 
-        self.meas = pvc.CapData()
+        self.meas = pvc.CapData('meas')
         self.df = self.meas.load_das('./tests/data/', 'example_meas_data.csv')
 
     def test_get_tz_index_df(self):
