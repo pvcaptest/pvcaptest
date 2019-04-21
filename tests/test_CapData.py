@@ -8,15 +8,14 @@ import statsmodels.formula.api as smf
 
 import pvlib
 
-from .context import captest as pvc
-from .context import capdata as cpd
+from .context import capdata as pvc
 
 data = np.arange(0, 1300, 54.167)
 index = pd.DatetimeIndex(start='1/1/2017', freq='H', periods=24)
 df = pd.DataFrame(data=data, index=index, columns=['poa'])
 
-capdata = pvc.CapData('capdata')
-capdata.df = df
+# capdata = pvc.CapData('capdata')
+# capdata.df = df
 
 """
 Run all tests from project root:
