@@ -1342,5 +1342,77 @@ class TestCapTestCpResultsSingleCoeff(unittest.TestCase):
                               'Returned value is not a tuple')
 
 
+class TestCapTestCpResultsMultCoeff(unittest.TestCase):
+    """
+    Test cp_results function using a regression formula with multiple coef.
+
+
+    """
+
+    def setUp(self):
+        np.random.seed(9876789)
+
+        self.meas = pvc.CapData('meas')
+        self.sim = pvc.CapData('sim')
+        # self.cptest = pvc.CapTest(meas, sim, '+/- 5')
+        self.meas.rc = pd.DataFrame({'poa': [6], 't_amb': [5], 'w_vel': [3]})
+
+        nsample = 100
+        e = np.random.normal(size=nsample)
+
+        a = np.linspace(0, 10, 100)
+        b = np.linspace(0, 10, 100) / 2.0
+        c = np.linspace(0, 10, 100) + 3.0
+
+        das_y = a + (a ** 2) + (a * b) + (a * c)
+        sim_y = a + (a ** 2 * 0.9) + (a * b * 1.1) + (a * c * 0.8)
+
+        das_y = das_y + e
+        sim_y = sim_y + e
+
+        das_df = pd.DataFrame({'power': das_y, 'poa': a,
+                               't_amb': b, 'w_vel': c})
+        sim_df = pd.DataFrame({'power': sim_y, 'poa': a,
+                               't_amb': b, 'w_vel': c})
+
+        self.meas.df = das_df
+        self.meas.set_reg_trans(power='power', poa='poa',
+                                t_amb='t_amb', w_vel='w_vel')
+
+        fml = 'power ~ poa + I(poa * poa) + I(poa * t_amb) + I(poa * w_vel) - 1'
+        das_model = smf.ols(formula=fml, data=das_df)
+        sim_model = smf.ols(formula=fml, data=sim_df)
+
+        self.meas.ols_model = das_model.fit()
+        self.sim.ols_model = sim_model.fit()
+        self.meas.df_flt = pd.DataFrame()
+        self.sim.df_flt = pd.DataFrame()
+
+    def test_pvals_default_false(self):
+        actual = self.meas.ols_model.predict(self.meas.rc)[0]
+        expected = self.sim.ols_model.predict(self.meas.rc)[0]
+        cp_rat_test_val = actual / expected
+
+        cp_rat = pvc.cp_results(self.sim, self.meas, 100, '+/- 5',
+                                check_pvalues=False, print_res=False)
+
+        self.assertEqual(cp_rat, cp_rat_test_val,
+                         'cp_results did not return expected value.')
+
+    def test_pvals_true(self):
+        self.meas.ols_model.params['poa'] = 0
+        self.sim.ols_model.params['poa'] = 0
+        actual_pval_check = self.meas.ols_model.predict(self.meas.rc)[0]
+        expected_pval_check = self.sim.ols_model.predict(self.meas.rc)[0]
+        cp_rat_pval_check = actual_pval_check / expected_pval_check
+
+        cp_rat = pvc.cp_results(self.sim, self.meas, 100, '+/- 5',
+                                check_pvalues=True, pval=1e-15,
+                                print_res=False)
+
+        self.assertEqual(cp_rat, cp_rat_pval_check,
+                         'cp_results did not return expected value.')
+
+
 if __name__ == '__main__':
     unittest.main()
