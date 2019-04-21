@@ -1300,5 +1300,47 @@ class Test_Csky_Filter(unittest.TestCase):
             self.meas.filter_clearsky(window_length=2)
 
 
+class TestCapTestCpResultsSingleCoeff(unittest.TestCase):
+    """Tests for the capactiy test results method using a regression formula
+    with a single coefficient."""
+
+    def setUp(self):
+        np.random.seed(9876789)
+
+        self.meas = pvc.CapData('meas')
+        self.sim = pvc.CapData('sim')
+        # self.cptest = pvc.CapTest(meas, sim, '+/- 5')
+        self.meas.rc = {'x': [6]}
+
+        nsample = 100
+        e = np.random.normal(size=nsample)
+
+        x = np.linspace(0, 10, 100)
+        das_y = x * 2
+        sim_y = x * 2 + 1
+
+        das_y = das_y + e
+        sim_y = sim_y + e
+
+        das_df = pd.DataFrame({'y': das_y, 'x': x})
+        sim_df = pd.DataFrame({'y': sim_y, 'x': x})
+
+        das_model = smf.ols(formula='y ~ x - 1', data=das_df)
+        sim_model = smf.ols(formula='y ~ x - 1', data=sim_df)
+
+        self.meas.ols_model = das_model.fit()
+        self.sim.ols_model = sim_model.fit()
+        self.meas.df_flt = pd.DataFrame()
+        self.sim.df_flt = pd.DataFrame()
+
+    def test_return(self):
+        res = pvc.cp_results(self.sim, self.meas, 100, '+/- 5',
+                             print_res=False)
+
+        self.assertIsInstance(res,
+                              float,
+                              'Returned value is not a tuple')
+
+
 if __name__ == '__main__':
     unittest.main()
