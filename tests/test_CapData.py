@@ -1113,6 +1113,7 @@ class TestFilterTime(unittest.TestCase):
                               load_pvsyst=True)
         self.pvsyst.set_reg_trans(power='real_pwr--', poa='irr-poa-',
                                   t_amb='temp-amb-', w_vel='wind--')
+
     def test_start_end(self):
         self.pvsyst.filter_time(start='2/1/90', end='2/15/90')
         self.assertEqual(self.pvsyst.df_flt.index[0],
@@ -1190,6 +1191,19 @@ class TestFilterPF(unittest.TestCase):
         self.meas.filter_pf(1)
         self.assertEqual(self.meas.df_flt.shape[0], 5760,
                          'Incorrect number of points removed.')
+
+
+class TestFilterOutliers(unittest.TestCase):
+    def setUp(self):
+        self.das = pvc.CapData('das')
+        self.das.load_data(path='./examples/data/',
+                           fname='example_meas_data.csv', source='AlsoEnergy')
+        self.das.set_reg_trans(power='-mtr-', poa='irr-poa-',
+                               t_amb='temp-amb-', w_vel='wind--')
+
+    def test_not_aggregated(self):
+        with self.assertWarns(UserWarning):
+            self.das.filter_outliers()
 
 
 class Test_Csky_Filter(unittest.TestCase):

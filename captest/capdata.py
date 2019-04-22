@@ -2117,6 +2117,10 @@ class CapData(object):
             alpha decreased.
         """
         XandY = self.rview(['poa', 'power'], filtered_data=True)
+        if XandY.shape[1] > 2:
+            return warnings.warn('Too many columns. Try running'
+                                 'aggregate_sensors before using'
+                                 'filter_outliers.')
         X1 = XandY.values
 
         if 'support_fraction' not in kwargs.keys():
