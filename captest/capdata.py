@@ -999,6 +999,8 @@ class CapData(object):
         self.ols_model = None
         self.reg_fml = 'power ~ poa + I(poa * poa) + I(poa * t_amb) + I(poa * w_vel) - 1'
         self.tolerance = None
+        self.pre_agg_cols = None
+        self.pre_agg_trans = None
 
     def set_reg_trans(self, power='', poa='', t_amb='', w_vel=''):
         """
@@ -1876,6 +1878,9 @@ class CapData(object):
         DataFrame
             If inplace is False, then returns a pandas DataFrame.
         """
+        self.pre_agg_cols = self.df.columns
+        self.pre_agg_trans = self.trans.copy()
+
         if agg_map is None:
             agg_map = {self.reg_trans['power']: 'sum',
                        self.reg_trans['poa']: 'mean',
