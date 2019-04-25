@@ -262,13 +262,16 @@ class TestTopLevelFuncs(unittest.TestCase):
         self.assertTrue(less_than, 'Points were not removed for each group.')
 
     def test_perc_difference(self):
-        result = pvc.perc_diff(9, 10)
+        result = pvc.perc_difference(9, 10)
         self.assertAlmostEqual(result, 0.105263158)
 
-        result = pvc.perc_diff(10, 9)
+        result = pvc.perc_difference(10, 9)
         self.assertAlmostEqual(result, 0.105263158)
 
-        result = pvc.perc_diff(10, 10)
+        result = pvc.perc_difference(10, 10)
+        self.assertAlmostEqual(result, 0)
+
+        result = pvc.perc_difference(0, 0)
         self.assertAlmostEqual(result, 0)
 
     def test_check_all_perc_diff_comb(self):
@@ -308,6 +311,7 @@ class TestTopLevelFuncs(unittest.TestCase):
         ix = pvc.sensor_filter(df, 0.05)
         self.assertEqual(ix.shape[0], 10,
                          'Should be no filtering for single column df.')
+
 
 class TestLoadDataMethods(unittest.TestCase):
     """Test for load data methods without setup."""
@@ -942,6 +946,23 @@ class TestAggSensors(unittest.TestCase):
                          'Amb temp reg_trans not updated to agg column.')
         self.assertEqual(self.das.reg_trans['w_vel'], 'wind--mean-agg',
                          'Wind velocity reg_trans not updated to agg column.')
+
+
+class TestFilterSensors(unittest.TestCase):
+    def setUp(self):
+        self.das = pvc.CapData('das')
+        self.das.load_data(path='./examples/data/',
+                           fname='example_meas_data.csv', source='AlsoEnergy')
+        self.das.set_reg_trans(power='-mtr-', poa='irr-poa-',
+                               t_amb='temp-amb-', w_vel='wind--')
+
+    def test_no_trans_keys(self):
+        rows_before_flt = self.das.df_flt.shape[0]
+        self.das.filter_sensors(trans_keys=None, perc_diff=0.5, inplace=True)
+        self.assertIsInstance(self.das.df_flt, pd.core.frame.DataFrame,
+                              'Did not dave a dataframe to df_flt.')
+        self.assertLess(self.das.df_flt.shape[0], rows_before_flt,
+                        'No rows removed.')
 
 
 class TestRepCondNoFreq(unittest.TestCase):
