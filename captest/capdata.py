@@ -337,6 +337,15 @@ def check_all_perc_diff_comb(series, perc_diff):
     return all([perc_difference(x, y) < perc_diff for x, y in c])
 
 
+def sensor_filter(df, perc_diff):
+    if df.shape[1] >= 2:
+        bool_ser = df.apply(check_all_perc_diff_comb, perc_diff=perc_diff,
+                            axis=1)
+        return df[bool_ser].index
+    elif df.shape[1] == 1:
+        return df.index
+
+
 def flt_irr(df, irr_col, low, high, ref_val=None):
     """
     Top level filter on irradiance values.
@@ -2257,16 +2266,6 @@ class CapData(object):
         min_bound = mean - std * std_devs
         max_bound = mean + std * std_devs
         return all(series.apply(lambda x: min_bound < x < max_bound))
-
-    def __sensor_filter(self, df, perc_diff):
-        if df.shape[1] > 2:
-            return df[df.apply(self.__std_filter, axis=1)].index
-        elif df.shape[1] == 1:
-            return df.index
-        else:
-            sens_1 = df.iloc[:, 0]
-            sens_2 = df.iloc[:, 1]
-            return df[abs((sens_1 - sens_2) / sens_1) <= perc_diff].index
 
     @update_summary
     def filter_sensors(self, skip_strs=[], perc_diff=0.05, inplace=True,

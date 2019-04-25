@@ -287,6 +287,28 @@ class TestTopLevelFuncs(unittest.TestCase):
         self.assertFalse(val,
                          'Returned True for value outside of 5 percent.')
 
+    def test_sensor_filter_three_cols(self):
+        rng = np.zeros(10)
+        df = pd.DataFrame({'a':rng, 'b':rng, 'c':rng})
+        df['a'] = df['a'] + 4.1
+        df['b'] = df['b'] + 4
+        df['c'] = df['c'] + 4.2
+        df.iloc[0, 0] = 1200
+        df.iloc[4, 1] = 100
+        df.iloc[7, 2] = 150
+        ix = pvc.sensor_filter(df, 0.05)
+        self.assertEqual(ix.shape[0], 7,
+                         'Filter should have droppe three rows.')
+
+    def test_sensor_filter_one_col(self):
+        rng = np.zeros(10)
+        df = pd.DataFrame({'a':rng})
+        df['a'] = df['a'] + 4.1
+        df.iloc[0, 0] = 1200
+        ix = pvc.sensor_filter(df, 0.05)
+        self.assertEqual(ix.shape[0], 10,
+                         'Should be no filtering for single column df.')
+
 class TestLoadDataMethods(unittest.TestCase):
     """Test for load data methods without setup."""
 
