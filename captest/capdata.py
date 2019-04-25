@@ -338,6 +338,17 @@ def check_all_perc_diff_comb(series, perc_diff):
 
 
 def sensor_filter(df, perc_diff):
+    """
+    Check dataframe for rows with inconsistent values.
+
+    Applies check_all_perc_diff_comb function along rows of passed dataframe.
+
+    Parameters
+    ----------
+    df : pandas DataFrame
+    perc_diff : float
+        Percent difference as decimal.
+    """
     if df.shape[1] >= 2:
         bool_ser = df.apply(check_all_perc_diff_comb, perc_diff=perc_diff,
                             axis=1)
