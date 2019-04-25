@@ -308,6 +308,17 @@ def perc_bounds(perc):
     return (low, high)
 
 
+def std_filter(self, series, std_devs=2):
+    """
+    Returns bool if a series contains values outside std_dev.
+    """
+    mean = series.mean()
+    std = series.std()
+    min_bound = mean - std * std_devs
+    max_bound = mean + std * std_devs
+    return all(series.apply(lambda x: min_bound < x < max_bound))
+
+
 def perc_difference(x, y):
     """
     Calculate percent difference of two values.
@@ -2270,13 +2281,6 @@ class CapData(object):
         13
         """
         self.df_flt = func(self.df_flt, *args, **kwargs)
-
-    def __std_filter(self, series, std_devs=2):
-        mean = series.mean()
-        std = series.std()
-        min_bound = mean - std * std_devs
-        max_bound = mean + std * std_devs
-        return all(series.apply(lambda x: min_bound < x < max_bound))
 
     @update_summary
     def filter_sensors(self, skip_strs=[], perc_diff=0.05, inplace=True,
