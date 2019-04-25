@@ -2228,7 +2228,7 @@ class CapData(object):
         """
         self.df_flt = func(self.df_flt, *args, **kwargs)
 
-    def __std_filter(self, series, std_devs=3):
+    def __std_filter(self, series, std_devs=2):
         mean = series.mean()
         std = series.std()
         min_bound = mean - std * std_devs
