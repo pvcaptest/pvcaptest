@@ -261,6 +261,15 @@ class TestTopLevelFuncs(unittest.TestCase):
         less_than = all(cnts_after_flt < cnts_before_flt)
         self.assertTrue(less_than, 'Points were not removed for each group.')
 
+    def test_perc_diff(self):
+        result = pvc.perc_diff(9, 10)
+        self.assertAlmostEqual(result, 0.105263158)
+
+        result = pvc.perc_diff(10, 9)
+        self.assertAlmostEqual(result, 0.105263158)
+
+        result = pvc.perc_diff(10, 10)
+        self.assertAlmostEqual(result, 0)
 
 class TestLoadDataMethods(unittest.TestCase):
     """Test for load data methods without setup."""

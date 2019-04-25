@@ -307,6 +307,13 @@ def perc_bounds(perc):
     return (low, high)
 
 
+def perc_diff(x, y):
+    """
+    Calculate percent difference of two values.
+    """
+    return abs(x - y) / ((x + y) / 2)
+
+
 def flt_irr(df, irr_col, low, high, ref_val=None):
     """
     Top level filter on irradiance values.
