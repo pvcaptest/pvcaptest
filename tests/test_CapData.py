@@ -261,7 +261,7 @@ class TestTopLevelFuncs(unittest.TestCase):
         less_than = all(cnts_after_flt < cnts_before_flt)
         self.assertTrue(less_than, 'Points were not removed for each group.')
 
-    def test_perc_diff(self):
+    def test_perc_difference(self):
         result = pvc.perc_diff(9, 10)
         self.assertAlmostEqual(result, 0.105263158)
 
@@ -270,6 +270,22 @@ class TestTopLevelFuncs(unittest.TestCase):
 
         result = pvc.perc_diff(10, 10)
         self.assertAlmostEqual(result, 0)
+
+    def test_check_all_perc_diff_comb(self):
+        ser = pd.Series([10.1, 10.2])
+        val = pvc.check_all_perc_diff_comb(ser, 0.05)
+        self.assertTrue(val,
+                        'Failed on two values within 5 percent.')
+
+        ser = pd.Series([10.1, 10.2, 10.15, 10.22, 10.19])
+        val = pvc.check_all_perc_diff_comb(ser, 0.05)
+        self.assertTrue(val,
+                        'Failed with 5 values within 5 percent.')
+
+        ser = pd.Series([10.1, 10.2, 3])
+        val = pvc.check_all_perc_diff_comb(ser, 0.05)
+        self.assertFalse(val,
+                         'Returned True for value outside of 5 percent.')
 
 class TestLoadDataMethods(unittest.TestCase):
     """Test for load data methods without setup."""

@@ -6,6 +6,7 @@ import math
 import copy
 import collections
 from functools import wraps
+from itertools import combinations
 import warnings
 import pytz
 import importlib
@@ -307,11 +308,33 @@ def perc_bounds(perc):
     return (low, high)
 
 
-def perc_diff(x, y):
+def perc_difference(x, y):
     """
     Calculate percent difference of two values.
     """
     return abs(x - y) / ((x + y) / 2)
+
+
+def check_all_perc_diff_comb(series, perc_diff):
+    """
+    Check series for pairs of values with percent difference above perc_diff.
+
+    Calculates the percent difference between all combinations of two values in
+    the passed series and checks if all of them are below the passed perc_diff.
+
+    Parameters
+    ----------
+    series : pd.Series
+        Pandas series of values to check.
+    perc_diff : float
+        Percent difference threshold value as decimal i.e. 5% is 0.05.
+
+    Returns
+    -------
+    bool
+    """
+    c = combinations(series.__iter__(), 2)
+    return all([perc_difference(x, y) < perc_diff for x, y in c])
 
 
 def flt_irr(df, irr_col, low, high, ref_val=None):
