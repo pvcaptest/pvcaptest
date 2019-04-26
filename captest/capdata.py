@@ -2302,9 +2302,12 @@ class CapData(object):
             will be compared.
             By default only filters by comparing poa measurements from
             different sensors.
-        perc_diff : float
+        perc_diff : float or dict
             Percent difference cutoff for readings of the same measurement from
             different sensors.
+            Can also pass a dictionary to specify a different threshold for
+            each group of sensors.  Dictionary keys should be translation
+            dictionary keys and values are floats, like {'irr-poa-': 0.05}
         inplace : bool, default True
             If True, writes over current filtered dataframe. If False, returns
             CapData object.
@@ -2327,15 +2330,22 @@ class CapData(object):
             trans_keys = [reg_trans['poa']]
 
         for key in trans_keys:
+            if isinstance(perc_diff, dict):
+                pd = perc_diff[key]
+            elif isinstance(perc_diff, float):
+                pd = perc_diff
+            else:
+                return warnings.warn('perc_diff must be a float or dictionary.')
+
             if 'index' in locals():
                 # if index has been assigned then take intersection
                 sensors_df = df[trans[key]]
-                next_index = sensor_filter(sensors_df, perc_diff)
+                next_index = sensor_filter(sensors_df, pd)
                 index = index.intersection(next_index)
             else:
                 # if index has not been assigned then assign it
                 sensors_df = df[trans[key]]
-                index = sensor_filter(sensors_df, perc_diff)
+                index = sensor_filter(sensors_df, pd)
 
         df_out = df.loc[index, :]
 
