@@ -975,6 +975,22 @@ class TestFilterSensors(unittest.TestCase):
         self.assertLess(self.das.df_flt.shape[0], rows_before_flt,
                         'No rows removed.')
 
+    def test_after_agg_sensors(self):
+        rows_before_flt = self.das.df_flt.shape[0]
+        self.das.agg_sensors(agg_map={'-inv-': 'sum',
+                                      'irr-poa-ref_cell': 'mean',
+                                      'wind--': 'mean',
+                                      'temp-amb-': 'mean'})
+        self.das.filter_sensors(perc_diff={'irr-poa-ref_cell': 0.05,
+                                           'temp-amb-': 0.1},
+                                inplace=True)
+        self.assertIsInstance(self.das.df_flt, pd.core.frame.DataFrame,
+                              'Did not dave a dataframe to df_flt.')
+        self.assertLess(self.das.df_flt.shape[0], rows_before_flt,
+                        'No rows removed.')
+        self.assertIn('-inv-sum-agg', self.das.df_flt.columns,
+                      'filter_sensors did not retain aggregation columns.')
+
 class TestRepCondNoFreq(unittest.TestCase):
     def setUp(self):
         self.meas = pvc.CapData('meas')

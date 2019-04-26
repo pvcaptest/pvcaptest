@@ -2335,7 +2335,7 @@ class CapData(object):
                 sensors_df = df[trans[key]]
                 index = sensor_filter(sensors_df, perc_diff_for_key)
 
-        df_out = df.loc[index, :]
+        df_out = self.df_flt.loc[index, :]
 
         if inplace:
             self.df_flt = df_out
