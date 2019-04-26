@@ -951,14 +951,24 @@ class TestAggSensors(unittest.TestCase):
 class TestFilterSensors(unittest.TestCase):
     def setUp(self):
         self.das = pvc.CapData('das')
-        self.das.load_data(path='./examples/data/',
-                           fname='example_meas_data.csv', source='AlsoEnergy')
-        self.das.set_reg_trans(power='-mtr-', poa='irr-poa-',
+        self.das.load_data(path='./tests/data/',
+                           fname='example_meas_data.csv',
+                           trans_report=False)
+        self.das.set_reg_trans(power='-mtr-', poa='irr-poa-ref_cell',
                                t_amb='temp-amb-', w_vel='wind--')
 
     def test_no_trans_keys(self):
         rows_before_flt = self.das.df_flt.shape[0]
         self.das.filter_sensors(trans_keys=None, perc_diff=0.5, inplace=True)
+        self.assertIsInstance(self.das.df_flt, pd.core.frame.DataFrame,
+                              'Did not dave a dataframe to df_flt.')
+        self.assertLess(self.das.df_flt.shape[0], rows_before_flt,
+                        'No rows removed.')
+
+    def test_trans_keys(self):
+        rows_before_flt = self.das.df_flt.shape[0]
+        self.das.filter_sensors(trans_keys=['irr-poa-ref_cell', 'temp-amb-'],
+                                perc_diff=0.5, inplace=True)
         self.assertIsInstance(self.das.df_flt, pd.core.frame.DataFrame,
                               'Did not dave a dataframe to df_flt.')
         self.assertLess(self.das.df_flt.shape[0], rows_before_flt,

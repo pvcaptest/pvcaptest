@@ -2313,12 +2313,6 @@ class CapData(object):
         -------
         CapData
             Returns filtered CapData if inplace is False.
-
-        Todo
-        ----
-        perc_diff dict
-            perc_diff can be dict of sensor type keys paired with per_diff
-            values
         """
         if self.pre_agg_cols is not None:
             df = self.df_flt[self.pre_agg_cols]
@@ -2335,13 +2329,13 @@ class CapData(object):
         for key in trans_keys:
             if 'index' in locals():
                 # if index has been assigned then take intersection
-                df = df[trans[key]]
-                next_index = sensor_filter(df, perc_diff)
+                sensors_df = df[trans[key]]
+                next_index = sensor_filter(sensors_df, perc_diff)
                 index = index.intersection(next_index)
             else:
                 # if index has not been assigned then assign it
-                df = df[trans[key]]
-                index = sensor_filter(df, perc_diff)
+                sensors_df = df[trans[key]]
+                index = sensor_filter(sensors_df, perc_diff)
 
         df_out = df.loc[index, :]
 
