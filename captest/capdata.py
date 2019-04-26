@@ -2330,25 +2330,17 @@ class CapData(object):
             reg_trans = self.reg_trans
 
         if trans_keys is None:
-            cols = [reg_trans['poa']]
-        else:
-            cols = trans_keys
-                # stopped here
-                # if no trans_keys passed only filter poa sensors
+            trans_keys = [reg_trans['poa']]
 
-        for i, label in enumerate(cols):
+        for key in trans_keys:
             if 'index' in locals():
                 # if index has been assigned then take intersection
-                # print(label)
-                # print(pm.df[pm.trans[label]].head(1))
-                df = df[trans[label]]
+                df = df[trans[key]]
                 next_index = sensor_filter(df, perc_diff)
                 index = index.intersection(next_index)
             else:
                 # if index has not been assigned then assign it
-                # print(label)
-                # print(pm.df[pm.trans[label]].head(1))
-                df = df[trans[label]]
+                df = df[trans[key]]
                 index = sensor_filter(df, perc_diff)
 
         df_out = df.loc[index, :]
