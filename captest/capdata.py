@@ -2288,8 +2288,7 @@ class CapData(object):
         self.df_flt = func(self.df_flt, *args, **kwargs)
 
     @update_summary
-    def filter_sensors(self, trans_keys=None, perc_diff=0.05,
-                       inplace=True):
+    def filter_sensors(self, perc_diff=None, inplace=True):
         """
         Drop suspicious measurments by comparing values from different sensors.
 
@@ -2297,25 +2296,20 @@ class CapData(object):
 
         Parameters
         ----------
-        trans_keys : list
-            List of translation dictionary keys.  The columns within each group
-            will be compared.
-            By default only filters by comparing poa measurements from
-            different sensors.
-        perc_diff : float or dict
-            Percent difference cutoff for readings of the same measurement from
-            different sensors.
-            Can also pass a dictionary to specify a different threshold for
+        perc_diff : dict
+            Dictionary to specify a different threshold for
             each group of sensors.  Dictionary keys should be translation
-            dictionary keys and values are floats, like {'irr-poa-': 0.05}
+            dictionary keys and values are floats, like {'irr-poa-': 0.05}.
+            By default the poa sensors as set by the reg_trans dictionary are
+            filtered with a 5% percent difference threshold.
         inplace : bool, default True
             If True, writes over current filtered dataframe. If False, returns
             CapData object.
 
         Returns
         -------
-        CapData
-            Returns filtered CapData if inplace is False.
+        DataFrame
+            Returns filtered dataframe if inplace is False.
         """
         if self.pre_agg_cols is not None:
             df = self.df_flt[self.pre_agg_cols]
@@ -2326,17 +2320,12 @@ class CapData(object):
             trans = self.trans
             reg_trans = self.reg_trans
 
-        if trans_keys is None:
-            trans_keys = [reg_trans['poa']]
+        if perc_diff is None:
+            poa_trans_key = reg_trans['poa']
+            perc_diff = {poa_trans_key: 0.05}
 
-        for key in trans_keys:
-            if isinstance(perc_diff, dict):
-                pd = perc_diff[key]
-            elif isinstance(perc_diff, float):
-                pd = perc_diff
-            else:
-                return warnings.warn('perc_diff must be a float or dictionary.')
-
+        for key in perc_diff.keys():
+            pd = perc_diff[key]
             if 'index' in locals():
                 # if index has been assigned then take intersection
                 sensors_df = df[trans[key]]
