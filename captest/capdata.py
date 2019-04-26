@@ -2324,17 +2324,16 @@ class CapData(object):
             poa_trans_key = reg_trans['poa']
             perc_diff = {poa_trans_key: 0.05}
 
-        for key in perc_diff.keys():
-            pd = perc_diff[key]
+        for key, perc_diff_for_key in perc_diff.items():
             if 'index' in locals():
                 # if index has been assigned then take intersection
                 sensors_df = df[trans[key]]
-                next_index = sensor_filter(sensors_df, pd)
+                next_index = sensor_filter(sensors_df, perc_diff_for_key)
                 index = index.intersection(next_index)
             else:
                 # if index has not been assigned then assign it
                 sensors_df = df[trans[key]]
-                index = sensor_filter(sensors_df, pd)
+                index = sensor_filter(sensors_df, perc_diff_for_key)
 
         df_out = df.loc[index, :]
 
