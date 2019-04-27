@@ -1572,17 +1572,16 @@ class CapData(object):
         ----
         Pass list of reg coeffs to rename default all of them.
         """
-        reg_trans_vals_are_colNames = [self.reg_trans[reg_var] in
-                                       self.df_flt.columns for
-                                       reg_var in reg_vars]
-        if not any(reg_trans_vals_are_colNames):
-            reg_var_one_col = [len(self.trans[self.reg_trans[reg_var]]) == 1 for
-                               reg_var in reg_vars]
-            # want true if any trans groups have more than 1 column
-            if not all(reg_var_one_col):
-                return warnings.warn('Multiple columns per translation '
-                                     'dictionary group. Run agg_sensors before'
-                                     ' this method.')
+        for reg_var in reg_vars:
+            if self.reg_trans[reg_var] in self.df_flt.columns:
+                continue
+            else:
+                columns = self.trans[self.reg_trans[reg_var]]
+                if len(columns) != 1:
+                    return warnings.warn('Multiple columns per translation '
+                                         'dictionary group. Run agg_sensors '
+                                         'before this method.')
+
         df = self.rview(reg_vars, filtered_data=filtered_data).copy()
         rename = {old: new for old, new in zip(df.columns, reg_vars)}
         df.rename(columns=rename, inplace=True)
@@ -1691,11 +1690,8 @@ class CapData(object):
             df = self.rview(['power', 'poa'], filtered_data=False)
 
         if df.shape[1] != 2:
-            if '-inv-sum-agg' in df.columns:
-                df = df.drop(columns='-inv-sum-agg')
-            else:
-                return warnings.warn('Aggregate sensors before using this '
-                                     'method.')
+            return warnings.warn('Aggregate sensors before using this '
+                                 'method.')
 
         df = df.rename(columns={df.columns[0]: 'power', df.columns[1]: 'poa'})
         plt = df.plot(kind='scatter', x='poa', y='power',
@@ -1931,7 +1927,7 @@ class CapData(object):
             return poa_cols[0]
 
     def agg_sensors(self, agg_map=None, keep=True, update_reg_trans=True,
-                    inplace=True, inv_sum_vs_power=True):
+                    inplace=True, inv_sum_vs_power=False):
         """
         Aggregate measurments of the same variable from different sensors.
 
@@ -1958,11 +1954,14 @@ class CapData(object):
         inplace : bool, default True
             True writes over dataframe in df and df_flt attribute.
             False returns an aggregated dataframe.
-        inv_sum_vs_power : bool, default True
+        inv_sum_vs_power : bool, default False
             When true method attempts to identify a summation of inverters and
             move it to the same translation dictionary grouping as the meter
             data to facilitate.  If False the inv sum aggregation column is
             left in the inverter translation dictionary group.
+
+            Note: When set to true this option will cause issues with methods
+            that expect a single column of data identified by reg_trans power.
 
         Returns
         -------

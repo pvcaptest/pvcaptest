@@ -859,6 +859,27 @@ class TestGetRegCols(unittest.TestCase):
                          df['poa'].iloc[100],
                          'Data in column labeled poa is not poa.')
 
+    def test_agg_sensors_mix(self):
+        """
+        Test when agg_sensors resets reg_trans values to a mix of trans keys
+        and column names.
+        """
+        self.das.agg_sensors(agg_map={'-inv-': 'sum', 'irr-poa-': 'mean',
+                                      'temp-amb-': 'mean', 'wind--': 'mean'})
+        cols = ['poa', 'power']
+        df = self.das.get_reg_cols(reg_vars=cols)
+        mtr_col = self.das.trans[self.das.reg_trans['power']][0]
+        self.assertEqual(len(df.columns), 2,
+                         'Returned number of columns is incorrect.')
+        self.assertEqual(df.columns.to_list(), cols,
+                         'Columns are not renamed properly.')
+        self.assertEqual(self.das.df[mtr_col].iloc[100],
+                         df['power'].iloc[100],
+                         'Data in column labeled power is not power.')
+        self.assertEqual(self.das.df['irr-poa-mean-agg'].iloc[100],
+                         df['poa'].iloc[100],
+                         'Data in column labeled poa is not poa.')
+
 
 class TestAggSensors(unittest.TestCase):
     def setUp(self):
