@@ -947,6 +947,23 @@ class TestAggSensors(unittest.TestCase):
         self.assertEqual(self.das.reg_trans['w_vel'], 'wind--mean-agg',
                          'Wind velocity reg_trans not updated to agg column.')
 
+    def test_reset_agg_method(self):
+        orig_df = self.das.df.copy()
+        orig_trans = self.das.trans.copy()
+        orig_reg_trans = self.das.reg_trans.copy()
+
+        self.das.agg_sensors()
+        self.das.filter_irr(200, 500)
+        self.das.reset_agg()
+
+        self.assertTrue(self.das.df.equals(orig_df),
+                        'df attribute does not match pre-agg df after reset.')
+        self.assertTrue(all(self.das.df_flt.columns == orig_df.columns),
+                        'Filtered dataframe does not have same columns as'
+                        'original dataframe after resetting agg.')
+        self.assertLess(self.das.df_flt.shape[0], orig_df.shape[0],
+                        'Filtering overwritten by reset agg method.')
+
 
 class TestFilterSensors(unittest.TestCase):
     def setUp(self):
@@ -990,6 +1007,7 @@ class TestFilterSensors(unittest.TestCase):
                         'No rows removed.')
         self.assertIn('-inv-sum-agg', self.das.df_flt.columns,
                       'filter_sensors did not retain aggregation columns.')
+
 
 class TestRepCondNoFreq(unittest.TestCase):
     def setUp(self):

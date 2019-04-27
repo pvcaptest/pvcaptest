@@ -1885,6 +1885,22 @@ class CapData(object):
         self.summary_ix = []
         self.summary = []
 
+    def reset_agg(self):
+        """
+        Remove aggregation columns from df and df_flt attributes.
+
+        Does not reset filtering of of df_flt.
+        """
+        if self.pre_agg_cols is None:
+            return warnings.warn('Nothing to reset; agg_sensors has not been'
+                                 'used.')
+        else:
+            self.df = self.df[self.pre_agg_cols].copy()
+            self.df_flt = self.df_flt[self.pre_agg_cols].copy()
+
+            self.trans = self.pre_agg_trans.copy()
+            self.reg_trans = self.pre_agg_reg_trans.copy()
+
     def __get_poa_col(self):
         """
         Returns poa column name from translation dictionary.
