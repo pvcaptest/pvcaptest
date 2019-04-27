@@ -1958,7 +1958,22 @@ class CapData(object):
         -------
         DataFrame
             If inplace is False, then returns a pandas DataFrame.
+
+        Todo
+        ----
+        Re-apply filters
+            Explore re-applying filters after aggregation, if filters have
+            been run before using agg_sensors.
         """
+        if not len(self.summary) == 0:
+            warnings.warn('The df_flt attribute has been overwritten and '
+                          'previously applied filtering steps have been '
+                          'lost.  It is recommended to use agg_sensors '
+                          'before any filtering methods. In the future the '
+                          'agg_sensors method could possibly re-apply '
+                          'filters, if there is interest in this '
+                          'functionality.')
+
         self.pre_agg_cols = self.df.columns
         self.pre_agg_trans = self.trans.copy()
         self.pre_agg_reg_trans = self.reg_trans.copy()

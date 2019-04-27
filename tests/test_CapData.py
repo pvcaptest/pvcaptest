@@ -964,6 +964,16 @@ class TestAggSensors(unittest.TestCase):
         self.assertLess(self.das.df_flt.shape[0], orig_df.shape[0],
                         'Filtering overwritten by reset agg method.')
 
+    def test_warn_if_filters_already_run(self):
+        """
+        Warn if method is writing over filtering already applied to df_flt.
+        """
+        poa_key = self.das.reg_trans['poa']
+        self.das.trans[poa_key] = [self.das.trans[poa_key][0]]
+        self.das.filter_irr(200, 800)
+        with self.assertWarns(UserWarning):
+            self.das.agg_sensors()
+
 
 class TestFilterSensors(unittest.TestCase):
     def setUp(self):
