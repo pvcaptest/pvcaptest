@@ -147,6 +147,12 @@ def update_summary(func):
                              columns[1]: pts_removed,
                              columns[2]: arg_str})
 
+        if pts_after == 0:
+            warnings.warn('The last filter removed all data! '
+                          'Calling additional filtering or visualization '
+                          'methods that reference the df_flt attribute will '
+                          'raise an error.')
+
         return ret_val
     return wrapper
 
