@@ -1691,7 +1691,11 @@ class CapData(object):
             df = self.rview(['power', 'poa'], filtered_data=False)
 
         if df.shape[1] != 2:
-            return warnings.warn('Aggregate sensors before using this method.')
+            if '-inv-sum-agg' in df.columns:
+                df = df.drop(columns='-inv-sum-agg')
+            else:
+                return warnings.warn('Aggregate sensors before using this '
+                                     'method.')
 
         df = df.rename(columns={df.columns[0]: 'power', df.columns[1]: 'poa'})
         plt = df.plot(kind='scatter', x='poa', y='power',
