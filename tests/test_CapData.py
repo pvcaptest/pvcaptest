@@ -947,6 +947,13 @@ class TestAggSensors(unittest.TestCase):
         self.assertEqual(self.das.reg_trans['w_vel'], 'wind--mean-agg',
                          'Wind velocity reg_trans not updated to agg column.')
 
+    def test_reset_summary(self):
+        self.das.agg_sensors()
+        self.assertEqual(len(self.das.summary), 0,
+                         'Summary data not reset.')
+        self.assertEqual(len(self.das.summary_ix), 0,
+                         'Summary index not reset.')
+
     def test_reset_agg_method(self):
         orig_df = self.das.df.copy()
         orig_trans = self.das.trans.copy()
@@ -973,6 +980,7 @@ class TestAggSensors(unittest.TestCase):
         self.das.filter_irr(200, 800)
         with self.assertWarns(UserWarning):
             self.das.agg_sensors()
+
 
 
 class TestFilterSensors(unittest.TestCase):

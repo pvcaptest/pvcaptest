@@ -1980,6 +1980,10 @@ class CapData(object):
                           'filters, if there is interest in this '
                           'functionality.')
 
+        # reset summary data
+        self.summary_ix = []
+        self.summary = []
+
         self.pre_agg_cols = self.df.columns
         self.pre_agg_trans = self.trans.copy()
         self.pre_agg_reg_trans = self.reg_trans.copy()
