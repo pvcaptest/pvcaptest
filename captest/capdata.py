@@ -992,8 +992,8 @@ def res_summary(sim, das, nameplate, tolerance, print_res=False, **kwargs):
 
     cprat_rounded = np.round(cprat, decimals=4) * 100
     cprat_cpval_rounded = np.round(cprat_cpval, decimals=4) * 100
-    print('{}% - Cap Ratio'.format(cprat_rounded))
-    print('{}% - Cap Ratio after pval check'.format(cprat_cpval_rounded))
+    print('{:.3f}% - Cap Ratio'.format(cprat_rounded))
+    print('{:.3f}% - Cap Ratio after pval check'.format(cprat_cpval_rounded))
     return(df_pvals.style.format('{:20,.5f}').apply(highlight_pvals,
                                                     subset=['das_pvals',
                                                             'sim_pvals']))
