@@ -1673,6 +1673,18 @@ class CapData(object):
             self.trans_keys.extend([grp_comb])
             print('Added new group: ' + grp_comb)
 
+    def review_trans(self):
+        """
+        Print translation dictionary with nice formatting.
+        """
+        if len(self.trans) == 0:
+            return 'Translation dictionary is empty.'
+        else:
+            for trans_grp, col_list in self.trans.items():
+                print(trans_grp)
+                for col in col_list:
+                    print('    ' + col)
+
     # PLOTTING METHODS
     def reg_scatter_matrix(self):
         """

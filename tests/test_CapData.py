@@ -1278,6 +1278,7 @@ class TestGetSummary(unittest.TestCase):
                          'First column of summary data is not labeled '
                          'filter_arguments.')
 
+
 class TestFilterTime(unittest.TestCase):
     def setUp(self):
         self.pvsyst = pvc.CapData('pvsyst')
