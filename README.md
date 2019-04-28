@@ -19,6 +19,36 @@
 </tr>
 </table>
 
+# What is captest?
+Captest is intended to facilitate capacity testing following ASTM E2848.  The module contains a single class, CapData, which provides methods for loading, visualizing, filtering, and regressing capacity testing data.  The module also includes functions that take CapData objects as arguments and provide summary data and capacity test results.
 
-Captest is intended to facilitate capacity testing following ASTM E2848.  The module includes two classes.  The first class, CapData, contains methods for loading and visualizing measured and simulated (PVsyst) data.  The second class, CapTest, contains methods for visualizing, filtering,
-and performing regressions on data typically collected from operating solar PV plants or solar energy production models.
+# Installation
+The recommended method to install captest is to create an environment using conda and then pip installing captest within your new environment.
+
+There are a few ways to go about this as listed below.  
+
+## If you do not have conda installed:
+Downloading and installing the [anaconda distribution](https://www.anaconda.com/distribution/#download-section) will install python and all packages required to use captest except pvlib.
+
+Then you can simply use:
+`pip install  captest`
+
+To install pvlib also use:
+`pip install captest[csky]`
+
+
+## If you have conda installed:
+If you already have conda installed and are familiar with its use.
+
+`conda create -n new_env python=3.6 notebook pip`
+
+Use the above to create a new environment, where `new_env` is whatever name you would like to use.  Python 3.5 and above should all work, thorough testing is not complete yet agains all python versions.
+
+Activate the new env and then pip install captest:
+`pip install captest`
+
+Pip will install the captest dependencies. captest relies on the package Holoviews for advanced plotting and the package pvlib for clear sky modelling.  You can load either or both of these with the following:
+
+`pip install captest[all]`
+`pip install captest[csky]`
+`pip install captest[viz]`
