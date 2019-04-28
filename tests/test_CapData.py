@@ -1257,6 +1257,27 @@ class TestFilterIrr(unittest.TestCase):
                         'Filter did not remove points from returned DataFrame.')
 
 
+class TestGetSummary(unittest.TestCase):
+    def setUp(self):
+        self.meas = pvc.CapData('meas')
+        self.meas.load_data('./tests/data/', 'nrel_data.csv',
+                            source='AlsoEnergy')
+        self.meas.set_reg_trans(power='', poa='irr-poa-',
+                                t_amb='temp--', w_vel='wind--')
+
+    def test_col_names(self):
+        self.meas.filter_irr(200, 500)
+        smry = self.meas.get_summary()
+        self.assertEqual(smry.columns[0], 'pts_after_filter',
+                         'First column of summary data is not labeled '
+                         'pts_after_filter.')
+        self.assertEqual(smry.columns[1], 'pts_removed',
+                         'First column of summary data is not labeled '
+                         'pts_removed.')
+        self.assertEqual(smry.columns[2], 'filter_arguments',
+                         'First column of summary data is not labeled '
+                         'filter_arguments.')
+
 class TestFilterTime(unittest.TestCase):
     def setUp(self):
         self.pvsyst = pvc.CapData('pvsyst')

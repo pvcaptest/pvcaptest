@@ -99,7 +99,7 @@ irr_sensors_defs = {'ref_cell': [['reference cell', 'reference', 'ref',
                     'pyran': [['pyranometer', 'pyran']],
                     'clear_sky':[['csky']]}
 
-columns = ['pts_before_filter', 'pts_removed', 'filter_arguments']
+columns = ['pts_after_filter', 'pts_removed', 'filter_arguments']
 
 
 def update_summary(func):
