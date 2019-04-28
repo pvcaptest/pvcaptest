@@ -11,7 +11,7 @@ import pvlib
 from .context import capdata as pvc
 
 data = np.arange(0, 1300, 54.167)
-index = pd.DatetimeIndex(start='1/1/2017', freq='H', periods=24)
+index = pd.date_range(start='1/1/2017', freq='H', periods=24)
 df = pd.DataFrame(data=data, index=index, columns=['poa'])
 
 # capdata = pvc.CapData('capdata')
@@ -19,10 +19,10 @@ df = pd.DataFrame(data=data, index=index, columns=['poa'])
 
 """
 Run all tests from project root:
-'python -m tests.test_CapTest'
+'python -m tests.test_CapData'
 
 Run individual tests:
-'python -m unittest tests.test_CapTest.Class.Method'
+'python -m unittest tests.test_CapData.Class.Method'
 
 -m flag imports unittest as module rather than running as script
 
@@ -66,6 +66,7 @@ CapData
     filter_irr
     filter_op_state
     filter_missing
+    filter_pvsyst
     __std_filter
     __sensor_filter
     filter_sensors
@@ -600,9 +601,9 @@ class Test_csky(unittest.TestCase):
         """Test that get_tz_index function returns a datetime index\
            with a timezone when passed a dataframe without a timezone."""
         # reindex test dataset to cover DST in the fall and spring
-        ix_3days = pd.DatetimeIndex(start='11/3/2018', periods=864, freq='5min',
+        ix_3days = pd.date_range(start='11/3/2018', periods=864, freq='5min',
                                     tz='America/Chicago')
-        ix_2days = pd.DatetimeIndex(start='3/9/2019', periods=576, freq='5min',
+        ix_2days = pd.date_range(start='3/9/2019', periods=576, freq='5min',
                                     tz='America/Chicago')
         ix_dst = ix_3days.append(ix_2days)
         ix_dst = ix_dst.tz_localize(None)
@@ -622,9 +623,9 @@ class Test_csky(unittest.TestCase):
         """Test that get_tz_index function returns a datetime index\
            with a timezone when passed a dataframe with a timezone."""
         # reindex test dataset to cover DST in the fall and spring
-        ix_3days = pd.DatetimeIndex(start='11/3/2018', periods=864, freq='5min',
+        ix_3days = pd.date_range(start='11/3/2018', periods=864, freq='5min',
                                     tz='America/Chicago')
-        ix_2days = pd.DatetimeIndex(start='3/9/2019', periods=576, freq='5min',
+        ix_2days = pd.date_range(start='3/9/2019', periods=576, freq='5min',
                                     tz='America/Chicago')
         ix_dst = ix_3days.append(ix_2days)
         self.df.index = ix_dst
@@ -643,9 +644,9 @@ class Test_csky(unittest.TestCase):
         """Test that get_tz_index function returns warns when datetime index\
            of dataframe does not match loc dic timezone."""
         # reindex test dataset to cover DST in the fall and spring
-        ix_3days = pd.DatetimeIndex(start='11/3/2018', periods=864, freq='5min',
+        ix_3days = pd.date_range(start='11/3/2018', periods=864, freq='5min',
                                     tz='America/New_York')
-        ix_2days = pd.DatetimeIndex(start='3/9/2019', periods=576, freq='5min',
+        ix_2days = pd.date_range(start='3/9/2019', periods=576, freq='5min',
                                     tz='America/New_York')
         ix_dst = ix_3days.append(ix_2days)
         self.df.index = ix_dst
@@ -656,7 +657,7 @@ class Test_csky(unittest.TestCase):
     def test_get_tz_index_ix_tz(self):
         """Test that get_tz_index function returns a datetime index
            with a timezone when passed a datetime index with a timezone."""
-        self.ix = pd.DatetimeIndex(start='1/1/2019', periods=8760, freq='H',
+        self.ix = pd.date_range(start='1/1/2019', periods=8760, freq='H',
                                    tz='America/Chicago')
         self.tz_ix = pvc.get_tz_index(self.ix, self.loc)
 
@@ -674,7 +675,7 @@ class Test_csky(unittest.TestCase):
         """Test that get_tz_index function warns when DatetimeIndex timezone
            does not match the location dic timezone.
         """
-        self.ix = pd.DatetimeIndex(start='1/1/2019', periods=8760, freq='H',
+        self.ix = pd.date_range(start='1/1/2019', periods=8760, freq='H',
                                    tz='America/New_York')
 
         with self.assertWarns(UserWarning):
@@ -683,7 +684,7 @@ class Test_csky(unittest.TestCase):
     def test_get_tz_index_ix(self):
         """Test that get_tz_index function returns a datetime index\
            with a timezone when passed a datetime index without a timezone."""
-        self.ix = pd.DatetimeIndex(start='1/1/2019', periods=8760, freq='H',
+        self.ix = pd.date_range(start='1/1/2019', periods=8760, freq='H',
                                    tz='America/Chicago')
         # remove timezone info but keep missing  hour and extra hour due to DST
         self.ix = self.ix.tz_localize(None)
