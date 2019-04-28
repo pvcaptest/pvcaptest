@@ -446,7 +446,18 @@ def filter_grps(grps, rcs, irr_col, low, high, **kwargs):
 
 def irrRC_balanced(df, low, high, irr_col='GlobInc', plot=False):
     """
-    Calculates max irradiance reporting condition that is below 60th percentile.
+    Iteratively calculates reporting irradiance that achieves 40/60 balance.
+
+    This function is intended to implement a strict interpratation of common
+    contract language that specifies the reporting irradiance be determined by
+    finding the irradiance that results in a balance of points within a
+    +/- percent range of the reporting irradiance. This function
+    iterates to a solution for the reporting irradiance by calculating the
+    irradiance that has 10 datpoints in the filtered dataset above it, then
+    filtering for a percentage of points around that irradiance, calculating
+    what percentile the reporting irradiance is in.  This procedure continues
+    until 40% of the points in the filtered dataset are above the calculated
+    reporting irradiance.
 
     Parameters
     ----------
