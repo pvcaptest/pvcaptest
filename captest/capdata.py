@@ -1292,6 +1292,13 @@ class CapData(object):
         """
         Import data from csv files.
 
+        The intent of the default behavior is to combine csv files that have
+        the same columns and rows of data from different times. For example,
+        combining daily files of 5 minute measurements from the same sensors
+        for each day.
+
+        Use the path and fname arguments to specify a single file to import.
+
         Parameters
         ----------
         path : str, default './data/'
