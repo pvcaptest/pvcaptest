@@ -1,6 +1,6 @@
 # Versions of packages in the Anaconda Distribution
 # as of 4/28/19 for python 3.7
-name: cp_default_dist
+name: captest_env
 dependencies:
 - python=3.7*
 - bokeh=1.0.4
@@ -14,3 +14,7 @@ dependencies:
 - holoviews=1.11.3
 - notebook*
 - ipython*
+- pip:
+    - tables
+    - pvlib
+    - captest
