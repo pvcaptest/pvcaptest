@@ -20,7 +20,7 @@
 </table>
 
 # What is captest?
-Captest is intended to facilitate capacity testing following ASTM E2848.  The module contains a single class, CapData, which provides methods for loading, visualizing, filtering, and regressing capacity testing data.  The module also includes functions that take CapData objects as arguments and provide summary data and capacity test results.
+Captest is intended to facilitate capacity testing following ASTM E2848.  The captest module contains a single class, CapData, which provides methods for loading, visualizing, filtering, and regressing capacity testing data.  The module also includes functions that take CapData objects as arguments and provide summary data and capacity test results.
 
 # Installation
 The recommended method to install captest is to create an environment using conda and then pip installing captest within your new environment.
@@ -31,24 +31,41 @@ There are a few ways to go about this as listed below.
 Downloading and installing the [anaconda distribution](https://www.anaconda.com/distribution/#download-section) will install python and all packages required to use captest except pvlib.
 
 Then you can simply use:
-`pip install  captest`
+`pip install captest`
 
 To install pvlib also use:
 `pip install captest[csky]`
 
 
 ## If you have conda installed:
-If you already have conda installed and are familiar with its use.
+### Install into a new conda environment:
+If you already have conda installed and are familiar with its use, then the recommended method to install captest is to create a new environment using the provided [captest_env yml file](https://github.com/bt-/pvcaptest/blob/master/captest_env.yml).  Download this file and then run:
 
-`conda create -n new_env python=3.6 notebook pip`
+`conda env create -f captest_env.yml`
 
-Use the above to create a new environment, where `new_env` is whatever name you would like to use.  Python 3.5 and above should all work, thorough testing is not complete yet agains all python versions.
+Activate the new environment:
 
-Activate the new env and then pip install captest:
+`conda activate captest_env_05`
+
+Then pip install captest:
+
 `pip install captest`
 
-Pip will install the captest dependencies. captest relies on the package Holoviews for advanced plotting and the package pvlib for clear sky modelling.  You can load either or both of these with the following:
+The environment created includes all captest dependenices including Holoviews and PVLIB.
 
+### Install into an existing conda environment:
+If you prefer to use an existing environment, you can pip install captest.  
+
+`pip install captest`
+
+This will not load the optional Holoviews and PVLIB dependencies, which 
+captest relies on for advanced plotting and clear sky modelling.  You can load either or both of these with the following:
+
+Load both:
 `pip install captest[all]`
+
+Load PVLIB:
 `pip install captest[csky]`
+
+Load Holoviews:
 `pip install captest[viz]`
