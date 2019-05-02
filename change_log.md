@@ -1,7 +1,13 @@
+### v0.5.1
+- Changed Holoviews dependency to >= v1.11.  DatLink added in v1.11 is required for scatter_hv method.
+- Expanded docstring for the load_data method to more clearly explain how the method joins multiple files (by row).
+- Update installation directions in README.
+- Updated conda environment file (conda_env.yml) to match updated dependencies.
+
 ### v0.5.0
 - Moved all filtering and regression functionality from CapTest class into the CapData class and replace CapTest class with functions for results comparing CapData objects.
-- Addition of clear sky modelling using pvlib library.  See new example notebook 'Clear Sky Examples'.
-- Significant refactor of the rep\_cond function.  Removed any time filering and prediction from rep\_cond.  Rep\_cond acts on filtered data in the df\_flt attribute.
+- Addition of clear sky modeling using pvlib library.  See new example notebook 'Clear Sky Examples'.
+- Significant refactor of the rep\_cond function.  Removed any time filtering and prediction from rep\_cond.  Rep\_cond acts on filtered data in the df\_flt attribute.
 - Added a new method, `predict_capacities` for calculating reporting conditions and predicted outputs by month.
 - New example notebook demonstrating use of `rep_cond` and `predict_capacities`.
 - `agg_sensors` method updated to be more explicit and flexible.
