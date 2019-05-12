@@ -41,9 +41,9 @@ To install pvlib also use:
 
 ## If you have conda installed:
 ### Install into a new conda environment:
-If you already have conda installed and are familiar with its use, then the recommended method to install captest is to create a new environment using the provided [captest_env yml file](https://github.com/bt-/pvcaptest/blob/master/captest_env.yml).  Download this file and then run:
+If you already have conda installed and are familiar with its use, then the recommended method to install captest is to create a new environment using the provided [environment yml file](https://github.com/bt-/pvcaptest/blob/master/environment.yml).  Download this file and then run:
 
-`conda env create -f captest_env.yml`
+`conda env create -f environment.yml`
 
 Activate the new environment:
 
