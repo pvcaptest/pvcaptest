@@ -2,7 +2,7 @@
 # Package versions match Anaconda Distribution as of 4/28/19 for python 3.7
 # To create a conda environment using this file:
 # conda env create -f captest_env.yml
-name: captest_env_05
+name: captest_env_05_test
 dependencies:
 - python=3.7*
 - bokeh=1.0.4
@@ -20,3 +20,4 @@ dependencies:
 - pip:
     - tables
     - pvlib
+    - captest
