@@ -49,11 +49,7 @@ Activate the new environment:
 
 `conda activate captest_env_05`
 
-Then pip install captest:
-
-`pip install captest`
-
-The environment created includes all captest dependenices including Holoviews and PVLIB.
+The environment created includes captest and all captest dependenices including Holoviews and PVLIB.
 
 ### Install into an existing conda environment:
 If you prefer to use an existing environment, you can pip install captest.  
