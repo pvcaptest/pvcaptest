@@ -1,3 +1,10 @@
+### v0.5.2
+- Update name and location of conda environment yml file, so there is a single file and it works with binder.
+- Removed binder directory.
+- Update readme to reflect changes to conda environment.yml
+- Minor updates to example.
+- Minor documentation string updates.
+
 ### v0.5.1
 - Changed Holoviews dependency to >= v1.11.  DatLink added in v1.11 is required for scatter_hv method.
 - Expanded docstring for the load_data method to more clearly explain how the method joins multiple files (by row).
