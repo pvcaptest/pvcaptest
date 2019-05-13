@@ -878,7 +878,9 @@ def cp_results(sim, das, nameplate, tolerance, check_pvalues=False, pval=0.05,
 
     Returns
     -------
-    Capacity test ratio
+    Capacity test ratio - the capacity calculated from the reporting conditions
+    and the measured data divided by the capacity calculated from the reporting
+    conditions and the simulated data.
     """
     sim_int = sim.copy()
     das_int = das.copy()
@@ -959,7 +961,14 @@ def highlight_pvals(s):
 
 def res_summary(sim, das, nameplate, tolerance, print_res=False, **kwargs):
     """
-    Prints a summary of the regression results.
+    Prints a summary of the capacity test results.
+
+    Capacity ratio is the capacity calculated from the reporting conditions
+    and the measured data divided by the capacity calculated from the reporting
+    conditions and the simulated data.
+
+    The tolerance is applied to the capacity test ratio to determine if the
+    test passes or fails.
 
     Parameters
     ----------
@@ -1086,10 +1095,13 @@ class CapData(object):
 
     def set_reg_trans(self, power='', poa='', t_amb='', w_vel=''):
         """
-        Create a dictionary linking the regression variables to trans_keys.
+        Create a dictionary linking the regression variables to data.
 
         Links the independent regression variables to the appropriate
-        translation keys.  Sets attribute and returns nothing.
+        translation keys or a column name may be used to specify a
+        single column of data.
+
+        Sets attribute and returns nothing.
 
         Parameters
         ----------
