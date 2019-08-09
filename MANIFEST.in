@@ -1,3 +1,5 @@
 include README.rst
 include LICENSE.txt
 include pvc_env.yml
+include versioneer.py
+include captest/_version.py
