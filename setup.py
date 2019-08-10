@@ -1,17 +1,6 @@
 from setuptools import setup, find_packages
-import re
 import io
-
-VERSIONFILE = './captest/_version.py'
-verstrline = open(VERSIONFILE, 'rt').read()
-rgx = re.compile(r"^__version__ = ['\"]([^'\"]*)['\"]", re.M)
-match_obj = rgx.search(verstrline)
-if match_obj:
-    verstr = match_obj.group(1)
-    # print(verstr)
-else:
-    raise RuntimeError('Unable to find version string in {}'.format(VERSIONFILE))
-
+import versioneer
 
 def read(*filenames, **kwargs):
     encoding = kwargs.get('encoding', 'utf-8')
@@ -26,7 +15,8 @@ long_description = read('README.rst')
 
 setup(
     name='captest',
-    version=verstr,
+    version=versioneer.get_version(),
+    cmdclass=versioneer.get_cmdclass(),
     url='http://github.com/bt-/pvcaptest',
     license='MIT',
     author='Ben Taylor',
