@@ -18,6 +18,9 @@ matrix:
         # - DEPLOY_ENV="true"
     - python: 3.7
       env:
+        - CONDA_ENV=py37holoviz
+    - python: 3.7
+      env:
         - CONDA_ENV=py37
         - TASK="coverage"
         # - DEPLOY_ENV="true"
