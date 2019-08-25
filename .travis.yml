@@ -70,6 +70,6 @@ deploy:
     upload_docs: false
     on:
       repo: pvcaptest/pvcaptest
-      python: 3.6
+      python: 3.7
       condition: $DEPLOY_ENV == "true"
       tags: true
