@@ -11,11 +11,9 @@ matrix:
     #   env: CONDA_ENV=py35-min
     # - python: 3.5
     #   env: CONDA_ENV=py35
-    # - python: 3.6
-    #   env:
-    #     - CONDA_ENV=py36
-    #     - TASK="coverage"
-        # - DEPLOY_ENV="true"
+    - python: 3.6
+      env:
+        - CONDA_ENV=py36
     - python: 3.7
       env:
         - CONDA_ENV=py37
