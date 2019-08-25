@@ -13,12 +13,11 @@ matrix:
     - python: 3.6
       env:
         - CONDA_ENV=py36
+        - TASK="coverage"
+        - DEPLOY_ENV="true"
     - python: 3.7
       env:
         - CONDA_ENV=py37
-        - TASK="coverage"
-        # - DEPLOY_ENV="true"
-
 
 addons:
     apt:
@@ -65,15 +64,15 @@ after_script:
 after_success:
     coveralls
 
-# deploy:
-#   - provider: pypi
-#     user: wholmgren
-#     password:
-#       secure: cUaCm+/9BAZ7pn1e6+X1TBh4ysSW9dFnUHrYIcR8xefb/O5YVlzPZACt2pR0vYJuJ6vGWOK5VzigeKyh9dccIJUqntqsqNwQF3GkgcNNzIwDUKzsmbuKEgL1GCvJWaIvov0Sevfmg7eFpGbXdynw6IVFMBssz+eVCwEV5Ww8WbI=
-#     distributions: sdist bdist_wheel
-#     upload_docs: false
-#     on:
-#       repo: pvlib/pvlib-python
-#       python: 3.6
-#       condition: $DEPLOY_ENV == "true"
-#       tags: true
+deploy:
+  - provider: pypi
+    user: benjaming.taylor
+    password:
+        secure: vS5f/kGBoJIPC5exTqQUaimtmnf+ywx4ctL3rR15GmujevFNekpN8Y5bKDMC/L5U1cjfKeIvMvjsWA30qn91nBNWllu3nhv3bzKL5QOIGtYng3M3ZSF0EpnR6qrejX5g75rPgI02DRn3reu9Pl0H3hnKaCB3VSy7gSLx9+cxgmVJAG4p5m6IPkQHKyICcwJ+ZBymf0Mu8ZexbF1T6fQFBmS3hNqeWPfIvsc5sFoNVC/9oVJrjKGlfatVwg400NL2rM9UEqfboOOaKJdeWLRTa15KBnE81QcQMgHACBAgPh67FhJDEmSCHWF2EREuGedI2ydlRALC+QUy7CSb2PPgYJZcXXKofOA0tRuD4uTLQhCqePlvokz3jJeqel+RB7OQk+90ycnlECSp98VNIqPzdGc44uIdqc8mY4jH4fKALkQflmp1QJNY+W0DrfcXnVzBQ5PeR37Daf9L+zgoc7B0RPI03ve4AbSGJYhnuyWjZt26TolMp9eOdnvJFLDKvrRWGLKRsDbHIATzYKycM4YVxHVvPD+CUkFrDg9c5nMH0BeCcNX4t+N7FGy8HbR4laS3wjo1hgJOJL2d3jUUP8LeSue2ViumT9gLAaf9qZo0vp3tXjOdzX23DjsDoxuL9H157YwVl+gi3YMyAUeJdfaMt8R6w3G/nM2T4cOVHCT+J/k=
+    distributions: sdist bdist_wheel
+    upload_docs: false
+    on:
+      repo: pvcaptest/pvcaptest
+      python: 3.6
+      condition: $DEPLOY_ENV == "true"
+      tags: true
