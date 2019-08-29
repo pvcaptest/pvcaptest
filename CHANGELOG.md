@@ -4,6 +4,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+[Unreleased]: https://github.com/pvcaptest/pvcaptest/compare/v0.5.3...HEAD
 ## [Unreleased]
 ### Added
 - Setup Travis CI to test pull requests and test and deploy to pypi tags on master.
@@ -13,7 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Updated this file to follow the Keep a Changelog formatting conventions.
 - Moved repository to an organization github account from my personal github account.
 
-
+[0.5.3]: https://github.com/pvcaptest/pvcaptest/compare/v0.5.1...v0.5.3
 ## [0.5.3] - 2019-05-12
 ### Changed
 - Update name and location of conda environment yml file, so there is a single file and it works with binder.
@@ -22,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Minor updates to example.
 - Minor documentation string updates.
 
+[0.5.1]: https://github.com/pvcaptest/pvcaptest/compare/v0.4.0...v0.5.1
 ## [0.5.1] - 2019-05-01
 ### Added
 - Addition of clear sky modeling using pvlib library.  See new example notebook 'Clear Sky Examples'.
