@@ -14,7 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Moved repository to an organization github account from my personal github account.
 
 
-## [v0.5.3] - 2019-05-12
+## [0.5.3] - 2019-05-12
 ### Changed
 - Update name and location of conda environment yml file, so there is a single file and it works with binder.
 - Removed binder directory.
@@ -22,7 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Minor updates to example.
 - Minor documentation string updates.
 
-## [v0.5.1] - 2019-05-01
+## [0.5.1] - 2019-05-01
 ### Added
 - Addition of clear sky modeling using pvlib library.  See new example notebook 'Clear Sky Examples'.
 - Added a new method, `predict_capacities` for calculating reporting conditions and predicted outputs by month.
