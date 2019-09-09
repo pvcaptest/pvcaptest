@@ -31,7 +31,10 @@ Contents
    :maxdepth: 2
 
    installation
+   examples
+   changelog
    release
+
 
 
 Indices and tables
