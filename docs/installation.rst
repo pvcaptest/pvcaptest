@@ -1,17 +1,4 @@
-captest
-================
-
-Captest is intended to facilitate capacity testing following ASTM E2848.
-The captest module contains a single class, CapData, which provides
-methods for loading, visualizing, filtering, and regressing capacity
-testing data. The module also includes functions that take CapData
-objects as arguments and provide summary data and capacity test results.
-
-Please see the Jupyter docs/notebooks in the examples directory, which
-include examples of the core features.
-
-More complete documentation is available on
-`readthedocs <https://pvcaptest.readthedocs.io/en/latest/>`__
+.. _installation:
 
 Installation
 ============
@@ -51,8 +38,12 @@ Activate the new environment:
 
 ``conda activate captest_env_05``
 
-The environment created includes captest and all captest dependenices
-including Holoviews and PVLIB.
+Then pip install captest:
+
+``pip install captest``
+
+The environment created includes all captest dependenices including
+Holoviews and PVLIB.
 
 Install into an existing conda environment:
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

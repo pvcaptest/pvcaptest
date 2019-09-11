@@ -1,8 +1,7 @@
-pv_cap_test
-===========
+captest
+=======
 
 .. toctree::
    :maxdepth: 4
 
    captest
-   load_data

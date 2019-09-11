@@ -815,8 +815,9 @@ load_data calls final function with in place to get ghi and poa
 class TestGetRegCols(unittest.TestCase):
     def setUp(self):
         self.das = pvc.CapData('das')
-        self.das.load_data(path='./examples/data/',
-                           fname='example_meas_data.csv', source='AlsoEnergy')
+        self.das.load_data(path='./tests/data/',
+                           fname='example_meas_data_aeheaders.csv',
+                           source='AlsoEnergy')
         self.das.set_reg_trans(power='-mtr-', poa='irr-poa-',
                                t_amb='temp-amb-', w_vel='wind--')
 
@@ -885,8 +886,9 @@ class TestGetRegCols(unittest.TestCase):
 class TestAggSensors(unittest.TestCase):
     def setUp(self):
         self.das = pvc.CapData('das')
-        self.das.load_data(path='./examples/data/',
-                           fname='example_meas_data.csv', source='AlsoEnergy')
+        self.das.load_data(path='./tests/data/',
+                           fname='example_meas_data_aeheaders.csv',
+                           source='AlsoEnergy')
         self.das.set_reg_trans(power='-mtr-', poa='irr-poa-',
                                t_amb='temp-amb-', w_vel='wind--')
 
@@ -1370,8 +1372,9 @@ class TestFilterPF(unittest.TestCase):
 class TestFilterOutliers(unittest.TestCase):
     def setUp(self):
         self.das = pvc.CapData('das')
-        self.das.load_data(path='./examples/data/',
-                           fname='example_meas_data.csv', source='AlsoEnergy')
+        self.das.load_data(path='./tests/data/',
+                           fname='example_meas_data_aeheaders.csv',
+                           source='AlsoEnergy')
         self.das.set_reg_trans(power='-mtr-', poa='irr-poa-',
                                t_amb='temp-amb-', w_vel='wind--')
 
