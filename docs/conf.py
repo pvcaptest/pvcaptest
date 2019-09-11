@@ -63,6 +63,19 @@ nbsphinx_prolog = r"""
     __ https://github.com/pvcaptest/pvcaptest/blob/
         {{ env.config.release }}/{{ docname }}
 """
+
+# -- Get version information and date from Git ----------------------------
+
+try:
+    from subprocess import check_output
+    release = check_output(['git', 'describe', '--tags', '--always'])
+    release = release.decode().strip()
+    today = check_output(['git', 'show', '-s', '--format=%ad', '--date=short'])
+    today = today.decode().strip()
+except Exception:
+    release = '<unknown>'
+    today = '<unknown date>'
+
 # -- Options for HTML output -------------------------------------------------
 
 
