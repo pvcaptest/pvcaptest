@@ -46,7 +46,23 @@ templates_path = ['_templates']
 # This pattern also affects html_static_path and html_extra_path.
 exclude_patterns = ['_build', 'Thumbs.db', '.DS_Store', '**.ipynb_checkpoints']
 
+# This is processed by Jinja2 and inserted before each notebook
+nbsphinx_prolog = r"""
+{% set docname = env.doc2path(env.docname, base='docs') %}
 
+.. only:: html
+
+    .. role:: raw-html(raw)
+        :format: html
+
+    .. nbinfo::
+
+        This page was generated from `{{ docname }}`__.
+        Interactive online version:
+        :raw-html:`<a href="https://mybinder.org/v2/gh/pvcaptest/pvcaptest/{{ env.config.release }}?filepath={{ docname }}"><img alt="Binder badge" src="https://mybinder.org/badge_logo.svg" style="vertical-align:text-bottom"></a>`
+    __ https://github.com/pvcaptest/pvcaptest/blob/
+        {{ env.config.release }}/{{ docname }}
+"""
 # -- Options for HTML output -------------------------------------------------
 
 
