@@ -3,7 +3,7 @@
 # conda env create -f captest_env.yml
 # includes all requirements to run captest and build docs
 # Does not include all packages needed for testing
-name: captest_env_054
+name: captest_env_05
 channels:
   - conda-forge
   - defaults
