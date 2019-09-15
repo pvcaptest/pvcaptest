@@ -10,7 +10,7 @@ objects as arguments and provide summary data and capacity test results.
 Please see the Jupyter docs/notebooks in the examples directory, which
 include examples of the core features.
 
-More complete documentation is available on
+More complete documentation and examples are available on
 `readthedocs <https://pvcaptest.readthedocs.io/en/latest/>`__
 
 Installation

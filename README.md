@@ -8,15 +8,6 @@
            alt="Latest release version" /></td>
 </tr>
 
-<tr>
-  <td>Live Example</td>
-  <td>
-    <a href="https://mybinder.org/v2/gh/bt-/pvcaptest/master?filepath=examples%2Fcaptest_example.ipynb">
-    <img src="https://mybinder.org/badge.svg"
-         alt="Live captest example on MyBinder" />
-    </a>
-  </td>
-</tr>
 </table>
 
 # What is captest?
@@ -24,7 +15,7 @@ Captest is intended to facilitate capacity testing following ASTM E2848.  The ca
 
 Please see the Jupyter notebooks in the docs/examples directory.
 
-More complete documentation is available on [readthedocs](https://pvcaptest.readthedocs.io/en/latest/).
+More complete documentation and examples are available on [readthedocs](https://pvcaptest.readthedocs.io/en/latest/).
 
 # Installation
 The recommended method to install captest is to create an environment using conda and then pip installing captest within your new environment.
