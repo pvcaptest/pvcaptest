@@ -4,15 +4,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-[Unreleased]: https://github.com/pvcaptest/pvcaptest/compare/v0.5.3...HEAD
+[Unreleased]: https://github.com/pvcaptest/pvcaptest/compare/v0.6.0...HEAD
 ## [Unreleased]
+
+[0.6.0]: https://github.com/pvcaptest/pvcaptest/compare/v0.5.3...v0.6.0
+## [0.6.0] - 2019-09-15
 ### Added
-- Setup Travis CI to test pull requests and test and deploy to pypi tags on master.
+- Setup Travis CI to test pull requests and test and deploy to pypi for tags on master.
+- Setup project documentation hosted by Read the Docs using sphinx, nbshpinx, napolean, recommonmark, AutoStructify
 
 ### Changed
-- Versioning changed from manual update in __version.py file to using versioneer to updater version number from git tag.
+- Versioning changed from manual update in __version.py file to using versioneer to update version number from git tag.
 - Updated this file to follow the Keep a Changelog formatting conventions.
 - Moved repository to an organization github account from my personal github account.
+- Examples moved from root/examples directory to docs/examples.
+- Executed versions of the examples display on read the docs.
+- All examples can be launched through binder in live notebooks.
+- The environment file has been updated to work for binder and Read the Docs.
 
 [0.5.3]: https://github.com/pvcaptest/pvcaptest/compare/v0.5.1...v0.5.3
 ## [0.5.3] - 2019-05-12
