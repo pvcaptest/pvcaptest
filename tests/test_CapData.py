@@ -25,52 +25,6 @@ Run individual tests:
 'python -m unittest tests.test_CapData.Class.Method'
 
 -m flag imports unittest as module rather than running as script
-
-update_summary
-x  perc_wrap
-x irrRC_balanced
-spans_year
-cntg_eoy
-x flt_irr
-x fit_model
-x predict
-x pred_summary
-cp_results
-
-CapData
-    set_reg_trans- no test needed
-    x copy
-    empty
-    x load_das
-    x load_pvsyst
-    x load_data
-    x __series_type
-    __set_trans
-    drop_cols
-    view
-    rview
-    plot
-
-    get_summary
-    scatter
-    reg_scatter_matrix
-    x predict_capacites
-    rep_cond
-    x rep_cond(pred=True)
-    agg_sensors
-    reg_data
-    __flt_setup
-    reset_flt
-    filter_outliers
-    filter_pf
-    filter_irr
-    filter_op_state
-    filter_missing
-    filter_pvsyst
-    __std_filter
-    __sensor_filter
-    filter_sensors
-    reg_cpt
 """
 
 test_files = ['test1.csv', 'test2.csv', 'test3.CSV', 'test4.txt',
