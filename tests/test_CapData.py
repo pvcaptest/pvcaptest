@@ -474,6 +474,10 @@ class Test_CapData_methods_sim(unittest.TestCase):
         self.assertLessEqual(perc_above, 0.5,
                              'More than 50 percent of points above reportin irr')
 
+    def test_filter_pvsyst_missing_column(self):
+        self.pvsyst.drop_cols('IL Pmin')
+        self.pvsyst.filter_pvsyst()
+
 
 class Test_pvlib_loc_sys(unittest.TestCase):
     """ Test function wrapping pvlib get_clearsky method of Location."""
