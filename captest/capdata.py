@@ -2176,6 +2176,51 @@ class CapData(object):
             return self.df_flt.loc[index, :]
 
     @update_summary
+    def filter_shade(self, fshdbm=1.0, query_str=None, inplace=True):
+        """
+        Remove data during periods of array shading.
+
+        The default behavior assumes the filter is applied to data output from
+        PVsyst and removes all periods where values in the column 'FShdBm' are
+        less than 1.0.
+
+        Use the query_str parameter when shading losses (power) rather than a
+        shading fraction are available.
+
+        Parameters
+        ----------
+        fshdbm : float, default 1.0
+            The value for fractional shading of beam irradiance as given by the
+            PVsyst output parameter FShdBm. Data is removed when the shading
+            fraction is less than the value passed to fshdbm. By default all
+            periods of shading are removed.
+        query_str : str
+            Query string to pass to pd.DataFrame.query method. The query string
+            should be a boolean expression comparing a column name to a numeric
+            filter value, like 'ShdLoss<=50'.  The column name must not contain
+            spaces.
+        inplace: bool, default True
+            If inplace is true, then function overwrites the filtered
+            dataframe. If false returns a DataFrame.
+
+        Returns
+        -------
+        pd.DataFrame
+            If inplace is false returns a dataframe.
+        """
+        df = self.df_flt
+
+        if query_str is None:
+            query_str = "FShdBm>=@fshdbm"
+
+        index_shd = df.query(query_str).index
+
+        if inplace:
+            self.df_flt = self.df_flt.loc[index_shd, :]
+        else:
+            return self.df_flt.loc[index_shd, :]
+
+    @update_summary
     def filter_time(self, start=None, end=None, days=None, test_date=None,
                     inplace=True, wrap_year=False):
         """

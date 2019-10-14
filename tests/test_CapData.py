@@ -478,6 +478,33 @@ class Test_CapData_methods_sim(unittest.TestCase):
         self.pvsyst.drop_cols('IL Pmin')
         self.pvsyst.filter_pvsyst()
 
+    def test_filter_shade_default(self):
+        self.pvsyst.filter_shade()
+        self.assertEqual(self.pvsyst.df_flt.shape[0], 8645,
+                         'Data should contain 8645 time periods\
+                          without shade.')
+
+    def test_filter_shade_default_not_inplace(self):
+        df = self.pvsyst.filter_shade(inplace=False)
+        self.assertIsInstance(df, pd.core.frame.DataFrame,
+                              'Did not return DataFrame object.')
+        self.assertEqual(df.shape[0], 8645,
+                         'Returned dataframe should contain 8645 time periods\
+                          without shade.')
+
+    def test_filter_shade_query(self):
+        # create PVsyst ShdLoss type values for testing query string
+        self.pvsyst.df.loc[self.pvsyst.df['FShdBm'] == 1.0, 'ShdLoss'] = 0
+        is_shaded = self.pvsyst.df['ShdLoss'].isna()
+        shdloss_values = 1 / self.pvsyst.df.loc[is_shaded, 'FShdBm'] * 100
+        self.pvsyst.df.loc[is_shaded, 'ShdLoss'] = shdloss_values
+        self.pvsyst.df_flt = self.pvsyst.df.copy()
+
+        self.pvsyst.filter_shade(query_str='ShdLoss<=125')
+        self.assertEqual(self.pvsyst.df_flt.shape[0], 8671,
+                         'Filtered data should contain have 8671 periods with\
+                          shade losses less than 125.')
+
 
 class Test_pvlib_loc_sys(unittest.TestCase):
     """ Test function wrapping pvlib get_clearsky method of Location."""
