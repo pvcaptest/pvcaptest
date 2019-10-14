@@ -474,6 +474,13 @@ class Test_CapData_methods_sim(unittest.TestCase):
         self.assertLessEqual(perc_above, 0.5,
                              'More than 50 percent of points above reportin irr')
 
+    def test_filter_pvsyst_default(self):
+        self.pvsyst.filter_pvsyst()
+        self.assertEqual(self.pvsyst.df_flt.shape[0], 8670,
+                         'Data should contain 8670 points after removing any\
+                          of IL Pmin, IL Pmax, IL Vmin, IL Vmax that are\
+                          greater than zero.')
+
     def test_filter_pvsyst_missing_column(self):
         self.pvsyst.drop_cols('IL Pmin')
         self.pvsyst.filter_pvsyst()
