@@ -848,6 +848,57 @@ def pick_attr(sim, das, name):
         return warnings.warn(warn_str)
 
 
+def determine_pass_or_fail(cap_ratio, tolerance):
+    """
+    Determine a pass/fail result from a capacity ratio and test tolerance.
+
+    Parameters
+    ----------
+    cap_ratio : float
+        Ratio of the measured data regression result to the simulated data
+        regression result.
+    tolerance : str
+        String representing error band.  Ex. '+ 3', '+/- 3', '- 5'
+        There must be space between the sign and number. Number is
+        interpreted as a percent.  For example, 5 percent is 5 not 0.05.
+
+    Returns
+    -------
+    tuple of strings
+        String indicated a passing or failing result and string of passing
+        limits.
+    """
+
+    sign = tolerance.split(sep=' ')[0]
+    error = int(tolerance.split(sep=' ')[1])
+
+    nameplate_plus_error = nameplate * (1 + error / 100)
+    nameplate_minus_error = nameplate * (1 - error / 100)
+
+    if print_res:
+        if sign == '+/-' or sign == '-/+':
+            if nameplate_minus_error <= capacity <= nameplate_plus_error:
+                print("{:<30s}{}".format("Capacity Test Result:", "PASS"))
+            else:
+                print("{:<25s}{}".format("Capacity Test Result:", "FAIL"))
+            bounds = str(nameplate_minus_error) + ', ' + str(nameplate_plus_error)
+        elif sign == '+':
+            if nameplate <= capacity <= nameplate_plus_error:
+                print("{:<30s}{}".format("Capacity Test Result:", "PASS"))
+            else:
+                print("{:<25s}{}".format("Capacity Test Result:", "FAIL"))
+            bounds = str(nameplate) + ', ' + str(nameplate_plus_error)
+        elif sign == '-':
+            if nameplate_minus_error <= capacity <= nameplate:
+                print("{:<30s}{}".format("Capacity Test Result:", "PASS"))
+            else:
+                print("{:<25s}{}".format("Capacity Test Result:", "FAIL"))
+            bounds = str(nameplate_minus_error) + ', ' + str(nameplate)
+        else:
+            print("Sign must be '+', '-', '+/-', or '-/+'.")
+    """
+
+
 def cp_results(sim, das, nameplate, tolerance, check_pvalues=False, pval=0.05,
                print_res=True):
     """
