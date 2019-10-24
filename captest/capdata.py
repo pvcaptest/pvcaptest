@@ -848,7 +848,7 @@ def pick_attr(sim, das, name):
         return warnings.warn(warn_str)
 
 
-def determine_pass_or_fail(cap_ratio, tolerance):
+def determine_pass_or_fail(cap_ratio, tolerance, nameplate):
     """
     Determine a pass/fail result from a capacity ratio and test tolerance.
 
@@ -858,46 +858,33 @@ def determine_pass_or_fail(cap_ratio, tolerance):
         Ratio of the measured data regression result to the simulated data
         regression result.
     tolerance : str
-        String representing error band.  Ex. '+ 3', '+/- 3', '- 5'
+        String representing error band.  Ex. '+/- 3' or '- 5'
         There must be space between the sign and number. Number is
         interpreted as a percent.  For example, 5 percent is 5 not 0.05.
+    nameplate : numeric
+        Nameplate rating of the PV plant.
 
     Returns
     -------
-    tuple of strings
-        String indicated a passing or failing result and string of passing
-        limits.
+    tuple of boolean and string
+        True for a passing test and false for a failing test.
+        Limits for passing and failing test.
     """
 
     sign = tolerance.split(sep=' ')[0]
-    error = int(tolerance.split(sep=' ')[1])
+    error = int(tolerance.split(sep=' ')[1]) / 100
 
-    nameplate_plus_error = nameplate * (1 + error / 100)
-    nameplate_minus_error = nameplate * (1 - error / 100)
+    nameplate_plus_error = nameplate * (1 + error)
+    nameplate_minus_error = nameplate * (1 - error)
 
-    if print_res:
-        if sign == '+/-' or sign == '-/+':
-            if nameplate_minus_error <= capacity <= nameplate_plus_error:
-                print("{:<30s}{}".format("Capacity Test Result:", "PASS"))
-            else:
-                print("{:<25s}{}".format("Capacity Test Result:", "FAIL"))
-            bounds = str(nameplate_minus_error) + ', ' + str(nameplate_plus_error)
-        elif sign == '+':
-            if nameplate <= capacity <= nameplate_plus_error:
-                print("{:<30s}{}".format("Capacity Test Result:", "PASS"))
-            else:
-                print("{:<25s}{}".format("Capacity Test Result:", "FAIL"))
-            bounds = str(nameplate) + ', ' + str(nameplate_plus_error)
-        elif sign == '-':
-            if nameplate_minus_error <= capacity <= nameplate:
-                print("{:<30s}{}".format("Capacity Test Result:", "PASS"))
-            else:
-                print("{:<25s}{}".format("Capacity Test Result:", "FAIL"))
-            bounds = str(nameplate_minus_error) + ', ' + str(nameplate)
-        else:
-            print("Sign must be '+', '-', '+/-', or '-/+'.")
-    """
-
+    if sign == '+/-' or sign == '-/+':
+        return (round(np.abs(1 - cap_ratio), ndigits=6) <= error,
+                str(nameplate_minus_error) + ', ' + str(nameplate_plus_error))
+    elif sign == '-':
+        return (cap_ratio >= 1 - error,
+                str(nameplate_minus_error) + ', None')
+    else:
+        warnings.warn("Sign must be '-', '+/-', or '-/+'.")
 
 def cp_results(sim, das, nameplate, tolerance, check_pvalues=False, pval=0.05,
                print_res=True):
@@ -915,7 +902,7 @@ def cp_results(sim, das, nameplate, tolerance, check_pvalues=False, pval=0.05,
     nameplate : numeric
         Nameplate rating of the PV plant.
     tolerance : str
-        String representing error band.  Ex. '+ 3', '+/- 3', '- 5'
+        String representing error band.  Ex. +/- 3', '- 5'
         There must be space between the sign and number. Number is
         interpreted as a percent.  For example, 5 percent is 5 not 0.05.
     check_pvalues : boolean, default False
@@ -959,33 +946,12 @@ def cp_results(sim, das, nameplate, tolerance, check_pvalues=False, pval=0.05,
         actual *= 1000
     capacity = nameplate * cap_ratio
 
-    sign = tolerance.split(sep=' ')[0]
-    error = int(tolerance.split(sep=' ')[1])
-
-    nameplate_plus_error = nameplate * (1 + error / 100)
-    nameplate_minus_error = nameplate * (1 - error / 100)
-
     if print_res:
-        if sign == '+/-' or sign == '-/+':
-            if nameplate_minus_error <= capacity <= nameplate_plus_error:
-                print("{:<30s}{}".format("Capacity Test Result:", "PASS"))
-            else:
-                print("{:<25s}{}".format("Capacity Test Result:", "FAIL"))
-            bounds = str(nameplate_minus_error) + ', ' + str(nameplate_plus_error)
-        elif sign == '+':
-            if nameplate <= capacity <= nameplate_plus_error:
-                print("{:<30s}{}".format("Capacity Test Result:", "PASS"))
-            else:
-                print("{:<25s}{}".format("Capacity Test Result:", "FAIL"))
-            bounds = str(nameplate) + ', ' + str(nameplate_plus_error)
-        elif sign == '-':
-            if nameplate_minus_error <= capacity <= nameplate:
-                print("{:<30s}{}".format("Capacity Test Result:", "PASS"))
-            else:
-                print("{:<25s}{}".format("Capacity Test Result:", "FAIL"))
-            bounds = str(nameplate_minus_error) + ', ' + str(nameplate)
+        test_passed = determine_pass_or_fail(cap_ratio, tolerance, nameplate)
+        if test_passed[0]:
+            "{:<30s}{}".format("Capacity Test Result:", "PASS")
         else:
-            print("Sign must be '+', '-', '+/-', or '-/+'.")
+            "{:<25s}{}".format("Capacity Test Result:", "FAIL")
 
         print("{:<30s}{:0.3f}".format("Modeled test output:",
                                       expected) + "\n" +
@@ -997,7 +963,7 @@ def cp_results(sim, das, nameplate, tolerance, check_pvalues=False, pval=0.05,
                                       capacity)
               )
 
-        print("{:<30s}{}\n\n".format("Bounds:", bounds))
+        print("{:<30s}{}\n\n".format("Bounds:", test_passed[1]))
 
     return(cap_ratio)
 

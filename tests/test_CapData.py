@@ -313,6 +313,33 @@ class TestTopLevelFuncs(unittest.TestCase):
         self.assertEqual(ix.shape[0], 10,
                          'Should be no filtering for single column df.')
 
+    def test_determine_pass_or_fail(self):
+        'Tolerance band around 100%'
+        self.assertTrue(pvc.determine_pass_or_fail(.96, '+/- 4', 100)[0],
+                        'Should pass, cp ratio equals bottom of tolerance.')
+        self.assertTrue(pvc.determine_pass_or_fail(.97, '+/- 4', 100)[0],
+                        'Should pass, cp ratio above bottom of tolerance.')
+        self.assertTrue(pvc.determine_pass_or_fail(1.03, '+/- 4', 100)[0],
+                        'Should pass, cp ratio below top of tolerance.')
+        self.assertTrue(pvc.determine_pass_or_fail(1.04, '+/- 4', 100)[0],
+                        'Should pass, cp ratio equals top of tolerance.')
+        self.assertFalse(pvc.determine_pass_or_fail(.959, '+/- 4', 100)[0],
+                         'Should fail, cp ratio below bottom of tolerance.')
+        self.assertFalse(pvc.determine_pass_or_fail(1.041, '+/- 4', 100)[0],
+                         'Should fail, cp ratio above top of tolerance.')
+        'Tolerance below 100%'
+        self.assertTrue(pvc.determine_pass_or_fail(0.96, '- 4', 100)[0],
+                        'Should pass, cp ratio equals bottom of tolerance.')
+        self.assertTrue(pvc.determine_pass_or_fail(.97, '- 4', 100)[0],
+                        'Should pass, cp ratio above bottom of tolerance.')
+        self.assertTrue(pvc.determine_pass_or_fail(1.04, '- 4', 100)[0],
+                        'Should pass, cp ratio above bottom of tolerance.')
+        self.assertFalse(pvc.determine_pass_or_fail(.959, '- 4', 100)[0],
+                         'Should fail, cp ratio below bottom of tolerance.')
+        'warn on incorrect tolerance spec'
+        with self.assertWarns(UserWarning):
+            pvc.determine_pass_or_fail(1.04, '+ 4', 100)
+
 
 class TestLoadDataMethods(unittest.TestCase):
     """Test for load data methods without setup."""
@@ -1004,7 +1031,6 @@ class TestAggSensors(unittest.TestCase):
         self.das.filter_irr(200, 800)
         with self.assertWarns(UserWarning):
             self.das.agg_sensors()
-
 
 
 class TestFilterSensors(unittest.TestCase):
