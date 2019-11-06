@@ -886,7 +886,6 @@ def determine_pass_or_fail(cap_ratio, tolerance, nameplate):
     else:
         warnings.warn("Sign must be '-', '+/-', or '-/+'.")
 
-
 def cp_results(sim, das, nameplate, tolerance, check_pvalues=False, pval=0.05,
                print_res=True):
     """
@@ -925,8 +924,8 @@ def cp_results(sim, das, nameplate, tolerance, check_pvalues=False, pval=0.05,
     das_int = das.copy()
 
     if sim_int.reg_fml != das_int.reg_fml:
-        warnings.warn('CapData objects do not have the same regression '
-                      'formula.')
+        return warnings.warn('CapData objects do not have the same'
+                             'regression formula.')
 
     if check_pvalues:
         for cd in [sim_int, das_int]:

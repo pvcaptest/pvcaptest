@@ -1572,8 +1572,6 @@ class TestCapTestCpResultsSingleCoeff(unittest.TestCase):
 class TestCapTestCpResultsMultCoeff(unittest.TestCase):
     """
     Test cp_results function using a regression formula with multiple coef.
-
-
     """
 
     def setUp(self):
@@ -1670,6 +1668,17 @@ class TestCapTestCpResultsMultCoeff(unittest.TestCase):
                        'Bounds:                       95.0, 105.0\n\n\n')
 
         self.assertEqual(results_str, captured.out)
+
+    def test_formulas_match(self):
+        sim = pvc.CapData('sim')
+        sim.df_flt = pd.DataFrame()
+        das = pvc.CapData('das')
+        das.df_flt = pd.DataFrame()
+
+        sim.reg_fml = 'power ~ poa + I(poa * poa) + I(poa * t_amb) - 1'
+
+        with self.assertWarns(UserWarning):
+            pvc.cp_results(sim, das, 100, '+/- 5', check_pvalues=True)
 
 
 if __name__ == '__main__':
