@@ -886,6 +886,7 @@ def determine_pass_or_fail(cap_ratio, tolerance, nameplate):
     else:
         warnings.warn("Sign must be '-', '+/-', or '-/+'.")
 
+
 def cp_results(sim, das, nameplate, tolerance, check_pvalues=False, pval=0.05,
                print_res=True):
     """
@@ -948,25 +949,32 @@ def cp_results(sim, das, nameplate, tolerance, check_pvalues=False, pval=0.05,
 
     if print_res:
         test_passed = determine_pass_or_fail(cap_ratio, tolerance, nameplate)
-        if test_passed[0]:
-            "{:<30s}{}".format("Capacity Test Result:", "PASS")
-        else:
-            "{:<25s}{}".format("Capacity Test Result:", "FAIL")
-
-        print("{:<30s}{:0.3f}".format("Modeled test output:",
-                                      expected) + "\n" +
-              "{:<30s}{:0.3f}".format("Actual test output:",
-                                      actual) + "\n" +
-              "{:<30s}{:0.3f}".format("Tested output ratio:",
-                                      cap_ratio) + "\n" +
-              "{:<30s}{:0.3f}".format("Tested Capacity:",
-                                      capacity)
-              )
-
-        print("{:<30s}{}\n\n".format("Bounds:", test_passed[1]))
+        print_results(test_passed, expected, actual, cap_ratio, capacity,
+                      test_passed[1])
 
     return(cap_ratio)
 
+
+def print_results(test_passed, expected, actual, cap_ratio, capacity, bounds):
+    """
+    Print formatted results of capacity test.
+    """
+    if test_passed[0]:
+        print("{:<30s}{}".format("Capacity Test Result:", "PASS"))
+    else:
+        print("{:<25s}{}".format("Capacity Test Result:", "FAIL"))
+
+    print("{:<30s}{:0.3f}".format("Modeled test output:",
+                                  expected) + "\n" +
+          "{:<30s}{:0.3f}".format("Actual test output:",
+                                  actual) + "\n" +
+          "{:<30s}{:0.3f}".format("Tested output ratio:",
+                                  cap_ratio) + "\n" +
+          "{:<30s}{:0.3f}".format("Tested Capacity:",
+                                  capacity)
+          )
+
+    print("{:<30s}{}\n\n".format("Bounds:", test_passed[1]))
 
 def highlight_pvals(s):
     """

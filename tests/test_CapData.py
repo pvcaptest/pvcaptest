@@ -1,6 +1,7 @@
 import os
 import collections
 import unittest
+import pytest
 import pytz
 import numpy as np
 import pandas as pd
@@ -75,6 +76,9 @@ CapData
 
 test_files = ['test1.csv', 'test2.csv', 'test3.CSV', 'test4.txt',
               'pvsyst.csv', 'pvsyst_data.csv']
+
+
+
 
 
 class TestTopLevelFuncs(unittest.TestCase):
@@ -340,6 +344,49 @@ class TestTopLevelFuncs(unittest.TestCase):
         with self.assertWarns(UserWarning):
             pvc.determine_pass_or_fail(1.04, '+ 4', 100)
 
+    @pytest.fixture(autouse=True)
+    def _pass_fixtures(self, capsys):
+        self.capsys = capsys
+
+    def test_print_results_pass(self):
+        """
+        This test uses the pytest autouse fixture defined above to
+        capture the print to stdout and test it, so it must be run
+        using pytest 'pytest tests/
+        test_CapData.py::TestTopLevelFuncs::test_print_results_pass'
+        """
+        test_passed = (True, '950, 1050')
+        pvc.print_results(test_passed, 1000, 970, 0.97, 970, test_passed[1])
+        captured = self.capsys.readouterr()
+
+        results_str = ('Capacity Test Result:         PASS\n'
+                       'Modeled test output:          1000.000\n'
+                       'Actual test output:           970.000\n'
+                       'Tested output ratio:          0.970\n'
+                       'Tested Capacity:              970.000\n'
+                       'Bounds:                       950, 1050\n\n\n')
+
+        self.assertEqual(results_str, captured.out)
+
+    def test_print_results_fail(self):
+        """
+        This test uses the pytest autouse fixture defined above to
+        capture the print to stdout and test it, so it must be run
+        using pytest 'pytest tests/
+        test_CapData.py::TestTopLevelFuncs::test_print_results_pass'
+        """
+        test_passed = (False, '950, 1050')
+        pvc.print_results(test_passed, 1000, 940, 0.94, 940, test_passed[1])
+        captured = self.capsys.readouterr()
+
+        results_str = ('Capacity Test Result:    FAIL\n'
+                       'Modeled test output:          1000.000\n'
+                       'Actual test output:           940.000\n'
+                       'Tested output ratio:          0.940\n'
+                       'Tested Capacity:              940.000\n'
+                       'Bounds:                       950, 1050\n\n\n')
+
+        self.assertEqual(results_str, captured.out)
 
 class TestLoadDataMethods(unittest.TestCase):
     """Test for load data methods without setup."""
