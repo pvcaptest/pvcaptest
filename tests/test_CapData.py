@@ -1640,6 +1640,37 @@ class TestCapTestCpResultsMultCoeff(unittest.TestCase):
         self.assertEqual(cp_rat, cp_rat_pval_check,
                          'cp_results did not return expected value.')
 
+    @pytest.fixture(autouse=True)
+    def _pass_fixtures(self, capsys):
+        self.capsys = capsys
+
+    def test_pvals_true_print(self):
+        """
+        This test uses the pytest autouse fixture defined above to
+        capture the print to stdout and test it, so it must be run
+        using pytest.  Run just this test using 'pytest tests/
+        test_CapData.py::TestCapTestCpResultsMultCoeff::test_pvals_true_print'
+        """
+        self.meas.ols_model.params['poa'] = 0
+        self.sim.ols_model.params['poa'] = 0
+
+        pvc.cp_results(self.sim, self.meas, 100, '+/- 5',
+                                check_pvalues=True, pval=1e-15,
+                                print_res=True)
+
+        captured = self.capsys.readouterr()
+
+        results_str = ('Using reporting conditions from das. \n\n'
+
+                       'Capacity Test Result:    FAIL\n'
+                       'Modeled test output:          66.451\n'
+                       'Actual test output:           72.429\n'
+                       'Tested output ratio:          1.090\n'
+                       'Tested Capacity:              108.996\n'
+                       'Bounds:                       95.0, 105.0\n\n\n')
+
+        self.assertEqual(results_str, captured.out)
+
 
 if __name__ == '__main__':
     unittest.main()
