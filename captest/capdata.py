@@ -944,6 +944,8 @@ def cp_results(sim, das, nameplate, tolerance, check_pvalues=False, pval=0.05,
     if cap_ratio < 0.01:
         cap_ratio *= 1000
         actual *= 1000
+        warnings.warn('Capacity ratio and actual capacity multiplied by 1000'
+                      ' because the capacity ratio was less than 0.01.')
     capacity = nameplate * cap_ratio
 
     if print_res:

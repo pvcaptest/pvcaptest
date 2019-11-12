@@ -1569,6 +1569,61 @@ class TestCapTestCpResultsSingleCoeff(unittest.TestCase):
                               'Returned value is not a tuple')
 
 
+class TestCapTestCpResultsMultCoeffKwVsW(unittest.TestCase):
+    """
+    Setup and test to check automatic adjustment for kW vs W.
+    """
+    def test_pvals_default_false_kw_vs_w(self):
+        np.random.seed(9876789)
+
+        meas = pvc.CapData('meas')
+        sim = pvc.CapData('sim')
+        # cptest = pvc.CapTest(meas, sim, '+/- 5')
+        meas.rc = pd.DataFrame({'poa': [6], 't_amb': [5], 'w_vel': [3]})
+
+        nsample = 100
+        e = np.random.normal(size=nsample)
+
+        a = np.linspace(0, 10, 100)
+        b = np.linspace(0, 10, 100) / 2.0
+        c = np.linspace(0, 10, 100) + 3.0
+
+        das_y = a + (a ** 2) + (a * b) + (a * c)
+        sim_y = a + (a ** 2 * 0.9) + (a * b * 1.1) + (a * c * 0.8)
+
+        das_y = das_y + e
+        sim_y = sim_y + e
+
+        das_df = pd.DataFrame({'power': das_y, 'poa': a,
+                               't_amb': b, 'w_vel': c})
+        sim_df = pd.DataFrame({'power': sim_y, 'poa': a,
+                               't_amb': b, 'w_vel': c})
+
+        meas.df = das_df
+        meas.df['power'] /= 1000
+        meas.set_reg_trans(power='power', poa='poa',
+                           t_amb='t_amb', w_vel='w_vel')
+
+        fml = 'power ~ poa + I(poa * poa) + I(poa * t_amb) + I(poa * w_vel) - 1'
+        das_model = smf.ols(formula=fml, data=das_df)
+        sim_model = smf.ols(formula=fml, data=sim_df)
+
+        meas.ols_model = das_model.fit()
+        sim.ols_model = sim_model.fit()
+        meas.df_flt = pd.DataFrame()
+        sim.df_flt = pd.DataFrame()
+
+        actual = meas.ols_model.predict(meas.rc)[0] * 1000
+        expected = sim.ols_model.predict(meas.rc)[0]
+        cp_rat_test_val = actual / expected
+
+        with self.assertWarns(UserWarning):
+            cp_rat = pvc.cp_results(sim, meas, 100, '+/- 5',
+                                    check_pvalues=False, print_res=False)
+
+        self.assertAlmostEqual(cp_rat, cp_rat_test_val, 6,
+                               'cp_results did not return expected value.')
+
 class TestCapTestCpResultsMultCoeff(unittest.TestCase):
     """
     Test cp_results function using a regression formula with multiple coef.
