@@ -6,6 +6,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 [Unreleased]: https://github.com/pvcaptest/pvcaptest/compare/v0.6.0...HEAD
 ## [Unreleased]
+### Added
+- cp_results method warns when it automatically attempts to correct for W vs kW.
+
+### Changed
+- cp_results returns a warning if the regression formulas of the passed CapData objects do not match instead of warning and continuing.
 
 [0.6.0]: https://github.com/pvcaptest/pvcaptest/compare/v0.5.3...v0.6.0
 ## [0.6.0] - 2019-09-15
