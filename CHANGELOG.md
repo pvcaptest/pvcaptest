@@ -6,6 +6,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 [Unreleased]: https://github.com/pvcaptest/pvcaptest/compare/v0.6.0...HEAD
 ## [Unreleased]
+### Added
+- New filter_shade method separate from the filter_pvsyst method.
+
+### Changed
+- Filter_pvsyst method filters on IL Pmin, IL Pmax, IL Vmin, and IL Vmax and warns if any of the four are missing. Previously failed if any of the four were missing.
 
 [0.6.0]: https://github.com/pvcaptest/pvcaptest/compare/v0.5.3...v0.6.0
 ## [0.6.0] - 2019-09-15
