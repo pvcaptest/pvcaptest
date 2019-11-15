@@ -26,52 +26,6 @@ Run individual tests:
 'python -m unittest tests.test_CapData.Class.Method'
 
 -m flag imports unittest as module rather than running as script
-
-update_summary
-x  perc_wrap
-x irrRC_balanced
-spans_year
-cntg_eoy
-x flt_irr
-x fit_model
-x predict
-x pred_summary
-cp_results
-
-CapData
-    set_reg_trans- no test needed
-    x copy
-    empty
-    x load_das
-    x load_pvsyst
-    x load_data
-    x __series_type
-    __set_trans
-    drop_cols
-    view
-    rview
-    plot
-
-    get_summary
-    scatter
-    reg_scatter_matrix
-    x predict_capacites
-    rep_cond
-    x rep_cond(pred=True)
-    agg_sensors
-    reg_data
-    __flt_setup
-    reset_flt
-    filter_outliers
-    filter_pf
-    filter_irr
-    filter_op_state
-    filter_missing
-    filter_pvsyst
-    __std_filter
-    __sensor_filter
-    filter_sensors
-    reg_cpt
 """
 
 test_files = ['test1.csv', 'test2.csv', 'test3.CSV', 'test4.txt',
@@ -593,6 +547,57 @@ class Test_CapData_methods_sim(unittest.TestCase):
                            'Less than 40 percent of points above reporting irr')
         self.assertLessEqual(perc_above, 0.5,
                              'More than 50 percent of points above reportin irr')
+
+    def test_filter_pvsyst_default(self):
+        self.pvsyst.filter_pvsyst()
+        self.assertEqual(self.pvsyst.df_flt.shape[0], 8670,
+                         'Data should contain 8670 points after removing any\
+                          of IL Pmin, IL Pmax, IL Vmin, IL Vmax that are\
+                          greater than zero.')
+
+    def test_filter_pvsyst_not_inplace(self):
+        df = self.pvsyst.filter_pvsyst(inplace=False)
+        self.assertIsInstance(df, pd.core.frame.DataFrame,
+                              'Did not return DataFrame object.')
+        self.assertEqual(df.shape[0], 8670,
+                         'Data should contain 8670 points after removing any\
+                          of IL Pmin, IL Pmax, IL Vmin, IL Vmax that are\
+                          greater than zero.')
+
+    def test_filter_pvsyst_missing_column(self):
+        self.pvsyst.drop_cols('IL Pmin')
+        self.pvsyst.filter_pvsyst()
+
+    def test_filter_pvsyst_missing_all_columns(self):
+        self.pvsyst.drop_cols(['IL Pmin', 'IL Vmin', 'IL Pmax', 'IL Vmax'])
+        self.pvsyst.filter_pvsyst()
+
+    def test_filter_shade_default(self):
+        self.pvsyst.filter_shade()
+        self.assertEqual(self.pvsyst.df_flt.shape[0], 8645,
+                         'Data should contain 8645 time periods\
+                          without shade.')
+
+    def test_filter_shade_default_not_inplace(self):
+        df = self.pvsyst.filter_shade(inplace=False)
+        self.assertIsInstance(df, pd.core.frame.DataFrame,
+                              'Did not return DataFrame object.')
+        self.assertEqual(df.shape[0], 8645,
+                         'Returned dataframe should contain 8645 time periods\
+                          without shade.')
+
+    def test_filter_shade_query(self):
+        # create PVsyst ShdLoss type values for testing query string
+        self.pvsyst.df.loc[self.pvsyst.df['FShdBm'] == 1.0, 'ShdLoss'] = 0
+        is_shaded = self.pvsyst.df['ShdLoss'].isna()
+        shdloss_values = 1 / self.pvsyst.df.loc[is_shaded, 'FShdBm'] * 100
+        self.pvsyst.df.loc[is_shaded, 'ShdLoss'] = shdloss_values
+        self.pvsyst.df_flt = self.pvsyst.df.copy()
+
+        self.pvsyst.filter_shade(query_str='ShdLoss<=125')
+        self.assertEqual(self.pvsyst.df_flt.shape[0], 8671,
+                         'Filtered data should contain have 8671 periods with\
+                          shade losses less than 125.')
 
 
 class Test_pvlib_loc_sys(unittest.TestCase):
