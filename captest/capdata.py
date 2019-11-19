@@ -1398,7 +1398,7 @@ class CapData(object):
                                output='both')
 
         if set_trans:
-            self.__set_trans(trans_report=trans_report)
+            self.set_translation(trans_report=trans_report)
 
         self.df_flt = self.df.copy()
 
@@ -1498,7 +1498,7 @@ class CapData(object):
                     j = i % 10
                     self.col_colors[col] = Category10[10][j]
 
-    def __set_trans(self, trans_report=True):
+    def set_translation(self, trans_report=True):
         """
         Creates a dict of raw column names paired to categorical column names.
 
@@ -2081,7 +2081,7 @@ class CapData(object):
 
             self.df = pd.concat(dfs_to_concat, axis=1)
             self.df_flt = self.df.copy()
-            self.__set_trans(trans_report=False)
+            self.set_translation(trans_report=False)
             inv_sum_in_cols = [True for col
                                in self.df.columns if '-inv-sum-agg' in col]
             if inv_sum_in_cols and inv_sum_vs_power:
