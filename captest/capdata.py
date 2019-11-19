@@ -157,20 +157,6 @@ def update_summary(func):
     return wrapper
 
 
-def inv_trans_dict(trans_dict, trans_keys=None):
-    inverted = {}
-    for col_type, lst_cols in trans_dict.items():
-        if len(lst_cols) > 1:
-            for col in lst_cols:
-                if col is not 'index':
-                    if trans_keys is not None:
-                        if col_type in trans_keys:
-                            inverted[col] = col_type
-                    else:
-                        inverted[col] = col_type
-    return inverted
-
-
 def cntg_eoy(df, start, end):
     """
     Shifts data before or after new year to form a contigous time period.
@@ -312,17 +298,6 @@ def perc_bounds(perc):
     low = 1 - (perc_low)
     high = 1 + (perc_high)
     return (low, high)
-
-
-def std_filter(self, series, std_devs=2):
-    """
-    Returns bool if a series contains values outside std_dev.
-    """
-    mean = series.mean()
-    std = series.std()
-    min_bound = mean - std * std_devs
-    max_bound = mean + std * std_devs
-    return all(series.apply(lambda x: min_bound < x < max_bound))
 
 
 def perc_difference(x, y):
