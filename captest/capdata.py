@@ -2477,6 +2477,7 @@ class CapData(object):
         else:
             return df_out
 
+    @update_summary
     def filter_clearsky(self, window_length=20, ghi_col=None, inplace=True,
                         **kwargs):
         """
