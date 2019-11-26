@@ -157,20 +157,6 @@ def update_summary(func):
     return wrapper
 
 
-def inv_trans_dict(trans_dict, trans_keys=None):
-    inverted = {}
-    for col_type, lst_cols in trans_dict.items():
-        if len(lst_cols) > 1:
-            for col in lst_cols:
-                if col is not 'index':
-                    if trans_keys is not None:
-                        if col_type in trans_keys:
-                            inverted[col] = col_type
-                    else:
-                        inverted[col] = col_type
-    return inverted
-
-
 def cntg_eoy(df, start, end):
     """
     Shifts data before or after new year to form a contigous time period.
@@ -312,17 +298,6 @@ def perc_bounds(perc):
     low = 1 - (perc_low)
     high = 1 + (perc_high)
     return (low, high)
-
-
-def std_filter(self, series, std_devs=2):
-    """
-    Returns bool if a series contains values outside std_dev.
-    """
-    mean = series.mean()
-    std = series.std()
-    min_bound = mean - std * std_devs
-    max_bound = mean + std * std_devs
-    return all(series.apply(lambda x: min_bound < x < max_bound))
 
 
 def perc_difference(x, y):
@@ -1423,7 +1398,7 @@ class CapData(object):
                                output='both')
 
         if set_trans:
-            self.__set_trans(trans_report=trans_report)
+            self.set_translation(trans_report=trans_report)
 
         self.df_flt = self.df.copy()
 
@@ -1523,7 +1498,7 @@ class CapData(object):
                     j = i % 10
                     self.col_colors[col] = Category10[10][j]
 
-    def __set_trans(self, trans_report=True):
+    def set_translation(self, trans_report=True):
         """
         Creates a dict of raw column names paired to categorical column names.
 
@@ -2106,7 +2081,7 @@ class CapData(object):
 
             self.df = pd.concat(dfs_to_concat, axis=1)
             self.df_flt = self.df.copy()
-            self.__set_trans(trans_report=False)
+            self.set_translation(trans_report=False)
             inv_sum_in_cols = [True for col
                                in self.df.columns if '-inv-sum-agg' in col]
             if inv_sum_in_cols and inv_sum_vs_power:
@@ -2502,6 +2477,7 @@ class CapData(object):
         else:
             return df_out
 
+    @update_summary
     def filter_clearsky(self, window_length=20, ghi_col=None, inplace=True,
                         **kwargs):
         """

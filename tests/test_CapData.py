@@ -1287,7 +1287,7 @@ class TestFilterIrr(unittest.TestCase):
 
     def test_get_poa_col_multcols(self):
         self.meas.df['POA second column'] = self.meas.rview('poa').values
-        self.meas._CapData__set_trans()
+        self.meas.set_translation()
         with self.assertWarns(UserWarning):
             col = self.meas._CapData__get_poa_col()
 
@@ -1301,7 +1301,7 @@ class TestFilterIrr(unittest.TestCase):
     def test_lowhigh_colname(self):
         pts_before = self.meas.df_flt.shape[0]
         self.meas.df['POA second column'] = self.meas.rview('poa').values
-        self.meas._CapData__set_trans()
+        self.meas.set_translation()
         self.meas.df_flt = self.meas.df.copy()
         self.meas.filter_irr(500, 600, ref_val=None,
                              col_name='POA second column', inplace=True)
@@ -1318,7 +1318,7 @@ class TestFilterIrr(unittest.TestCase):
     def test_refval_withcol(self):
         pts_before = self.meas.df_flt.shape[0]
         self.meas.df['POA second column'] = self.meas.rview('poa').values
-        self.meas._CapData__set_trans()
+        self.meas.set_translation()
         self.meas.df_flt = self.meas.df.copy()
         self.meas.filter_irr(0.8, 1.2, ref_val=500,
                              col_name='POA second column', inplace=True)
@@ -1441,7 +1441,7 @@ class TestFilterPF(unittest.TestCase):
         pf = np.append(pf, np.arange(0, 1, 0.1))
         self.meas.df['pf'] = np.tile(pf, 576)
         self.meas.df_flt = self.meas.df.copy()
-        self.meas._CapData__set_trans()
+        self.meas.set_translation()
         self.meas.filter_pf(1)
         self.assertEqual(self.meas.df_flt.shape[0], 5760,
                          'Incorrect number of points removed.')
@@ -1490,7 +1490,7 @@ class Test_Csky_Filter(unittest.TestCase):
 
     def test_two_ghi_cols(self):
         self.meas.df['ws 2 ghi W/m^2'] = self.meas.view('irr-ghi-') * 1.05
-        self.meas._CapData__set_trans()
+        self.meas.set_translation()
 
         with self.assertWarns(UserWarning):
             self.meas.filter_clearsky()
@@ -1498,7 +1498,7 @@ class Test_Csky_Filter(unittest.TestCase):
     def test_mult_ghi_categories(self):
         cn = 'irrad ghi pyranometer W/m^2'
         self.meas.df[cn] = self.meas.view('irr-ghi-') * 1.05
-        self.meas._CapData__set_trans()
+        self.meas.set_translation()
 
         with self.assertWarns(UserWarning):
             self.meas.filter_clearsky()
@@ -1511,7 +1511,7 @@ class Test_Csky_Filter(unittest.TestCase):
 
     def test_specify_ghi_col(self):
         self.meas.df['ws 2 ghi W/m^2'] = self.meas.view('irr-ghi-') * 1.05
-        self.meas._CapData__set_trans()
+        self.meas.set_translation
         self.meas.df_flt = self.meas.df.copy()
 
         self.meas.filter_clearsky(ghi_col='ws 2 ghi W/m^2')
