@@ -112,9 +112,9 @@ def update_summary(func):
     """
     @wraps(func)
     def wrapper(self, *args, **kwargs):
-        pts_before = self.df_flt.shape[0]
+        pts_before = self.data_filtered.shape[0]
         if pts_before == 0:
-            pts_before = self.df.shape[0]
+            pts_before = self.data.shape[0]
             self.summary_ix.append((self.name, 'count'))
             self.summary.append({columns[0]: pts_before,
                                  columns[1]: 0,
@@ -140,7 +140,7 @@ def update_summary(func):
         else:
             arg_str = arg_str + ', ' + kwarg_str
 
-        pts_after = self.df_flt.shape[0]
+        pts_after = self.data_filtered.shape[0]
         pts_removed = pts_before - pts_after
         self.summary_ix.append((self.name, func.__name__))
         self.summary.append({columns[0]: pts_after,
@@ -1077,8 +1077,8 @@ class CapData(object):
     def __init__(self, name):
         super(CapData, self).__init__()
         self.name = name
-        self.df = pd.DataFrame()
-        self.df_flt = None
+        self.data = pd.DataFrame()
+        self.data_filtered = None
         self.trans = {}
         self.trans_keys = []
         self.reg_trans = {}
@@ -1124,8 +1124,8 @@ class CapData(object):
         """Creates and returns a copy of self."""
         cd_c = CapData('')
         cd_c.name = copy.copy(self.name)
-        cd_c.df = self.df.copy()
-        cd_c.df_flt = self.df_flt.copy()
+        cd_c.df = self.data.copy()
+        cd_c.df_flt = self.data_filtered.copy()
         cd_c.trans = copy.copy(self.trans)
         cd_c.trans_keys = copy.copy(self.trans_keys)
         cd_c.reg_trans = copy.copy(self.reg_trans)
@@ -1141,7 +1141,7 @@ class CapData(object):
 
     def empty(self):
         """Returns a boolean indicating if the CapData object contains data."""
-        if self.df.empty and len(self.trans_keys) == 0 and len(self.trans) == 0:
+        if self.data.empty and len(self.trans_keys) == 0 and len(self.trans) == 0:
             return True
         else:
             return False
@@ -1384,7 +1384,7 @@ class CapData(object):
 
         ix_ser = all_sensors.index.to_series()
         all_sensors['index'] = ix_ser.apply(lambda x: x.strftime('%m/%d/%Y %H %M'))
-        self.df = all_sensors
+        self.data = all_sensors
 
         if not load_pvsyst:
             if clear_sky:
@@ -1394,13 +1394,13 @@ class CapData(object):
                 if sys is None:
                     warnings.warn('Must provide loc and sys dictionary\
                                   when clear_sky is True.  Sys dict missing.')
-                self.df = csky(self.df, loc=loc, sys=sys, concat=True,
+                self.data = csky(self.data, loc=loc, sys=sys, concat=True,
                                output='both')
 
         if set_trans:
             self.set_translation(trans_report=trans_report)
 
-        self.df_flt = self.df.copy()
+        self.data_filtered = self.data.copy()
 
     def __series_type(self, series, type_defs, bounds_check=True,
                       warnings=False):
@@ -1475,7 +1475,7 @@ class CapData(object):
         return ''
 
     def set_plot_attributes(self):
-        dframe = self.df
+        dframe = self.data
 
         for key in self.trans_keys:
             df = dframe[self.trans[key]]
@@ -1524,11 +1524,11 @@ class CapData(object):
             Consider refactoring to have a list of type_def dictionaries as an
             input and loop over each dict in the list.
         """
-        col_types = self.df.apply(self.__series_type, args=(type_defs,),
+        col_types = self.data.apply(self.__series_type, args=(type_defs,),
                                   warnings=trans_report).tolist()
-        sub_types = self.df.apply(self.__series_type, args=(sub_type_defs,),
+        sub_types = self.data.apply(self.__series_type, args=(sub_type_defs,),
                                   bounds_check=False).tolist()
-        irr_types = self.df.apply(self.__series_type, args=(irr_sensors_defs,),
+        irr_types = self.data.apply(self.__series_type, args=(irr_sensors_defs,),
                                   bounds_check=False).tolist()
 
         col_indices = []
@@ -1536,7 +1536,7 @@ class CapData(object):
             col_indices.append('-'.join([typ, sub_typ, irr_typ]))
 
         names = []
-        for new_name, old_name in zip(col_indices, self.df.columns.tolist()):
+        for new_name, old_name in zip(col_indices, self.data.columns.tolist()):
             names.append((new_name, old_name))
         names.sort()
         orig_names_sorted = [name_pair[1] for name_pair in names]
@@ -1580,8 +1580,8 @@ class CapData(object):
                     self.trans[key] = value
                 except ValueError:
                     continue
-        self.df.drop(columns, axis=1, inplace=True)
-        self.df_flt.drop(columns, axis=1, inplace=True)
+        self.data.drop(columns, axis=1, inplace=True)
+        self.data_filtered.drop(columns, axis=1, inplace=True)
 
     def get_reg_cols(self, reg_vars=['power', 'poa', 't_amb', 'w_vel'],
                      filtered_data=True):
@@ -1604,7 +1604,7 @@ class CapData(object):
         Pass list of reg coeffs to rename default all of them.
         """
         for reg_var in reg_vars:
-            if self.reg_trans[reg_var] in self.df_flt.columns:
+            if self.reg_trans[reg_var] in self.data_filtered.columns:
                 continue
             else:
                 columns = self.trans[self.reg_trans[reg_var]]
@@ -1642,9 +1642,9 @@ class CapData(object):
             keys = self.trans[tkey]
 
         if filtered_data:
-            return self.df_flt[keys]
+            return self.data_filtered[keys]
         else:
-            return self.df[keys]
+            return self.data[keys]
 
     def rview(self, ind_var, filtered_data=False):
         """
@@ -1667,14 +1667,14 @@ class CapData(object):
 
         lst = []
         for key in keys:
-            if key in self.df.columns:
+            if key in self.data.columns:
                 lst.extend([key])
             else:
                 lst.extend(self.trans[key])
         if filtered_data:
-            return self.df_flt[lst]
+            return self.data_filtered[lst]
         else:
-            return self.df[lst]
+            return self.data[lst]
 
     def __comb_trans_keys(self, grp):
         comb_keys = []
@@ -1762,7 +1762,7 @@ class CapData(object):
         """
         new_names = ['power', 'poa', 't_amb', 'w_vel']
         df = self.get_reg_cols(reg_vars=new_names, filtered_data=True)
-        df['index'] = self.df_flt.loc[:, 'index']
+        df['index'] = self.data_filtered.loc[:, 'index']
         df.index.name = 'date_index'
         df['date'] = df.index.values
         opt_dict = {'Scatter': {'style': dict(size=5),
@@ -1843,9 +1843,9 @@ class CapData(object):
             self.__comb_trans_keys(str_val)
 
         if filtered:
-            dframe = self.df_flt
+            dframe = self.data_filtered
         else:
-            dframe = self.df
+            dframe = self.data
         dframe.index.name = 'Timestamp'
 
         names_to_abrev = {val: key for key, val in self.trans_abrev.items()}
@@ -1930,7 +1930,7 @@ class CapData(object):
         data : str
             'sim' or 'das' determines if filter is on sim or das data.
         """
-        self.df_flt = self.df.copy()
+        self.data_filtered = self.data.copy()
         self.summary_ix = []
         self.summary = []
 
@@ -1944,8 +1944,8 @@ class CapData(object):
             return warnings.warn('Nothing to reset; agg_sensors has not been'
                                  'used.')
         else:
-            self.df = self.df[self.pre_agg_cols].copy()
-            self.df_flt = self.df_flt[self.pre_agg_cols].copy()
+            self.data = self.data[self.pre_agg_cols].copy()
+            self.data_filtered = self.data_filtered[self.pre_agg_cols].copy()
 
             self.trans = self.pre_agg_trans.copy()
             self.reg_trans = self.pre_agg_reg_trans.copy()
@@ -1958,7 +1958,7 @@ class CapData(object):
         translation dictionary.
         """
         poa_trans_key = self.reg_trans['poa']
-        if poa_trans_key in self.df.columns:
+        if poa_trans_key in self.data.columns:
             return poa_trans_key
         else:
             poa_cols = self.trans[poa_trans_key]
@@ -2030,7 +2030,7 @@ class CapData(object):
         self.summary_ix = []
         self.summary = []
 
-        self.pre_agg_cols = self.df.columns
+        self.pre_agg_cols = self.data.columns
         self.pre_agg_trans = self.trans.copy()
         self.pre_agg_reg_trans = self.reg_trans.copy()
 
@@ -2059,7 +2059,7 @@ class CapData(object):
             dfs_to_concat.append(df)
 
         if keep:
-            dfs_to_concat.append(self.df)
+            dfs_to_concat.append(self.data)
 
         if inplace:
             if update_reg_trans:
@@ -2079,11 +2079,11 @@ class CapData(object):
                             agg_col = trans_group + col_name + '-agg'
                         self.reg_trans[reg_var] = agg_col
 
-            self.df = pd.concat(dfs_to_concat, axis=1)
-            self.df_flt = self.df.copy()
+            self.data = pd.concat(dfs_to_concat, axis=1)
+            self.data_filtered = self.data.copy()
             self.set_translation(trans_report=False)
             inv_sum_in_cols = [True for col
-                               in self.df.columns if '-inv-sum-agg' in col]
+                               in self.data.columns if '-inv-sum-agg' in col]
             if inv_sum_in_cols and inv_sum_vs_power:
                 for key in self.trans_keys:
                     if 'inv' in key:
@@ -2134,10 +2134,10 @@ class CapData(object):
         else:
             irr_col = col_name
 
-        df_flt = flt_irr(self.df_flt, irr_col, low, high,
+        df_flt = flt_irr(self.data_filtered, irr_col, low, high,
                          ref_val=ref_val)
         if inplace:
-            self.df_flt = df_flt
+            self.data_filtered = df_flt
         else:
             return df_flt
 
@@ -2160,7 +2160,7 @@ class CapData(object):
         -------
         CapData object if inplace is set to False.
         """
-        df = self.df_flt
+        df = self.data_filtered
 
         columns = ['IL Pmin', 'IL Vmin', 'IL Pmax', 'IL Vmax']
         index = df.index
@@ -2175,9 +2175,9 @@ class CapData(object):
                               'data.'.format(column))
 
         if inplace:
-            self.df_flt = self.df_flt.loc[index, :]
+            self.data_filtered = self.data_filtered.loc[index, :]
         else:
-            return self.df_flt.loc[index, :]
+            return self.data_filtered.loc[index, :]
 
     @update_summary
     def filter_shade(self, fshdbm=1.0, query_str=None, inplace=True):
@@ -2212,7 +2212,7 @@ class CapData(object):
         pd.DataFrame
             If inplace is false returns a dataframe.
         """
-        df = self.df_flt
+        df = self.data_filtered
 
         if query_str is None:
             query_str = "FShdBm>=@fshdbm"
@@ -2220,9 +2220,9 @@ class CapData(object):
         index_shd = df.query(query_str).index
 
         if inplace:
-            self.df_flt = self.df_flt.loc[index_shd, :]
+            self.data_filtered = self.data_filtered.loc[index_shd, :]
         else:
-            return self.df_flt.loc[index_shd, :]
+            return self.data_filtered.loc[index_shd, :]
 
     @update_summary
     def filter_time(self, start=None, end=None, days=None, test_date=None,
@@ -2259,9 +2259,9 @@ class CapData(object):
             start = pd.to_datetime(start)
             end = pd.to_datetime(end)
             if wrap_year and spans_year(start, end):
-                df_temp = cntg_eoy(self.df_flt, start, end)
+                df_temp = cntg_eoy(self.data_filtered, start, end)
             else:
-                df_temp = self.df_flt.loc[start:end, :]
+                df_temp = self.data_filtered.loc[start:end, :]
 
         if start is not None and end is None:
             if days is None:
@@ -2270,9 +2270,9 @@ class CapData(object):
                 start = pd.to_datetime(start)
                 end = start + pd.DateOffset(days=days)
                 if wrap_year and spans_year(start, end):
-                    df_temp = cntg_eoy(self.df_flt, start, end)
+                    df_temp = cntg_eoy(self.data_filtered, start, end)
                 else:
-                    df_temp = self.df_flt.loc[start:end, :]
+                    df_temp = self.data_filtered.loc[start:end, :]
 
         if start is None and end is not None:
             if days is None:
@@ -2281,9 +2281,9 @@ class CapData(object):
                 end = pd.to_datetime(end)
                 start = end - pd.DateOffset(days=days)
                 if wrap_year and spans_year(start, end):
-                    df_temp = cntg_eoy(self.df_flt, start, end)
+                    df_temp = cntg_eoy(self.data_filtered, start, end)
                 else:
-                    df_temp = self.df_flt.loc[start:end, :]
+                    df_temp = self.data_filtered.loc[start:end, :]
 
         if test_date is not None:
             test_date = pd.to_datetime(test_date)
@@ -2294,12 +2294,12 @@ class CapData(object):
                 start = test_date - offset
                 end = test_date + offset
                 if wrap_year and spans_year(start, end):
-                    df_temp = cntg_eoy(self.df_flt, start, end)
+                    df_temp = cntg_eoy(self.data_filtered, start, end)
                 else:
-                    df_temp = self.df_flt.loc[start:end, :]
+                    df_temp = self.data_filtered.loc[start:end, :]
 
         if inplace:
-            self.df_flt = df_temp
+            self.data_filtered = df_temp
         else:
             return df_temp
 
@@ -2338,9 +2338,9 @@ class CapData(object):
         clf_1.fit(X1)
 
         if inplace:
-            self.df_flt = self.df_flt[clf_1.predict(X1) == 1]
+            self.data_filtered = self.data_filtered[clf_1.predict(X1) == 1]
         else:
-            return self.df_flt[clf_1.predict(X1) == 1]
+            return self.data_filtered[clf_1.predict(X1) == 1]
 
     @update_summary
     def filter_pf(self, pf, inplace=True):
@@ -2368,12 +2368,12 @@ class CapData(object):
             if key.find('pf') == 0:
                 selection = key
 
-        df = self.df_flt[self.trans[selection]]
+        df = self.data_filtered[self.trans[selection]]
 
-        df_flt = self.df_flt[(np.abs(df) >= pf).all(axis=1)]
+        df_flt = self.data_filtered[(np.abs(df) >= pf).all(axis=1)]
 
         if inplace:
-            self.df_flt = df_flt
+            self.data_filtered = df_flt
         else:
             return df_flt
 
@@ -2420,7 +2420,7 @@ class CapData(object):
         >>> das.df_flt.index[-1].hour
         13
         """
-        self.df_flt = func(self.df_flt, *args, **kwargs)
+        self.data_filtered = func(self.data_filtered, *args, **kwargs)
 
     @update_summary
     def filter_sensors(self, perc_diff=None, inplace=True):
@@ -2447,11 +2447,11 @@ class CapData(object):
             Returns filtered dataframe if inplace is False.
         """
         if self.pre_agg_cols is not None:
-            df = self.df_flt[self.pre_agg_cols]
+            df = self.data_filtered[self.pre_agg_cols]
             trans = self.pre_agg_trans
             reg_trans = self.pre_agg_reg_trans
         else:
-            df = self.df_flt
+            df = self.data_filtered
             trans = self.trans
             reg_trans = self.reg_trans
 
@@ -2470,10 +2470,10 @@ class CapData(object):
                 sensors_df = df[trans[key]]
                 index = sensor_filter(sensors_df, perc_diff_for_key)
 
-        df_out = self.df_flt.loc[index, :]
+        df_out = self.data_filtered.loc[index, :]
 
         if inplace:
-            self.df_flt = df_out
+            self.data_filtered = df_out
         else:
             return df_out
 
@@ -2505,7 +2505,7 @@ class CapData(object):
             kwargs are passed to pvlib detect_clearsky.  See pvlib documentation
             for details.
         """
-        if 'ghi_mod_csky' not in self.df_flt.columns:
+        if 'ghi_mod_csky' not in self.data_filtered.columns:
             return warnings.warn('Modeled clear sky data must be availabe to '
                                  'run this filter method. Use CapData '
                                  'load_data clear_sky option.')
@@ -2532,18 +2532,18 @@ class CapData(object):
                               'ghi_col to use a specific column.')
             meas_ghi = meas_ghi.mean(axis=1)
         else:
-            meas_ghi = self.df_flt[ghi_col]
+            meas_ghi = self.data_filtered[ghi_col]
 
-        clear_per = detect_clearsky(meas_ghi, self.df_flt['ghi_mod_csky'],
+        clear_per = detect_clearsky(meas_ghi, self.data_filtered['ghi_mod_csky'],
                                     meas_ghi.index, window_length, **kwargs)
         if not any(clear_per):
             return warnings.warn('No clear periods detected. Try increasing the'
                                  ' window length.')
 
-        df_out = self.df_flt[clear_per]
+        df_out = self.data_filtered[clear_per]
 
         if inplace:
-            self.df_flt = df_out
+            self.data_filtered = df_out
         else:
             return df_out
 
@@ -2832,9 +2832,9 @@ class CapData(object):
             if summary:
                 print(reg.summary())
             df = df[np.abs(reg.resid) < 2 * np.sqrt(reg.scale)]
-            dframe_flt = self.df_flt.loc[df.index, :]
+            dframe_flt = self.data_filtered.loc[df.index, :]
             if inplace:
-                self.df_flt = dframe_flt
+                self.data_filtered = dframe_flt
             else:
                 return dframe_flt
         else:
