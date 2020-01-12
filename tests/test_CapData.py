@@ -1158,7 +1158,7 @@ class TestRepCondNoFreq(unittest.TestCase):
         self.meas.filter_irr(0.1, 2000)
         meas2 = self.meas.copy()
         meas2.rep_cond()
-        self.meas.rep_cond(irr_bal=True, perc_flt=20)
+        self.meas.rep_cond(irr_bal=True, percent_filter=20)
         self.assertIsInstance(self.meas.rc, pd.core.frame.DataFrame,
                               'No dataframe stored in the rc attribute.')
         self.assertNotEqual(self.meas.rc['poa'][0], meas2.rc['poa'][0],
@@ -1166,13 +1166,13 @@ class TestRepCondNoFreq(unittest.TestCase):
                              as w/o irr_bal')
 
     def test_irr_bal_inplace_wvel(self):
-        self.meas.rep_cond(irr_bal=True, perc_flt=20, w_vel=50)
+        self.meas.rep_cond(irr_bal=True, percent_filter=20, w_vel=50)
         self.assertEqual(self.meas.rc['w_vel'][0], 50,
                          'Wind velocity not overwritten by user value')
 
-    def test_irr_bal_inplace_no_perc_flt(self):
+    def test_irr_bal_inplace_no_percent_filter(self):
         with self.assertWarns(UserWarning):
-            self.meas.rep_cond(irr_bal=True, perc_flt=None)
+            self.meas.rep_cond(irr_bal=True, percent_filter=None)
 
 
 class TestRepCondFreq(unittest.TestCase):
@@ -1192,7 +1192,7 @@ class TestRepCondFreq(unittest.TestCase):
                          'Rep conditions dataframe does not have 12 rows.')
 
     def test_monthly_irr_bal(self):
-        self.pvsyst.rep_cond(freq='M', irr_bal=True, perc_flt=20)
+        self.pvsyst.rep_cond(freq='M', irr_bal=True, percent_filter=20)
         self.assertIsInstance(self.pvsyst.rc, pd.core.frame.DataFrame,
                               'No dataframe stored in the rc attribute.')
         self.assertEqual(self.pvsyst.rc.shape[0], 12,
@@ -1219,7 +1219,7 @@ class TestPredictCapacities(unittest.TestCase):
 
     def test_monthly(self):
         self.pvsyst.rep_cond(freq='MS')
-        pred_caps = self.pvsyst.predict_capacities(irr_flt=True, perc_flt=20)
+        pred_caps = self.pvsyst.predict_capacities(irr_flt=True, percent_filter=20)
         july_grpby = pred_caps.loc['1990-07-01', 'PredCap']
 
         self.assertIsInstance(pred_caps, pd.core.frame.DataFrame,
@@ -1253,7 +1253,7 @@ class TestPredictCapacities(unittest.TestCase):
                          'Predicted capacities does not have 12 rows.')
 
     def test_rc_from_irrBal(self):
-        self.pvsyst.rep_cond(freq='M', irr_bal=True, perc_flt=20)
+        self.pvsyst.rep_cond(freq='M', irr_bal=True, percent_filter=20)
         pred_caps = self.pvsyst.predict_capacities(irr_flt=False)
         self.assertIsInstance(pred_caps, pd.core.frame.DataFrame,
                               'Returned object is {} not a\
@@ -1263,7 +1263,7 @@ class TestPredictCapacities(unittest.TestCase):
 
     def test_seasonal_freq(self):
         self.pvsyst.rep_cond(freq='BQ-NOV')
-        pred_caps = self.pvsyst.predict_capacities(irr_flt=True, perc_flt=20)
+        pred_caps = self.pvsyst.predict_capacities(irr_flt=True, percent_filter=20)
         self.assertIsInstance(pred_caps, pd.core.frame.DataFrame,
                               'Returned object is {} not a\
                                Dataframe.'.format(type(pred_caps)))

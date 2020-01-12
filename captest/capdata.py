@@ -284,7 +284,7 @@ def perc_wrap(p):
 
 def perc_bounds(perc):
     """
-    perc_flt : float or tuple, default None
+    percent_filter : float or tuple, default None
         Percentage or tuple of percentages used to filter around reporting
         irradiance in the irrRC_balanced function.  Required argument when
             irr_bal is True.
@@ -2646,7 +2646,8 @@ class CapData(object):
             print('No filters have been run.')
 
     @update_summary
-    def rep_cond(self, irr_bal=False, perc_flt=None, w_vel=None, inplace=True,
+    def rep_cond(self, irr_bal=False, percent_filter=None, w_vel=None,
+                 inplace=True,
                  func={'poa': perc_wrap(60), 't_amb': 'mean', 'w_vel': 'mean'},
                  freq=None, **kwargs):
 
@@ -2656,10 +2657,10 @@ class CapData(object):
         Parameters
         ----------
         irr_bal: boolean, default False
-            If true, uses the irrRC_balanced function to determine the reporting
-            conditions. Replaces the calculations specified by func with or
-            without freq.
-        perc_flt : float or tuple, default None
+            If true, uses the irrRC_balanced function to determine the
+            reporting conditions. Replaces the calculations specified by func
+            with or without freq.
+        percent_filter : float or tuple, default None
             Percentage or tuple of percentages used to filter around reporting
             irradiance in the irrRC_balanced function.  Required argument when
             irr_bal is True.
@@ -2705,10 +2706,11 @@ class CapData(object):
         RCs_df = pd.DataFrame(df.agg(func)).T
 
         if irr_bal:
-            if perc_flt is None:
-                return warnings.warn('perc_flt required when irr_bal is True')
+            if percent_filter is None:
+                return warnings.warn('percent_filter required when irr_bal is '
+                                     'True')
             else:
-                low, high = perc_bounds(perc_flt)
+                low, high = perc_bounds(percent_filter)
 
                 results = irrRC_balanced(df, low, high, irr_col='poa')
                 flt_df = results[1]
@@ -2731,7 +2733,7 @@ class CapData(object):
             if irr_bal:
                 freq = list(df_grpd.groups.keys())[0].freq
                 ix = pd.DatetimeIndex(list(df_grpd.groups.keys()), freq=freq)
-                low, high = perc_bounds(perc_flt)
+                low, high = perc_bounds(percent_filter)
                 poa_RC = []
                 temp_RC = []
                 wind_RC = []
@@ -2757,7 +2759,7 @@ class CapData(object):
         else:
             return RCs_df
 
-    def predict_capacities(self, irr_flt=True, perc_flt=20, **kwargs):
+    def predict_capacities(self, irr_flt=True, percent_filter=20, **kwargs):
         """
         Calculate expected capacities.
 
@@ -2767,7 +2769,7 @@ class CapData(object):
             When true will filter each group of data by a percentage around the
             reporting irradiance for that group.  The data groups are
             determined from the reporting irradiance attribute.
-        perc_flt : float or int or tuple, default 20
+        percent_filter : float or int or tuple, default 20
             Percentage or tuple of percentages used to filter around reporting
             irradiance in the irrRC_balanced function.  Required argument when
             irr_bal is True.
@@ -2791,7 +2793,7 @@ class CapData(object):
             return warnings.warn('Reporting condition attribute is None.\
                                  Use rep_cond to generate RCs.')
 
-        low, high = perc_bounds(perc_flt)
+        low, high = perc_bounds(percent_filter)
         freq = self.rc.index.freq
         df = wrap_seasons(df, freq)
         grps = df.groupby(by=pd.Grouper(freq=freq, **kwargs))
