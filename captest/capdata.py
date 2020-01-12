@@ -150,8 +150,8 @@ def update_summary(func):
         if pts_after == 0:
             warnings.warn('The last filter removed all data! '
                           'Calling additional filtering or visualization '
-                          'methods that reference the df_flt attribute will '
-                          'raise an error.')
+                          'methods that reference the data_filtered attribute '
+                          'will raise an error.')
 
         return ret_val
     return wrapper
@@ -549,7 +549,7 @@ def predict(regs, rcs):
 
 def pred_summary(grps, rcs, allowance, **kwargs):
     """
-    Creates summary table of reporting conditions, pred cap, and gauranteed cap.
+    Creates summary of reporting conditions, predicted cap, and gauranteed cap.
 
     This method does not calculate reporting conditions.
 
@@ -561,7 +561,8 @@ def pred_summary(grps, rcs, allowance, **kwargs):
     rcs : pandas dataframe
         Dataframe of reporting conditions used to predict capacities.
     allowance : float
-        Percent allowance to calculate gauranteed capacity from predicted capacity.
+        Percent allowance to calculate gauranteed capacity from predicted
+        capacity.
 
     Returns
     -------
@@ -1036,9 +1037,9 @@ class CapData(object):
     ----------
     name : str
         Name for the CapData object.
-    df : pandas dataframe
+    data : pandas dataframe
         Used to store measured or simulated data imported from csv.
-    df_flt : pandas dataframe
+    data_filtered : pandas dataframe
         Holds filtered data.  Filtering methods act on and write to this
         attribute.
     trans : dictionary
@@ -1124,8 +1125,8 @@ class CapData(object):
         """Creates and returns a copy of self."""
         cd_c = CapData('')
         cd_c.name = copy.copy(self.name)
-        cd_c.df = self.data.copy()
-        cd_c.df_flt = self.data_filtered.copy()
+        cd_c.data = self.data.copy()
+        cd_c.data_filtered = self.data_filtered.copy()
         cd_c.trans = copy.copy(self.trans)
         cd_c.trans_keys = copy.copy(self.trans_keys)
         cd_c.reg_trans = copy.copy(self.reg_trans)
@@ -1503,9 +1504,9 @@ class CapData(object):
         Creates a dict of raw column names paired to categorical column names.
 
         Uses multiple type_def formatted dictionaries to determine the type,
-        sub-type, and equipment type for data series of a dataframe.  The determined
-        types are concatenated to a string used as a dictionary key with a list
-        of one or more oringal column names as the paried value.
+        sub-type, and equipment type for data series of a dataframe.  The
+        determined types are concatenated to a string used as a dictionary key
+        with a list of one or more oringal column names as the paried value.
 
         Parameters
         ----------
@@ -1793,9 +1794,9 @@ class CapData(object):
         """
         Plots a Bokeh line graph for each group of sensors in self.trans.
 
-        Function returns a Bokeh grid of figures.  A figure is generated for each
-        key in the translation dictionary and a line is plotted for each raw
-        column name paired with that key.
+        Function returns a Bokeh grid of figures.  A figure is generated for
+        each key in the translation dictionary and a line is plotted for each
+        raw column name paired with that key.
 
         For example, if there are multiple plane of array irradiance sensors,
         the data from each one will be plotted on a single figure.
@@ -1936,9 +1937,9 @@ class CapData(object):
 
     def reset_agg(self):
         """
-        Remove aggregation columns from df and df_flt attributes.
+        Remove aggregation columns from data and data_filtered attributes.
 
-        Does not reset filtering of of df_flt.
+        Does not reset filtering of data or data_filtered.
         """
         if self.pre_agg_cols is None:
             return warnings.warn('Nothing to reset; agg_sensors has not been'
@@ -1988,14 +1989,14 @@ class CapData(object):
             - mean of poa, t_amb, w_vel
         keep : bool, default True
             Appends aggregation results columns rather than returning
-            or overwriting df_flt and df attributes with just the aggregation
-            results.
+            or overwriting data_filtered and df attributes with just the
+            aggregation results.
         update_reg_trans : bool, default True
             By default updates the reg_trans dictionary attribute to map the
             regression variable to the aggregation column. The reg_trans
             attribute is not updated if inplace is False.
         inplace : bool, default True
-            True writes over dataframe in df and df_flt attribute.
+            True writes over dataframe in df and data_filtered attribute.
             False returns an aggregated dataframe.
         inv_sum_vs_power : bool, default False
             When true method attempts to identify a summation of inverters and
@@ -2018,8 +2019,8 @@ class CapData(object):
             been run before using agg_sensors.
         """
         if not len(self.summary) == 0:
-            warnings.warn('The df_flt attribute has been overwritten and '
-                          'previously applied filtering steps have been '
+            warnings.warn('The data_filtered attribute has been overwritten '
+                          'and previously applied filtering steps have been '
                           'lost.  It is recommended to use agg_sensors '
                           'before any filtering methods. In the future the '
                           'agg_sensors method could possibly re-apply '
@@ -2120,9 +2121,11 @@ class CapData(object):
             Must provide arg when min/max are fractions
         col_name : str, default None
             Column name of irradiance data to filter.  By default uses the POA
-            irradiance set in reg_trans attribute or average of the POA columns.
+            irradiance set in reg_trans attribute or average of the POA
+            columns.
         inplace : bool, default True
-            Default true write back to df_flt or return filtered dataframe.
+            Default true write back to data_filtered or return filtered
+            dataframe.
 
         Returns
         -------
@@ -2234,12 +2237,12 @@ class CapData(object):
         ----------
         start: str
             Start date for data to be returned.  Must be in format that can be
-            converted by pandas.to_datetime.  Not required if test_date and days
-            arguments are passed.
+            converted by pandas.to_datetime.  Not required if test_date and
+            days arguments are passed.
         end: str
             End date for data to be returned.  Must be in format that can be
-            converted by pandas.to_datetime.  Not required if test_date and days
-            arguments are passed.
+            converted by pandas.to_datetime.  Not required if test_date and
+            days arguments are passed.
         days: int
             Days in time period to be returned.  Not required if start and end
             are specified.
@@ -2253,7 +2256,7 @@ class CapData(object):
         Todo
         ----
         Add inverse options to remove time between start end rather than return
-        it
+        it.
         """
         if start is not None and end is not None:
             start = pd.to_datetime(start)
@@ -2311,7 +2314,8 @@ class CapData(object):
         Parameters
         ----------
         inplace : bool
-            Default of true writes filtered dataframe back to df_flt attribute.
+            Default of true writes filtered dataframe back to data_filtered
+            attribute.
         **kwargs
             Passed to sklearn EllipticEnvelope.  Contamination keyword
             is useful to adjust proportion of outliers in dataset.
@@ -2353,7 +2357,8 @@ class CapData(object):
         pf: float
             0.999 or similar to remove timestamps with lower PF values
         inplace : bool
-            Default of true writes filtered dataframe back to df_flt attribute.
+            Default of true writes filtered dataframe back to data_filtered
+            attribute.
 
         Returns
         -------
@@ -2415,9 +2420,9 @@ class CapData(object):
         245
         >>> summary['pts_removed'][0]
         1195
-        >>> das.df_flt.index[0].hour
+        >>> das.data_filtered.index[0].hour
         9
-        >>> das.df_flt.index[-1].hour
+        >>> das.data_filtered.index[-1].hour
         13
         """
         self.data_filtered = func(self.data_filtered, *args, **kwargs)
@@ -2502,8 +2507,8 @@ class CapData(object):
             returns pvlib detect_clearsky results, which by default is a series
             of booleans.
         **kwargs
-            kwargs are passed to pvlib detect_clearsky.  See pvlib documentation
-            for details.
+            kwargs are passed to pvlib detect_clearsky.  See pvlib
+            documentation for details.
         """
         if 'ghi_mod_csky' not in self.data_filtered.columns:
             return warnings.warn('Modeled clear sky data must be availabe to '
@@ -2617,7 +2622,7 @@ class CapData(object):
 
     def get_summary(self):
         """
-        Prints summary dataframe of the filtering applied df_flt attribute.
+        Prints summary of filtering applied to the data_filtered attribute.
 
         The summary dataframe shows the history of the filtering steps applied
         to the data including the timestamps remaining after each step, the
@@ -2675,8 +2680,8 @@ class CapData(object):
             value specified for predictions. Does not affect output unless pred
             is True and irr_bal is True.
         inplace: bool, True by default
-            When true updates object rc parameter, when false returns dicitionary
-            of reporting conditions.
+            When true updates object rc parameter, when false returns
+            dicitionary of reporting conditions.
         **kwargs
             Passed to pandas Grouper to control label and closed side of
             intervals. See pandas Grouper doucmentation for details. Default is
@@ -2760,8 +2765,8 @@ class CapData(object):
         ----------
         irr_flt : bool, default True
             When true will filter each group of data by a percentage around the
-            reporting irradiance for that group.  The data groups are determined
-            from the reporting irradiance attribute.
+            reporting irradiance for that group.  The data groups are
+            determined from the reporting irradiance attribute.
         perc_flt : float or int or tuple, default 20
             Percentage or tuple of percentages used to filter around reporting
             irradiance in the irrRC_balanced function.  Required argument when

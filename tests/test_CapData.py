@@ -127,7 +127,7 @@ class TestTopLevelFuncs(unittest.TestCase):
         pvsyst = pvc.CapData('pvsyst')
         pvsyst.load_data(path='./tests/data/', load_pvsyst=True)
 
-        df_regs = pvsyst.df.loc[:, ['E_Grid', 'GlobInc', 'TAmb', 'WindVel']]
+        df_regs = pvsyst.data.loc[:, ['E_Grid', 'GlobInc', 'TAmb', 'WindVel']]
         df_regs_day = df_regs.query('GlobInc > 0')
         grps = df_regs_day.groupby(pd.Grouper(freq='M', label='right'))
 
@@ -202,7 +202,7 @@ class TestTopLevelFuncs(unittest.TestCase):
                              t_amb='temp-amb-', w_vel='wind--')
         pvsyst.filter_irr(200, 800)
         pvsyst.rep_cond(freq='MS')
-        grps = pvsyst.df_flt.groupby(pd.Grouper(freq='MS', label='left'))
+        grps = pvsyst.data_filtered.groupby(pd.Grouper(freq='MS', label='left'))
         poa_col = pvsyst.trans[pvsyst.reg_trans['poa']][0]
 
         grps_flt = pvc.filter_grps(grps, pvsyst.rc, poa_col, 0.8, 1.2)
@@ -368,7 +368,7 @@ class TestLoadDataMethods(unittest.TestCase):
                       'Weather Station 1 TempF, °F', 'Weather Station 2 Sun2, W/m²',
                       'Weather Station 1 Sun, W/m²', 'Weather Station 1 WindSpeed, mph',
                       'index']
-        self.assertTrue(all(das_1.df.columns == col_names1),
+        self.assertTrue(all(das_1.data.columns == col_names1),
                         'Column names are not expected value for ae_site1')
 
         das_2 = pvc.CapData('das_2')
@@ -381,7 +381,7 @@ class TestLoadDataMethods(unittest.TestCase):
                       'Weather Station 1 WindSpeed, mph',
                       'Weather Station 3 WindSpeed, mph',
                       'index']
-        self.assertTrue(all(das_2.df.columns == col_names2),
+        self.assertTrue(all(das_2.data.columns == col_names2),
                         'Column names are not expected value for ae_site1')
 
     def test_load_das(self):
@@ -416,7 +416,7 @@ class TestCapDataLoadMethods(unittest.TestCase):
         os.rmdir('test_csvs')
 
     def test_read_csvs(self):
-        self.assertEqual(self.capdata.df.shape[0], 3,
+        self.assertEqual(self.capdata.data.shape[0], 3,
                          'imported a non csv or pvsyst file')
 
 
@@ -491,7 +491,7 @@ class Test_CapData_methods_sim(unittest.TestCase):
     def setUp(self):
         self.pvsyst = pvc.CapData('pvsyst')
         self.pvsyst.load_data(path='./tests/data/', load_pvsyst=True)
-        # self.jun = self.pvsyst.df.loc['06/1990']
+        # self.jun = self.pvsyst.data.loc['06/1990']
         # self.jun_cpy = self.jun.copy()
         # self.low = 0.5
         # self.high = 1.5
@@ -503,7 +503,7 @@ class Test_CapData_methods_sim(unittest.TestCase):
         self.pvsyst.set_reg_trans(power='real_pwr--', poa='irr-ghi-',
                                   t_amb='temp-amb-', w_vel='wind--')
         pvsyst_copy = self.pvsyst.copy()
-        df_equality = pvsyst_copy.df.equals(self.pvsyst.df)
+        df_equality = pvsyst_copy.data.equals(self.pvsyst.data)
 
         self.assertTrue(df_equality,
                         'Dataframe of copy not equal to original')
@@ -515,7 +515,7 @@ class Test_CapData_methods_sim(unittest.TestCase):
                          'Regression trans dict copy is not equal to orig.')
 
     def test_irrRC_balanced(self):
-        jun = self.pvsyst.df.loc['06/1990']
+        jun = self.pvsyst.data.loc['06/1990']
         jun_cpy = jun.copy()
         low = 0.5
         high = 1.5
@@ -550,7 +550,7 @@ class Test_CapData_methods_sim(unittest.TestCase):
 
     def test_filter_pvsyst_default(self):
         self.pvsyst.filter_pvsyst()
-        self.assertEqual(self.pvsyst.df_flt.shape[0], 8670,
+        self.assertEqual(self.pvsyst.data_filtered.shape[0], 8670,
                          'Data should contain 8670 points after removing any\
                           of IL Pmin, IL Pmax, IL Vmin, IL Vmax that are\
                           greater than zero.')
@@ -574,7 +574,7 @@ class Test_CapData_methods_sim(unittest.TestCase):
 
     def test_filter_shade_default(self):
         self.pvsyst.filter_shade()
-        self.assertEqual(self.pvsyst.df_flt.shape[0], 8645,
+        self.assertEqual(self.pvsyst.data_filtered.shape[0], 8645,
                          'Data should contain 8645 time periods\
                           without shade.')
 
@@ -588,14 +588,14 @@ class Test_CapData_methods_sim(unittest.TestCase):
 
     def test_filter_shade_query(self):
         # create PVsyst ShdLoss type values for testing query string
-        self.pvsyst.df.loc[self.pvsyst.df['FShdBm'] == 1.0, 'ShdLoss'] = 0
-        is_shaded = self.pvsyst.df['ShdLoss'].isna()
-        shdloss_values = 1 / self.pvsyst.df.loc[is_shaded, 'FShdBm'] * 100
-        self.pvsyst.df.loc[is_shaded, 'ShdLoss'] = shdloss_values
-        self.pvsyst.df_flt = self.pvsyst.df.copy()
+        self.pvsyst.data.loc[self.pvsyst.data['FShdBm'] == 1.0, 'ShdLoss'] = 0
+        is_shaded = self.pvsyst.data['ShdLoss'].isna()
+        shdloss_values = 1 / self.pvsyst.data.loc[is_shaded, 'FShdBm'] * 100
+        self.pvsyst.data.loc[is_shaded, 'ShdLoss'] = shdloss_values
+        self.pvsyst.data_filtered = self.pvsyst.data.copy()
 
         self.pvsyst.filter_shade(query_str='ShdLoss<=125')
-        self.assertEqual(self.pvsyst.df_flt.shape[0], 8671,
+        self.assertEqual(self.pvsyst.data_filtered.shape[0], 8671,
                          'Filtered data should contain have 8671 periods with\
                           shade losses less than 125.')
 
@@ -912,16 +912,16 @@ class TestGetRegCols(unittest.TestCase):
                          'Returned number of columns is incorrect.')
         self.assertEqual(df.columns.to_list(), cols,
                          'Columns are not renamed properly.')
-        self.assertEqual(self.das.df['-mtr-sum-agg'].iloc[100],
+        self.assertEqual(self.das.data['-mtr-sum-agg'].iloc[100],
                          df['power'].iloc[100],
                          'Data in column labeled power is not power.')
-        self.assertEqual(self.das.df['irr-poa-mean-agg'].iloc[100],
+        self.assertEqual(self.das.data['irr-poa-mean-agg'].iloc[100],
                          df['poa'].iloc[100],
                          'Data in column labeled poa is not poa.')
-        self.assertEqual(self.das.df['temp-amb-mean-agg'].iloc[100],
+        self.assertEqual(self.das.data['temp-amb-mean-agg'].iloc[100],
                          df['t_amb'].iloc[100],
                          'Data in column labeled t_amb is not t_amb.')
-        self.assertEqual(self.das.df['wind--mean-agg'].iloc[100],
+        self.assertEqual(self.das.data['wind--mean-agg'].iloc[100],
                          df['w_vel'].iloc[100],
                          'Data in column labeled w_vel is not w_vel.')
 
@@ -933,10 +933,10 @@ class TestGetRegCols(unittest.TestCase):
                          'Returned number of columns is incorrect.')
         self.assertEqual(df.columns.to_list(), cols,
                          'Columns are not renamed properly.')
-        self.assertEqual(self.das.df['-mtr-sum-agg'].iloc[100],
+        self.assertEqual(self.das.data['-mtr-sum-agg'].iloc[100],
                          df['power'].iloc[100],
                          'Data in column labeled power is not power.')
-        self.assertEqual(self.das.df['irr-poa-mean-agg'].iloc[100],
+        self.assertEqual(self.das.data['irr-poa-mean-agg'].iloc[100],
                          df['poa'].iloc[100],
                          'Data in column labeled poa is not poa.')
 
@@ -954,10 +954,10 @@ class TestGetRegCols(unittest.TestCase):
                          'Returned number of columns is incorrect.')
         self.assertEqual(df.columns.to_list(), cols,
                          'Columns are not renamed properly.')
-        self.assertEqual(self.das.df[mtr_col].iloc[100],
+        self.assertEqual(self.das.data[mtr_col].iloc[100],
                          df['power'].iloc[100],
                          'Data in column labeled power is not power.')
-        self.assertEqual(self.das.df['irr-poa-mean-agg'].iloc[100],
+        self.assertEqual(self.das.data['irr-poa-mean-agg'].iloc[100],
                          df['poa'].iloc[100],
                          'Data in column labeled poa is not poa.')
 
@@ -973,25 +973,25 @@ class TestAggSensors(unittest.TestCase):
 
     def test_agg_map_none(self):
         self.das.agg_sensors()
-        self.assertEqual(self.das.df_flt.shape[1], self.das.df.shape[1],
-                         'df and df_flt should have same number of rows.')
-        self.assertEqual(self.das.df_flt.shape[0], self.das.df.shape[0],
+        self.assertEqual(self.das.data_filtered.shape[1], self.das.data.shape[1],
+                         'df and data_filtered should have same number of rows.')
+        self.assertEqual(self.das.data_filtered.shape[0], self.das.data.shape[0],
                          'Agg method inadverdently changed number of rows.')
-        self.assertIn('-mtr-sum-agg', self.das.df_flt.columns,
+        self.assertIn('-mtr-sum-agg', self.das.data_filtered.columns,
                       'Sum of power trans group not in aggregated df.')
-        self.assertIn('irr-poa-mean-agg', self.das.df_flt.columns,
+        self.assertIn('irr-poa-mean-agg', self.das.data_filtered.columns,
                       'Mean of poa trans group not in aggregated df.')
-        self.assertIn('temp-amb-mean-agg', self.das.df_flt.columns,
+        self.assertIn('temp-amb-mean-agg', self.das.data_filtered.columns,
                       'Mean of amb temp trans group not in aggregated df.')
-        self.assertIn('wind--mean-agg', self.das.df_flt.columns,
+        self.assertIn('wind--mean-agg', self.das.data_filtered.columns,
                       'Mean of wind trans group not in aggregated df.')
 
     def test_agg_map_none_inplace_false(self):
-        df_flt_copy = self.das.df_flt.copy()
+        df_flt_copy = self.das.data_filtered.copy()
         df = self.das.agg_sensors(inplace=False)
-        self.assertEqual(df.shape[1], self.das.df.shape[1] + 4,
+        self.assertEqual(df.shape[1], self.das.data.shape[1] + 4,
                          'Returned df does not include 4 additional cols.')
-        self.assertEqual(df.shape[0], self.das.df.shape[0],
+        self.assertEqual(df.shape[0], self.das.data.shape[0],
                          'Agg method inadverdently changed number of rows.')
         self.assertIn('-mtr-sum-agg', df.columns,
                       'Sum of power trans group not in aggregated df.')
@@ -1001,42 +1001,42 @@ class TestAggSensors(unittest.TestCase):
                       'Mean of amb temp trans group not in aggregated df.')
         self.assertIn('wind--mean-agg', df.columns,
                       'Mean of wind trans group not in aggregated df.')
-        self.assertTrue(df_flt_copy.equals(self.das.df_flt),
-                        'Method with inplace false changed df_flt attribute.')
+        self.assertTrue(df_flt_copy.equals(self.das.data_filtered),
+                        'Method with inplace false changed data_filtered attribute.')
 
     def test_agg_map_none_keep_false(self):
         self.das.agg_sensors(keep=False)
-        self.assertEqual(self.das.df_flt.shape[1], 4,
+        self.assertEqual(self.das.data_filtered.shape[1], 4,
                          'Returned dataframe does not have 4 columns.')
-        self.assertEqual(self.das.df_flt.shape[0], self.das.df.shape[0],
+        self.assertEqual(self.das.data_filtered.shape[0], self.das.data.shape[0],
                          'Agg method inadverdently changed number of rows.')
-        self.assertIn('-mtr-sum-agg', self.das.df_flt.columns,
+        self.assertIn('-mtr-sum-agg', self.das.data_filtered.columns,
                       'Sum of power trans group not in aggregated df.')
-        self.assertIn('irr-poa-mean-agg', self.das.df_flt.columns,
+        self.assertIn('irr-poa-mean-agg', self.das.data_filtered.columns,
                       'Mean of poa trans group not in aggregated df.')
-        self.assertIn('temp-amb-mean-agg', self.das.df_flt.columns,
+        self.assertIn('temp-amb-mean-agg', self.das.data_filtered.columns,
                       'Mean of amb temp trans group not in aggregated df.')
-        self.assertIn('wind--mean-agg', self.das.df_flt.columns,
+        self.assertIn('wind--mean-agg', self.das.data_filtered.columns,
                       'Mean of wind trans group not in aggregated df.')
 
     def test_agg_map_non_str_func(self):
         self.das.agg_sensors(agg_map={'irr-poa-': np.mean})
-        self.assertEqual(self.das.df_flt.shape[1], self.das.df.shape[1],
-                         'df and df_flt should have same number of rows.')
-        self.assertEqual(self.das.df_flt.shape[0], self.das.df.shape[0],
+        self.assertEqual(self.das.data_filtered.shape[1], self.das.data.shape[1],
+                         'df and data_filtered should have same number of rows.')
+        self.assertEqual(self.das.data_filtered.shape[0], self.das.data.shape[0],
                          'Agg method inadverdently changed number of rows.')
-        self.assertIn('irr-poa-mean-agg', self.das.df_flt.columns,
+        self.assertIn('irr-poa-mean-agg', self.das.data_filtered.columns,
                       'Mean of poa trans group not in aggregated df.')
 
     def test_agg_map_mix_funcs(self):
         self.das.agg_sensors(agg_map={'irr-poa-': [np.mean, 'sum']})
-        self.assertEqual(self.das.df_flt.shape[1], self.das.df.shape[1],
-                         'df and df_flt should have same number of rows.')
-        self.assertEqual(self.das.df_flt.shape[0], self.das.df.shape[0],
+        self.assertEqual(self.das.data_filtered.shape[1], self.das.data.shape[1],
+                         'df and data_filtered should have same number of rows.')
+        self.assertEqual(self.das.data_filtered.shape[0], self.das.data.shape[0],
                          'Agg method inadverdently changed number of rows.')
-        self.assertIn('irr-poa-mean-agg', self.das.df_flt.columns,
+        self.assertIn('irr-poa-mean-agg', self.das.data_filtered.columns,
                       'Mean of poa trans group not in aggregated df.')
-        self.assertIn('irr-poa-sum-agg', self.das.df_flt.columns,
+        self.assertIn('irr-poa-sum-agg', self.das.data_filtered.columns,
                       'Sum of poa trans group not in aggregated df.')
 
     def test_agg_map_update_reg_trans(self):
@@ -1058,7 +1058,7 @@ class TestAggSensors(unittest.TestCase):
                          'Summary index not reset.')
 
     def test_reset_agg_method(self):
-        orig_df = self.das.df.copy()
+        orig_df = self.das.data.copy()
         orig_trans = self.das.trans.copy()
         orig_reg_trans = self.das.reg_trans.copy()
 
@@ -1066,17 +1066,17 @@ class TestAggSensors(unittest.TestCase):
         self.das.filter_irr(200, 500)
         self.das.reset_agg()
 
-        self.assertTrue(self.das.df.equals(orig_df),
+        self.assertTrue(self.das.data.equals(orig_df),
                         'df attribute does not match pre-agg df after reset.')
-        self.assertTrue(all(self.das.df_flt.columns == orig_df.columns),
+        self.assertTrue(all(self.das.data_filtered.columns == orig_df.columns),
                         'Filtered dataframe does not have same columns as'
                         'original dataframe after resetting agg.')
-        self.assertLess(self.das.df_flt.shape[0], orig_df.shape[0],
+        self.assertLess(self.das.data_filtered.shape[0], orig_df.shape[0],
                         'Filtering overwritten by reset agg method.')
 
     def test_warn_if_filters_already_run(self):
         """
-        Warn if method is writing over filtering already applied to df_flt.
+        Warn if method is writing over filtering already applied to data_filtered.
         """
         poa_key = self.das.reg_trans['poa']
         self.das.trans[poa_key] = [self.das.trans[poa_key][0]]
@@ -1095,25 +1095,25 @@ class TestFilterSensors(unittest.TestCase):
                                t_amb='temp-amb-', w_vel='wind--')
 
     def test_perc_diff_none(self):
-        rows_before_flt = self.das.df_flt.shape[0]
+        rows_before_flt = self.das.data_filtered.shape[0]
         self.das.filter_sensors(perc_diff=None, inplace=True)
-        self.assertIsInstance(self.das.df_flt, pd.core.frame.DataFrame,
-                              'Did not dave a dataframe to df_flt.')
-        self.assertLess(self.das.df_flt.shape[0], rows_before_flt,
+        self.assertIsInstance(self.das.data_filtered, pd.core.frame.DataFrame,
+                              'Did not dave a dataframe to data_filtered.')
+        self.assertLess(self.das.data_filtered.shape[0], rows_before_flt,
                         'No rows removed.')
 
     def test_perc_diff(self):
-        rows_before_flt = self.das.df_flt.shape[0]
+        rows_before_flt = self.das.data_filtered.shape[0]
         self.das.filter_sensors(perc_diff={'irr-poa-ref_cell': 0.05,
                                            'temp-amb-': 0.1},
                                 inplace=True)
-        self.assertIsInstance(self.das.df_flt, pd.core.frame.DataFrame,
-                              'Did not dave a dataframe to df_flt.')
-        self.assertLess(self.das.df_flt.shape[0], rows_before_flt,
+        self.assertIsInstance(self.das.data_filtered, pd.core.frame.DataFrame,
+                              'Did not dave a dataframe to data_filtered.')
+        self.assertLess(self.das.data_filtered.shape[0], rows_before_flt,
                         'No rows removed.')
 
     def test_after_agg_sensors(self):
-        rows_before_flt = self.das.df_flt.shape[0]
+        rows_before_flt = self.das.data_filtered.shape[0]
         self.das.agg_sensors(agg_map={'-inv-': 'sum',
                                       'irr-poa-ref_cell': 'mean',
                                       'wind--': 'mean',
@@ -1121,11 +1121,11 @@ class TestFilterSensors(unittest.TestCase):
         self.das.filter_sensors(perc_diff={'irr-poa-ref_cell': 0.05,
                                            'temp-amb-': 0.1},
                                 inplace=True)
-        self.assertIsInstance(self.das.df_flt, pd.core.frame.DataFrame,
-                              'Did not dave a dataframe to df_flt.')
-        self.assertLess(self.das.df_flt.shape[0], rows_before_flt,
+        self.assertIsInstance(self.das.data_filtered, pd.core.frame.DataFrame,
+                              'Did not dave a dataframe to data_filtered.')
+        self.assertLess(self.das.data_filtered.shape[0], rows_before_flt,
                         'No rows removed.')
-        self.assertIn('-inv-sum-agg', self.das.df_flt.columns,
+        self.assertIn('-inv-sum-agg', self.das.data_filtered.columns,
                       'filter_sensors did not retain aggregation columns.')
 
 
@@ -1227,7 +1227,7 @@ class TestPredictCapacities(unittest.TestCase):
         self.assertEqual(pred_caps.shape[0], 12,
                          'Predicted capacities does not have 12 rows.')
 
-        self.pvsyst.df_flt = self.pvsyst.df_flt.loc['7/1/90':'7/31/90', :]
+        self.pvsyst.data_filtered = self.pvsyst.data_filtered.loc['7/1/90':'7/31/90', :]
         self.pvsyst.rep_cond()
         self.pvsyst.filter_irr(0.8, 1.2, ref_val=self.pvsyst.rc['poa'][0])
         df = self.pvsyst.rview(['power', 'poa', 't_amb', 'w_vel'],
@@ -1286,51 +1286,51 @@ class TestFilterIrr(unittest.TestCase):
                          'POA column not returned')
 
     def test_get_poa_col_multcols(self):
-        self.meas.df['POA second column'] = self.meas.rview('poa').values
+        self.meas.data['POA second column'] = self.meas.rview('poa').values
         self.meas.set_translation()
         with self.assertWarns(UserWarning):
             col = self.meas._CapData__get_poa_col()
 
     def test_lowhigh_nocol(self):
-        pts_before = self.meas.df_flt.shape[0]
+        pts_before = self.meas.data_filtered.shape[0]
         self.meas.filter_irr(500, 600, ref_val=None, col_name=None,
                              inplace=True)
-        self.assertLess(self.meas.df_flt.shape[0], pts_before,
+        self.assertLess(self.meas.data_filtered.shape[0], pts_before,
                         'Filter did not remove points.')
 
     def test_lowhigh_colname(self):
-        pts_before = self.meas.df_flt.shape[0]
-        self.meas.df['POA second column'] = self.meas.rview('poa').values
+        pts_before = self.meas.data_filtered.shape[0]
+        self.meas.data['POA second column'] = self.meas.rview('poa').values
         self.meas.set_translation()
-        self.meas.df_flt = self.meas.df.copy()
+        self.meas.data_filtered = self.meas.data.copy()
         self.meas.filter_irr(500, 600, ref_val=None,
                              col_name='POA second column', inplace=True)
-        self.assertLess(self.meas.df_flt.shape[0], pts_before,
+        self.assertLess(self.meas.data_filtered.shape[0], pts_before,
                         'Filter did not remove points.')
 
     def test_refval_nocol(self):
-        pts_before = self.meas.df_flt.shape[0]
+        pts_before = self.meas.data_filtered.shape[0]
         self.meas.filter_irr(0.8, 1.2, ref_val=500, col_name=None,
                              inplace=True)
-        self.assertLess(self.meas.df_flt.shape[0], pts_before,
+        self.assertLess(self.meas.data_filtered.shape[0], pts_before,
                         'Filter did not remove points.')
 
     def test_refval_withcol(self):
-        pts_before = self.meas.df_flt.shape[0]
-        self.meas.df['POA second column'] = self.meas.rview('poa').values
+        pts_before = self.meas.data_filtered.shape[0]
+        self.meas.data['POA second column'] = self.meas.rview('poa').values
         self.meas.set_translation()
-        self.meas.df_flt = self.meas.df.copy()
+        self.meas.data_filtered = self.meas.data.copy()
         self.meas.filter_irr(0.8, 1.2, ref_val=500,
                              col_name='POA second column', inplace=True)
-        self.assertLess(self.meas.df_flt.shape[0], pts_before,
+        self.assertLess(self.meas.data_filtered.shape[0], pts_before,
                         'Filter did not remove points.')
 
     def test_refval_withcol_notinplace(self):
-        pts_before = self.meas.df_flt.shape[0]
+        pts_before = self.meas.data_filtered.shape[0]
         df = self.meas.filter_irr(500, 600, ref_val=None, col_name=None,
                                   inplace=False)
-        self.assertEqual(self.meas.df_flt.shape[0], pts_before,
-                         'Filter removed points from df_flt.')
+        self.assertEqual(self.meas.data_filtered.shape[0], pts_before,
+                         'Filter removed points from data_filtered.')
         self.assertIsInstance(df, pd.core.frame.DataFrame,
                               'Did not return DataFrame object.')
         self.assertLess(df.shape[0], pts_before,
@@ -1370,37 +1370,37 @@ class TestFilterTime(unittest.TestCase):
 
     def test_start_end(self):
         self.pvsyst.filter_time(start='2/1/90', end='2/15/90')
-        self.assertEqual(self.pvsyst.df_flt.index[0],
+        self.assertEqual(self.pvsyst.data_filtered.index[0],
                          pd.Timestamp(year=1990, month=2, day=1, hour=0),
                          'First timestamp should be 2/1/1990')
-        self.assertEqual(self.pvsyst.df_flt.index[-1],
+        self.assertEqual(self.pvsyst.data_filtered.index[-1],
                          pd.Timestamp(year=1990, month=2, day=15, hour=00),
                          'Last timestamp should be 2/15/1990 00:00')
 
     def test_start_days(self):
         self.pvsyst.filter_time(start='2/1/90', days=15)
-        self.assertEqual(self.pvsyst.df_flt.index[0],
+        self.assertEqual(self.pvsyst.data_filtered.index[0],
                          pd.Timestamp(year=1990, month=2, day=1, hour=0),
                          'First timestamp should be 2/1/1990')
-        self.assertEqual(self.pvsyst.df_flt.index[-1],
+        self.assertEqual(self.pvsyst.data_filtered.index[-1],
                          pd.Timestamp(year=1990, month=2, day=16, hour=00),
                          'Last timestamp should be 2/15/1990 00:00')
 
     def test_end_days(self):
         self.pvsyst.filter_time(end='2/16/90', days=15)
-        self.assertEqual(self.pvsyst.df_flt.index[0],
+        self.assertEqual(self.pvsyst.data_filtered.index[0],
                          pd.Timestamp(year=1990, month=2, day=1, hour=0),
                          'First timestamp should be 2/1/1990')
-        self.assertEqual(self.pvsyst.df_flt.index[-1],
+        self.assertEqual(self.pvsyst.data_filtered.index[-1],
                          pd.Timestamp(year=1990, month=2, day=16, hour=00),
                          'Last timestamp should be 2/15/1990 00:00')
 
     def test_test_date(self):
         self.pvsyst.filter_time(test_date='2/16/90', days=30)
-        self.assertEqual(self.pvsyst.df_flt.index[0],
+        self.assertEqual(self.pvsyst.data_filtered.index[0],
                          pd.Timestamp(year=1990, month=2, day=1, hour=0),
                          'First timestamp should be 2/1/1990')
-        self.assertEqual(self.pvsyst.df_flt.index[-1],
+        self.assertEqual(self.pvsyst.data_filtered.index[-1],
                          pd.Timestamp(year=1990, month=3, day=3, hour=00),
                          'Last timestamp should be 3/2/1990 00:00')
 
@@ -1439,11 +1439,11 @@ class TestFilterPF(unittest.TestCase):
         pf = np.ones(5)
         pf = np.append(pf, np.ones(5) * -1)
         pf = np.append(pf, np.arange(0, 1, 0.1))
-        self.meas.df['pf'] = np.tile(pf, 576)
-        self.meas.df_flt = self.meas.df.copy()
+        self.meas.data['pf'] = np.tile(pf, 576)
+        self.meas.data_filtered = self.meas.data.copy()
         self.meas.set_translation()
         self.meas.filter_pf(1)
-        self.assertEqual(self.meas.df_flt.shape[0], 5760,
+        self.assertEqual(self.meas.data_filtered.shape[0], 5760,
                          'Incorrect number of points removed.')
 
 
@@ -1477,19 +1477,19 @@ class Test_Csky_Filter(unittest.TestCase):
     def test_default(self):
         self.meas.filter_clearsky()
 
-        self.assertLess(self.meas.df_flt.shape[0],
-                        self.meas.df.shape[0],
+        self.assertLess(self.meas.data_filtered.shape[0],
+                        self.meas.data.shape[0],
                         'Filtered dataframe should have less rows.')
-        self.assertEqual(self.meas.df_flt.shape[1],
-                         self.meas.df.shape[1],
+        self.assertEqual(self.meas.data_filtered.shape[1],
+                         self.meas.data.shape[1],
                          'Filtered dataframe should have equal number of cols.')
-        for i, col in enumerate(self.meas.df_flt.columns):
-            self.assertEqual(col, self.meas.df.columns[i],
+        for i, col in enumerate(self.meas.data_filtered.columns):
+            self.assertEqual(col, self.meas.data.columns[i],
                              'Filter changed column {} to '
-                             '{}'.format(self.meas.df.columns[i], col))
+                             '{}'.format(self.meas.data.columns[i], col))
 
     def test_two_ghi_cols(self):
-        self.meas.df['ws 2 ghi W/m^2'] = self.meas.view('irr-ghi-') * 1.05
+        self.meas.data['ws 2 ghi W/m^2'] = self.meas.view('irr-ghi-') * 1.05
         self.meas.set_translation()
 
         with self.assertWarns(UserWarning):
@@ -1497,7 +1497,7 @@ class Test_Csky_Filter(unittest.TestCase):
 
     def test_mult_ghi_categories(self):
         cn = 'irrad ghi pyranometer W/m^2'
-        self.meas.df[cn] = self.meas.view('irr-ghi-') * 1.05
+        self.meas.data[cn] = self.meas.view('irr-ghi-') * 1.05
         self.meas.set_translation()
 
         with self.assertWarns(UserWarning):
@@ -1510,22 +1510,22 @@ class Test_Csky_Filter(unittest.TestCase):
             self.meas.filter_clearsky()
 
     def test_specify_ghi_col(self):
-        self.meas.df['ws 2 ghi W/m^2'] = self.meas.view('irr-ghi-') * 1.05
+        self.meas.data['ws 2 ghi W/m^2'] = self.meas.view('irr-ghi-') * 1.05
         self.meas.set_translation
-        self.meas.df_flt = self.meas.df.copy()
+        self.meas.data_filtered = self.meas.data.copy()
 
         self.meas.filter_clearsky(ghi_col='ws 2 ghi W/m^2')
 
-        self.assertLess(self.meas.df_flt.shape[0],
-                        self.meas.df.shape[0],
+        self.assertLess(self.meas.data_filtered.shape[0],
+                        self.meas.data.shape[0],
                         'Filtered dataframe should have less rows.')
-        self.assertEqual(self.meas.df_flt.shape[1],
-                         self.meas.df.shape[1],
+        self.assertEqual(self.meas.data_filtered.shape[1],
+                         self.meas.data.shape[1],
                          'Filtered dataframe should have equal number of cols.')
-        for i, col in enumerate(self.meas.df_flt.columns):
-            self.assertEqual(col, self.meas.df.columns[i],
+        for i, col in enumerate(self.meas.data_filtered.columns):
+            self.assertEqual(col, self.meas.data.columns[i],
                              'Filter changed column {} to '
-                             '{}'.format(self.meas.df.columns[i], col))
+                             '{}'.format(self.meas.data.columns[i], col))
 
     def test_no_clear_sky(self):
         with self.assertWarns(UserWarning):
@@ -1562,8 +1562,8 @@ class TestCapTestCpResultsSingleCoeff(unittest.TestCase):
 
         self.meas.ols_model = das_model.fit()
         self.sim.ols_model = sim_model.fit()
-        self.meas.df_flt = pd.DataFrame()
-        self.sim.df_flt = pd.DataFrame()
+        self.meas.data_filtered = pd.DataFrame()
+        self.sim.data_filtered = pd.DataFrame()
 
     def test_return(self):
         res = pvc.cp_results(self.sim, self.meas, 100, '+/- 5',
@@ -1604,8 +1604,8 @@ class TestCapTestCpResultsMultCoeffKwVsW(unittest.TestCase):
         sim_df = pd.DataFrame({'power': sim_y, 'poa': a,
                                't_amb': b, 'w_vel': c})
 
-        meas.df = das_df
-        meas.df['power'] /= 1000
+        meas.data = das_df
+        meas.data['power'] /= 1000
         meas.set_reg_trans(power='power', poa='poa',
                            t_amb='t_amb', w_vel='w_vel')
 
@@ -1615,8 +1615,8 @@ class TestCapTestCpResultsMultCoeffKwVsW(unittest.TestCase):
 
         meas.ols_model = das_model.fit()
         sim.ols_model = sim_model.fit()
-        meas.df_flt = pd.DataFrame()
-        sim.df_flt = pd.DataFrame()
+        meas.data_filtered = pd.DataFrame()
+        sim.data_filtered = pd.DataFrame()
 
         actual = meas.ols_model.predict(meas.rc)[0] * 1000
         expected = sim.ols_model.predict(meas.rc)[0]
@@ -1660,7 +1660,7 @@ class TestCapTestCpResultsMultCoeff(unittest.TestCase):
         sim_df = pd.DataFrame({'power': sim_y, 'poa': a,
                                't_amb': b, 'w_vel': c})
 
-        self.meas.df = das_df
+        self.meas.data = das_df
         self.meas.set_reg_trans(power='power', poa='poa',
                                 t_amb='t_amb', w_vel='w_vel')
 
@@ -1670,8 +1670,8 @@ class TestCapTestCpResultsMultCoeff(unittest.TestCase):
 
         self.meas.ols_model = das_model.fit()
         self.sim.ols_model = sim_model.fit()
-        self.meas.df_flt = pd.DataFrame()
-        self.sim.df_flt = pd.DataFrame()
+        self.meas.data_filtered = pd.DataFrame()
+        self.sim.data_filtered = pd.DataFrame()
 
     def test_pvals_default_false(self):
         actual = self.meas.ols_model.predict(self.meas.rc)[0]
@@ -1731,9 +1731,9 @@ class TestCapTestCpResultsMultCoeff(unittest.TestCase):
 
     def test_formulas_match(self):
         sim = pvc.CapData('sim')
-        sim.df_flt = pd.DataFrame()
+        sim.data_filtered = pd.DataFrame()
         das = pvc.CapData('das')
-        das.df_flt = pd.DataFrame()
+        das.data_filtered = pd.DataFrame()
 
         sim.reg_fml = 'power ~ poa + I(poa * poa) + I(poa * t_amb) - 1'
 
