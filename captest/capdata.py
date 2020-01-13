@@ -2759,13 +2759,13 @@ class CapData(object):
         else:
             return RCs_df
 
-    def predict_capacities(self, irr_flt=True, percent_filter=20, **kwargs):
+    def predict_capacities(self, irr_filter=True, percent_filter=20, **kwargs):
         """
         Calculate expected capacities.
 
         Parameters
         ----------
-        irr_flt : bool, default True
+        irr_filter : bool, default True
             When true will filter each group of data by a percentage around the
             reporting irradiance for that group.  The data groups are
             determined from the reporting irradiance attribute.
@@ -2798,7 +2798,7 @@ class CapData(object):
         df = wrap_seasons(df, freq)
         grps = df.groupby(by=pd.Grouper(freq=freq, **kwargs))
 
-        if irr_flt:
+        if irr_filter:
             grps = filter_grps(grps, self.rc, 'poa', low, high)
 
         error = float(self.tolerance.split(sep=' ')[1]) / 100

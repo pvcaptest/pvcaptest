@@ -1219,7 +1219,7 @@ class TestPredictCapacities(unittest.TestCase):
 
     def test_monthly(self):
         self.pvsyst.rep_cond(freq='MS')
-        pred_caps = self.pvsyst.predict_capacities(irr_flt=True, percent_filter=20)
+        pred_caps = self.pvsyst.predict_capacities(irr_filter=True, percent_filter=20)
         july_grpby = pred_caps.loc['1990-07-01', 'PredCap']
 
         self.assertIsInstance(pred_caps, pd.core.frame.DataFrame,
@@ -1244,9 +1244,9 @@ class TestPredictCapacities(unittest.TestCase):
                          'to the predict_capacites groupby'
                          'prediction {}'.format(july_manual, july_grpby))
 
-    def test_no_irr_flt(self):
+    def test_no_irr_filter(self):
         self.pvsyst.rep_cond(freq='M')
-        pred_caps = self.pvsyst.predict_capacities(irr_flt=False)
+        pred_caps = self.pvsyst.predict_capacities(irr_filter=False)
         self.assertIsInstance(pred_caps, pd.core.frame.DataFrame,
                               'Returned object is not a Dataframe.')
         self.assertEqual(pred_caps.shape[0], 12,
@@ -1254,7 +1254,7 @@ class TestPredictCapacities(unittest.TestCase):
 
     def test_rc_from_irrBal(self):
         self.pvsyst.rep_cond(freq='M', irr_bal=True, percent_filter=20)
-        pred_caps = self.pvsyst.predict_capacities(irr_flt=False)
+        pred_caps = self.pvsyst.predict_capacities(irr_filter=False)
         self.assertIsInstance(pred_caps, pd.core.frame.DataFrame,
                               'Returned object is {} not a\
                                Dataframe.'.format(type(pred_caps)))
@@ -1263,7 +1263,7 @@ class TestPredictCapacities(unittest.TestCase):
 
     def test_seasonal_freq(self):
         self.pvsyst.rep_cond(freq='BQ-NOV')
-        pred_caps = self.pvsyst.predict_capacities(irr_flt=True, percent_filter=20)
+        pred_caps = self.pvsyst.predict_capacities(irr_filter=True, percent_filter=20)
         self.assertIsInstance(pred_caps, pd.core.frame.DataFrame,
                               'Returned object is {} not a\
                                Dataframe.'.format(type(pred_caps)))
