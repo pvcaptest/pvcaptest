@@ -1921,7 +1921,7 @@ class CapData(object):
         grid = gridplot(plots, ncols=ncols, **kwargs)
         return show(grid)
 
-    def reset_flt(self):
+    def reset_filter(self):
         """
         Copies over filtered dataframe with raw data and removes all summary
         history.
@@ -2413,7 +2413,7 @@ class CapData(object):
 
         Example use of the pandas between_time method to remove time periods.
 
-        >>> das.reset_flt()
+        >>> das.reset_filter()
         >>> das.custom_filter(pd.DataFrame.between_time, '9:00', '13:00')
         >>> summary = das.get_summary()
         >>> summary['pts_before_filter'][0]
