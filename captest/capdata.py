@@ -352,7 +352,7 @@ def sensor_filter(df, perc_diff):
         return df.index
 
 
-def flt_irr(df, irr_col, low, high, ref_val=None):
+def filter_irr(df, irr_col, low, high, ref_val=None):
     """
     Top level filter on irradiance values.
 
@@ -412,7 +412,7 @@ def filter_grps(grps, rcs, irr_col, low, high, **kwargs):
     freq = list(grps.groups.keys())[0].freq
     for grp_name, grp_df in grps:
         ref_val = rcs.loc[grp_name, 'poa']
-        grp_df_flt = flt_irr(grp_df, irr_col, low, high, ref_val=ref_val)
+        grp_df_flt = filter_irr(grp_df, irr_col, low, high, ref_val=ref_val)
         flt_dfs.append(grp_df_flt)
     df_flt = pd.concat(flt_dfs)
     df_flt_grpby = df_flt.groupby(pd.Grouper(freq=freq, **kwargs))
@@ -475,7 +475,7 @@ def irrRC_balanced(df, low, high, irr_col='GlobInc', plot=False):
         # print('in percent: {}'.format(df_perc))
         irr_RC = (df[irr_col].agg(perc_wrap(df_perc * 100)))
         # print('ref irr: {}'.format(irr_RC))
-        flt_df = flt_irr(df, irr_col, low, high, ref_val=irr_RC)
+        flt_df = filter_irr(df, irr_col, low, high, ref_val=irr_RC)
         # print('number of vals: {}'.format(df.shape))
         pt_qty = flt_df.shape[0]
         # print('flt pt qty: {}'.format(pt_qty))
@@ -2137,7 +2137,7 @@ class CapData(object):
         else:
             irr_col = col_name
 
-        df_flt = flt_irr(self.data_filtered, irr_col, low, high,
+        df_flt = filter_irr(self.data_filtered, irr_col, low, high,
                          ref_val=ref_val)
         if inplace:
             self.data_filtered = df_flt

@@ -51,12 +51,12 @@ class TestTopLevelFuncs(unittest.TestCase):
                         'np.percentile wrapper gives different value than np perc')
         self.assertTrue(all(df == df_cpy), 'perc_wrap function modified input df')
 
-    def test_flt_irr(self):
+    def test_filter_irr(self):
         rng = np.arange(0, 1000)
         df = pd.DataFrame(np.array([rng, rng+100, rng+200]).T,
                           columns = ['weather_station irr poa W/m^2',
                                      'col_1', 'col_2'])
-        df_flt = pvc.flt_irr(df, 'weather_station irr poa W/m^2', 50, 100)
+        df_flt = pvc.filter_irr(df, 'weather_station irr poa W/m^2', 50, 100)
 
         self.assertEqual(df_flt.shape[0], 51,
                          'Incorrect number of rows returned from filter.')
@@ -497,7 +497,7 @@ class Test_CapData_methods_sim(unittest.TestCase):
         # self.high = 1.5
         # (self.irr_RC, self.jun_flt) = pvc.irrRC_balanced(self.jun, self.low,
         #                                                  self.high)
-        # self.jun_flt_irr = self.jun_flt['GlobInc']
+        # self.jun_filter_irr = self.jun_flt['GlobInc']
 
     def test_copy(self):
         self.pvsyst.set_reg_trans(power='real_pwr--', poa='irr-ghi-',
@@ -520,7 +520,7 @@ class Test_CapData_methods_sim(unittest.TestCase):
         low = 0.5
         high = 1.5
         (irr_RC, jun_flt) = pvc.irrRC_balanced(jun, low, high)
-        jun_flt_irr = jun_flt['GlobInc']
+        jun_filter_irr = jun_flt['GlobInc']
         self.assertTrue(all(jun_flt.columns == jun.columns),
                         'Columns of input df missing in filtered ouput df.')
         self.assertGreater(jun_flt.shape[0], 0,
@@ -534,15 +534,15 @@ class Test_CapData_methods_sim(unittest.TestCase):
         self.assertLess(irr_RC, jun['GlobInc'].max(),
                         'Reporting irr no less than max irr in input data')
 
-        pts_below_irr = jun_flt_irr[jun_flt_irr.between(0, irr_RC)].shape[0]
-        perc_below = pts_below_irr / jun_flt_irr.shape[0]
+        pts_below_irr = jun_filter_irr[jun_filter_irr.between(0, irr_RC)].shape[0]
+        perc_below = pts_below_irr / jun_filter_irr.shape[0]
         self.assertLess(perc_below, 0.6,
                         'More than 60 percent of points below reporting irr')
         self.assertGreaterEqual(perc_below, 0.5,
                                 'Less than 50 percent of points below rep irr')
 
-        pts_above_irr = jun_flt_irr[jun_flt_irr.between(irr_RC, 1500)].shape[0]
-        perc_above = pts_above_irr / jun_flt_irr.shape[0]
+        pts_above_irr = jun_filter_irr[jun_filter_irr.between(irr_RC, 1500)].shape[0]
+        perc_above = pts_above_irr / jun_filter_irr.shape[0]
         self.assertGreater(perc_above, 0.4,
                            'Less than 40 percent of points above reporting irr')
         self.assertLessEqual(perc_above, 0.5,
