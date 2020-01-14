@@ -961,7 +961,7 @@ def highlight_pvals(s):
     return ['background-color: yellow' if v else '' for v in is_greaterthan]
 
 
-def res_summary(sim, das, nameplate, tolerance, print_res=False, **kwargs):
+def captest_results_check_pvalues(sim, das, nameplate, tolerance, print_res=False, **kwargs):
     """
     Prints a summary of the capacity test results.
 
