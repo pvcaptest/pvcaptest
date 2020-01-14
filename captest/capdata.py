@@ -465,7 +465,7 @@ def irrRC_balanced(df, low, high, irr_col='GlobInc', plot=False):
     vals_above = 10
     perc = 100.
     pt_qty = 0
-    loop_cnt = 0
+    loop_count = 0
     pt_qty_array = []
     # print('--------------- MONTH START --------------')
     while perc > 0.6 or pt_qty < 50:
@@ -483,9 +483,9 @@ def irrRC_balanced(df, low, high, irr_col='GlobInc', plot=False):
         # print('out percent: {}'.format(perc))
         vals_above += 1
         pt_qty_array.append(pt_qty)
-        if perc <= 0.6 and pt_qty <= pt_qty_array[loop_cnt - 1]:
+        if perc <= 0.6 and pt_qty <= pt_qty_array[loop_count - 1]:
             break
-        loop_cnt += 1
+        loop_count += 1
 
         if plot:
             x_inc += 0.02
