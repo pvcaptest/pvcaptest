@@ -257,10 +257,10 @@ def wrap_seasons(df, freq):
         else:
             month = freq.startingMonth
         year = df.index[0].year
-        months_eoy = 12 - month
-        months_boy = 3 - months_eoy
+        months_year_end = 12 - month
+        months_year_start = 3 - months_year_end
         if int(month) >= 10:
-            str_date = str(months_boy) + '/' + str(year)
+            str_date = str(months_year_start) + '/' + str(year)
         else:
             str_date = str(month) + '/' + str(year)
         tdelta = df.index[1] - df.index[0]
