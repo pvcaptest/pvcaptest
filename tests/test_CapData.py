@@ -1566,7 +1566,7 @@ class TestCapTestCpResultsSingleCoeff(unittest.TestCase):
         self.sim.data_filtered = pd.DataFrame()
 
     def test_return(self):
-        res = pvc.cp_results(self.sim, self.meas, 100, '+/- 5',
+        res = pvc.captest_results(self.sim, self.meas, 100, '+/- 5',
                              print_res=False)
 
         self.assertIsInstance(res,
@@ -1623,15 +1623,15 @@ class TestCapTestCpResultsMultCoeffKwVsW(unittest.TestCase):
         cp_rat_test_val = actual / expected
 
         with self.assertWarns(UserWarning):
-            cp_rat = pvc.cp_results(sim, meas, 100, '+/- 5',
+            cp_rat = pvc.captest_results(sim, meas, 100, '+/- 5',
                                     check_pvalues=False, print_res=False)
 
         self.assertAlmostEqual(cp_rat, cp_rat_test_val, 6,
-                               'cp_results did not return expected value.')
+                               'captest_results did not return expected value.')
 
 class TestCapTestCpResultsMultCoeff(unittest.TestCase):
     """
-    Test cp_results function using a regression formula with multiple coef.
+    Test captest_results function using a regression formula with multiple coef.
     """
 
     def setUp(self):
@@ -1678,11 +1678,11 @@ class TestCapTestCpResultsMultCoeff(unittest.TestCase):
         expected = self.sim.ols_model.predict(self.meas.rc)[0]
         cp_rat_test_val = actual / expected
 
-        cp_rat = pvc.cp_results(self.sim, self.meas, 100, '+/- 5',
+        cp_rat = pvc.captest_results(self.sim, self.meas, 100, '+/- 5',
                                 check_pvalues=False, print_res=False)
 
         self.assertEqual(cp_rat, cp_rat_test_val,
-                         'cp_results did not return expected value.')
+                         'captest_results did not return expected value.')
 
     def test_pvals_true(self):
         self.meas.ols_model.params['poa'] = 0
@@ -1691,12 +1691,12 @@ class TestCapTestCpResultsMultCoeff(unittest.TestCase):
         expected_pval_check = self.sim.ols_model.predict(self.meas.rc)[0]
         cp_rat_pval_check = actual_pval_check / expected_pval_check
 
-        cp_rat = pvc.cp_results(self.sim, self.meas, 100, '+/- 5',
+        cp_rat = pvc.captest_results(self.sim, self.meas, 100, '+/- 5',
                                 check_pvalues=True, pval=1e-15,
                                 print_res=False)
 
         self.assertEqual(cp_rat, cp_rat_pval_check,
-                         'cp_results did not return expected value.')
+                         'captest_results did not return expected value.')
 
     @pytest.fixture(autouse=True)
     def _pass_fixtures(self, capsys):
@@ -1712,7 +1712,7 @@ class TestCapTestCpResultsMultCoeff(unittest.TestCase):
         self.meas.ols_model.params['poa'] = 0
         self.sim.ols_model.params['poa'] = 0
 
-        pvc.cp_results(self.sim, self.meas, 100, '+/- 5',
+        pvc.captest_results(self.sim, self.meas, 100, '+/- 5',
                                 check_pvalues=True, pval=1e-15,
                                 print_res=True)
 
@@ -1738,7 +1738,7 @@ class TestCapTestCpResultsMultCoeff(unittest.TestCase):
         sim.reg_fml = 'power ~ poa + I(poa * poa) + I(poa * t_amb) - 1'
 
         with self.assertWarns(UserWarning):
-            pvc.cp_results(sim, das, 100, '+/- 5', check_pvalues=True)
+            pvc.captest_results(sim, das, 100, '+/- 5', check_pvalues=True)
 
 
 if __name__ == '__main__':

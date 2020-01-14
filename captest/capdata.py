@@ -862,7 +862,7 @@ def determine_pass_or_fail(cap_ratio, tolerance, nameplate):
     else:
         warnings.warn("Sign must be '-', '+/-', or '-/+'.")
 
-def cp_results(sim, das, nameplate, tolerance, check_pvalues=False, pval=0.05,
+def captest_results(sim, das, nameplate, tolerance, check_pvalues=False, pval=0.05,
                print_res=True):
     """
     Prints a summary indicating if system passed or failed capacity test.
@@ -987,7 +987,7 @@ def res_summary(sim, das, nameplate, tolerance, print_res=False, **kwargs):
     print_res : boolean, default True
         Set to False to prevent printing results.
     **kwargs
-        kwargs are passed to cp_results.  See documentation for cp_results for
+        kwargs are passed to captest_results.  See documentation for captest_results for
         options. check_pvalues is set in this method, so do not pass again.
 
     Prints:
@@ -1007,9 +1007,9 @@ def res_summary(sim, das, nameplate, tolerance, print_res=False, **kwargs):
     df_pvals.rename(columns={0: 'das_pvals', 1: 'sim_pvals',
                              2: 'das_params', 3: 'sim_params'}, inplace=True)
 
-    cprat = cp_results(sim, das, nameplate, tolerance,
+    cprat = captest_results(sim, das, nameplate, tolerance,
                        print_res=print_res, check_pvalues=False, **kwargs)
-    cprat_cpval = cp_results(sim, das, nameplate, tolerance,
+    cprat_cpval = captest_results(sim, das, nameplate, tolerance,
                              print_res=print_res, check_pvalues=True, **kwargs)
 
     cprat_rounded = np.round(cprat, decimals=4) * 100
