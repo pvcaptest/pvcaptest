@@ -1007,15 +1007,23 @@ def captest_results_check_pvalues(sim, das, nameplate, tolerance, print_res=Fals
     df_pvals.rename(columns={0: 'das_pvals', 1: 'sim_pvals',
                              2: 'das_params', 3: 'sim_params'}, inplace=True)
 
-    cprat = captest_results(sim, das, nameplate, tolerance,
-                       print_res=print_res, check_pvalues=False, **kwargs)
-    cprat_cpval = captest_results(sim, das, nameplate, tolerance,
-                             print_res=print_res, check_pvalues=True, **kwargs)
+    cap_ratio = captest_results(sim, das, nameplate, tolerance,
+                                print_res=print_res, check_pvalues=False,
+                                **kwargs)
+    cap_ratio_check_pvalues = captest_results(sim, das, nameplate, tolerance,
+                                              print_res=print_res,
+                                              check_pvalues=True, **kwargs)
 
-    cprat_rounded = np.round(cprat, decimals=4) * 100
-    cprat_cpval_rounded = np.round(cprat_cpval, decimals=4) * 100
-    print('{:.3f}% - Cap Ratio'.format(cprat_rounded))
-    print('{:.3f}% - Cap Ratio after pval check'.format(cprat_cpval_rounded))
+    cap_ratio_rounded = np.round(cap_ratio, decimals=4) * 100
+    cap_ratio_check_pvalues_rounded = np.round(cap_ratio_check_pvalues,
+                                               decimals=4) * 100
+
+    result_str = '{:.3f}% - Cap Ratio'
+    print(result_str.format(cap_ratio_rounded))
+
+    result_str_pval_check = '{:.3f}% - Cap Ratio after pval check'
+    print(result_str_pval_check.format(cap_ratio_check_pvalues_rounded))
+
     return(df_pvals.style.format('{:20,.5f}').apply(highlight_pvals,
                                                     subset=['das_pvals',
                                                             'sim_pvals']))
