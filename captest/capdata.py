@@ -157,7 +157,7 @@ def update_summary(func):
     return wrapper
 
 
-def cntg_eoy(df, start, end):
+def wrap_year_end(df, start, end):
     """
     Shifts data before or after new year to form a contigous time period.
 
@@ -268,9 +268,9 @@ def wrap_seasons(df, freq):
         start = date_to_offset + tdelta
         end = date_to_offset + pd.DateOffset(years=1)
         if mnth < 8 or mnth >= 10:
-            df = cntg_eoy(df, start, end)
+            df = wrap_year_end(df, start, end)
         else:
-            df = cntg_eoy(df, end, start)
+            df = wrap_year_end(df, end, start)
         return df
     else:
         return df
@@ -2262,7 +2262,7 @@ class CapData(object):
             start = pd.to_datetime(start)
             end = pd.to_datetime(end)
             if wrap_year and spans_year(start, end):
-                df_temp = cntg_eoy(self.data_filtered, start, end)
+                df_temp = wrap_year_end(self.data_filtered, start, end)
             else:
                 df_temp = self.data_filtered.loc[start:end, :]
 
@@ -2273,7 +2273,7 @@ class CapData(object):
                 start = pd.to_datetime(start)
                 end = start + pd.DateOffset(days=days)
                 if wrap_year and spans_year(start, end):
-                    df_temp = cntg_eoy(self.data_filtered, start, end)
+                    df_temp = wrap_year_end(self.data_filtered, start, end)
                 else:
                     df_temp = self.data_filtered.loc[start:end, :]
 
@@ -2284,7 +2284,7 @@ class CapData(object):
                 end = pd.to_datetime(end)
                 start = end - pd.DateOffset(days=days)
                 if wrap_year and spans_year(start, end):
-                    df_temp = cntg_eoy(self.data_filtered, start, end)
+                    df_temp = wrap_year_end(self.data_filtered, start, end)
                 else:
                     df_temp = self.data_filtered.loc[start:end, :]
 
@@ -2297,7 +2297,7 @@ class CapData(object):
                 start = test_date - offset
                 end = test_date + offset
                 if wrap_year and spans_year(start, end):
-                    df_temp = cntg_eoy(self.data_filtered, start, end)
+                    df_temp = wrap_year_end(self.data_filtered, start, end)
                 else:
                     df_temp = self.data_filtered.loc[start:end, :]
 
