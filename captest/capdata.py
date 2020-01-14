@@ -244,7 +244,7 @@ def wrap_seasons(df, freq):
     """
     check_freqs = ['BQ-JAN', 'BQ-FEB', 'BQ-APR', 'BQ-MAY', 'BQ-JUL',
                    'BQ-AUG', 'BQ-OCT', 'BQ-NOV']
-    mnth_int = {'JAN': 1, 'FEB': 2, 'APR': 4, 'MAY': 5, 'JUL': 7,
+    month_int = {'JAN': 1, 'FEB': 2, 'APR': 4, 'MAY': 5, 'JUL': 7,
                 'AUG': 8, 'OCT': 10, 'NOV': 11}
 
     if freq in check_freqs:
@@ -253,21 +253,21 @@ def wrap_seasons(df, freq):
                       'This is not an issue if using RCs with'
                       'predict_capacities.')
         if isinstance(freq, str):
-            mnth = mnth_int[freq.split('-')[1]]
+            month = month_int[freq.split('-')[1]]
         else:
-            mnth = freq.startingMonth
+            month = freq.startingMonth
         year = df.index[0].year
-        mnths_eoy = 12 - mnth
-        mnths_boy = 3 - mnths_eoy
-        if int(mnth) >= 10:
-            str_date = str(mnths_boy) + '/' + str(year)
+        months_eoy = 12 - month
+        months_boy = 3 - months_eoy
+        if int(month) >= 10:
+            str_date = str(months_boy) + '/' + str(year)
         else:
-            str_date = str(mnth) + '/' + str(year)
+            str_date = str(month) + '/' + str(year)
         tdelta = df.index[1] - df.index[0]
         date_to_offset = df.loc[str_date].index[-1].to_pydatetime()
         start = date_to_offset + tdelta
         end = date_to_offset + pd.DateOffset(years=1)
-        if mnth < 8 or mnth >= 10:
+        if month < 8 or month >= 10:
             df = wrap_year_end(df, start, end)
         else:
             df = wrap_year_end(df, end, start)
@@ -2737,8 +2737,8 @@ class CapData(object):
                 poa_RC = []
                 temp_RC = []
                 wind_RC = []
-                for name, mnth in df_grpd:
-                    results = irrRC_balanced(mnth, low, high, irr_col='poa')
+                for name, month in df_grpd:
+                    results = irrRC_balanced(month, low, high, irr_col='poa')
                     poa_RC.append(results[0])
                     flt_df = results[1]
                     temp_RC.append(flt_df['t_amb'].mean())
