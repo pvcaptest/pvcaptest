@@ -899,7 +899,7 @@ def captest_results(sim, das, nameplate, tolerance, check_pvalues=False, pval=0.
     sim_int = sim.copy()
     das_int = das.copy()
 
-    if sim_int.reg_fml != das_int.reg_fml:
+    if sim_int.regression_formula != das_int.regression_formula:
         return warnings.warn('CapData objects do not have the same'
                              'regression formula.')
 
@@ -1074,7 +1074,7 @@ class CapData(object):
         Dataframe for the reporting conditions (poa, t_amb, and w_vel).
     ols_model : statsmodels linear regression model
         Holds the linear regression model object.
-    reg_fml : str
+    regression_formula : str
         Regression formula to be fit to measured and simulated data.  Must
         follow the requirements of statsmodels use of patsy.
     tolerance : str
@@ -1097,7 +1097,8 @@ class CapData(object):
         self.summary = []
         self.rc = None
         self.ols_model = None
-        self.reg_fml = 'power ~ poa + I(poa * poa) + I(poa * t_amb) + I(poa * w_vel) - 1'
+        self.regression_formula = ('power ~ poa + I(poa * poa)'
+                                   '+ I(poa * t_amb) + I(poa * w_vel) - 1')
         self.tolerance = None
         self.pre_agg_cols = None
         self.pre_agg_trans = None
@@ -1145,7 +1146,7 @@ class CapData(object):
         cd_c.summary = copy.copy(self.summary)
         cd_c.rc = copy.copy(self.rc)
         cd_c.ols_model = copy.deepcopy(self.ols_model)
-        cd_c.reg_fml = copy.copy(self.reg_fml)
+        cd_c.regression_formula = copy.copy(self.regression_formula)
         return cd_c
 
     def empty(self):
@@ -2811,7 +2812,7 @@ class CapData(object):
 
         error = float(self.tolerance.split(sep=' ')[1]) / 100
         results = pred_summary(grps, self.rc, error,
-                               fml=self.reg_fml)
+                               fml=self.regression_formula)
 
         return results
 
@@ -2840,7 +2841,7 @@ class CapData(object):
         """
         df = self.get_reg_cols()
 
-        reg = fit_model(df, fml=self.reg_fml)
+        reg = fit_model(df, fml=self.regression_formula)
 
         if filter:
             print('NOTE: Regression used to filter outlying points.\n\n')
@@ -2874,7 +2875,7 @@ class CapData(object):
         # rc_pt['power'] = actual
         # df.append([rc_pt])
         #
-        # reg = fit_model(df, fml=self.reg_fml)
+        # reg = fit_model(df, fml=self.regression_formula)
         #
         # infl = reg.get_influence()
         # leverage = infl.hat_matrix_diag[-1]

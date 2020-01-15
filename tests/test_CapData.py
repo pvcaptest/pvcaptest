@@ -1735,7 +1735,7 @@ class TestCapTestCpResultsMultCoeff(unittest.TestCase):
         das = pvc.CapData('das')
         das.data_filtered = pd.DataFrame()
 
-        sim.reg_fml = 'power ~ poa + I(poa * poa) + I(poa * t_amb) - 1'
+        sim.regression_formula = 'power ~ poa + I(poa * poa) + I(poa * t_amb) - 1'
 
         with self.assertWarns(UserWarning):
             pvc.captest_results(sim, das, 100, '+/- 5', check_pvalues=True)
