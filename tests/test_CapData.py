@@ -486,7 +486,7 @@ class TestCapDataSeriesTypes(unittest.TestCase):
 
 
 class Test_CapData_methods_sim(unittest.TestCase):
-    """Test for top level irrRC_balanced function."""
+    """Test for top level irr_rc_balanced function."""
 
     def setUp(self):
         self.pvsyst = pvc.CapData('pvsyst')
@@ -495,7 +495,7 @@ class Test_CapData_methods_sim(unittest.TestCase):
         # self.jun_cpy = self.jun.copy()
         # self.low = 0.5
         # self.high = 1.5
-        # (self.irr_RC, self.jun_flt) = pvc.irrRC_balanced(self.jun, self.low,
+        # (self.irr_RC, self.jun_flt) = pvc.irr_rc_balanced(self.jun, self.low,
         #                                                  self.high)
         # self.jun_filter_irr = self.jun_flt['GlobInc']
 
@@ -514,12 +514,12 @@ class Test_CapData_methods_sim(unittest.TestCase):
         self.assertEqual(pvsyst_copy.reg_trans, self.pvsyst.reg_trans,
                          'Regression trans dict copy is not equal to orig.')
 
-    def test_irrRC_balanced(self):
+    def test_irr_rc_balanced(self):
         jun = self.pvsyst.data.loc['06/1990']
         jun_cpy = jun.copy()
         low = 0.5
         high = 1.5
-        (irr_RC, jun_flt) = pvc.irrRC_balanced(jun, low, high)
+        (irr_RC, jun_flt) = pvc.irr_rc_balanced(jun, low, high)
         jun_filter_irr = jun_flt['GlobInc']
         self.assertTrue(all(jun_flt.columns == jun.columns),
                         'Columns of input df missing in filtered ouput df.')

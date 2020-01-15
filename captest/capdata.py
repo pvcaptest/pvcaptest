@@ -286,7 +286,7 @@ def perc_bounds(perc):
     """
     percent_filter : float or tuple, default None
         Percentage or tuple of percentages used to filter around reporting
-        irradiance in the irrRC_balanced function.  Required argument when
+        irradiance in the irr_rc_balanced function.  Required argument when
             irr_bal is True.
     """
     if isinstance(perc, tuple):
@@ -419,7 +419,7 @@ def filter_grps(grps, rcs, irr_col, low, high, **kwargs):
     return df_flt_grpby
 
 
-def irrRC_balanced(df, low, high, irr_col='GlobInc', plot=False):
+def irr_rc_balanced(df, low, high, irr_col='GlobInc', plot=False):
     """
     Iteratively calculates reporting irradiance that achieves 40/60 balance.
 
@@ -2666,12 +2666,12 @@ class CapData(object):
         Parameters
         ----------
         irr_bal: boolean, default False
-            If true, uses the irrRC_balanced function to determine the
+            If true, uses the irr_rc_balanced function to determine the
             reporting conditions. Replaces the calculations specified by func
             with or without freq.
         percent_filter : float or tuple, default None
             Percentage or tuple of percentages used to filter around reporting
-            irradiance in the irrRC_balanced function.  Required argument when
+            irradiance in the irr_rc_balanced function.  Required argument when
             irr_bal is True.
             Tuple option allows specifying different percentage for above and
             below reporting irradiance. (below, above)
@@ -2721,7 +2721,7 @@ class CapData(object):
             else:
                 low, high = perc_bounds(percent_filter)
 
-                results = irrRC_balanced(df, low, high, irr_col='poa')
+                results = irr_rc_balanced(df, low, high, irr_col='poa')
                 flt_df = results[1]
                 temp_RC = flt_df['t_amb'].mean()
                 wind_RC = flt_df['w_vel'].mean()
@@ -2747,7 +2747,7 @@ class CapData(object):
                 temp_RC = []
                 wind_RC = []
                 for name, month in df_grpd:
-                    results = irrRC_balanced(month, low, high, irr_col='poa')
+                    results = irr_rc_balanced(month, low, high, irr_col='poa')
                     poa_RC.append(results[0])
                     flt_df = results[1]
                     temp_RC.append(flt_df['t_amb'].mean())
@@ -2780,7 +2780,7 @@ class CapData(object):
             determined from the reporting irradiance attribute.
         percent_filter : float or int or tuple, default 20
             Percentage or tuple of percentages used to filter around reporting
-            irradiance in the irrRC_balanced function.  Required argument when
+            irradiance in the irr_rc_balanced function.  Required argument when
             irr_bal is True.
             Tuple option allows specifying different percentage for above and
             below reporting irradiance. (below, above)
