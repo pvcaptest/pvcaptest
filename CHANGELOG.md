@@ -15,6 +15,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - cp_results returns a warning if the regression formulas of the passed CapData objects do not match instead of warning and continuing.
 - pvlib 0.6.3 is required; there are issues introduced by the pvlib 0.7.0 release not yet addressed.
 
+Names were changed to remove unclear abbreviations:
+- flt - filter; API changes in many places
+- cntg_eoy - wrap_year_end; API change
+- cp_results - captest_results; API change
+- res_summary - captest_results_check_pvalues; API change
+- reg_fml - regression_formula; API change
+- irrRC_balanced - irr_rc_balanced; API change
+- df_beg - df_start
+- ix_ser - ix_series
+- mnth - month
+- months_boy - months_year_start
+- months_eoy - months_year_end
+- loop_cnt - loop_count
+- cprat - cap_ratio
+- cprat_cpval - cap_ratio_check_pvalues
+
+### Removed
+- Removed the inv_trans_dict function. This was intended for use within the module and was unused.
 
 [0.6.0]: https://github.com/pvcaptest/pvcaptest/compare/v0.5.3...v0.6.0
 ## [0.6.0] - 2019-09-15
