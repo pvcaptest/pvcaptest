@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Filter_pvsyst method filters on IL Pmin, IL Pmax, IL Vmin, and IL Vmax and warns if any of the four are missing. Previously failed if any of the four were missing.
 - cp_results returns a warning if the regression formulas of the passed CapData objects do not match instead of warning and continuing.
+- pvlib 0.6.3 is required; there are issues introduced by the pvlib 0.7.0 release not yet addressed.
 
 Names were changed to remove unclear abbreviations:
 - flt - filter; API changes in many places
