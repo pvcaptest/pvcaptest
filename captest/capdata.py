@@ -770,20 +770,17 @@ def csky(time_source, loc=None, sys=None, concat=True, output='both'):
     system = pvlib_system(sys)
     mc = ModelChain(system, location)
     times = get_tz_index(time_source, loc)
+    ghi = location.get_clearsky(times=times)
+    mc.prepare_inputs(weather=ghi)
 
     if output == 'both':
-        ghi = location.get_clearsky(times=times)
-        mc.prepare_inputs(times=times)
         csky_df = pd.DataFrame({'poa_mod_csky': mc.total_irrad['poa_global'],
                                 'ghi_mod_csky': ghi['ghi']})
     if output == 'poa_all':
-        mc.prepare_inputs(times=times)
         csky_df = mc.total_irrad
     if output == 'ghi_all':
         csky_df = location.get_clearsky(times=times)
     if output == 'all':
-        ghi = location.get_clearsky(times=times)
-        mc.prepare_inputs(times=times)
         csky_df = pd.concat([mc.total_irrad, ghi], axis=1)
 
     ix_no_tz = csky_df.index.tz_localize(None, ambiguous='infer',
