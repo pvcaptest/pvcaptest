@@ -784,7 +784,7 @@ def csky(time_source, loc=None, sys=None, concat=True, output='both'):
     if output == 'ghi_all':
         csky_df = ghi['ghi', 'dni', 'dhi']
     if output == 'all':
-        csky_df = pd.concat([mc.total_irrad[cols], ghi['ghi', 'dni', 'dhi']],
+        csky_df = pd.concat([mc.total_irrad[cols], ghi[['ghi', 'dni', 'dhi']]],
                             axis=1)
 
     ix_no_tz = csky_df.index.tz_localize(None, ambiguous='infer',
