@@ -654,7 +654,7 @@ def pvlib_system(sys):
     sandia_modules = retrieve_sam('SandiaMod')
     cec_inverters = retrieve_sam('cecinverter')
     sandia_module = sandia_modules['Canadian_Solar_CS5P_220M___2009_']
-    cec_inverter = cec_inverters['ABB__MICRO_0_25_I_OUTD_US_208_208V__CEC_2014_']
+    cec_inverter = cec_inverters['ABB__MICRO_0_25_I_OUTD_US_208__208V_']
 
     trck_kwords = ['axis_tilt', 'axis_azimuth', 'max_angle', 'backtrack', 'gcr']
     if any(kword in sys.keys() for kword in trck_kwords):
