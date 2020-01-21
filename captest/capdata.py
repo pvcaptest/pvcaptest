@@ -780,7 +780,7 @@ def csky(time_source, loc=None, sys=None, concat=True, output='both'):
     if output == 'poa_all':
         csky_df = mc.total_irrad
     if output == 'ghi_all':
-        csky_df = location.get_clearsky(times=times)
+        csky_df = ghi
     if output == 'all':
         csky_df = pd.concat([mc.total_irrad, ghi], axis=1)
 
