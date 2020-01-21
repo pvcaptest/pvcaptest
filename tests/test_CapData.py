@@ -834,7 +834,8 @@ class Test_csky(unittest.TestCase):
                               'Did not return a pandas dataframe.')
         self.assertEqual(csky_ghi_poa.shape[1], 5,
                          'Returned dataframe does not have 5 columns.')
-        cols = ['poa_global', 'poa_direct', 'poa_diffuse', 'poa_sky_diffuse', 'poa_ground_diffuse', 'poa_ground_diffuse']
+        cols = ['poa_global', 'poa_direct', 'poa_diffuse', 'poa_sky_diffuse',
+                'poa_ground_diffuse']
         for col in cols:
             self.assertIn(col, csky_ghi_poa.columns,
                           '{} not in the columns of returned\
@@ -873,7 +874,7 @@ class Test_csky(unittest.TestCase):
         self.assertEqual(csky_ghi_poa.shape[1], 8,
                          'Returned dataframe does not have 5 columns.')
         cols = ['ghi', 'dni', 'dhi', 'poa_global', 'poa_direct', 'poa_diffuse',
-                'poa_sky_diffuse', 'poa_ground_diffuse', 'poa_ground_diffuse']
+                'poa_sky_diffuse', 'poa_ground_diffuse']
         for col in cols:
             self.assertIn(col, csky_ghi_poa.columns,
                           '{} not in the columns of returned\

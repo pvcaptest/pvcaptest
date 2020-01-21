@@ -771,6 +771,7 @@ def csky(time_source, loc=None, sys=None, concat=True, output='both'):
     mc = ModelChain(system, location)
     times = get_tz_index(time_source, loc)
     ghi = location.get_clearsky(times=times)
+    ghi = ghi[['ghi', 'dni', 'dhi']]  # pvlib function also returns 'wind_speed' and 'temp_air'
     mc.prepare_inputs(weather=ghi)
 
     if output == 'both':
