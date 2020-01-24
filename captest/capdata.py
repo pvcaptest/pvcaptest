@@ -2232,28 +2232,34 @@ class CapData(object):
 
         Parameters
         ----------
-        start: str
-            Start date for data to be returned.  Must be in format that can be
-            converted by pandas.to_datetime.  Not required if test_date and days
-            arguments are passed.
-        end: str
-            End date for data to be returned.  Must be in format that can be
-            converted by pandas.to_datetime.  Not required if test_date and days
-            arguments are passed.
-        days: int
-            Days in time period to be returned.  Not required if start and end
-            are specified.
-        test_date: str
+        start : str or pd.Timestamp or None, default None
+            Start date for data to be returned.  If a string is passed it must
+            be in format that can be converted by pandas.to_datetime.  Not
+            required if test_date and days arguments are passed.
+        end : str or pd.Timestamp or None, default None
+            End date for data to be returned.  If a string is passed it must
+            be in format that can be converted by pandas.to_datetime.  Not
+            required if test_date and days arguments are passed.
+        days : int or None, default None
+            Days in time period to be returned.  Not required if `start` and
+            `end` are specified.
+        test_date : str or pd.Timestamp or None, default None
             Must be format that can be converted by pandas.to_datetime.  Not
-            required if start and end are specified.  Requires days argument.
-            Time period returned will be centered on this date.
-        inplace : bool
-            Default true write back to CapTest.flt_sim or flt_das
+            required if `start` and `end` are specified.  Requires `days`
+            argument. Time period returned will be centered on this date.
+        inplace : bool, default True
+            If inplace is true, then function overwrites the filtered
+            dataframe. If false returns a DataFrame.
+        wrap_year : bool, default False
+            If true calls the cntg_eoy function.  See cntg_eoy docstring for
+            details.
+
+            cntg_eoy renamed to wrap_year_end in v0.7.0
 
         Todo
         ----
         Add inverse options to remove time between start end rather than return
-        it
+        it.
         """
         if start is not None and end is not None:
             start = pd.to_datetime(start)
