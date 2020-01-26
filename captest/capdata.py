@@ -1312,7 +1312,7 @@ class CapData(object):
         pvraw = pvraw.rename(columns={"T Amb": "TAmb"})
         return pvraw
 
-    def load_data(self, path='./data/', fname=None, set_trans=True,
+    def load_data(self, path='./data/', fname=None, group_columns=True,
                   column_type_report=True, source=None, load_pvsyst=False,
                   clear_sky=False, loc=None, sys=None, **kwargs):
         """
@@ -1332,11 +1332,11 @@ class CapData(object):
         fname: str, default None
             Filename of specific file to load. If filename is none method will
             load all csv files into one dataframe.
-        set_trans : bool, default True
+        group_columns : bool, default True
             Generates translation dicitionary for column names after loading
             data.
         column_type_report : bool, default True
-            If set_trans is true, then method prints summary of group_columns
+            If group_columns is true, then method prints summary of group_columns
             dictionary process including any possible data issues.  No effect
             on method when set to False.
         source : str, default None
@@ -1410,7 +1410,7 @@ class CapData(object):
                 self.data = csky(self.data, loc=loc, sys=sys, concat=True,
                                output='both')
 
-        if set_trans:
+        if group_columns:
             self.group_columns(column_type_report=column_type_report)
 
         self.data_filtered = self.data.copy()

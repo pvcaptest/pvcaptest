@@ -408,7 +408,7 @@ class TestCapDataLoadMethods(unittest.TestCase):
                 f.write('Date, val\n11/21/2017, 1')
 
         self.capdata = pvc.CapData('capdata')
-        self.capdata.load_data(path='test_csvs/', set_trans=False)
+        self.capdata.load_data(path='test_csvs/', group_columns=False)
 
     def tearDown(self):
         for fname in test_files:
