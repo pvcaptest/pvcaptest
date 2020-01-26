@@ -1050,10 +1050,13 @@ class CapData(object):
     data_filtered : pandas dataframe
         Holds filtered data.  Filtering methods act on and write to this
         attribute.
-    trans : dictionary
-        A dictionary with keys that are algorithimically determined based on
-        the data of each imported column in the dataframe and values that are
-        the column labels in the raw data.
+    column_groups : dictionary
+        Assigned by the `group_columns` method, which attempts to infer the
+        type of measurement recorded in each column of the dataframe stored in
+        the `data` attribute.  For each inferred measurement type,
+        `group_columns` creates an abbreviated name and a list of columns that
+        contain measurements of that type. The abbreviated names are the keys
+        and the corresponding values are the lists of columns.
     trans_keys : list
         Simply a list of the translation dictionary (trans) keys.
     reg_trans : dictionary
@@ -1088,7 +1091,7 @@ class CapData(object):
         self.name = name
         self.data = pd.DataFrame()
         self.data_filtered = None
-        self.trans = {}
+        self.column_groups = {}
         self.trans_keys = []
         self.reg_trans = {}
         self.trans_abrev = {}
@@ -1136,7 +1139,7 @@ class CapData(object):
         cd_c.name = copy.copy(self.name)
         cd_c.data = self.data.copy()
         cd_c.data_filtered = self.data_filtered.copy()
-        cd_c.trans = copy.copy(self.trans)
+        cd_c.column_groups = copy.copy(self.column_groups)
         cd_c.trans_keys = copy.copy(self.trans_keys)
         cd_c.reg_trans = copy.copy(self.reg_trans)
         cd_c.trans_abrev = copy.copy(self.trans_abrev)
@@ -1151,7 +1154,7 @@ class CapData(object):
 
     def empty(self):
         """Returns a boolean indicating if the CapData object contains data."""
-        if self.data.empty and len(self.trans_keys) == 0 and len(self.trans) == 0:
+        if self.data.empty and len(self.trans_keys) == 0 and len(self.column_groups) == 0:
             return True
         else:
             return False
@@ -1488,7 +1491,7 @@ class CapData(object):
         dframe = self.data
 
         for key in self.trans_keys:
-            df = dframe[self.trans[key]]
+            df = dframe[self.column_groups[key]]
             cols = df.columns.tolist()
             for i, col in enumerate(cols):
                 abbrev_col_name = key + str(i)
@@ -1526,7 +1529,7 @@ class CapData(object):
         Returns
         -------
         None
-            Sets attributes self.trans and self.trans_keys
+            Sets attributes self.column_groups and self.trans_keys
 
         Todo
         ----
@@ -1560,9 +1563,9 @@ class CapData(object):
             count = col_indices.count(name)
             trans[name] = orig_names_sorted[start:start + count]
 
-        self.trans = trans
+        self.column_groups = trans
 
-        trans_keys = list(self.trans.keys())
+        trans_keys = list(self.column_groups.keys())
         if 'index--' in trans_keys:
             trans_keys.remove('index--')
         trans_keys.sort()
@@ -1583,11 +1586,11 @@ class CapData(object):
         ----
         Change to accept a string column name or list of strings
         """
-        for key, value in self.trans.items():
+        for key, value in self.column_groups.items():
             for col in columns:
                 try:
                     value.remove(col)
-                    self.trans[key] = value
+                    self.column_groups[key] = value
                 except ValueError:
                     continue
         self.data.drop(columns, axis=1, inplace=True)
@@ -1617,7 +1620,7 @@ class CapData(object):
             if self.reg_trans[reg_var] in self.data_filtered.columns:
                 continue
             else:
-                columns = self.trans[self.reg_trans[reg_var]]
+                columns = self.column_groups[self.reg_trans[reg_var]]
                 if len(columns) != 1:
                     return warnings.warn('Multiple columns per translation '
                                          'dictionary group. Run agg_sensors '
@@ -1640,16 +1643,16 @@ class CapData(object):
         """
 
         if isinstance(tkey, int):
-            keys = self.trans[self.trans_keys[tkey]]
+            keys = self.column_groups[self.trans_keys[tkey]]
         elif isinstance(tkey, list) and len(tkey) > 1:
             keys = []
             for key in tkey:
                 if isinstance(key, str):
-                    keys.extend(self.trans[key])
+                    keys.extend(self.column_groups[key])
                 elif isinstance(key, int):
-                    keys.extend(self.trans[self.trans_keys[key]])
+                    keys.extend(self.column_groups[self.trans_keys[key]])
         elif tkey in self.trans_keys:
-            keys = self.trans[tkey]
+            keys = self.column_groups[tkey]
 
         if filtered_data:
             return self.data_filtered[keys]
@@ -1680,7 +1683,7 @@ class CapData(object):
             if key in self.data.columns:
                 lst.extend([key])
             else:
-                lst.extend(self.trans[key])
+                lst.extend(self.column_groups[key])
         if filtered_data:
             return self.data_filtered[lst]
         else:
@@ -1695,11 +1698,11 @@ class CapData(object):
 
         cols = []
         for key in comb_keys:
-            cols.extend(self.trans[key])
+            cols.extend(self.column_groups[key])
 
         grp_comb = grp + '_comb'
         if grp_comb not in self.trans_keys:
-            self.trans[grp_comb] = cols
+            self.column_groups[grp_comb] = cols
             self.trans_keys.extend([grp_comb])
             print('Added new group: ' + grp_comb)
 
@@ -1707,10 +1710,10 @@ class CapData(object):
         """
         Print translation dictionary with nice formatting.
         """
-        if len(self.trans) == 0:
+        if len(self.column_groups) == 0:
             return 'Translation dictionary is empty.'
         else:
-            for trans_grp, col_list in self.trans.items():
+            for trans_grp, col_list in self.column_groups.items():
                 print(trans_grp)
                 for col in col_list:
                     print('    ' + col)
@@ -1801,7 +1804,7 @@ class CapData(object):
              legends=False, merge_grps=['irr', 'temp'], subset=None,
              filtered=False, **kwargs):
         """
-        Plots a Bokeh line graph for each group of sensors in self.trans.
+        Plots a Bokeh line graph for each group of sensors in self.column_groups.
 
         Function returns a Bokeh grid of figures.  A figure is generated for
         each key in the translation dictionary and a line is plotted for each
@@ -1879,7 +1882,7 @@ class CapData(object):
             plot_keys = self.trans_keys
 
         for j, key in enumerate(plot_keys):
-            df = dframe[self.trans[key]]
+            df = dframe[self.column_groups[key]]
             cols = df.columns.tolist()
 
             if x_axis is None:
@@ -1957,7 +1960,7 @@ class CapData(object):
             self.data = self.data[self.pre_agg_cols].copy()
             self.data_filtered = self.data_filtered[self.pre_agg_cols].copy()
 
-            self.trans = self.pre_agg_trans.copy()
+            self.column_groups = self.pre_agg_trans.copy()
             self.reg_trans = self.pre_agg_reg_trans.copy()
 
     def __get_poa_col(self):
@@ -1971,7 +1974,7 @@ class CapData(object):
         if poa_trans_key in self.data.columns:
             return poa_trans_key
         else:
-            poa_cols = self.trans[poa_trans_key]
+            poa_cols = self.column_groups[poa_trans_key]
         if len(poa_cols) > 1:
             return warnings.warn('{} columns of irradiance data. '
                                  'Use col_name to specify a single '
@@ -2041,7 +2044,7 @@ class CapData(object):
         self.summary = []
 
         self.pre_agg_cols = self.data.columns
-        self.pre_agg_trans = self.trans.copy()
+        self.pre_agg_trans = self.column_groups.copy()
         self.pre_agg_reg_trans = self.reg_trans.copy()
 
         if agg_map is None:
@@ -2098,7 +2101,7 @@ class CapData(object):
                 for key in self.trans_keys:
                     if 'inv' in key:
                         inv_key = key
-                for col_name in self.trans[inv_key]:
+                for col_name in self.column_groups[inv_key]:
                     if '-inv-sum-agg' in col_name:
                         inv_sum_col = col_name
                 mtr_cols = [col for col
@@ -2108,10 +2111,10 @@ class CapData(object):
                     warnings.warn('Multiple meter cols unclear what trans\
                                    group to place inv sum in.')
                 else:
-                    inv_cols = self.trans[inv_key]
+                    inv_cols = self.column_groups[inv_key]
                     inv_cols.remove(inv_sum_col)
-                    self.trans[inv_key] = inv_cols
-                    self.trans[mtr_cols[0]].append(inv_sum_col)
+                    self.column_groups[inv_key] = inv_cols
+                    self.column_groups[mtr_cols[0]].append(inv_sum_col)
         else:
             return pd.concat(dfs_to_concat, axis=1)
 
@@ -2382,7 +2385,7 @@ class CapData(object):
             if key.find('pf') == 0:
                 selection = key
 
-        df = self.data_filtered[self.trans[selection]]
+        df = self.data_filtered[self.column_groups[selection]]
 
         df_flt = self.data_filtered[(np.abs(df) >= pf).all(axis=1)]
 
@@ -2466,7 +2469,7 @@ class CapData(object):
             reg_trans = self.pre_agg_reg_trans
         else:
             df = self.data_filtered
-            trans = self.trans
+            trans = self.column_groups
             reg_trans = self.reg_trans
 
         if perc_diff is None:
