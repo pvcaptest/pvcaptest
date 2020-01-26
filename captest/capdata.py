@@ -1706,7 +1706,7 @@ class CapData(object):
             self.trans_keys.extend([grp_comb])
             print('Added new group: ' + grp_comb)
 
-    def review_trans(self):
+    def review_column_groups(self):
         """
         Print translation dictionary with nice formatting.
         """
