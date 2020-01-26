@@ -1313,7 +1313,7 @@ class CapData(object):
         return pvraw
 
     def load_data(self, path='./data/', fname=None, set_trans=True,
-                  trans_report=True, source=None, load_pvsyst=False,
+                  column_type_report=True, source=None, load_pvsyst=False,
                   clear_sky=False, loc=None, sys=None, **kwargs):
         """
         Import data from csv files.
@@ -1335,8 +1335,8 @@ class CapData(object):
         set_trans : bool, default True
             Generates translation dicitionary for column names after loading
             data.
-        trans_report : bool, default True
-            If set_trans is true, then method prints summary of translation
+        column_type_report : bool, default True
+            If set_trans is true, then method prints summary of group_columns
             dictionary process including any possible data issues.  No effect
             on method when set to False.
         source : str, default None
@@ -1411,7 +1411,7 @@ class CapData(object):
                                output='both')
 
         if set_trans:
-            self.set_translation(trans_report=trans_report)
+            self.group_columns(column_type_report=column_type_report)
 
         self.data_filtered = self.data.copy()
 
@@ -1511,18 +1511,18 @@ class CapData(object):
                     j = i % 10
                     self.col_colors[col] = Category10[10][j]
 
-    def set_translation(self, trans_report=True):
+    def group_columns(self, column_type_report=True):
         """
         Creates a dict of raw column names paired to categorical column names.
 
         Uses multiple type_def formatted dictionaries to determine the type,
         sub-type, and equipment type for data series of a dataframe.  The
         determined types are concatenated to a string used as a dictionary key
-        with a list of one or more oringal column names as the paried value.
+        with a list of one or more original column names as the paired value.
 
         Parameters
         ----------
-        trans_report : bool, default True
+        column_type_report : bool, default True
             Sets the warnings option of __series_type when applied to determine
             the column types.
 
@@ -1538,7 +1538,7 @@ class CapData(object):
             input and loop over each dict in the list.
         """
         col_types = self.data.apply(self.__series_type, args=(type_defs,),
-                                  warnings=trans_report).tolist()
+                                  warnings=column_type_report).tolist()
         sub_types = self.data.apply(self.__series_type, args=(sub_type_defs,),
                                   bounds_check=False).tolist()
         irr_types = self.data.apply(self.__series_type, args=(irr_sensors_defs,),
@@ -2094,7 +2094,7 @@ class CapData(object):
 
             self.data = pd.concat(dfs_to_concat, axis=1)
             self.data_filtered = self.data.copy()
-            self.set_translation(trans_report=False)
+            self.group_columns(column_type_report=False)
             inv_sum_in_cols = [True for col
                                in self.data.columns if '-inv-sum-agg' in col]
             if inv_sum_in_cols and inv_sum_vs_power:
