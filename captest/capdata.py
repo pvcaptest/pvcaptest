@@ -1034,12 +1034,12 @@ class CapData(object):
     Class to store capacity test data and translation of column names.
 
     CapData objects store a pandas dataframe of measured or simulated data
-    and a translation dictionary used to translate and group the raw column
-    names provided in the data.
+    and a dictionary used grouping columns by type of measurement.
 
-    The translation dictionary allows maintaining the column names in the raw
-    data while also grouping measurements of the same type from different
-    sensors.
+    The `column_groups` dictionary allows maintaining the original column names
+    while also grouping measurements of the same type from different
+    sensors.  Many of the methods for plotting and filtering data rely on the
+    column groupings to streamline user interaction.
 
     Parameters
     ----------
@@ -1058,11 +1058,11 @@ class CapData(object):
         contain measurements of that type. The abbreviated names are the keys
         and the corresponding values are the lists of columns.
     trans_keys : list
-        Simply a list of the translation dictionary (trans) keys.
+        Simply a list of the `column_groups` keys.
     reg_trans : dictionary
         Dictionary that is manually set to link abbreviations for
         for the independent variables of the ASTM Capacity test regression
-        equation to the translation dictionary keys.
+        equation to the `column_groups` keys.
     trans_abrev : dictionary
         Enumerated translation dict keys mapped to original column names.
         Enumerated translation dict keys are used in plot hover tooltip.
@@ -1575,7 +1575,7 @@ class CapData(object):
 
     def drop_cols(self, columns):
         """
-        Drops columns from CapData dataframe and translation dictionary.
+        Drops columns from CapData `data` and `column_groups`.
 
         Parameters
         ----------
@@ -1633,7 +1633,7 @@ class CapData(object):
 
     def view(self, tkey, filtered_data=False):
         """
-        Convience function returns columns using translation dictionary names.
+        Convience function returns columns using `column_groups` names.
 
         Parameters
         ----------
@@ -1708,10 +1708,10 @@ class CapData(object):
 
     def review_column_groups(self):
         """
-        Print translation dictionary with nice formatting.
+        Print `column_groups` with nice formatting.
         """
         if len(self.column_groups) == 0:
-            return 'Translation dictionary is empty.'
+            return 'column_groups attribute is empty.'
         else:
             for trans_grp, col_list in self.column_groups.items():
                 print(trans_grp)
@@ -1807,8 +1807,9 @@ class CapData(object):
         Plots a Bokeh line graph for each group of sensors in self.column_groups.
 
         Function returns a Bokeh grid of figures.  A figure is generated for
-        each key in the translation dictionary and a line is plotted for each
-        raw column name paired with that key.
+        each type of measurement identified by the keys in `column_groups` and
+        a line is plotted on the figure for each column of measurements of
+        that type.
 
         For example, if there are multiple plane of array irradiance sensors,
         the data from each one will be plotted on a single figure.
@@ -1830,16 +1831,20 @@ class CapData(object):
         legends : bool, default False
             Turn on or off legends for individual plots.
         merge_grps : list, default ['irr', 'temp']
-            List of strings to search for in the translation dictionary keys.
-            A new key and group is created in the translation dictionary for
-            each group.  By default will combine all irradiance measurements
-            into a group and temperature measurements into a group.
-            Pass empty list to not merge any plots.
+            List of strings to search for in the `column_groups` keys.
+            A new entry is added to `column_groups` with keys following the
+            format 'search str_comb' and the value is a list of column names
+            that contain the search string. The default will combine all
+            irradiance measurements into a group and temperature measurements
+            into a group.
+
+            Pass an empty list to not merge any plots.
+
             Use 'irr-poa' and 'irr-ghi' to plot clear sky modeled with measured
             data.
         subset : list, default None
-            List of the translation dictionary keys to use to control order of
-            plots or to plot only a subset of the plots.
+            List of the keys of `column_groups` to control the order of to plot
+            only a subset of the plots or control the order of plots.
         filtered : bool, default False
             Set to true to plot the filtered data.
         kwargs
@@ -1965,10 +1970,10 @@ class CapData(object):
 
     def __get_poa_col(self):
         """
-        Returns poa column name from translation dictionary.
+        Returns poa column name from `column_groups`.
 
-        Also, issues warning if there are more than one poa columns in the
-        translation dictionary.
+        Also, issues warning if there are more than one poa columns in
+        `column_groups`.
         """
         poa_trans_key = self.reg_trans['poa']
         if poa_trans_key in self.data.columns:
@@ -2011,10 +2016,10 @@ class CapData(object):
             True writes over dataframe in df and data_filtered attribute.
             False returns an aggregated dataframe.
         inv_sum_vs_power : bool, default False
-            When true method attempts to identify a summation of inverters and
-            move it to the same translation dictionary grouping as the meter
-            data to facilitate.  If False the inv sum aggregation column is
-            left in the inverter translation dictionary group.
+            When true, method attempts to identify a column containing the sum
+            of inverter power and move it to the same group of columns as the
+            meter data.  If False, the inverter summation column is left in the
+            group of inverter columns.
 
             Note: When set to true this option will cause issues with methods
             that expect a single column of data identified by reg_trans power.
@@ -2504,16 +2509,18 @@ class CapData(object):
         against measured clear sky ghi to detect periods of clear sky.  Refer
         to the pvlib documentation for additional information.
 
+        By default uses data identified by the `column_groups` dictionary
+        as ghi and modeled ghi.  Issues warning if there is no modeled ghi
+        data, or the measured ghi data has not been aggregated.
+
         Parameters:
         window_length : int, default 20
             Length of sliding time window in minutes. Must be greater than 2
             periods. Default of 20 works well for 5 minute data intervals.
             pvlib default of 10 minutes works well for 1min data.
         ghi_col : str, default None
-            By default uses data identified by the translation dictionary as
-            ghi and modeled ghi.  Issues warning if there is no modeled ghi
-            data, or the measured ghi data has not been aggregated.
-            Or, a column name for specific column of measured ghi data.
+            The name of a column name of measured GHI data. Overrides default
+            attempt to automatically identify a column of GHI data.
         inplace : bool, default True
             When true removes periods with unstable irradiance.  When false
             returns pvlib detect_clearsky results, which by default is a series
