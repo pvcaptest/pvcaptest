@@ -1107,7 +1107,7 @@ class CapData(object):
         self.pre_agg_trans = None
         self.pre_agg_reg_trans = None
 
-    def set_reg_trans(self, power='', poa='', t_amb='', w_vel=''):
+    def set_regression_cols(self, power='', poa='', t_amb='', w_vel=''):
         """
         Create a dictionary linking the regression variables to data.
 
@@ -2900,7 +2900,7 @@ if __name__ == "__main__":
     das = CapData('das')
     das.load_data(path='../examples/data/', fname='example_meas_data.csv',
                   source='AlsoEnergy')
-    das.set_reg_trans(power='-mtr-', poa='irr-poa-', t_amb='temp-amb-',
-                      w_vel='wind--')
+    das.set_regression_cols(power='-mtr-', poa='irr-poa-',
+                            t_amb='temp-amb-', w_vel='wind--')
 
     doctest.testmod()

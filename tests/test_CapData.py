@@ -198,8 +198,8 @@ class TestTopLevelFuncs(unittest.TestCase):
         pvsyst.load_data(path='./tests/data/',
                          fname='pvsyst_example_HourlyRes_2.CSV',
                          load_pvsyst=True)
-        pvsyst.set_reg_trans(power='real_pwr--', poa='irr-poa-',
-                             t_amb='temp-amb-', w_vel='wind--')
+        pvsyst.set_regression_cols(power='real_pwr--', poa='irr-poa-',
+                                   t_amb='temp-amb-', w_vel='wind--')
         pvsyst.filter_irr(200, 800)
         pvsyst.rep_cond(freq='MS')
         grps = pvsyst.data_filtered.groupby(pd.Grouper(freq='MS', label='left'))
@@ -500,8 +500,8 @@ class Test_CapData_methods_sim(unittest.TestCase):
         # self.jun_filter_irr = self.jun_flt['GlobInc']
 
     def test_copy(self):
-        self.pvsyst.set_reg_trans(power='real_pwr--', poa='irr-ghi-',
-                                  t_amb='temp-amb-', w_vel='wind--')
+        self.pvsyst.set_regression_cols(power='real_pwr--', poa='irr-ghi-',
+                                        t_amb='temp-amb-', w_vel='wind--')
         pvsyst_copy = self.pvsyst.copy()
         df_equality = pvsyst_copy.data.equals(self.pvsyst.data)
 
@@ -897,8 +897,8 @@ class TestGetRegCols(unittest.TestCase):
         self.das.load_data(path='./tests/data/',
                            fname='example_meas_data_aeheaders.csv',
                            source='AlsoEnergy')
-        self.das.set_reg_trans(power='-mtr-', poa='irr-poa-',
-                               t_amb='temp-amb-', w_vel='wind--')
+        self.das.set_regression_cols(power='-mtr-', poa='irr-poa-',
+                                     t_amb='temp-amb-', w_vel='wind--')
 
     def test_not_aggregated(self):
         with self.assertWarns(UserWarning):
@@ -968,8 +968,8 @@ class TestAggSensors(unittest.TestCase):
         self.das.load_data(path='./tests/data/',
                            fname='example_meas_data_aeheaders.csv',
                            source='AlsoEnergy')
-        self.das.set_reg_trans(power='-mtr-', poa='irr-poa-',
-                               t_amb='temp-amb-', w_vel='wind--')
+        self.das.set_regression_cols(power='-mtr-', poa='irr-poa-',
+                                     t_amb='temp-amb-', w_vel='wind--')
 
     def test_agg_map_none(self):
         self.das.agg_sensors()
@@ -1091,8 +1091,8 @@ class TestFilterSensors(unittest.TestCase):
         self.das.load_data(path='./tests/data/',
                            fname='example_meas_data.csv',
                            column_type_report=False)
-        self.das.set_reg_trans(power='-mtr-', poa='irr-poa-ref_cell',
-                               t_amb='temp-amb-', w_vel='wind--')
+        self.das.set_regression_cols(power='-mtr-', poa='irr-poa-ref_cell',
+                                     t_amb='temp-amb-', w_vel='wind--')
 
     def test_perc_diff_none(self):
         rows_before_flt = self.das.data_filtered.shape[0]
@@ -1134,8 +1134,8 @@ class TestRepCondNoFreq(unittest.TestCase):
         self.meas = pvc.CapData('meas')
         self.meas.load_data(path='./tests/data/', fname='nrel_data.csv',
                             source='AlsoEnergy')
-        self.meas.set_reg_trans(power='', poa='irr-poa-',
-                                t_amb='temp--', w_vel='wind--')
+        self.meas.set_regression_cols(power='', poa='irr-poa-',
+                                      t_amb='temp--', w_vel='wind--')
 
     def test_defaults(self):
         self.meas.rep_cond()
@@ -1181,8 +1181,8 @@ class TestRepCondFreq(unittest.TestCase):
         self.pvsyst.load_data(path='./tests/data/',
                               fname='pvsyst_example_HourlyRes_2.CSV',
                               load_pvsyst=True)
-        self.pvsyst.set_reg_trans(power='real_pwr--', poa='irr-poa-',
-                                 t_amb='temp-amb-', w_vel='wind--')
+        self.pvsyst.set_regression_cols(power='real_pwr--', poa='irr-poa-',
+                                        t_amb='temp-amb-', w_vel='wind--')
 
     def test_monthly_no_irr_bal(self):
         self.pvsyst.rep_cond(freq='M')
@@ -1212,8 +1212,8 @@ class TestPredictCapacities(unittest.TestCase):
         self.pvsyst.load_data(path='./tests/data/',
                               fname='pvsyst_example_HourlyRes_2.CSV',
                               load_pvsyst=True)
-        self.pvsyst.set_reg_trans(power='real_pwr--', poa='irr-poa-',
-                                 t_amb='temp-amb-', w_vel='wind--')
+        self.pvsyst.set_regression_cols(power='real_pwr--', poa='irr-poa-',
+                                        t_amb='temp-amb-', w_vel='wind--')
         self.pvsyst.filter_irr(200, 800)
         self.pvsyst.tolerance = '+/- 5'
 
@@ -1277,8 +1277,8 @@ class TestFilterIrr(unittest.TestCase):
         self.meas = pvc.CapData('meas')
         self.meas.load_data('./tests/data/', 'nrel_data.csv',
                             source='AlsoEnergy')
-        self.meas.set_reg_trans(power='', poa='irr-poa-',
-                                t_amb='temp--', w_vel='wind--')
+        self.meas.set_regression_cols(power='', poa='irr-poa-',
+                                      t_amb='temp--', w_vel='wind--')
 
     def test_get_poa_col(self):
         col = self.meas._CapData__get_poa_col()
@@ -1342,8 +1342,8 @@ class TestGetSummary(unittest.TestCase):
         self.meas = pvc.CapData('meas')
         self.meas.load_data('./tests/data/', 'nrel_data.csv',
                             source='AlsoEnergy')
-        self.meas.set_reg_trans(power='', poa='irr-poa-',
-                                t_amb='temp--', w_vel='wind--')
+        self.meas.set_regression_cols(power='', poa='irr-poa-',
+                                      t_amb='temp--', w_vel='wind--')
 
     def test_col_names(self):
         self.meas.filter_irr(200, 500)
@@ -1365,8 +1365,8 @@ class TestFilterTime(unittest.TestCase):
         self.pvsyst.load_data(path='./tests/data/',
                               fname='pvsyst_example_HourlyRes_2.CSV',
                               load_pvsyst=True)
-        self.pvsyst.set_reg_trans(power='real_pwr--', poa='irr-poa-',
-                                  t_amb='temp-amb-', w_vel='wind--')
+        self.pvsyst.set_regression_cols(power='real_pwr--', poa='irr-poa-',
+                                        t_amb='temp-amb-', w_vel='wind--')
 
     def test_start_end(self):
         self.pvsyst.filter_time(start='2/1/90', end='2/15/90')
@@ -1432,8 +1432,8 @@ class TestFilterPF(unittest.TestCase):
         self.meas = pvc.CapData('meas')
         self.meas.load_data(path='./tests/data/', fname='nrel_data.csv',
                             source='AlsoEnergy')
-        self.meas.set_reg_trans(power='', poa='irr-poa-',
-                                t_amb='temp--', w_vel='wind--')
+        self.meas.set_regression_cols(power='', poa='irr-poa-',
+                                      t_amb='temp--', w_vel='wind--')
 
     def test_pf(self):
         pf = np.ones(5)
@@ -1453,8 +1453,8 @@ class TestFilterOutliers(unittest.TestCase):
         self.das.load_data(path='./tests/data/',
                            fname='example_meas_data_aeheaders.csv',
                            source='AlsoEnergy')
-        self.das.set_reg_trans(power='-mtr-', poa='irr-poa-',
-                               t_amb='temp-amb-', w_vel='wind--')
+        self.das.set_regression_cols(power='-mtr-', poa='irr-poa-',
+                                     t_amb='temp-amb-', w_vel='wind--')
 
     def test_not_aggregated(self):
         with self.assertWarns(UserWarning):
@@ -1606,8 +1606,8 @@ class TestCapTestCpResultsMultCoeffKwVsW(unittest.TestCase):
 
         meas.data = das_df
         meas.data['power'] /= 1000
-        meas.set_reg_trans(power='power', poa='poa',
-                           t_amb='t_amb', w_vel='w_vel')
+        meas.set_regression_cols(power='power', poa='poa',
+                                 t_amb='t_amb', w_vel='w_vel')
 
         fml = 'power ~ poa + I(poa * poa) + I(poa * t_amb) + I(poa * w_vel) - 1'
         das_model = smf.ols(formula=fml, data=das_df)
@@ -1661,8 +1661,8 @@ class TestCapTestCpResultsMultCoeff(unittest.TestCase):
                                't_amb': b, 'w_vel': c})
 
         self.meas.data = das_df
-        self.meas.set_reg_trans(power='power', poa='poa',
-                                t_amb='t_amb', w_vel='w_vel')
+        self.meas.set_regression_cols(power='power', poa='poa',
+                                      t_amb='t_amb', w_vel='w_vel')
 
         fml = 'power ~ poa + I(poa * poa) + I(poa * t_amb) + I(poa * w_vel) - 1'
         das_model = smf.ols(formula=fml, data=das_df)
