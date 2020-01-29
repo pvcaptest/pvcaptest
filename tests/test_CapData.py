@@ -1039,7 +1039,7 @@ class TestAggSensors(unittest.TestCase):
         self.assertIn('irr-poa-sum-agg', self.das.data_filtered.columns,
                       'Sum of poa trans group not in aggregated df.')
 
-    def test_agg_map_update_reg_trans(self):
+    def test_agg_map_update_regression_cols(self):
         self.das.agg_sensors()
         self.assertEqual(self.das.regression_cols['power'], '-mtr-sum-agg',
                          'Power regression_cols not updated to agg column.')

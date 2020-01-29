@@ -1988,7 +1988,7 @@ class CapData(object):
         else:
             return poa_cols[0]
 
-    def agg_sensors(self, agg_map=None, keep=True, update_reg_trans=True,
+    def agg_sensors(self, agg_map=None, keep=True, update_regression_cols=True,
                     inplace=True, inv_sum_vs_power=False):
         """
         Aggregate measurments of the same variable from different sensors.
@@ -2009,7 +2009,7 @@ class CapData(object):
             Appends aggregation results columns rather than returning
             or overwriting data_filtered and df attributes with just the
             aggregation results.
-        update_reg_trans : bool, default True
+        update_regression_cols : bool, default True
             By default updates the regression_cols dictionary attribute to map
             the regression variable to the aggregation column. The
             regression_cols attribute is not updated if inplace is False.
@@ -2082,7 +2082,7 @@ class CapData(object):
             dfs_to_concat.append(self.data)
 
         if inplace:
-            if update_reg_trans:
+            if update_regression_cols:
                 for reg_var, trans_group in self.regression_cols.items():
                     if trans_group in agg_map.keys():
                         if isinstance(agg_map[trans_group], list):
