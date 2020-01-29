@@ -1059,10 +1059,11 @@ class CapData(object):
         and the corresponding values are the lists of columns.
     trans_keys : list
         Simply a list of the `column_groups` keys.
-    reg_trans : dictionary
-        Dictionary that is manually set to link abbreviations for
-        for the independent variables of the ASTM Capacity test regression
-        equation to the `column_groups` keys.
+    regression_cols : dictionary
+        Dictionary identifying which columns in `data` or groups of columns as
+        identified by the keys of `column_groups` are the independent variables
+        of the ASTM Capacity test regression equation. Set using
+        `set_regression_cols` or by directly assigning a dictionary.
     trans_abrev : dictionary
         Enumerated translation dict keys mapped to original column names.
         Enumerated translation dict keys are used in plot hover tooltip.
@@ -1093,7 +1094,7 @@ class CapData(object):
         self.data_filtered = None
         self.column_groups = {}
         self.trans_keys = []
-        self.reg_trans = {}
+        self.regression_cols = {}
         self.trans_abrev = {}
         self.col_colors = {}
         self.summary_ix = []
@@ -1128,10 +1129,10 @@ class CapData(object):
         w_vel : str
             Translation key for the wind velocity key.
         """
-        self.reg_trans = {'power': power,
-                          'poa': poa,
-                          't_amb': t_amb,
-                          'w_vel': w_vel}
+        self.regression_cols = {'power': power,
+                                'poa': poa,
+                                't_amb': t_amb,
+                                'w_vel': w_vel}
 
     def copy(self):
         """Creates and returns a copy of self."""
@@ -1141,7 +1142,7 @@ class CapData(object):
         cd_c.data_filtered = self.data_filtered.copy()
         cd_c.column_groups = copy.copy(self.column_groups)
         cd_c.trans_keys = copy.copy(self.trans_keys)
-        cd_c.reg_trans = copy.copy(self.reg_trans)
+        cd_c.regression_cols = copy.copy(self.regression_cols)
         cd_c.trans_abrev = copy.copy(self.trans_abrev)
         cd_c.col_colors = copy.copy(self.col_colors)
         cd_c.col_colors = copy.copy(self.col_colors)
@@ -1617,10 +1618,10 @@ class CapData(object):
         Pass list of reg coeffs to rename default all of them.
         """
         for reg_var in reg_vars:
-            if self.reg_trans[reg_var] in self.data_filtered.columns:
+            if self.regression_cols[reg_var] in self.data_filtered.columns:
                 continue
             else:
-                columns = self.column_groups[self.reg_trans[reg_var]]
+                columns = self.column_groups[self.regression_cols[reg_var]]
                 if len(columns) != 1:
                     return warnings.warn('Multiple columns per translation '
                                          'dictionary group. Run agg_sensors '
@@ -1671,12 +1672,12 @@ class CapData(object):
         """
 
         if ind_var == 'all':
-            keys = list(self.reg_trans.values())
+            keys = list(self.regression_cols.values())
         elif isinstance(ind_var, list) and len(ind_var) > 1:
-            keys = [self.reg_trans[key] for key in ind_var]
+            keys = [self.regression_cols[key] for key in ind_var]
         elif ind_var in met_keys:
             ind_var = [ind_var]
-            keys = [self.reg_trans[key] for key in ind_var]
+            keys = [self.regression_cols[key] for key in ind_var]
 
         lst = []
         for key in keys:
@@ -1966,7 +1967,7 @@ class CapData(object):
             self.data_filtered = self.data_filtered[self.pre_agg_cols].copy()
 
             self.column_groups = self.pre_agg_trans.copy()
-            self.reg_trans = self.pre_agg_reg_trans.copy()
+            self.regression_cols = self.pre_agg_reg_trans.copy()
 
     def __get_poa_col(self):
         """
@@ -1975,7 +1976,7 @@ class CapData(object):
         Also, issues warning if there are more than one poa columns in
         `column_groups`.
         """
-        poa_trans_key = self.reg_trans['poa']
+        poa_trans_key = self.regression_cols['poa']
         if poa_trans_key in self.data.columns:
             return poa_trans_key
         else:
@@ -2009,9 +2010,9 @@ class CapData(object):
             or overwriting data_filtered and df attributes with just the
             aggregation results.
         update_reg_trans : bool, default True
-            By default updates the reg_trans dictionary attribute to map the
-            regression variable to the aggregation column. The reg_trans
-            attribute is not updated if inplace is False.
+            By default updates the regression_cols dictionary attribute to map
+            the regression variable to the aggregation column. The
+            regression_cols attribute is not updated if inplace is False.
         inplace : bool, default True
             True writes over dataframe in df and data_filtered attribute.
             False returns an aggregated dataframe.
@@ -2022,7 +2023,8 @@ class CapData(object):
             group of inverter columns.
 
             Note: When set to true this option will cause issues with methods
-            that expect a single column of data identified by reg_trans power.
+            that expect a single column of data identified by regression_cols
+            power.
 
         Returns
         -------
@@ -2050,13 +2052,13 @@ class CapData(object):
 
         self.pre_agg_cols = self.data.columns
         self.pre_agg_trans = self.column_groups.copy()
-        self.pre_agg_reg_trans = self.reg_trans.copy()
+        self.pre_agg_reg_trans = self.regression_cols.copy()
 
         if agg_map is None:
-            agg_map = {self.reg_trans['power']: 'sum',
-                       self.reg_trans['poa']: 'mean',
-                       self.reg_trans['t_amb']: 'mean',
-                       self.reg_trans['w_vel']: 'mean'}
+            agg_map = {self.regression_cols['power']: 'sum',
+                       self.regression_cols['poa']: 'mean',
+                       self.regression_cols['t_amb']: 'mean',
+                       self.regression_cols['w_vel']: 'mean'}
 
         dfs_to_concat = []
         for trans_key, agg_funcs in agg_map.items():
@@ -2081,13 +2083,13 @@ class CapData(object):
 
         if inplace:
             if update_reg_trans:
-                for reg_var, trans_group in self.reg_trans.items():
+                for reg_var, trans_group in self.regression_cols.items():
                     if trans_group in agg_map.keys():
                         if isinstance(agg_map[trans_group], list):
                             if len(agg_map[trans_group]) > 1:
                                 warn_str = 'Multiple aggregation functions\
                                             specified for regression\
-                                            variable.  Reset reg_trans\
+                                            variable.  Reset regression_cols\
                                             manually.'
                                 warnings.warn(warn_str)
                                 break
@@ -2095,7 +2097,7 @@ class CapData(object):
                             agg_col = trans_group + agg_map[trans_group] + '-agg'
                         except TypeError:
                             agg_col = trans_group + col_name + '-agg'
-                        self.reg_trans[reg_var] = agg_col
+                        self.regression_cols[reg_var] = agg_col
 
             self.data = pd.concat(dfs_to_concat, axis=1)
             self.data_filtered = self.data.copy()
@@ -2138,7 +2140,7 @@ class CapData(object):
             Must provide arg when min/max are fractions
         col_name : str, default None
             Column name of irradiance data to filter.  By default uses the POA
-            irradiance set in reg_trans attribute or average of the POA
+            irradiance set in regression_cols attribute or average of the POA
             columns.
         inplace : bool, default True
             Default true write back to data_filtered or return filtered
@@ -2457,7 +2459,7 @@ class CapData(object):
             Dictionary to specify a different threshold for
             each group of sensors.  Dictionary keys should be translation
             dictionary keys and values are floats, like {'irr-poa-': 0.05}.
-            By default the poa sensors as set by the reg_trans dictionary are
+            By default the poa sensors as set by the regression_cols dictionary are
             filtered with a 5% percent difference threshold.
         inplace : bool, default True
             If True, writes over current filtered dataframe. If False, returns
@@ -2471,14 +2473,14 @@ class CapData(object):
         if self.pre_agg_cols is not None:
             df = self.data_filtered[self.pre_agg_cols]
             trans = self.pre_agg_trans
-            reg_trans = self.pre_agg_reg_trans
+            regression_cols = self.pre_agg_reg_trans
         else:
             df = self.data_filtered
             trans = self.column_groups
-            reg_trans = self.reg_trans
+            regression_cols = self.regression_cols
 
         if perc_diff is None:
-            poa_trans_key = reg_trans['poa']
+            poa_trans_key = regression_cols['poa']
             perc_diff = {poa_trans_key: 0.05}
 
         for key, perc_diff_for_key in perc_diff.items():

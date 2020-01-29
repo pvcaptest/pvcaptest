@@ -203,7 +203,7 @@ class TestTopLevelFuncs(unittest.TestCase):
         pvsyst.filter_irr(200, 800)
         pvsyst.rep_cond(freq='MS')
         grps = pvsyst.data_filtered.groupby(pd.Grouper(freq='MS', label='left'))
-        poa_col = pvsyst.column_groups[pvsyst.reg_trans['poa']][0]
+        poa_col = pvsyst.column_groups[pvsyst.regression_cols['poa']][0]
 
         grps_flt = pvc.filter_grps(grps, pvsyst.rc, poa_col, 0.8, 1.2)
 
@@ -511,7 +511,7 @@ class Test_CapData_methods_sim(unittest.TestCase):
                          'Column groups dict of copy is not equal to original')
         self.assertEqual(pvsyst_copy.trans_keys, self.pvsyst.trans_keys,
                          'Column groups keys are not equal to original.')
-        self.assertEqual(pvsyst_copy.reg_trans, self.pvsyst.reg_trans,
+        self.assertEqual(pvsyst_copy.regression_cols, self.pvsyst.regression_cols,
                          'Regression trans dict copy is not equal to orig.')
 
     def test_irr_rc_balanced(self):
@@ -942,14 +942,14 @@ class TestGetRegCols(unittest.TestCase):
 
     def test_agg_sensors_mix(self):
         """
-        Test when agg_sensors resets reg_trans values to a mix of trans keys
+        Test when agg_sensors resets regression_cols values to a mix of trans keys
         and column names.
         """
         self.das.agg_sensors(agg_map={'-inv-': 'sum', 'irr-poa-': 'mean',
                                       'temp-amb-': 'mean', 'wind--': 'mean'})
         cols = ['poa', 'power']
         df = self.das.get_reg_cols(reg_vars=cols)
-        mtr_col = self.das.column_groups[self.das.reg_trans['power']][0]
+        mtr_col = self.das.column_groups[self.das.regression_cols['power']][0]
         self.assertEqual(len(df.columns), 2,
                          'Returned number of columns is incorrect.')
         self.assertEqual(df.columns.to_list(), cols,
@@ -1041,14 +1041,14 @@ class TestAggSensors(unittest.TestCase):
 
     def test_agg_map_update_reg_trans(self):
         self.das.agg_sensors()
-        self.assertEqual(self.das.reg_trans['power'], '-mtr-sum-agg',
-                         'Power reg_trans not updated to agg column.')
-        self.assertEqual(self.das.reg_trans['poa'], 'irr-poa-mean-agg',
-                         'POA reg_trans not updated to agg column.')
-        self.assertEqual(self.das.reg_trans['t_amb'], 'temp-amb-mean-agg',
-                         'Amb temp reg_trans not updated to agg column.')
-        self.assertEqual(self.das.reg_trans['w_vel'], 'wind--mean-agg',
-                         'Wind velocity reg_trans not updated to agg column.')
+        self.assertEqual(self.das.regression_cols['power'], '-mtr-sum-agg',
+                         'Power regression_cols not updated to agg column.')
+        self.assertEqual(self.das.regression_cols['poa'], 'irr-poa-mean-agg',
+                         'POA regression_cols not updated to agg column.')
+        self.assertEqual(self.das.regression_cols['t_amb'], 'temp-amb-mean-agg',
+                         'Amb temp regression_cols not updated to agg column.')
+        self.assertEqual(self.das.regression_cols['w_vel'], 'wind--mean-agg',
+                         'Wind velocity regression_cols not updated to agg column.')
 
     def test_reset_summary(self):
         self.das.agg_sensors()
@@ -1060,7 +1060,7 @@ class TestAggSensors(unittest.TestCase):
     def test_reset_agg_method(self):
         orig_df = self.das.data.copy()
         orig_trans = self.das.column_groups.copy()
-        orig_reg_trans = self.das.reg_trans.copy()
+        orig_reg_trans = self.das.regression_cols.copy()
 
         self.das.agg_sensors()
         self.das.filter_irr(200, 500)
@@ -1078,7 +1078,7 @@ class TestAggSensors(unittest.TestCase):
         """
         Warn if method is writing over filtering already applied to data_filtered.
         """
-        poa_key = self.das.reg_trans['poa']
+        poa_key = self.das.regression_cols['poa']
         self.das.column_groups[poa_key] = [self.das.column_groups[poa_key][0]]
         self.das.filter_irr(200, 800)
         with self.assertWarns(UserWarning):
