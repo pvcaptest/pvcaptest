@@ -2402,9 +2402,9 @@ class CapData(object):
             return df_flt
 
     @update_summary
-    def custom_filter(self, func, *args, **kwargs):
+    def filter_custom(self, func, *args, **kwargs):
         """
-        Applies update_summary to custom function.
+        Applies update_summary to passed function.
 
         Parameters
         ----------
