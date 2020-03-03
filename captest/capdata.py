@@ -905,17 +905,17 @@ def captest_results(sim, das, nameplate, tolerance, check_pvalues=False, pval=0.
 
     if check_pvalues:
         for cd in [sim_int, das_int]:
-            for key, val in cd.ols_model.pvalues.iteritems():
+            for key, val in cd.regression_results.pvalues.iteritems():
                 if val > pval:
-                    cd.ols_model.params[key] = 0
+                    cd.regression_results.params[key] = 0
 
     rc = pick_attr(sim_int, das_int, 'rc')
     if print_res:
         print('Using reporting conditions from {}. \n'.format(rc[1]))
     rc = rc[0]
 
-    actual = das_int.ols_model.predict(rc)[0]
-    expected = sim_int.ols_model.predict(rc)[0]
+    actual = das_int.regression_results.predict(rc)[0]
+    expected = sim_int.regression_results.predict(rc)[0]
     cap_ratio = actual / expected
     if cap_ratio < 0.01:
         cap_ratio *= 1000
@@ -997,10 +997,10 @@ def captest_results_check_pvalues(sim, das, nameplate, tolerance, print_res=Fals
     Regression coefficients (parameters) for simulated and measured data.
     """
 
-    das_pvals = das.ols_model.pvalues
-    sim_pvals = sim.ols_model.pvalues
-    das_params = das.ols_model.params
-    sim_params = sim.ols_model.params
+    das_pvals = das.regression_results.pvalues
+    sim_pvals = sim.regression_results.pvalues
+    das_params = das.regression_results.params
+    sim_params = sim.regression_results.params
 
     df_pvals = pd.DataFrame([das_pvals, sim_pvals, das_params, sim_params])
     df_pvals = df_pvals.transpose()
@@ -1076,7 +1076,7 @@ class CapData(object):
         Holds the data modifiedby the update_summary decorator function.
     rc : DataFrame
         Dataframe for the reporting conditions (poa, t_amb, and w_vel).
-    ols_model : statsmodels linear regression model
+    regression_results : statsmodels linear regression model
         Holds the linear regression model object.
     regression_formula : str
         Regression formula to be fit to measured and simulated data.  Must
@@ -1100,7 +1100,7 @@ class CapData(object):
         self.summary_ix = []
         self.summary = []
         self.rc = None
-        self.ols_model = None
+        self.regression_results = None
         self.regression_formula = ('power ~ poa + I(poa * poa)'
                                    '+ I(poa * t_amb) + I(poa * w_vel) - 1')
         self.tolerance = None
@@ -1149,7 +1149,7 @@ class CapData(object):
         cd_c.summary_ix = copy.copy(self.summary_ix)
         cd_c.summary = copy.copy(self.summary)
         cd_c.rc = copy.copy(self.rc)
-        cd_c.ols_model = copy.deepcopy(self.ols_model)
+        cd_c.regression_results = copy.deepcopy(self.regression_results)
         cd_c.regression_formula = copy.copy(self.regression_formula)
         return cd_c
 
@@ -2868,7 +2868,7 @@ class CapData(object):
         else:
             if summary:
                 print(reg.summary())
-            self.ols_model = reg
+            self.regression_results = reg
 
     def uncertainty():
         """Calculates random standard uncertainty of the regression
@@ -2879,7 +2879,7 @@ class CapData(object):
         variable should be.
         """
         pass
-        # SEE = np.sqrt(self.ols_model.mse_resid)
+        # SEE = np.sqrt(self.regression_results.mse_resid)
         #
         # df = self.get_reg_cols()
         #

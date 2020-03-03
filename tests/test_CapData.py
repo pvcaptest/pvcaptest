@@ -1560,8 +1560,8 @@ class TestCapTestCpResultsSingleCoeff(unittest.TestCase):
         das_model = smf.ols(formula='y ~ x - 1', data=das_df)
         sim_model = smf.ols(formula='y ~ x - 1', data=sim_df)
 
-        self.meas.ols_model = das_model.fit()
-        self.sim.ols_model = sim_model.fit()
+        self.meas.regression_results = das_model.fit()
+        self.sim.regression_results = sim_model.fit()
         self.meas.data_filtered = pd.DataFrame()
         self.sim.data_filtered = pd.DataFrame()
 
@@ -1613,13 +1613,13 @@ class TestCapTestCpResultsMultCoeffKwVsW(unittest.TestCase):
         das_model = smf.ols(formula=fml, data=das_df)
         sim_model = smf.ols(formula=fml, data=sim_df)
 
-        meas.ols_model = das_model.fit()
-        sim.ols_model = sim_model.fit()
+        meas.regression_results = das_model.fit()
+        sim.regression_results = sim_model.fit()
         meas.data_filtered = pd.DataFrame()
         sim.data_filtered = pd.DataFrame()
 
-        actual = meas.ols_model.predict(meas.rc)[0] * 1000
-        expected = sim.ols_model.predict(meas.rc)[0]
+        actual = meas.regression_results.predict(meas.rc)[0] * 1000
+        expected = sim.regression_results.predict(meas.rc)[0]
         cp_rat_test_val = actual / expected
 
         with self.assertWarns(UserWarning):
@@ -1668,14 +1668,14 @@ class TestCapTestCpResultsMultCoeff(unittest.TestCase):
         das_model = smf.ols(formula=fml, data=das_df)
         sim_model = smf.ols(formula=fml, data=sim_df)
 
-        self.meas.ols_model = das_model.fit()
-        self.sim.ols_model = sim_model.fit()
+        self.meas.regression_results = das_model.fit()
+        self.sim.regression_results = sim_model.fit()
         self.meas.data_filtered = pd.DataFrame()
         self.sim.data_filtered = pd.DataFrame()
 
     def test_pvals_default_false(self):
-        actual = self.meas.ols_model.predict(self.meas.rc)[0]
-        expected = self.sim.ols_model.predict(self.meas.rc)[0]
+        actual = self.meas.regression_results.predict(self.meas.rc)[0]
+        expected = self.sim.regression_results.predict(self.meas.rc)[0]
         cp_rat_test_val = actual / expected
 
         cp_rat = pvc.captest_results(self.sim, self.meas, 100, '+/- 5',
@@ -1685,10 +1685,10 @@ class TestCapTestCpResultsMultCoeff(unittest.TestCase):
                          'captest_results did not return expected value.')
 
     def test_pvals_true(self):
-        self.meas.ols_model.params['poa'] = 0
-        self.sim.ols_model.params['poa'] = 0
-        actual_pval_check = self.meas.ols_model.predict(self.meas.rc)[0]
-        expected_pval_check = self.sim.ols_model.predict(self.meas.rc)[0]
+        self.meas.regression_results.params['poa'] = 0
+        self.sim.regression_results.params['poa'] = 0
+        actual_pval_check = self.meas.regression_results.predict(self.meas.rc)[0]
+        expected_pval_check = self.sim.regression_results.predict(self.meas.rc)[0]
         cp_rat_pval_check = actual_pval_check / expected_pval_check
 
         cp_rat = pvc.captest_results(self.sim, self.meas, 100, '+/- 5',
@@ -1709,8 +1709,8 @@ class TestCapTestCpResultsMultCoeff(unittest.TestCase):
         using pytest.  Run just this test using 'pytest tests/
         test_CapData.py::TestCapTestCpResultsMultCoeff::test_pvals_true_print'
         """
-        self.meas.ols_model.params['poa'] = 0
-        self.sim.ols_model.params['poa'] = 0
+        self.meas.regression_results.params['poa'] = 0
+        self.sim.regression_results.params['poa'] = 0
 
         pvc.captest_results(self.sim, self.meas, 100, '+/- 5',
                                 check_pvalues=True, pval=1e-15,
