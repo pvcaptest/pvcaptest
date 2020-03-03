@@ -2829,7 +2829,7 @@ class CapData(object):
         return results
 
     @update_summary
-    def reg_cpt(self, filter=False, inplace=True, summary=True):
+    def fit_regression(self, filter=False, inplace=True, summary=True):
         """
         Performs regression with statsmodels on filtered data.
 
