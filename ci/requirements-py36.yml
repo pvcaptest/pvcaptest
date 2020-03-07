@@ -22,4 +22,4 @@ dependencies:
 - scipy=1.2.1
 - pip:
     - tables==3.5.2
-    - pvlib==0.6.3
+    - pvlib>=0.7.0
