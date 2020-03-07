@@ -653,8 +653,8 @@ def pvlib_system(sys):
     """
     sandia_modules = retrieve_sam('SandiaMod')
     cec_inverters = retrieve_sam('cecinverter')
-    sandia_module = sandia_modules['Canadian_Solar_CS5P_220M___2009_']
-    cec_inverter = cec_inverters['ABB__MICRO_0_25_I_OUTD_US_208_208V__CEC_2014_']
+    sandia_module = sandia_modules.iloc[:,0]
+    cec_inverter = cec_inverters.iloc[:,0]
 
     trck_kwords = ['axis_tilt', 'axis_azimuth', 'max_angle', 'backtrack', 'gcr']
     if any(kword in sys.keys() for kword in trck_kwords):
@@ -770,21 +770,22 @@ def csky(time_source, loc=None, sys=None, concat=True, output='both'):
     system = pvlib_system(sys)
     mc = ModelChain(system, location)
     times = get_tz_index(time_source, loc)
+    ghi = location.get_clearsky(times=times)
+    # pvlib get_Clearsky also returns 'wind_speed' and 'temp_air'
+    mc.prepare_inputs(weather=ghi)
+    cols = ['poa_global', 'poa_direct', 'poa_diffuse', 'poa_sky_diffuse',
+            'poa_ground_diffuse']
 
     if output == 'both':
-        ghi = location.get_clearsky(times=times)
-        mc.prepare_inputs(times=times)
         csky_df = pd.DataFrame({'poa_mod_csky': mc.total_irrad['poa_global'],
                                 'ghi_mod_csky': ghi['ghi']})
     if output == 'poa_all':
-        mc.prepare_inputs(times=times)
-        csky_df = mc.total_irrad
+        csky_df = mc.total_irrad[cols]
     if output == 'ghi_all':
-        csky_df = location.get_clearsky(times=times)
+        csky_df = ghi[['ghi', 'dni', 'dhi']]
     if output == 'all':
-        ghi = location.get_clearsky(times=times)
-        mc.prepare_inputs(times=times)
-        csky_df = pd.concat([mc.total_irrad, ghi], axis=1)
+        csky_df = pd.concat([mc.total_irrad[cols], ghi[['ghi', 'dni', 'dhi']]],
+                            axis=1)
 
     ix_no_tz = csky_df.index.tz_localize(None, ambiguous='infer',
                                          errors='coerce')
