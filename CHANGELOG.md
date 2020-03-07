@@ -8,11 +8,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 ### Added
 - New filter_shade method separate from the filter_pvsyst method.
-- cp_results method warns when it automatically attempts to correct for W vs kW.
+- captest_results method warns when it automatically attempts to correct for W vs kW.
 
 ### Changed
 - Filter_pvsyst method filters on IL Pmin, IL Pmax, IL Vmin, and IL Vmax and warns if any of the four are missing. Previously failed if any of the four were missing.
 - cp_results returns a warning if the regression formulas of the passed CapData objects do not match instead of warning and continuing.
+- Updates to make captest compatible with pvlib 0.7.0
+- Editing of the complete capacity test example to use new names and improve explanations of features.
+
+Names were changed to remove ambiguous abbreviations:
+- flt - filter; API changes in many places
+- cntg_eoy - wrap_year_end; API change
+- cp_results - captest_results; API change
+- res_summary - captest_results_check_pvalues; API change
+- reg_fml - regression_formula; API change
+- irrRC_balanced - irr_rc_balanced; API change
+- df_beg - df_start
+- ix_ser - ix_series
+- mnth - month
+- months_boy - months_year_start
+- months_eoy - months_year_end
+- loop_cnt - loop_count
+- cprat - cap_ratio
+- cprat_cpval - cap_ratio_check_pvalues
+- trans - column_groups; API change
+- set_translation - group_columns
+- trans_report - column_type_report
+- set_trans argument of load_data - group_columns
+- review_trans - review_column_groups
+- set_reg_trans - set_regression_cols
+- reg_trans - regression_cols
+- update_reg_trans argument of agg_sensors - update_regression_cols
+- reg_cpt - fit_regression
+- ols_model - regression_results
+
+### Removed
+- Removed the inv_trans_dict function. This was intended for use within the module and was unused.
 
 [0.6.0]: https://github.com/pvcaptest/pvcaptest/compare/v0.5.3...v0.6.0
 ## [0.6.0] - 2019-09-15

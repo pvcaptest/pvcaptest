@@ -30,10 +30,10 @@ setup(
                       'bokeh>=1',
                       ],
     extras_require={'viz': ['holoviews>=1.11'],
-                    'csky': ['pvlib>0.6',
+                    'csky': ['pvlib>=0.7.0',
                              'tables'],
                     'all': ['holoviews>=1.11',
-                            'pvlib>0.6',
+                            'pvlib>0.7.0',
                             'tables']
                     },
     author_email='benjaming.taylor@gmail.com',
