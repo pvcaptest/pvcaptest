@@ -282,19 +282,29 @@ def perc_wrap(p):
     return numpy_percentile
 
 
-def perc_bounds(perc):
+def perc_bounds(percent_filter):
     """
+    Convert +/- percentage to decimals to be used to determine bounds.
+
+    Parameters
+    ----------
     percent_filter : float or tuple, default None
         Percentage or tuple of percentages used to filter around reporting
         irradiance in the irr_rc_balanced function.  Required argument when
-            irr_bal is True.
+        irr_bal is True.
+
+    Returns
+    -------
+    tuple
+        Decimal versions of the percent irradiance filter. 0.8 and 1.2 would be
+        returned when passing 20 to the input.
     """
-    if isinstance(perc, tuple):
-        perc_low = perc[0] / 100
-        perc_high = perc[1] / 100
+    if isinstance(percent_filter, tuple):
+        perc_low = percent_filter[0] / 100
+        perc_high = percent_filter[1] / 100
     else:
-        perc_low = perc / 100
-        perc_high = perc / 100
+        perc_low = percent_filter / 100
+        perc_high = percent_filter / 100
     low = 1 - (perc_low)
     high = 1 + (perc_high)
     return (low, high)
