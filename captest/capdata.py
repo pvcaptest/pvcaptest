@@ -2274,10 +2274,8 @@ class CapData(object):
             If inplace is true, then function overwrites the filtered
             dataframe. If false returns a DataFrame.
         wrap_year : bool, default False
-            If true calls the cntg_eoy function.  See cntg_eoy docstring for
-            details.
-
-            cntg_eoy renamed to wrap_year_end in v0.7.0
+            If true calls the wrap_year_end function.  See wrap_year_end
+            docstring for details. wrap_year_end was cntg_eoy prior to v0.7.0.
 
         Todo
         ----
