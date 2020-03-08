@@ -26,6 +26,13 @@ Run individual tests:
 'python -m unittest tests.test_CapData.Class.Method'
 
 -m flag imports unittest as module rather than running as script
+
+Run tests using pytest use the following from project root.
+To run a class of tests
+pytest tests/test_CapData.py::TestCapDataEmpty
+
+To run a specific test:
+pytest tests/test_CapData.py::TestCapDataEmpty::test_capdata_empty
 """
 
 test_files = ['test1.csv', 'test2.csv', 'test3.CSV', 'test4.txt',
@@ -418,6 +425,23 @@ class TestCapDataLoadMethods(unittest.TestCase):
     def test_read_csvs(self):
         self.assertEqual(self.capdata.data.shape[0], 3,
                          'imported a non csv or pvsyst file')
+
+
+class TestCapDataEmpty:
+    """Tests of CapData empty method."""
+
+    def test_capdata_empty(self):
+        """Test that an empty CapData object returns True."""
+        empty_cd = pvc.CapData('empty')
+        assert empty_cd.empty()
+
+    def test_capdata_not_empty(self):
+        """Test that an CapData object with data returns False."""
+        cd_with_data = pvc.CapData('with_data')
+        cd_with_data.load_data(path='tests/data/',
+                               fname='example_meas_data.csv',
+                               group_columns=False)
+        assert not cd_with_data.empty()
 
 
 class TestCapDataSeriesTypes(unittest.TestCase):
