@@ -1166,10 +1166,9 @@ class CapData(object):
 
     def empty(self):
         """Returns a boolean indicating if the CapData object contains data."""
-        if self.data.empty and len(self.trans_keys) == 0 and len(self.column_groups) == 0:
-            return True
-        else:
-            return False
+        tests_indicating_empty = [self.data.empty, len(self.trans_keys) == 0,
+                                  len(self.column_groups) == 0]
+        return all(tests_indicating_empty)
 
     def load_das(self, path, filename, source=None, **kwargs):
         """
