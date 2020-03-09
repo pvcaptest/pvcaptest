@@ -1,4 +1,4 @@
-# Conda environment file for captest v0.5*
+# Conda environment file for captest v0.7*
 # To create a conda environment using this file:
 # conda env create -f captest_env.yml
 # includes all requirements to run captest and build docs
@@ -31,8 +31,8 @@ dependencies:
 - sphinx_rtd_theme=0.4.3
 - pip:
   - commonmark==0.9.0
-  - pvlib==0.6.3
+  - pvlib>=0.7.0
   - recommonmark==0.6.0
   - sphinx==2.2.0
   - tables==3.5.2
-  - captest==0.5.3
+  - captest==0.7.0
