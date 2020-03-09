@@ -1,0 +1,14 @@
+captest_docs
+bokeh
+holoviews
+matplotlib
+pandas==0.24*
+statsmodels
+docutils
+notebook
+nbsphinx
+sphinx_rtd_theme
+recommonmark
+pvlib
+tables
+captest
