@@ -6,6 +6,7 @@ statsmodels
 docutils
 notebook
 nbsphinx
+sphinx==2.2.0
 sphinx_rtd_theme
 recommonmark
 pvlib
