@@ -1,4 +1,3 @@
-captest_docs
 bokeh
 holoviews
 matplotlib
