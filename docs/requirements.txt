@@ -1,7 +1,7 @@
 bokeh
 holoviews
 matplotlib
-pandas==0.24*
+pandas>=0.24,<1.0
 statsmodels
 docutils
 notebook
