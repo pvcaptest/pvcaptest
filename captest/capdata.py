@@ -66,38 +66,38 @@ met_keys = ['poa', 't_amb', 'w_vel', 'power']
 
 # The search strings for types cannot be duplicated across types.
 type_defs = collections.OrderedDict([
-             ('irr', [['irradiance', 'irr', 'plane of array', 'poa', 'ghi',
-                       'global', 'glob', 'w/m^2', 'w/m2', 'w/m', 'w/'],
-                      (-10, 1500)]),
-             ('temp', [['temperature', 'temp', 'degrees', 'deg', 'ambient',
-                        'amb', 'cell temperature', 'TArray'],
-                       (-49, 127)]),
-             ('wind', [['wind', 'speed'],
-                       (0, 18)]),
-             ('pf', [['power factor', 'factor', 'pf'],
-                     (-1, 1)]),
-             ('op_state', [['operating state', 'state', 'op', 'status'],
-                           (0, 10)]),
-             ('real_pwr', [['real power', 'ac power', 'e_grid'],
-                           (-1000000, 1000000000000)]),  # set to very lax bounds
-             ('shade', [['fshdbm', 'shd', 'shade'], (0, 1)]),
-             ('pvsyt_losses', [['IL Pmax', 'IL Pmin', 'IL Vmax', 'IL Vmin'],
-                               (-1000000000, 100000000)]),
-             ('index', [['index'], ('', 'z')])])
+    ('irr', [['irradiance', 'irr', 'plane of array', 'poa', 'ghi',
+              'global', 'glob', 'w/m^2', 'w/m2', 'w/m', 'w/'],
+             (-10, 1500)]),
+    ('temp', [['temperature', 'temp', 'degrees', 'deg', 'ambient',
+               'amb', 'cell temperature', 'TArray'],
+              (-49, 127)]),
+    ('wind', [['wind', 'speed'],
+              (0, 18)]),
+    ('pf', [['power factor', 'factor', 'pf'],
+            (-1, 1)]),
+    ('op_state', [['operating state', 'state', 'op', 'status'],
+                  (0, 10)]),
+    ('real_pwr', [['real power', 'ac power', 'e_grid'],
+                  (-1000000, 1000000000000)]),  # set to very lax bounds
+    ('shade', [['fshdbm', 'shd', 'shade'], (0, 1)]),
+    ('pvsyt_losses', [['IL Pmax', 'IL Pmin', 'IL Vmax', 'IL Vmin'],
+                      (-1000000000, 100000000)]),
+    ('index', [['index'], ('', 'z')])])
 
 sub_type_defs = collections.OrderedDict([
-                 ('ghi', [['sun2', 'global horizontal', 'ghi', 'global',
-                           'GlobHor']]),
-                 ('poa', [['sun', 'plane of array', 'poa', 'GlobInc']]),
-                 ('amb', [['TempF', 'ambient', 'amb']]),
-                 ('mod', [['Temp1', 'module', 'mod', 'TArray']]),
-                 ('mtr', [['revenue meter', 'rev meter', 'billing meter', 'meter']]),
-                 ('inv', [['inverter', 'inv']])])
+    ('ghi', [['sun2', 'global horizontal', 'ghi', 'global',
+              'GlobHor']]),
+    ('poa', [['sun', 'plane of array', 'poa', 'GlobInc']]),
+    ('amb', [['TempF', 'ambient', 'amb']]),
+    ('mod', [['Temp1', 'module', 'mod', 'TArray']]),
+    ('mtr', [['revenue meter', 'rev meter', 'billing metermeter']]),
+    ('inv', [['inverter', 'inv']])])
 
 irr_sensors_defs = {'ref_cell': [['reference cell', 'reference', 'ref',
                                   'referance', 'pvel']],
                     'pyran': [['pyranometer', 'pyran']],
-                    'clear_sky':[['csky']]}
+                    'clear_sky': [['csky']]}
 
 columns = ['pts_after_filter', 'pts_removed', 'filter_arguments']
 
@@ -162,8 +162,8 @@ def wrap_year_end(df, start, end):
     Shifts data before or after new year to form a contigous time period.
 
     This function shifts data from the end of the year a year back or data from
-    the begining of the year a year forward, to create a contiguous time period.
-    Intended to be used on historical typical year data.
+    the begining of the year a year forward, to create a contiguous time
+    period. Intended to be used on historical typical year data.
 
     If start date is in dataframe, then data at the beginning of the year will
     be moved ahead one year.  If end date is in dataframe, then data at the end
@@ -200,7 +200,7 @@ def wrap_year_end(df, start, end):
 
     df_return = pd.concat([df_start, df_end], axis=0)
     ix_series = df_return.index.to_series()
-    df_return['index'] = ix_series.apply(lambda x: x.strftime('%m/%d/%Y %H %M'))
+    df_return['index'] = ix_series.apply(lambda x: x.strftime('%m/%d/%Y %H %M'))  # noqa E501
     return df_return
 
 
@@ -245,7 +245,7 @@ def wrap_seasons(df, freq):
     check_freqs = ['BQ-JAN', 'BQ-FEB', 'BQ-APR', 'BQ-MAY', 'BQ-JUL',
                    'BQ-AUG', 'BQ-OCT', 'BQ-NOV']
     month_int = {'JAN': 1, 'FEB': 2, 'APR': 4, 'MAY': 5, 'JUL': 7,
-                'AUG': 8, 'OCT': 10, 'NOV': 11}
+                 'AUG': 8, 'OCT': 10, 'NOV': 11}
 
     if freq in check_freqs:
         warnings.warn('DataFrame index adjusted to be continous through new'
@@ -509,7 +509,7 @@ def irr_rc_balanced(df, low, high, irr_col='GlobInc', plot=False):
     return(irr_RC, flt_df)
 
 
-def fit_model(df, fml='power ~ poa + I(poa * poa) + I(poa * t_amb) + I(poa * w_vel) - 1'):
+def fit_model(df, fml='power ~ poa + I(poa * poa) + I(poa * t_amb) + I(poa * w_vel) - 1'):  # noqa E501
     """
     Fits linear regression using statsmodels to dataframe passed.
 
@@ -544,7 +544,8 @@ def predict(regs, rcs):
     regs : iterable of statsmodels regression results wrappers
     rcs : pandas dataframe
         Dataframe of predictor values used to evaluate each linear model.
-        The column names must match the strings used in the regression formuala.
+        The column names must match the strings used in the regression
+        formuala.
 
     Returns
     -------
@@ -593,7 +594,8 @@ def pred_summary(grps, rcs, allowance, **kwargs):
     for rc_col_name in rcs.columns:
         for param_col_name in params.columns:
             if rc_col_name == param_col_name:
-                params.rename(columns={param_col_name: param_col_name + '-param'},
+                new_col_name = param_col_name + '-param'
+                params.rename(columns={param_col_name: new_col_name},
                               inplace=True)
 
     results = pd.concat([rcs, predictions, params], axis=1)
