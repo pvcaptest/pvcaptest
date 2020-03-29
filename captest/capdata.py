@@ -30,7 +30,7 @@ from bokeh.io import output_notebook, show
 from bokeh.plotting import figure
 from bokeh.palettes import Category10, Category20c, Category20b
 from bokeh.layouts import gridplot
-from bokeh.models import Legend, HoverTool, tools, ColumnDataSource
+from bokeh.models import Legend, HoverTool, ColumnDataSource
 
 # visualization library imports
 hv_spec = importlib.util.find_spec('holoviews')
@@ -666,10 +666,10 @@ def pvlib_system(sys):
     """
     sandia_modules = retrieve_sam('SandiaMod')
     cec_inverters = retrieve_sam('cecinverter')
-    sandia_module = sandia_modules.iloc[:,0]
-    cec_inverter = cec_inverters.iloc[:,0]
+    sandia_module = sandia_modules.iloc[:, 0]
+    cec_inverter = cec_inverters.iloc[:, 0]
 
-    trck_kwords = ['axis_tilt', 'axis_azimuth', 'max_angle', 'backtrack', 'gcr']
+    trck_kwords = ['axis_tilt', 'axis_azimuth', 'max_angle', 'backtrack', 'gcr']  # noqa: E501
     if any(kword in sys.keys() for kword in trck_kwords):
         system = SingleAxisTracker(**sys,
                                    module_parameters=sandia_module,
@@ -695,10 +695,10 @@ def get_tz_index(time_source, loc):
     time_source : dataframe or DatetimeIndex
         If passing a dataframe the index of the dataframe will be used.  If the
         index does not have a timezone the timezone will be set using the
-        timezone in the passed loc dictionary.
-        If passing a DatetimeIndex with a timezone it will be returned directly.
-        If passing a DatetimeIndex without a timezone the timezone in the
-        timezone dictionary will be used.
+        timezone in the passed loc dictionary. If passing a DatetimeIndex with
+        a timezone it will be returned directly. If passing a DatetimeIndex
+        without a timezone the timezone in the timezone dictionary will be
+        used.
 
     Returns
     -------
@@ -737,10 +737,10 @@ def csky(time_source, loc=None, sys=None, concat=True, output='both'):
     time_source : dataframe or DatetimeIndex
         If passing a dataframe the index of the dataframe will be used.  If the
         index does not have a timezone the timezone will be set using the
-        timezone in the passed loc dictionary.
-        If passing a DatetimeIndex with a timezone it will be returned directly.
-        If passing a DatetimeIndex without a timezone the timezone in the
-        timezone dictionary will be used.
+        timezone in the passed loc dictionary. If passing a DatetimeIndex with
+        a timezone it will be returned directly. If passing a DatetimeIndex
+        without a timezone the timezone in the timezone dictionary will
+        be used.
     loc : dict
         Dictionary of values required to instantiate a pvlib Location object.
 
@@ -833,7 +833,7 @@ def pick_attr(sim, das, name):
         return (sim_attr, 'sim')
     elif sim_attr is not None and das_attr is not None:
         warn_str = ('{} found for sim and das set {} to None for one of '
-                   'the two'.format(name, name))
+                    'the two'.format(name, name))
         return warnings.warn(warn_str)
 
 
@@ -875,8 +875,9 @@ def determine_pass_or_fail(cap_ratio, tolerance, nameplate):
     else:
         warnings.warn("Sign must be '-', '+/-', or '-/+'.")
 
-def captest_results(sim, das, nameplate, tolerance, check_pvalues=False, pval=0.05,
-               print_res=True):
+
+def captest_results(sim, das, nameplate, tolerance, check_pvalues=False,
+                    pval=0.05, print_res=True):
     """
     Prints a summary indicating if system passed or failed capacity test.
 
@@ -966,6 +967,7 @@ def print_results(test_passed, expected, actual, cap_ratio, capacity, bounds):
 
     print("{:<30s}{}\n\n".format("Bounds:", test_passed[1]))
 
+
 def highlight_pvals(s):
     """
     Highlight vals greater than or equal to 0.05 in a Series yellow.
@@ -974,7 +976,8 @@ def highlight_pvals(s):
     return ['background-color: yellow' if v else '' for v in is_greaterthan]
 
 
-def captest_results_check_pvalues(sim, das, nameplate, tolerance, print_res=False, **kwargs):
+def captest_results_check_pvalues(sim, das, nameplate, tolerance,
+                                  print_res=False, **kwargs):
     """
     Prints a summary of the capacity test results.
 
@@ -1000,8 +1003,9 @@ def captest_results_check_pvalues(sim, das, nameplate, tolerance, print_res=Fals
     print_res : boolean, default True
         Set to False to prevent printing results.
     **kwargs
-        kwargs are passed to captest_results.  See documentation for captest_results for
-        options. check_pvalues is set in this method, so do not pass again.
+        kwargs are passed to captest_results.  See documentation for
+        captest_results for options. check_pvalues is set in this method,
+        so do not pass again.
 
     Prints:
     Capacity ratio without setting parameters with high p-values to zero.
@@ -1228,7 +1232,8 @@ class CapData(object):
                 try:
                     all_data = pd.read_csv(data, encoding=encoding,
                                            header=header, index_col=0,
-                                           parse_dates=True, skip_blank_lines=True,
+                                           parse_dates=True,
+                                           skip_blank_lines=True,
                                            low_memory=False, **kwargs)
                 except UnicodeDecodeError:
                     continue
@@ -1266,8 +1271,8 @@ class CapData(object):
                         row2_noNan.append(val)
 
                 new_cols = []
-                for one, two, three in zip(row0_noparen, row1_nocomm, row2_noNan):
-                    new_cols.append(str(one) + ' ' + str(two) + ', ' + str(three))
+                for one, two, three in zip(row0_noparen, row1_nocomm, row2_noNan):  # noqa: E501
+                    new_cols.append(str(one) + ' ' + str(two) + ', ' + str(three))  # noqa: E501
 
                 all_data.columns = new_cols
 
@@ -1275,8 +1280,8 @@ class CapData(object):
         all_data.dropna(axis=1, how='all', inplace=True)
         all_data.dropna(how='all', inplace=True)
 
-        if source is not 'AlsoEnergy':
-            all_data.columns = [' '.join(col).strip() for col in all_data.columns.values]
+        if source != 'AlsoEnergy':
+            all_data.columns = [' '.join(col).strip() for col in all_data.columns.values]  # noqa: E501
         else:
             all_data.index = pd.to_datetime(all_data.index)
 
@@ -1349,12 +1354,12 @@ class CapData(object):
             Generates translation dicitionary for column names after loading
             data.
         column_type_report : bool, default True
-            If group_columns is true, then method prints summary of group_columns
-            dictionary process including any possible data issues.  No effect
-            on method when set to False.
+            If group_columns is true, then method prints summary of
+            group_columns dictionary process including any possible data
+            issues.  No effect on method when set to False.
         source : str, default None
-            Default of None uses general approach that concatenates header data.
-            Set to 'AlsoEnergy' to use column heading parsing specific to
+            Default of None uses general approach that concatenates header
+            data. Set to 'AlsoEnergy' to use column heading parsing specific to
             downloads from AlsoEnergy.
         load_pvsyst : bool, default False
             By default skips any csv file that has 'pvsyst' in the name.  Is
@@ -1404,12 +1409,12 @@ class CapData(object):
                     print("Read: " + filename)
         else:
             if not load_pvsyst:
-                all_sensors = self.load_das(path, fname, source=source, **kwargs)
+                all_sensors = self.load_das(path, fname, source=source, **kwargs)  # noqa: E501
             elif load_pvsyst:
                 all_sensors = self.load_pvsyst(path, fname, **kwargs)
 
         ix_ser = all_sensors.index.to_series()
-        all_sensors['index'] = ix_ser.apply(lambda x: x.strftime('%m/%d/%Y %H %M'))
+        all_sensors['index'] = ix_ser.apply(lambda x: x.strftime('%m/%d/%Y %H %M'))  # noqa: E501
         self.data = all_sensors
 
         if not load_pvsyst:
@@ -1421,7 +1426,7 @@ class CapData(object):
                     warnings.warn('Must provide loc and sys dictionary\
                                   when clear_sky is True.  Sys dict missing.')
                 self.data = csky(self.data, loc=loc, sys=sys, concat=True,
-                               output='both')
+                                 output='both')
 
         if group_columns:
             self.group_columns(column_type_report=column_type_report)
@@ -1442,7 +1447,7 @@ class CapData(object):
         Parameters
         ----------
         series : pandas series
-            Pandas series, row or column of dataframe passed by pandas.df.apply.
+            Row or column of dataframe passed by pandas.df.apply.
         type_defs : dictionary
             Dictionary with the following structure.  See type_defs
             {'category abbreviation': [[category search strings],
@@ -1482,19 +1487,19 @@ class CapData(object):
                             if warnings:
                                 if not min_bool and not max_bool:
                                     print('{} in {} is below {} for '
-                                    '{}'.format(ser_min, series.name,
-                                    type_min, key))
+                                          '{}'.format(ser_min, series.name,
+                                                      type_min, key))
                                     print('{} in {} is above {} for '
-                                    '{}'.format(ser_max, series.name,
-                                    type_max, key))
+                                          '{}'.format(ser_max, series.name,
+                                                      type_max, key))
                                 elif not min_bool:
                                     print('{} in {} is below {} for '
-                                    '{}'.format(ser_min, series.name,
-                                    type_min, key))
+                                          '{}'.format(ser_min, series.name,
+                                                      type_min, key))
                                 elif not max_bool:
                                     print('{} in {} is above {} for '
-                                    '{}'.format(ser_max, series.name,
-                                    type_max, key))
+                                          '{}'.format(ser_max, series.name,
+                                                      type_max, key))
                             return key
                     else:
                         return key
@@ -1551,11 +1556,11 @@ class CapData(object):
             input and loop over each dict in the list.
         """
         col_types = self.data.apply(self.__series_type, args=(type_defs,),
-                                  warnings=column_type_report).tolist()
+                                    warnings=column_type_report).tolist()
         sub_types = self.data.apply(self.__series_type, args=(sub_type_defs,),
-                                  bounds_check=False).tolist()
-        irr_types = self.data.apply(self.__series_type, args=(irr_sensors_defs,),
-                                  bounds_check=False).tolist()
+                                    bounds_check=False).tolist()
+        irr_types = self.data.apply(self.__series_type, args=(irr_sensors_defs,),  # noqa: E501
+                                    bounds_check=False).tolist()
 
         col_indices = []
         for typ, sub_typ, irr_typ in zip(col_types, sub_types, irr_types):
@@ -1817,7 +1822,7 @@ class CapData(object):
              legends=False, merge_grps=['irr', 'temp'], subset=None,
              filtered=False, **kwargs):
         """
-        Plots a Bokeh line graph for each group of sensors in self.column_groups.
+        Creates a plot for each group of sensors in self.column_groups.
 
         Function returns a Bokeh grid of figures.  A figure is generated for
         each type of measurement identified by the keys in `column_groups` and
@@ -1894,6 +1899,8 @@ class CapData(object):
         ]
         hover.formatters = {"Timestamp": "datetime"}
 
+        tools = 'pan, xwheel_pan, xwheel_zoom, box_zoom, save, reset'
+
         if isinstance(subset, list):
             plot_keys = subset
         else:
@@ -1905,12 +1912,12 @@ class CapData(object):
 
             if x_axis is None:
                 p = figure(title=key, plot_width=width, plot_height=height,
-                           x_axis_type='datetime', tools='pan, xwheel_pan, xwheel_zoom, box_zoom, save, reset')
+                           x_axis_type='datetime', tools=tools)
                 p.tools.append(hover)
                 x_axis = p.x_range
             if j > 0:
                 p = figure(title=key, plot_width=width, plot_height=height,
-                           x_axis_type='datetime', x_range=x_axis, tools='pan, xwheel_pan, xwheel_zoom, box_zoom, save, reset')
+                           x_axis_type='datetime', x_range=x_axis, tools=tools)
                 p.tools.append(hover)
             legend_items = []
             for i, col in enumerate(cols):
@@ -2106,7 +2113,7 @@ class CapData(object):
                                 warnings.warn(warn_str)
                                 break
                         try:
-                            agg_col = trans_group + agg_map[trans_group] + '-agg'
+                            agg_col = trans_group + agg_map[trans_group] + '-agg'  # noqa: E501
                         except TypeError:
                             agg_col = trans_group + col_name + '-agg'
                         self.regression_cols[reg_var] = agg_col
@@ -2169,7 +2176,7 @@ class CapData(object):
             irr_col = col_name
 
         df_flt = filter_irr(self.data_filtered, irr_col, low, high,
-                         ref_val=ref_val)
+                            ref_val=ref_val)
         if inplace:
             self.data_filtered = df_flt
         else:
@@ -2475,8 +2482,8 @@ class CapData(object):
             Dictionary to specify a different threshold for
             each group of sensors.  Dictionary keys should be translation
             dictionary keys and values are floats, like {'irr-poa-': 0.05}.
-            By default the poa sensors as set by the regression_cols dictionary are
-            filtered with a 5% percent difference threshold.
+            By default the poa sensors as set by the regression_cols dictionary
+            are filtered with a 5% percent difference threshold.
         inplace : bool, default True
             If True, writes over current filtered dataframe. If False, returns
             CapData object.
@@ -2570,17 +2577,17 @@ class CapData(object):
 
             meas_ghi = self.view(meas_ghi, filtered_data=False)
             if meas_ghi.shape[1] > 1:
-                warnings.warn('Averaging measured GHI data.  Pass column name to '
-                              'ghi_col to use a specific column.')
+                warnings.warn('Averaging measured GHI data.  Pass column name '
+                              'to ghi_col to use a specific column.')
             meas_ghi = meas_ghi.mean(axis=1)
         else:
             meas_ghi = self.data_filtered[ghi_col]
 
-        clear_per = detect_clearsky(meas_ghi, self.data_filtered['ghi_mod_csky'],
+        clear_per = detect_clearsky(meas_ghi, self.data_filtered['ghi_mod_csky'],  # noqa: E501
                                     meas_ghi.index, window_length, **kwargs)
         if not any(clear_per):
-            return warnings.warn('No clear periods detected. Try increasing the'
-                                 ' window length.')
+            return warnings.warn('No clear periods detected. Try increasing '
+                                 'the window length.')
 
         df_out = self.data_filtered[clear_per]
 
@@ -2781,8 +2788,8 @@ class CapData(object):
                     temp_RC.append(flt_df['t_amb'].mean())
                     wind_RC.append(flt_df['w_vel'].mean())
                 RCs_df = pd.DataFrame({'poa': poa_RC,
-                                        't_amb': temp_RC,
-                                        'w_vel': wind_RC}, index=ix)
+                                       't_amb': temp_RC,
+                                       'w_vel': wind_RC}, index=ix)
             else:
                 RCs_df = df_grpd.agg(func)
 
@@ -2910,6 +2917,7 @@ class CapData(object):
         # sy = SEE * np.sqrt(leverage)
         #
         # return(sy)
+
 
 if __name__ == "__main__":
     import doctest
