@@ -91,7 +91,7 @@ sub_type_defs = collections.OrderedDict([
     ('poa', [['sun', 'plane of array', 'poa', 'GlobInc']]),
     ('amb', [['TempF', 'ambient', 'amb']]),
     ('mod', [['Temp1', 'module', 'mod', 'TArray']]),
-    ('mtr', [['revenue meter', 'rev meter', 'billing metermeter']]),
+    ('mtr', [['revenue meter', 'rev meter', 'billing meter', 'meter']]),
     ('inv', [['inverter', 'inv']])])
 
 irr_sensors_defs = {'ref_cell': [['reference cell', 'reference', 'ref',
