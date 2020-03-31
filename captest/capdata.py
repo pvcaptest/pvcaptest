@@ -1,8 +1,8 @@
 # standard library imports
 import os
 import datetime
-import re
-import math
+# import re
+# import math
 import copy
 import collections
 from functools import wraps
@@ -26,9 +26,9 @@ import sklearn.covariance as sk_cv
 # anaconda distribution defaults
 # visualization library imports
 import matplotlib.pyplot as plt
-from bokeh.io import output_notebook, show
+from bokeh.io import show  # , output_notebook
 from bokeh.plotting import figure
-from bokeh.palettes import Category10, Category20c, Category20b
+from bokeh.palettes import Category10  # , Category20c, Category20b
 from bokeh.layouts import gridplot
 from bokeh.models import Legend, HoverTool, ColumnDataSource
 
