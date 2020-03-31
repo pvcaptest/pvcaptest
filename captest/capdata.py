@@ -1,8 +1,7 @@
 # standard library imports
 import os
+import re
 import datetime
-# import re
-# import math
 import copy
 import collections
 from functools import wraps
@@ -26,9 +25,9 @@ import sklearn.covariance as sk_cv
 # anaconda distribution defaults
 # visualization library imports
 import matplotlib.pyplot as plt
-from bokeh.io import show  # , output_notebook
+from bokeh.io import show
 from bokeh.plotting import figure
-from bokeh.palettes import Category10  # , Category20c, Category20b
+from bokeh.palettes import Category10
 from bokeh.layouts import gridplot
 from bokeh.models import Legend, HoverTool, ColumnDataSource
 
@@ -102,6 +101,30 @@ irr_sensors_defs = {'ref_cell': [['reference cell', 'reference', 'ref',
 columns = ['pts_after_filter', 'pts_removed', 'filter_arguments']
 
 
+def round_kwarg_floats(kwarg_dict, decimals=3):
+    """
+    Round float values in a dictionary.
+
+    Parameters
+    ----------
+    kwarg_dict : dict
+    decimals : int, default 3
+        Number of decimal places to round to.
+
+    Returns
+    -------
+    dict
+        Dictionary with rounded floats.
+    """
+    rounded_vals = []
+    for val in kwarg_dict.values():
+        if isinstance(val, float):
+            rounded_vals.append(round(val, decimals))
+        else:
+            rounded_vals.append(val)
+    return {key: val for key, val in zip(kwarg_dict.keys(), rounded_vals)}
+
+
 def update_summary(func):
     """
     Todo
@@ -124,17 +147,23 @@ def update_summary(func):
 
         arg_str = args.__repr__()
         lst = arg_str.split(',')
-        arg_lst = [item.strip("'() ") for item in lst]
-        # arg_lst_one = arg_lst[0]
-        # if arg_lst_one == 'das' or arg_lst_one == 'sim':
-        #     arg_lst = arg_lst[1:]
-        # arg_str = ', '.join(arg_lst)
+        arg_lst = [item.strip("()") for item in lst]
+        arg_lst_one = arg_lst[0]
+        if arg_lst_one == 'das' or arg_lst_one == 'sim':
+            arg_lst = arg_lst[1:]
+        arg_str = ', '.join(arg_lst)
 
-        kwarg_str = kwargs.__repr__()
+        func_re = re.compile('<function (.*) at', re.IGNORECASE)
+        if func_re.search(arg_str) is not None:
+            custom_func_name = func_re.search(arg_str).group(1)
+            arg_str = re.sub("<function.*>", custom_func_name, arg_str)
+
+        kwarg_str = round_kwarg_floats(kwargs).__repr__()
         kwarg_str = kwarg_str.strip('{}')
+        kwarg_str = kwarg_str.replace("'", "")
 
         if len(arg_str) == 0 and len(kwarg_str) == 0:
-            arg_str = 'no arguments'
+            arg_str = 'Default arguments'
         elif len(arg_str) == 0:
             arg_str = kwarg_str
         else:
