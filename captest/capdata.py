@@ -869,6 +869,12 @@ def csky(time_source, loc=None, sys=None, concat=True, output='both'):
 
 
 def get_summary(*args):
+    """
+    Returns filtering summary dataframe for multiple CapData objects.
+
+    See documentation for the CapData.get_summary method for additional
+    details.
+    """
     summaries = [cd.get_summary() for cd in args]
     return pd.concat(summaries)
 
@@ -2724,6 +2730,9 @@ class CapData(object):
         to the data including the timestamps remaining after each step, the
         timestamps removed by each step and the arguments used to call each
         filtering method.
+
+        If the filter arguments are cutoff, the max column width can be
+        increased by setting pd.options.display.max_colwidth.
 
         Parameters
         ----------
