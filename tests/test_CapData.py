@@ -52,6 +52,13 @@ class TestUpdateSummary:
                                 'inplace': True}
         assert pvc.round_kwarg_floats(kwarg_dict, 4) == rounded_kwarg_dict_4
 
+    def test_tstamp_kwarg_to_strings(self):
+        """Tests coversion of kwarg values from timestamp to strings."""
+        start_datetime = pd.to_datetime('10/10/1990 00:00')
+        kwarg_dict = {'start': start_datetime, 't1': 2}
+        kwarg_dict_str_dates = {'start': '1990-10-10 00:00', 't1': 2}
+        assert pvc.tstamp_kwarg_to_strings(kwarg_dict) == kwarg_dict_str_dates
+
 
 class TestTopLevelFuncs(unittest.TestCase):
     def test_perc_wrap(self):

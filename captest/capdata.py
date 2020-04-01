@@ -125,6 +125,27 @@ def round_kwarg_floats(kwarg_dict, decimals=3):
     return {key: val for key, val in zip(kwarg_dict.keys(), rounded_vals)}
 
 
+def tstamp_kwarg_to_strings(kwarg_dict):
+    """
+    Convert timestamp values in dictionary to strings.
+
+    Parameters
+    ----------
+    kwarg_dict : dict
+
+    Returns
+    -------
+    dict
+    """
+    output_vals = []
+    for val in kwarg_dict.values():
+        if isinstance(val, pd.Timestamp):
+            output_vals.append(val.strftime('%Y-%m-%d %H:%M'))
+        else:
+            output_vals.append(val)
+    return {key: val for key, val in zip(kwarg_dict.keys(), output_vals)}
+
+
 def update_summary(func):
     """
     Todo
@@ -158,7 +179,9 @@ def update_summary(func):
             custom_func_name = func_re.search(arg_str).group(1)
             arg_str = re.sub("<function.*>", custom_func_name, arg_str)
 
-        kwarg_str = round_kwarg_floats(kwargs).__repr__()
+        kwargs = round_kwarg_floats(kwargs)
+        kwargs = tstamp_kwarg_to_strings(kwargs)
+        kwarg_str = kwargs.__repr__()
         kwarg_str = kwarg_str.strip('{}')
         kwarg_str = kwarg_str.replace("'", "")
 
