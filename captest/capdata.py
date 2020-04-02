@@ -1979,7 +1979,6 @@ class CapData(object):
                 p.tools.append(hover)
             legend_items = []
             for i, col in enumerate(cols):
-                abbrev_col_name = key + str(i)
                 if col.find('csky') == -1:
                     line_dash = 'solid'
                 else:
@@ -2569,7 +2568,7 @@ class CapData(object):
                 # if index has been assigned then take intersection
                 sensors_df = df[trans[key]]
                 next_index = sensor_filter(sensors_df, perc_diff_for_key)
-                index = index.intersection(next_index)
+                index = index.intersection(next_index)  # noqa: F821
             else:
                 # if index has not been assigned then assign it
                 sensors_df = df[trans[key]]
@@ -2982,7 +2981,7 @@ class CapData(object):
 
 if __name__ == "__main__":
     import doctest
-    import pandas as pd
+    import pandas as pd  # noqa F811
 
     das = CapData('das')
     das.load_data(path='../examples/data/', fname='example_meas_data.csv',
