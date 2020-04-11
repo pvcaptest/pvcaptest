@@ -6,7 +6,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 [Unreleased]: https://github.com/pvcaptest/pvcaptest/compare/v0.7.0...HEAD
 ## [Unreleased]
-No changes yet.
+### Changed
+- Improved formatting of the filtering summary output. See issue #12 for details.
+- Cleaned up source code by correcting linter errors.
 
 [0.7.0]: https://github.com/pvcaptest/pvcaptest/compare/v0.6.0...v0.7.0
 ## [0.7.0] - 2020-03-08
