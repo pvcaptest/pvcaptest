@@ -1,3 +1,13 @@
+"""
+Provides the CapData class and supporting functions.
+
+The CapData class provides methods for loading, filtering, and regressing solar
+data.  A capacity test following the ASTM standard can be performed using a
+CapData object for the measured data and a seperate CapData object for the
+modeled data. The get_summary and captest_results functions accept two CapData
+objects as arguments and provide a summary of the data filtering steps and
+the results of the capacity test, respectively.
+"""
 # standard library imports
 import os
 import re
@@ -148,6 +158,11 @@ def tstamp_kwarg_to_strings(kwarg_dict):
 
 def update_summary(func):
     """
+    Decoratates the CapData class filter methods.
+
+    Updates the CapData.summary and CapData.summary_ix attributes, which
+    are used to generate summary data by the CapData.get_summary method.
+
     Todo
     ----
     not in place
@@ -258,13 +273,16 @@ def wrap_year_end(df, start, end):
 
 def spans_year(start_date, end_date):
     """
-    Returns boolean indicating if dates passes are in the same year.
+    Determine if dates passed are in the same year.
 
     Parameters
     ----------
-
     start_date: pandas Timestamp
     end_date: pandas Timestamp
+
+    Returns
+    -------
+    bool
     """
     if start_date.year != end_date.year:
         return True
@@ -329,6 +347,7 @@ def wrap_seasons(df, freq):
 
 
 def perc_wrap(p):
+    """Wrap numpy percentile function for use in rep_cond method."""
     def numpy_percentile(x):
         return np.percentile(x.T, p, interpolation='nearest')
     return numpy_percentile
@@ -363,9 +382,7 @@ def perc_bounds(percent_filter):
 
 
 def perc_difference(x, y):
-    """
-    Calculate percent difference of two values.
-    """
+    """Calculate percent difference of two values."""
     if x == y == 0:
         return 0
     else:
@@ -483,7 +500,7 @@ def filter_grps(grps, rcs, irr_col, low, high, **kwargs):
 
 def irr_rc_balanced(df, low, high, irr_col='GlobInc', plot=False):
     """
-    Iteratively calculates reporting irradiance that achieves 40/60 balance.
+    Calculate a reporting irradiance that achieves 40/60 balance.
 
     This function is intended to implement a strict interpratation of common
     contract language that specifies the reporting irradiance be determined by
@@ -586,7 +603,7 @@ def fit_model(df, fml='power ~ poa + I(poa * poa) + I(poa * t_amb) + I(poa * w_v
 
 def predict(regs, rcs):
     """
-    Calculates predicted values for given linear models and predictor values.
+    Calculate predicted values for given linear models and predictor values.
 
     Evaluates the first linear model in the iterable with the first row of the
     predictor values in the dataframe.  Passed arguments must be aligned.
@@ -612,7 +629,7 @@ def predict(regs, rcs):
 
 def pred_summary(grps, rcs, allowance, **kwargs):
     """
-    Creates summary of reporting conditions, predicted cap, and gauranteed cap.
+    Summarize reporting conditions, predicted cap, and gauranteed cap.
 
     This method does not calculate reporting conditions.
 
@@ -632,7 +649,6 @@ def pred_summary(grps, rcs, allowance, **kwargs):
     Dataframe of reporting conditions, model coefficients, predicted capacities
     gauranteed capacities, and points in each grouping.
     """
-
     regs = grps.apply(fit_model, **kwargs)
     predictions = predict(regs, rcs)
     params = regs.apply(lambda x: x.params.transpose())
@@ -660,7 +676,7 @@ def pred_summary(grps, rcs, allowance, **kwargs):
 
 def pvlib_location(loc):
     """
-    Creates a pvlib location object.
+    Create a pvlib location object.
 
     Parameters
     ----------
@@ -686,7 +702,7 @@ def pvlib_location(loc):
 
 def pvlib_system(sys):
     """
-    Creates a pvlib PVSystem or SingleAxisTracker object.
+    Create a pvlib PVSystem or SingleAxisTracker object.
 
     A SingleAxisTracker object is created if any of the keyword arguments for
     initiating a SingleAxisTracker object are found in the keys of the passed
@@ -736,7 +752,7 @@ def pvlib_system(sys):
 
 def get_tz_index(time_source, loc):
     """
-    Creates DatetimeIndex with timezone aligned with location dictionary.
+    Create DatetimeIndex with timezone aligned with location dictionary.
 
     Handles generating a DatetimeIndex with a timezone for use as an agrument
     to pvlib ModelChain prepare_inputs method or pvlib Location get_clearsky
@@ -756,7 +772,6 @@ def get_tz_index(time_source, loc):
     -------
     DatetimeIndex with timezone
     """
-
     if isinstance(time_source, pd.core.indexes.datetimes.DatetimeIndex):
         if time_source.tz is None:
             time_source = time_source.tz_localize(loc['tz'], ambiguous='infer',
@@ -870,7 +885,7 @@ def csky(time_source, loc=None, sys=None, concat=True, output='both'):
 
 def get_summary(*args):
     """
-    Returns filtering summary dataframe for multiple CapData objects.
+    Return summary dataframe of filtering steps for multiple CapData objects.
 
     See documentation for the CapData.get_summary method for additional
     details.
@@ -880,6 +895,7 @@ def get_summary(*args):
 
 
 def pick_attr(sim, das, name):
+    """Check for conflict between attributes of two CapData objects."""
     sim_attr = getattr(sim, name)
     das_attr = getattr(das, name)
     if sim_attr is None and das_attr is None:
@@ -917,7 +933,6 @@ def determine_pass_or_fail(cap_ratio, tolerance, nameplate):
         True for a passing test and false for a failing test.
         Limits for passing and failing test.
     """
-
     sign = tolerance.split(sep=' ')[0]
     error = int(tolerance.split(sep=' ')[1]) / 100
 
@@ -937,7 +952,7 @@ def determine_pass_or_fail(cap_ratio, tolerance, nameplate):
 def captest_results(sim, das, nameplate, tolerance, check_pvalues=False,
                     pval=0.05, print_res=True):
     """
-    Prints a summary indicating if system passed or failed capacity test.
+    Print a summary indicating if system passed or failed capacity test.
 
     NOTE: Method will try to adjust for 1000x differences in units.
 
@@ -1005,9 +1020,7 @@ def captest_results(sim, das, nameplate, tolerance, check_pvalues=False,
 
 
 def print_results(test_passed, expected, actual, cap_ratio, capacity, bounds):
-    """
-    Print formatted results of capacity test.
-    """
+    """Print formatted results of capacity test."""
     if test_passed[0]:
         print("{:<30s}{}".format("Capacity Test Result:", "PASS"))
     else:
@@ -1027,9 +1040,7 @@ def print_results(test_passed, expected, actual, cap_ratio, capacity, bounds):
 
 
 def highlight_pvals(s):
-    """
-    Highlight vals greater than or equal to 0.05 in a Series yellow.
-    """
+    """Highlight vals greater than or equal to 0.05 in a Series yellow."""
     is_greaterthan = s >= 0.05
     return ['background-color: yellow' if v else '' for v in is_greaterthan]
 
@@ -1037,7 +1048,7 @@ def highlight_pvals(s):
 def captest_results_check_pvalues(sim, das, nameplate, tolerance,
                                   print_res=False, **kwargs):
     """
-    Prints a summary of the capacity test results.
+    Print a summary of the capacity test results.
 
     Capacity ratio is the capacity calculated from the reporting conditions
     and the measured data divided by the capacity calculated from the reporting
@@ -1071,7 +1082,6 @@ def captest_results_check_pvalues(sim, das, nameplate, tolerance,
     P-values for simulated and measured regression coefficients.
     Regression coefficients (parameters) for simulated and measured data.
     """
-
     das_pvals = das.regression_results.pvalues
     sim_pvals = sim.regression_results.pvalues
     das_params = das.regression_results.params
@@ -1148,7 +1158,7 @@ class CapData(object):
         Holds the row index data modified by the update_summary decorator
         function.
     summary : list of dicts
-        Holds the data modifiedby the update_summary decorator function.
+        Holds the data modified by the update_summary decorator function.
     rc : DataFrame
         Dataframe for the reporting conditions (poa, t_amb, and w_vel).
     regression_results : statsmodels linear regression model
@@ -1162,7 +1172,7 @@ class CapData(object):
         interpreted as a percent.  For example, 5 percent is 5 not 0.05.
     """
 
-    def __init__(self, name):
+    def __init__(self, name):  # noqa: D107
         super(CapData, self).__init__()
         self.name = name
         self.data = pd.DataFrame()
@@ -1210,7 +1220,7 @@ class CapData(object):
                                 'w_vel': w_vel}
 
     def copy(self):
-        """Creates and returns a copy of self."""
+        """Create and returns a copy of self."""
         cd_c = CapData('')
         cd_c.name = copy.copy(self.name)
         cd_c.data = self.data.copy()
@@ -1229,14 +1239,14 @@ class CapData(object):
         return cd_c
 
     def empty(self):
-        """Returns a boolean indicating if the CapData object contains data."""
+        """Return a boolean indicating if the CapData object contains data."""
         tests_indicating_empty = [self.data.empty, len(self.trans_keys) == 0,
                                   len(self.column_groups) == 0]
         return all(tests_indicating_empty)
 
     def load_das(self, path, filename, source=None, **kwargs):
         """
-        Reads measured solar data from a csv file.
+        Read measured solar data from a csv file.
 
         Utilizes pandas read_csv to import measure solar data from a csv file.
         Attempts a few diferent encodings, trys to determine the header end
@@ -1245,7 +1255,6 @@ class CapData(object):
 
         Parameters
         ----------
-
         path : str
             Path to file to import.
         filename : str
@@ -1257,7 +1266,6 @@ class CapData(object):
         -------
         pandas dataframe
         """
-
         data = os.path.normpath(path + filename)
 
         encodings = ['utf-8', 'latin1', 'iso-8859-1', 'cp1252']
@@ -1494,7 +1502,7 @@ class CapData(object):
     def __series_type(self, series, type_defs, bounds_check=True,
                       warnings=False):
         """
-        Assigns columns to a category by analyzing the column names.
+        Assign columns to a category by analyzing the column names.
 
         The type_defs parameter is a dictionary which defines search strings
         and value limits for each key, where the key is a categorical name
@@ -1564,6 +1572,7 @@ class CapData(object):
         return ''
 
     def set_plot_attributes(self):
+        """Set column colors used in plot method."""
         dframe = self.data
 
         for key in self.trans_keys:
@@ -1589,7 +1598,7 @@ class CapData(object):
 
     def group_columns(self, column_type_report=True):
         """
-        Creates a dict of raw column names paired to categorical column names.
+        Create a dict of raw column names paired to categorical column names.
 
         Uses multiple type_def formatted dictionaries to determine the type,
         sub-type, and equipment type for data series of a dataframe.  The
@@ -1651,7 +1660,7 @@ class CapData(object):
 
     def drop_cols(self, columns):
         """
-        Drops columns from CapData `data` and `column_groups`.
+        Drop columns from CapData `data` and `column_groups`.
 
         Parameters
         ----------
@@ -1717,7 +1726,6 @@ class CapData(object):
             String or list of strings from self.trans_keys or int postion or
             list of int postitions of value in self.trans_keys.
         """
-
         if isinstance(tkey, int):
             keys = self.column_groups[self.trans_keys[tkey]]
         elif isinstance(tkey, list) and len(tkey) > 1:
@@ -1745,7 +1753,6 @@ class CapData(object):
             may be 'power', 'poa', 't_amb', 'w_vel', a list of some subset of
             the previous four strings or 'all'
         """
-
         if ind_var == 'all':
             keys = list(self.regression_cols.values())
         elif isinstance(ind_var, list) and len(ind_var) > 1:
@@ -1783,9 +1790,7 @@ class CapData(object):
             print('Added new group: ' + grp_comb)
 
     def review_column_groups(self):
-        """
-        Print `column_groups` with nice formatting.
-        """
+        """Print `column_groups` with nice formatting."""
         if len(self.column_groups) == 0:
             return 'column_groups attribute is empty.'
         else:
@@ -1796,9 +1801,7 @@ class CapData(object):
 
     # PLOTTING METHODS
     def reg_scatter_matrix(self):
-        """
-        Create pandas scatter matrix of regression variables.
-        """
+        """Create pandas scatter matrix of regression variables."""
         df = self.get_reg_cols(reg_vars=['poa', 't_amb', 'w_vel'])
         df['poa_poa'] = df['poa'] * df['poa']
         df['poa_t_amb'] = df['poa'] * df['t_amb']
@@ -1815,7 +1818,6 @@ class CapData(object):
         filtered : bool, default true
             Plots filtered data when true and all data when false.
         """
-
         if filtered:
             df = self.rview(['power', 'poa'], filtered_data=True)
         else:
@@ -1832,11 +1834,7 @@ class CapData(object):
 
     def scatter_hv(self, timeseries=False):
         """
-        Create holoview scatter plot of irradiance vs power.  Optional linked
-        time series plot of the same data.
-
-        Try running twice if the points selected with the lasso tool are not
-        highlighted in the timeseries i.e. linked brushing is not working.
+        Create holoviews scatter plot of irradiance vs power.
 
         Use holoviews opts magics in notebook cell before calling method to
         adjust height and width of plots:
@@ -1847,7 +1845,9 @@ class CapData(object):
         Parameters
         ----------
         timeseries : boolean, default False
-            True adds timeseries plot of power data with linked brushing.
+            True adds timeseries plot of the data linked to the scatter plot.
+            Points selected in teh scatter plot will be highlighted in the
+            timeseries plot.
         """
         new_names = ['power', 'poa', 't_amb', 'w_vel']
         df = self.get_reg_cols(reg_vars=new_names, filtered_data=True)
@@ -1880,7 +1880,7 @@ class CapData(object):
              legends=False, merge_grps=['irr', 'temp'], subset=None,
              filtered=False, **kwargs):
         """
-        Creates a plot for each group of sensors in self.column_groups.
+        Create a plot for each group of sensors in self.column_groups.
 
         Function returns a Bokeh grid of figures.  A figure is generated for
         each type of measurement identified by the keys in `column_groups` and
@@ -2017,8 +2017,7 @@ class CapData(object):
 
     def reset_filter(self):
         """
-        Copies over filtered dataframe with raw data and removes all summary
-        history.
+        Set `data_filtered` to `data` and reset filtering summary.
 
         Parameters
         ----------
@@ -2047,7 +2046,7 @@ class CapData(object):
 
     def __get_poa_col(self):
         """
-        Returns poa column name from `column_groups`.
+        Return poa column name from `column_groups`.
 
         Also, issues warning if there are more than one poa columns in
         `column_groups`.
@@ -2163,11 +2162,10 @@ class CapData(object):
                     if trans_group in agg_map.keys():
                         if isinstance(agg_map[trans_group], list):
                             if len(agg_map[trans_group]) > 1:
-                                warn_str = 'Multiple aggregation functions\
-                                            specified for regression\
-                                            variable.  Reset regression_cols\
-                                            manually.'
-                                warnings.warn(warn_str)
+                                warnings.warn('Multiple aggregation functions '
+                                              'specified for regression '
+                                              'variable.  Reset '
+                                              'regression_cols manually.')
                                 break
                         try:
                             agg_col = trans_group + agg_map[trans_group] + '-agg'  # noqa: E501
@@ -2326,7 +2324,7 @@ class CapData(object):
     def filter_time(self, start=None, end=None, days=None, test_date=None,
                     inplace=True, wrap_year=False):
         """
-        Function wrapping pandas dataframe selection methods.
+        Select data for a specified time period.
 
         Parameters
         ----------
@@ -2427,8 +2425,8 @@ class CapData(object):
         """
         XandY = self.rview(['poa', 'power'], filtered_data=True)
         if XandY.shape[1] > 2:
-            return warnings.warn('Too many columns. Try running'
-                                 'aggregate_sensors before using'
+            return warnings.warn('Too many columns. Try running '
+                                 'aggregate_sensors before using '
                                  'filter_outliers.')
         X1 = XandY.values
 
@@ -2448,13 +2446,13 @@ class CapData(object):
     @update_summary
     def filter_pf(self, pf, inplace=True):
         """
-        Keep timestamps where all power factors are greater than or equal to
-        pf.
+        Filter data on the power factor.
 
         Parameters
         ----------
         pf: float
-            0.999 or similar to remove timestamps with lower PF values
+            0.999 or similar to remove timestamps with lower power factor
+            values.  Values greater than or equal to `pf` are kept.
         inplace : bool
             Default of true writes filtered dataframe back to data_filtered
             attribute.
@@ -2484,7 +2482,7 @@ class CapData(object):
     @update_summary
     def filter_custom(self, func, *args, **kwargs):
         """
-        Applies update_summary to passed function.
+        Apply `update_summary` decorator to passed function.
 
         Parameters
         ----------
@@ -2585,7 +2583,7 @@ class CapData(object):
     def filter_clearsky(self, window_length=20, ghi_col=None, inplace=True,
                         **kwargs):
         """
-        Uses pvlib detect_clearsky to remove periods with unstable irradiance.
+        Use pvlib detect_clearsky to remove periods with unstable irradiance.
 
         The pvlib detect_clearsky function compares modeled clear sky ghi
         against measured clear sky ghi to detect periods of clear sky.  Refer
@@ -2723,7 +2721,7 @@ class CapData(object):
 
     def get_summary(self):
         """
-        Prints summary of filtering applied to the data_filtered attribute.
+        Print a summary of filtering applied to the data_filtered attribute.
 
         The summary dataframe shows the history of the filtering steps applied
         to the data including the timestamps remaining after each step, the
@@ -2754,7 +2752,6 @@ class CapData(object):
                  inplace=True,
                  func={'poa': perc_wrap(60), 't_amb': 'mean', 'w_vel': 'mean'},
                  freq=None, **kwargs):
-
         """
         Calculate reporting conditons.
 
@@ -2914,7 +2911,7 @@ class CapData(object):
     @update_summary
     def fit_regression(self, filter=False, inplace=True, summary=True):
         """
-        Performs regression with statsmodels on filtered data.
+        Perform a regression with statsmodels on filtered data.
 
         Parameters
         ----------
@@ -2954,7 +2951,8 @@ class CapData(object):
             self.regression_results = reg
 
     def uncertainty():
-        """Calculates random standard uncertainty of the regression
+        """Calculate random standard uncertainty of the regression.
+
         (SEE times the square root of the leverage of the reporting
         conditions).
 
