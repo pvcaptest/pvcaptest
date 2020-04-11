@@ -2423,6 +2423,65 @@ class CapData(object):
             return df_flt
 
     @update_summary
+    def filter_power(self, power, percent=None, columns=None, inplace=True):
+        """
+        Remove data above the specified power threshold.
+
+        Parameters
+        ----------
+        power : numeric
+            If `percent` is none, all data equal to or greater than `power`
+            is removed.
+            If `percent` is not None, then power should be the nameplate power.
+        percent : None, or numeric, default None
+            Data greater than or equal to `percent` of `power` is removed.
+            Specify percentage as decimal i.e. 1% is passed as 0.01.
+        columns : None or str, default None
+            By default filter is applied to the power data identified in the
+            `regression_cols` attribute.
+            Pass a column name or column group to filter on. When passing a
+            column group the power filter is applied to each column in the
+            group.
+        inplace : bool, default True
+            Default of true writes filtered dataframe back to data_filtered
+            attribute.
+
+        Returns
+        -------
+        Dataframe when inplace is false.
+        """
+        if percent is not None:
+            power = power * (1 - percent)
+
+        multiple_columns = False
+
+        if columns is None:
+            power_data = self.get_reg_cols('power')
+        elif isinstance(columns, str):
+            if columns in self.column_groups.keys():
+                power_data = self.view(columns, filtered_data=True)
+                multiple_columns = True
+            else:
+                power_data = pd.DataFrame(self.data_filtered[columns])
+                power_data.rename(columns={power_data.columns[0]: 'power'},
+                                  inplace=True)
+        else:
+            return warnings.warn('columns must be None or a string.')
+
+        if multiple_columns:
+            filtered_power_bool = power_data.apply(lambda x: all(x < power),
+                                                   axis=1)
+        else:
+            filtered_power_bool = power_data['power'] < power
+
+        df_flt = self.data_filtered[filtered_power_bool]
+
+        if inplace:
+            self.data_filtered = df_flt
+        else:
+            return df_flt
+
+    @update_summary
     def filter_custom(self, func, *args, **kwargs):
         """
         Applies update_summary to passed function.

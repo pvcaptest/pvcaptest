@@ -349,6 +349,7 @@ class TestTopLevelFuncs(unittest.TestCase):
 
         self.assertEqual(results_str, captured.out)
 
+
 class TestLoadDataMethods(unittest.TestCase):
     """Test for load data methods without setup."""
 
@@ -1472,7 +1473,7 @@ class TestFilterPF(unittest.TestCase):
                          'Incorrect number of points removed.')
 
 
-class TestFilterOutliers(unittest.TestCase):
+class TestFilterOutliersAndPower(unittest.TestCase):
     def setUp(self):
         self.das = pvc.CapData('das')
         self.das.load_data(path='./tests/data/',
@@ -1484,6 +1485,32 @@ class TestFilterOutliers(unittest.TestCase):
     def test_not_aggregated(self):
         with self.assertWarns(UserWarning):
             self.das.filter_outliers()
+
+    def test_filter_power_defaults(self):
+        self.das.filter_power(5_000_000, percent=None, columns=None,
+                              inplace=True)
+        self.assertEqual(self.das.data_filtered.shape[0], 1289)
+
+    def test_filter_power_percent(self):
+        self.das.filter_power(6_000_000, percent=0.05, columns=None,
+                              inplace=True)
+        self.assertEqual(self.das.data_filtered.shape[0], 1388)
+
+    def test_filter_power_a_column(self):
+        self.das.filter_power(5_000_000, percent=None,
+                              columns='Elkor Production Meter KW, kW',
+                              inplace=True)
+        self.assertEqual(self.das.data_filtered.shape[0], 1289)
+
+    def test_filter_power_column_group(self):
+        self.das.filter_power(500_000, percent=None, columns='-inv-',
+                              inplace=True)
+        self.assertEqual(self.das.data_filtered.shape[0], 1138)
+
+    def test_filter_power_columns_not_str(self):
+        with self.assertWarns(UserWarning):
+            self.das.filter_power(500_000, percent=None, columns=1,
+                                  inplace=True)
 
 
 class Test_Csky_Filter(unittest.TestCase):
