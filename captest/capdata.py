@@ -1813,7 +1813,7 @@ class CapData(object):
 
     def plot(self, marker='line', ncols=2, width=400, height=350,
              legends=False, merge_grps=['irr', 'temp'], subset=None,
-             filtered=False, **kwargs):
+             filtered=False, use_abrev_name=True, **kwargs):
         """
         Plots a Bokeh line graph for each group of sensors in self.column_groups.
 
@@ -1912,7 +1912,10 @@ class CapData(object):
                 p.tools.append(hover)
             legend_items = []
             for i, col in enumerate(cols):
-                abbrev_col_name = key + str(i)
+                if use_abrev_name:
+                    name = names_to_abrev[col]
+                else:
+                    name = col
                 if col.find('csky') == -1:
                     line_dash = 'solid'
                 else:
@@ -1921,22 +1924,22 @@ class CapData(object):
                     series = p.line('Timestamp', col, source=source,
                                     line_color=self.col_colors[col],
                                     line_dash=line_dash,
-                                    name=names_to_abrev[col])
+                                    name=name)
                 elif marker == 'circle':
                     series = p.circle('Timestamp', col,
                                       source=source,
                                       line_color=self.col_colors[col],
                                       size=2, fill_color="white",
-                                      name=names_to_abrev[col])
+                                      name=name)
                 if marker == 'line-circle':
                     series = p.line('Timestamp', col, source=source,
                                     line_color=self.col_colors[col],
-                                    name=names_to_abrev[col])
+                                    name=name)
                     series = p.circle('Timestamp', col,
                                       source=source,
                                       line_color=self.col_colors[col],
                                       size=2, fill_color="white",
-                                      name=names_to_abrev[col])
+                                      name=name)
                 legend_items.append((col, [series, ]))
 
             legend = Legend(items=legend_items, location=(40, -5))
