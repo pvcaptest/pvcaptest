@@ -1515,6 +1515,7 @@ class Test_Csky_Filter(unittest.TestCase):
 
     def test_two_ghi_cols(self):
         self.meas.data['ws 2 ghi W/m^2'] = self.meas.view('irr-ghi-') * 1.05
+        self.meas.data_filtered = self.meas.data.copy()
         self.meas.group_columns()
 
         with self.assertWarns(UserWarning):

@@ -2569,7 +2569,7 @@ class CapData(object):
             else:
                 meas_ghi = ghi_keys[0]
 
-            meas_ghi = self.view(meas_ghi, filtered_data=False)
+            meas_ghi = self.view(meas_ghi, filtered_data=True)
             if meas_ghi.shape[1] > 1:
                 warnings.warn('Averaging measured GHI data.  Pass column name to '
                               'ghi_col to use a specific column.')
