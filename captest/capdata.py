@@ -1614,9 +1614,10 @@ class CapData(object):
 
         Parameters
         ----------
-        reg_vars : list
+        reg_vars : list or str
             Default is all of 'power', 'poa', 't_amb', 'w_vel'.  Any
             combination of the four is valid.
+            Pass any of the four as a string to get only one regression column.
         filtered_data : bool, default true
             Return filtered or unfiltered dataself.
         Returns
@@ -1627,18 +1628,21 @@ class CapData(object):
         ----
         Pass list of reg coeffs to rename default all of them.
         """
-        for reg_var in reg_vars:
-            if self.regression_cols[reg_var] in self.data_filtered.columns:
-                continue
-            else:
-                columns = self.column_groups[self.regression_cols[reg_var]]
-                if len(columns) != 1:
-                    return warnings.warn('Multiple columns per translation '
-                                         'dictionary group. Run agg_sensors '
-                                         'before this method.')
-
         df = self.rview(reg_vars, filtered_data=filtered_data).copy()
-        rename = {old: new for old, new in zip(df.columns, reg_vars)}
+        rename = {df.columns[0]: reg_vars}
+
+        if isinstance(reg_vars, list):
+            for reg_var in reg_vars:
+                if self.regression_cols[reg_var] in self.data_filtered.columns:
+                    continue
+                else:
+                    columns = self.column_groups[self.regression_cols[reg_var]]
+                    if len(columns) != 1:
+                        return warnings.warn('Multiple columns per translation '
+                                             'dictionary group. Run agg_sensors '
+                                             'before this method.')
+            rename = {old: new for old, new in zip(df.columns, reg_vars)}
+
         df.rename(columns=rename, inplace=True)
         return df
 
