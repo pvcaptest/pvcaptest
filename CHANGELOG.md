@@ -6,7 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 [Unreleased]: https://github.com/pvcaptest/pvcaptest/compare/v0.7.0...HEAD
 ## [Unreleased]
-No changes yet.
+### Added
+- Added a filter_power method to the CapData class.
+
+### Changed
+- Allow get_reg_cols to accept a single regression variable as a string. Previously required passing list with at least two entries.
+- Fixed bug in filter_clearksy that applied filter to data rather than data_filtered attribute.
+- Added option to plot method to use column names for hover labels instead of abbreviated column names.
 
 [0.7.0]: https://github.com/pvcaptest/pvcaptest/compare/v0.6.0...v0.7.0
 ## [0.7.0] - 2020-03-08
