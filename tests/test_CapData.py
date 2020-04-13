@@ -1385,6 +1385,7 @@ class TestGetSummary(unittest.TestCase):
                          'filter_arguments.')
 
 
+
 class TestFilterTime(unittest.TestCase):
     def setUp(self):
         self.pvsyst = pvc.CapData('pvsyst')
@@ -1452,6 +1453,53 @@ class TestFilterTime(unittest.TestCase):
         with self.assertWarns(UserWarning):
             self.pvsyst.filter_time(test_date='2/1/90')
 
+
+class TestFilterDays(unittest.TestCase):
+    def setUp(self):
+        self.pvsyst = pvc.CapData('pvsyst')
+        self.pvsyst.load_data(path='./tests/data/',
+                              fname='pvsyst_example_HourlyRes_2.CSV',
+                              load_pvsyst=True)
+        self.pvsyst.set_regression_cols(power='real_pwr--', poa='irr-poa-',
+                                        t_amb='temp-amb-', w_vel='wind--')
+
+    def test_keep_one_day(self):
+        self.pvsyst.filter_days(['10/5/1990'], drop=False, inplace=True)
+        self.assertEqual(self.pvsyst.data_filtered.shape[0], 24)
+        self.assertEqual(self.pvsyst.data_filtered.index[0].day, 5)
+
+    def test_keep_two_contiguous_days(self):
+        self.pvsyst.filter_days(['10/5/1990', '10/6/1990'], drop=False,
+                                inplace=True)
+        self.assertEqual(self.pvsyst.data_filtered.shape[0], 48)
+        self.assertEqual(self.pvsyst.data_filtered.index[-1].day, 6)
+
+    def test_keep_three_noncontiguous_days(self):
+        self.pvsyst.filter_days(['10/5/1990', '10/7/1990', '10/9/1990'],
+                                drop=False, inplace=True)
+        self.assertEqual(self.pvsyst.data_filtered.shape[0], 72)
+        self.assertEqual(self.pvsyst.data_filtered.index[0].day, 5)
+        self.assertEqual(self.pvsyst.data_filtered.index[25].day, 7)
+        self.assertEqual(self.pvsyst.data_filtered.index[49].day, 9)
+
+    def test_drop_one_day(self):
+        self.pvsyst.filter_days(['1/1/1990'], drop=True, inplace=True)
+        self.assertEqual(self.pvsyst.data_filtered.shape[0], (8760 - 24))
+        self.assertEqual(self.pvsyst.data_filtered.index[0].day, 2)
+        self.assertEqual(self.pvsyst.data_filtered.index[0].hour, 0)
+
+    def test_drop_three_days(self):
+        self.pvsyst.filter_days(['1/1/1990', '1/3/1990', '1/5/1990'],
+                                drop=True, inplace=True)
+        self.assertEqual(self.pvsyst.data_filtered.shape[0], (8760 - 24 * 3))
+        self.assertEqual(self.pvsyst.data_filtered.index[0].day, 2)
+        self.assertEqual(self.pvsyst.data_filtered.index[25].day, 4)
+        self.assertEqual(self.pvsyst.data_filtered.index[49].day, 6)
+
+    def test_not_inplace(self):
+        df = self.pvsyst.filter_days(['10/5/1990'], drop=False, inplace=False)
+        self.assertEqual(self.pvsyst.data_filtered.shape[0], 8760)
+        self.assertEqual(df.shape[0], 24)
 
 class TestFilterPF(unittest.TestCase):
     def setUp(self):

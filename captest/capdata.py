@@ -2347,6 +2347,41 @@ class CapData(object):
             return df_temp
 
     @update_summary
+    def filter_days(self, days, drop=False, inplace=True):
+        """
+        Select or drop timestamps for days passed.
+
+        Parameters
+        ----------
+        days : list
+            List of days to select or drop.
+        drop : bool, default False
+            Set to true to drop the timestamps for the days passed instead of
+            keeping only those days.
+        inplace : bool, default True
+            If inplace is true, then function overwrites the filtered
+            dataframe. If false returns a DataFrame.
+        """
+        ix_all_days = None
+        for day in days:
+            ix_day = self.data_filtered[day].index
+            if ix_all_days is None:
+                ix_all_days = ix_day
+            else:
+                ix_all_days = ix_all_days.union(ix_day)
+
+        if drop:
+            ix_wo_days = self.data_filtered.index.difference(ix_all_days)
+            filtered_data = self.data_filtered.loc[ix_wo_days, :]
+        else:
+            filtered_data = self.data_filtered.loc[ix_all_days, :]
+
+        if inplace:
+            self.data_filtered = filtered_data
+        else:
+            return filtered_data
+
+    @update_summary
     def filter_outliers(self, inplace=True, **kwargs):
         """
         Apply eliptic envelope from scikit-learn to remove outliers.
