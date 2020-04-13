@@ -6,7 +6,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 [Unreleased]: https://github.com/pvcaptest/pvcaptest/compare/v0.7.0...HEAD
 ## [Unreleased]
+### Added
+- Added a filter_power method to the CapData class.
+- Added a filter_days method to the CapData class.
+
 ### Changed
+- Allow get_reg_cols to accept a single regression variable as a string. Previously required passing list with at least two entries.
+- Fixed bug in filter_clearksy that applied filter to data rather than data_filtered attribute.
+- Added option to plot method to use column names for hover labels instead of abbreviated column names.
 - Improved formatting of the filtering summary output. See issue #12 for details.
 - Cleaned up source code by correcting linter errors.
 

@@ -367,6 +367,7 @@ class TestTopLevelFuncs(unittest.TestCase):
 
         self.assertEqual(results_str, captured.out)
 
+
 class TestLoadDataMethods(unittest.TestCase):
     """Test for load data methods without setup."""
 
@@ -1402,6 +1403,7 @@ class TestGetSummary(unittest.TestCase):
                          'filter_arguments.')
 
 
+
 class TestFilterTime(unittest.TestCase):
     def setUp(self):
         self.pvsyst = pvc.CapData('pvsyst')
@@ -1470,6 +1472,53 @@ class TestFilterTime(unittest.TestCase):
             self.pvsyst.filter_time(test_date='2/1/90')
 
 
+class TestFilterDays(unittest.TestCase):
+    def setUp(self):
+        self.pvsyst = pvc.CapData('pvsyst')
+        self.pvsyst.load_data(path='./tests/data/',
+                              fname='pvsyst_example_HourlyRes_2.CSV',
+                              load_pvsyst=True)
+        self.pvsyst.set_regression_cols(power='real_pwr--', poa='irr-poa-',
+                                        t_amb='temp-amb-', w_vel='wind--')
+
+    def test_keep_one_day(self):
+        self.pvsyst.filter_days(['10/5/1990'], drop=False, inplace=True)
+        self.assertEqual(self.pvsyst.data_filtered.shape[0], 24)
+        self.assertEqual(self.pvsyst.data_filtered.index[0].day, 5)
+
+    def test_keep_two_contiguous_days(self):
+        self.pvsyst.filter_days(['10/5/1990', '10/6/1990'], drop=False,
+                                inplace=True)
+        self.assertEqual(self.pvsyst.data_filtered.shape[0], 48)
+        self.assertEqual(self.pvsyst.data_filtered.index[-1].day, 6)
+
+    def test_keep_three_noncontiguous_days(self):
+        self.pvsyst.filter_days(['10/5/1990', '10/7/1990', '10/9/1990'],
+                                drop=False, inplace=True)
+        self.assertEqual(self.pvsyst.data_filtered.shape[0], 72)
+        self.assertEqual(self.pvsyst.data_filtered.index[0].day, 5)
+        self.assertEqual(self.pvsyst.data_filtered.index[25].day, 7)
+        self.assertEqual(self.pvsyst.data_filtered.index[49].day, 9)
+
+    def test_drop_one_day(self):
+        self.pvsyst.filter_days(['1/1/1990'], drop=True, inplace=True)
+        self.assertEqual(self.pvsyst.data_filtered.shape[0], (8760 - 24))
+        self.assertEqual(self.pvsyst.data_filtered.index[0].day, 2)
+        self.assertEqual(self.pvsyst.data_filtered.index[0].hour, 0)
+
+    def test_drop_three_days(self):
+        self.pvsyst.filter_days(['1/1/1990', '1/3/1990', '1/5/1990'],
+                                drop=True, inplace=True)
+        self.assertEqual(self.pvsyst.data_filtered.shape[0], (8760 - 24 * 3))
+        self.assertEqual(self.pvsyst.data_filtered.index[0].day, 2)
+        self.assertEqual(self.pvsyst.data_filtered.index[25].day, 4)
+        self.assertEqual(self.pvsyst.data_filtered.index[49].day, 6)
+
+    def test_not_inplace(self):
+        df = self.pvsyst.filter_days(['10/5/1990'], drop=False, inplace=False)
+        self.assertEqual(self.pvsyst.data_filtered.shape[0], 8760)
+        self.assertEqual(df.shape[0], 24)
+
 class TestFilterPF(unittest.TestCase):
     def setUp(self):
         self.meas = pvc.CapData('meas')
@@ -1490,7 +1539,7 @@ class TestFilterPF(unittest.TestCase):
                          'Incorrect number of points removed.')
 
 
-class TestFilterOutliers(unittest.TestCase):
+class TestFilterOutliersAndPower(unittest.TestCase):
     def setUp(self):
         self.das = pvc.CapData('das')
         self.das.load_data(path='./tests/data/',
@@ -1502,6 +1551,32 @@ class TestFilterOutliers(unittest.TestCase):
     def test_not_aggregated(self):
         with self.assertWarns(UserWarning):
             self.das.filter_outliers()
+
+    def test_filter_power_defaults(self):
+        self.das.filter_power(5_000_000, percent=None, columns=None,
+                              inplace=True)
+        self.assertEqual(self.das.data_filtered.shape[0], 1289)
+
+    def test_filter_power_percent(self):
+        self.das.filter_power(6_000_000, percent=0.05, columns=None,
+                              inplace=True)
+        self.assertEqual(self.das.data_filtered.shape[0], 1388)
+
+    def test_filter_power_a_column(self):
+        self.das.filter_power(5_000_000, percent=None,
+                              columns='Elkor Production Meter KW, kW',
+                              inplace=True)
+        self.assertEqual(self.das.data_filtered.shape[0], 1289)
+
+    def test_filter_power_column_group(self):
+        self.das.filter_power(500_000, percent=None, columns='-inv-',
+                              inplace=True)
+        self.assertEqual(self.das.data_filtered.shape[0], 1138)
+
+    def test_filter_power_columns_not_str(self):
+        with self.assertWarns(UserWarning):
+            self.das.filter_power(500_000, percent=None, columns=1,
+                                  inplace=True)
 
 
 class Test_Csky_Filter(unittest.TestCase):
@@ -1533,6 +1608,7 @@ class Test_Csky_Filter(unittest.TestCase):
 
     def test_two_ghi_cols(self):
         self.meas.data['ws 2 ghi W/m^2'] = self.meas.view('irr-ghi-') * 1.05
+        self.meas.data_filtered = self.meas.data.copy()
         self.meas.group_columns()
 
         with self.assertWarns(UserWarning):

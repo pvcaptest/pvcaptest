@@ -1688,9 +1688,10 @@ class CapData(object):
 
         Parameters
         ----------
-        reg_vars : list
+        reg_vars : list or str
             Default is all of 'power', 'poa', 't_amb', 'w_vel'.  Any
             combination of the four is valid.
+            Pass any of the four as a string to get only one regression column.
         filtered_data : bool, default true
             Return filtered or unfiltered dataself.
         Returns
@@ -1701,18 +1702,21 @@ class CapData(object):
         ----
         Pass list of reg coeffs to rename default all of them.
         """
-        for reg_var in reg_vars:
-            if self.regression_cols[reg_var] in self.data_filtered.columns:
-                continue
-            else:
-                columns = self.column_groups[self.regression_cols[reg_var]]
-                if len(columns) != 1:
-                    return warnings.warn('Multiple columns per translation '
-                                         'dictionary group. Run agg_sensors '
-                                         'before this method.')
-
         df = self.rview(reg_vars, filtered_data=filtered_data).copy()
-        rename = {old: new for old, new in zip(df.columns, reg_vars)}
+        rename = {df.columns[0]: reg_vars}
+
+        if isinstance(reg_vars, list):
+            for reg_var in reg_vars:
+                if self.regression_cols[reg_var] in self.data_filtered.columns:
+                    continue
+                else:
+                    columns = self.column_groups[self.regression_cols[reg_var]]
+                    if len(columns) != 1:
+                        return warnings.warn('Multiple columns per translation '
+                                             'dictionary group. Run agg_sensors '
+                                             'before this method.')
+            rename = {old: new for old, new in zip(df.columns, reg_vars)}
+
         df.rename(columns=rename, inplace=True)
         return df
 
@@ -1878,7 +1882,7 @@ class CapData(object):
 
     def plot(self, marker='line', ncols=2, width=400, height=350,
              legends=False, merge_grps=['irr', 'temp'], subset=None,
-             filtered=False, **kwargs):
+             filtered=False, use_abrev_name=True, **kwargs):
         """
         Create a plot for each group of sensors in self.column_groups.
 
@@ -1979,30 +1983,36 @@ class CapData(object):
                 p.tools.append(hover)
             legend_items = []
             for i, col in enumerate(cols):
+                if use_abrev_name:
+                    name = names_to_abrev[col]
+                else:
+                    name = col
+
                 if col.find('csky') == -1:
                     line_dash = 'solid'
                 else:
                     line_dash = (5, 2)
+
                 if marker == 'line':
                     series = p.line('Timestamp', col, source=source,
                                     line_color=self.col_colors[col],
                                     line_dash=line_dash,
-                                    name=names_to_abrev[col])
+                                    name=name)
                 elif marker == 'circle':
                     series = p.circle('Timestamp', col,
                                       source=source,
                                       line_color=self.col_colors[col],
                                       size=2, fill_color="white",
-                                      name=names_to_abrev[col])
+                                      name=name)
                 if marker == 'line-circle':
                     series = p.line('Timestamp', col, source=source,
                                     line_color=self.col_colors[col],
-                                    name=names_to_abrev[col])
+                                    name=name)
                     series = p.circle('Timestamp', col,
                                       source=source,
                                       line_color=self.col_colors[col],
                                       size=2, fill_color="white",
-                                      name=names_to_abrev[col])
+                                      name=name)
                 legend_items.append((col, [series, ]))
 
             legend = Legend(items=legend_items, location=(40, -5))
@@ -2404,6 +2414,41 @@ class CapData(object):
             return df_temp
 
     @update_summary
+    def filter_days(self, days, drop=False, inplace=True):
+        """
+        Select or drop timestamps for days passed.
+
+        Parameters
+        ----------
+        days : list
+            List of days to select or drop.
+        drop : bool, default False
+            Set to true to drop the timestamps for the days passed instead of
+            keeping only those days.
+        inplace : bool, default True
+            If inplace is true, then function overwrites the filtered
+            dataframe. If false returns a DataFrame.
+        """
+        ix_all_days = None
+        for day in days:
+            ix_day = self.data_filtered[day].index
+            if ix_all_days is None:
+                ix_all_days = ix_day
+            else:
+                ix_all_days = ix_all_days.union(ix_day)
+
+        if drop:
+            ix_wo_days = self.data_filtered.index.difference(ix_all_days)
+            filtered_data = self.data_filtered.loc[ix_wo_days, :]
+        else:
+            filtered_data = self.data_filtered.loc[ix_all_days, :]
+
+        if inplace:
+            self.data_filtered = filtered_data
+        else:
+            return filtered_data
+
+    @update_summary
     def filter_outliers(self, inplace=True, **kwargs):
         """
         Apply eliptic envelope from scikit-learn to remove outliers.
@@ -2473,6 +2518,65 @@ class CapData(object):
         df = self.data_filtered[self.column_groups[selection]]
 
         df_flt = self.data_filtered[(np.abs(df) >= pf).all(axis=1)]
+
+        if inplace:
+            self.data_filtered = df_flt
+        else:
+            return df_flt
+
+    @update_summary
+    def filter_power(self, power, percent=None, columns=None, inplace=True):
+        """
+        Remove data above the specified power threshold.
+
+        Parameters
+        ----------
+        power : numeric
+            If `percent` is none, all data equal to or greater than `power`
+            is removed.
+            If `percent` is not None, then power should be the nameplate power.
+        percent : None, or numeric, default None
+            Data greater than or equal to `percent` of `power` is removed.
+            Specify percentage as decimal i.e. 1% is passed as 0.01.
+        columns : None or str, default None
+            By default filter is applied to the power data identified in the
+            `regression_cols` attribute.
+            Pass a column name or column group to filter on. When passing a
+            column group the power filter is applied to each column in the
+            group.
+        inplace : bool, default True
+            Default of true writes filtered dataframe back to data_filtered
+            attribute.
+
+        Returns
+        -------
+        Dataframe when inplace is false.
+        """
+        if percent is not None:
+            power = power * (1 - percent)
+
+        multiple_columns = False
+
+        if columns is None:
+            power_data = self.get_reg_cols('power')
+        elif isinstance(columns, str):
+            if columns in self.column_groups.keys():
+                power_data = self.view(columns, filtered_data=True)
+                multiple_columns = True
+            else:
+                power_data = pd.DataFrame(self.data_filtered[columns])
+                power_data.rename(columns={power_data.columns[0]: 'power'},
+                                  inplace=True)
+        else:
+            return warnings.warn('columns must be None or a string.')
+
+        if multiple_columns:
+            filtered_power_bool = power_data.apply(lambda x: all(x < power),
+                                                   axis=1)
+        else:
+            filtered_power_bool = power_data['power'] < power
+
+        df_flt = self.data_filtered[filtered_power_bool]
 
         if inplace:
             self.data_filtered = df_flt
@@ -2630,7 +2734,7 @@ class CapData(object):
             else:
                 meas_ghi = ghi_keys[0]
 
-            meas_ghi = self.view(meas_ghi, filtered_data=False)
+            meas_ghi = self.view(meas_ghi, filtered_data=True)
             if meas_ghi.shape[1] > 1:
                 warnings.warn('Averaging measured GHI data.  Pass column name '
                               'to ghi_col to use a specific column.')
