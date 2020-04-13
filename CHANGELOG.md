@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 ### Added
 - Added a filter_power method to the CapData class.
+- Added a filter_days method to the CapData class.
 
 ### Changed
 - Allow get_reg_cols to accept a single regression variable as a string. Previously required passing list with at least two entries.
