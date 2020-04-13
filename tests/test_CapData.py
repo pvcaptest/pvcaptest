@@ -39,7 +39,25 @@ test_files = ['test1.csv', 'test2.csv', 'test3.CSV', 'test4.txt',
               'pvsyst.csv', 'pvsyst_data.csv']
 
 
+class TestUpdateSummary:
+    """Test the update_summary wrapper and functions used within."""
 
+    def test_round_kwarg_floats(self):
+        """Tests round kwarg_floats."""
+        kwarg_dict = {'ref_val': 763.4536140499999, 't1': 2, 'inplace': True}
+        rounded_kwarg_dict_3 = {'ref_val': 763.454, 't1': 2,
+                                'inplace': True}
+        assert pvc.round_kwarg_floats(kwarg_dict) == rounded_kwarg_dict_3
+        rounded_kwarg_dict_4 = {'ref_val': 763.4536, 't1': 2,
+                                'inplace': True}
+        assert pvc.round_kwarg_floats(kwarg_dict, 4) == rounded_kwarg_dict_4
+
+    def test_tstamp_kwarg_to_strings(self):
+        """Tests coversion of kwarg values from timestamp to strings."""
+        start_datetime = pd.to_datetime('10/10/1990 00:00')
+        kwarg_dict = {'start': start_datetime, 't1': 2}
+        kwarg_dict_str_dates = {'start': '1990-10-10 00:00', 't1': 2}
+        assert pvc.tstamp_kwarg_to_strings(kwarg_dict) == kwarg_dict_str_dates
 
 
 class TestTopLevelFuncs(unittest.TestCase):
