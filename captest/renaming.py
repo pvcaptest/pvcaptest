@@ -21,7 +21,7 @@ rename_dict = rn.remove_spaces(*rn.clean_terms
                                     cleaners=rn.cleaners['also_energy_names'])
 """
 
-
+import pandas as pd
 from functools import wraps
 import re
 
