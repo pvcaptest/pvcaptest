@@ -1,3 +1,30 @@
+"""
+A class and functions for effeciently cleaning up column names.
+
+Example syntax to chain methods of ColumnRenamer:
+
+(cr.make_lowercase()
+   .clean_terms(cleaners=cleaners['also_energy_names'])
+   .drop_parentheses()
+   .remove_spaces()
+   .strip_chars(chars_to_remove=['_']))
+
+
+Method to chain functions without class:
+
+rename_dict = rn.remove_spaces(*rn.clean_terms
+                               (*rn.shorten_names
+                                (*rn.strip_whitespace
+                                 (*rn.drop_parentheses
+                                  (*rn.remove_prefix
+                                   (*rn.make_lowercase(das.data.columns)))))),
+                                    cleaners=rn.cleaners['also_energy_names'])
+"""
+
+
+from functools import wraps
+import re
+
 abbreviatons = {'temperature': 'temp',
                 'irradiance': 'irrad',
                 'global horizontal': 'GHI',
@@ -220,15 +247,13 @@ class ColumnRenamer(object):
         self.set_translation()
         return self
 
+    def remove_symbols(self):
+        self.new_columns = remove_symbols(self.new_columns)[0]
+        self.set_translation()
+        return self
+
     def get_renamed_df(self):
         return self.orig_dataframe.rename(columns=self.translation)
 
     def reset(self):
         self.new_columns = self.orig_columns.copy()
-
-# Example syntax to chain methods of ColumnRenamer
-# (cr.make_lowercase()
-#    .clean_terms(cleaners=cleaners['also_energy_names'])
-#    .drop_parentheses()
-#    .remove_spaces()
-#    .strip_chars(chars_to_remove=['_']))
