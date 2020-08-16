@@ -10,7 +10,7 @@ dependencies:
 - statsmodels
 - scikit-learn
 - scipy
-- pvlib
+- pvlib-python
 - holoviz # vizualization packages and numpy and pandas
 - pandas>=1*
 - numpy
