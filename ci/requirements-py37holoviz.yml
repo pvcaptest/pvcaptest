@@ -1,23 +1,24 @@
-# Conda environment file for captest v0.5*
-# Package versions match Anaconda Distribution as of 4/28/19 for python 3.7
-# To create a conda environment using this file:
-# conda env create -f captest_env.yml
+# Conda environment file for testing captest v0.9
 name: test_env
 channels:
+- defaults
+- conda-forge
 - pyviz
 dependencies:
-- coveralls
-- holoviz # vizualization packages and numpy and pandas
-- pip
-- pytest
-- pytest-cov
-- pytest-mock
-- pytest-timeout
 - python=3.7
 - python-dateutil
 - statsmodels
 - scikit-learn
 - scipy
-- pip:
-    - tables==3.5.2
-    - pvlib>=0.7.0
+- pvlib
+- holoviz # vizualization packages and numpy and pandas
+- pandas>=1*
+- numpy
+- pip
+- matplotlib
+# testing
+- coveralls
+- pytest
+- pytest-cov
+- pytest-mock
+- pytest-timeout
