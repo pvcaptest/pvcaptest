@@ -1,4 +1,4 @@
-# captest
+# pvcaptest
 
 <table>
 
@@ -10,53 +10,44 @@
 
 </table>
 
-# What is captest?
-Captest is intended to facilitate capacity testing following ASTM E2848.  The captest module contains a single class, CapData, which provides methods for loading, visualizing, filtering, and regressing capacity testing data.  The module also includes functions that take CapData objects as arguments and provide summary data and capacity test results.
+# What is pvcaptest?
+pvcaptest is an open source python package created to facilitate capacity testing following the ASTM E2848 standard.  The captest module contains a single class, CapData, which provides methods for loading, visualizing, filtering, and regressing capacity testing data.  The module also includes functions that take CapData objects as arguments and provide summary data and capacity test results.
 
-Please see the Jupyter notebooks in the docs/examples directory.
-
-More complete documentation and examples are available on [readthedocs](https://pvcaptest.readthedocs.io/en/latest/).
+Documentation and examples are available on [readthedocs](https://pvcaptest.readthedocs.io/en/latest/) including full examples in jupyter notebooks that can be run in the browser without installing anything.
 
 # Installation
-The recommended method to install captest is to create an environment using conda and then pip installing captest within your new environment.
+These instructions assume that you are new to using conda and python, if that is not the case skip to the last section for users familiar with conda and pip.
 
-There are a few ways to go about this as listed below.  
+The recommended method to install pvcaptest is to create a conda environment for pvcaptest. Installing Anaconda or miniconda will install both python and conda.  There is no need to install python separately.
 
-## If you do not have conda installed:
-Downloading and installing the [anaconda distribution](https://www.anaconda.com/distribution/#download-section) will install python and all packages required to use captest except pvlib.
-
-Then you can simply use:
-`pip install captest`
-
-To install pvlib also use:
-`pip install captest[csky]`
+**Easiest Option:**
+1. Download and install the [anaconda distribution](https://www.anaconda.com/products/individual). Follow the default installation settings.
+2. On Windows go to the start menu and open the Anaconda prompt under the newly installed Anaconda program. On OSX or Linux open a terminal window.
+3. Install pvcaptest by typing the command `conda install -c conda-forge pvcaptest` and pressing enter.  The `-c conda-forge` option tells conda to install pvcaptest from the [conda forge channel](https://conda-forge.org/#about).
 
 
-## If you have conda installed:
-### Install into a new conda environment:
-If you already have conda installed and are familiar with its use, then the recommended method to install captest is to create a new environment using the provided [environment yml file](https://github.com/bt-/pvcaptest/blob/master/environment.yml).  Download this file and then run:
+This will install the pvcaptest package in the base environment created when Anaconda is installed.  This should work and provide you with jupyter notebook and jupyer lab to run pvcaptest in. If you think you will use your Anaconda installation to create and maintain additional environments, the following process for creating a stand alone option is likely a better option.
 
-`conda env create -f environment.yml`
+**Better long term option:**
+1. If you do not already have it installed, download and install the [anaconda distribution](https://www.anaconda.com/products/individual) or miniconda.
+2. Go to the [project github page](https://github.com/bt-/pvcaptest) and download the project source to obtain a copy of the `environment.yml` file. Click the green code button and click 'Download ZIP'.
+2. On Windows go to the start menu and open the Anaconda prompt under the newly installed Anaconda program. On OSX or Linux open a terminal window. Note the path in the prompt for the next step. On Windows this should be something like `C:\Users\username\`.
+3. Unzip and move the `environment.yml` file to the folder identified by the path from the previous step.
+4. In your Anaconda prompt or terminal type `conda env create -f environment.yml`  
+and hit enter. Wait for a few seconds while conda works to solve the environment. It should ask you if you want to proceed to install new packages including pvcaptest. Type `y` enter to proceed and wait for conda to finish installing pvcaptest and the other packages.
+5. Once the installation is complete conda will print out a command for activating the new environment. Run that command, which should be like `conda activate captest_env`.
 
-Activate the new environment:
+The environment created will include jupyter lab and notebook for you to use pvcaptest in. You can start these using the commands `jupyter lab` or `jupyter notebook`.
 
-`conda activate captest_env_05`
 
-The environment created includes captest and all captest dependenices including Holoviews and PVLIB.
+See the [conda documentation](https://docs.conda.io/projects/conda/en/latest/user-guide/tasks/manage-environments.html#creating-an-environment-from-an-environment-yml-file) for more details on using conda to create and manage environments.
 
-### Install into an existing conda environment:
-If you prefer to use an existing environment, you can pip install captest.  
 
-`pip install captest`
+### Install for users familiar with conda and pip:
+Conda install into an existing environment:
 
-This will not load the optional Holoviews and PVLIB dependencies, which
-captest relies on for advanced plotting and clear sky modelling.  You can load either or both of these with the following:
+`conda install -c conda-forge pvcaptest`
 
-Load both:
-`pip install captest[all]`
+If you prefer, you can pip install pvcaptest, but the recommended approach is to use the conda package.
 
-Load PVLIB:
-`pip install captest[csky]`
-
-Load Holoviews:
-`pip install captest[viz]`
+**Note: The conda package is named pvcaptest and the pip package is named captest. The project is moving to consistent use of the pvcaptest name, but the package name on pypi will remain as captest.**

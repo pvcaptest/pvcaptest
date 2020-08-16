@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Updated clear sky functions which rely on pandas `index.tz_localize` to use nonexistent argument rather than errors argument, which was deprecated in pandas v1.0.
 - Made Pandas v1.0 or greater a requirement for pvcaptest.
 - Change to test against python v3.7* and v3.8*
+- Updated installation instructions.
 
 
 [0.8.0]: https://github.com/pvcaptest/pvcaptest/compare/v0.7.0...v0.8.0
