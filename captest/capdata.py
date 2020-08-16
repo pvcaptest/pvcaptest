@@ -775,7 +775,7 @@ def get_tz_index(time_source, loc):
     if isinstance(time_source, pd.core.indexes.datetimes.DatetimeIndex):
         if time_source.tz is None:
             time_source = time_source.tz_localize(loc['tz'], ambiguous='infer',
-                                                  errors='coerce')
+                                                  nonexistent='NaT')
             return time_source
         else:
             if pytz.timezone(loc['tz']) != time_source.tz:
@@ -786,7 +786,7 @@ def get_tz_index(time_source, loc):
     elif isinstance(time_source, pd.core.frame.DataFrame):
         if time_source.index.tz is None:
             return time_source.index.tz_localize(loc['tz'], ambiguous='infer',
-                                                 errors='coerce')
+                                                 nonexistent='NaT')
         else:
             if pytz.timezone(loc['tz']) != time_source.index.tz:
                 warnings.warn('Passed a DataFrame with a timezone that '
@@ -868,7 +868,7 @@ def csky(time_source, loc=None, sys=None, concat=True, output='both'):
                             axis=1)
 
     ix_no_tz = csky_df.index.tz_localize(None, ambiguous='infer',
-                                         errors='coerce')
+                                         nonexistent='NaT')
     csky_df.index = ix_no_tz
 
     if concat:
