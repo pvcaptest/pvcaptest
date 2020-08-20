@@ -30,7 +30,7 @@ This will install the pvcaptest package in the base environment created when Ana
 
 **Better long term option:**
 1. If you do not already have it installed, download and install the [anaconda distribution](https://www.anaconda.com/products/individual) or miniconda.
-2. Go to the [project github page](https://github.com/bt-/pvcaptest) and download the project source to obtain a copy of the `environment.yml` file. Click the green code button and click 'Download ZIP'.
+2. Go to the [project github page](https://github.com/pvcaptest/pvcaptest) and download the project source to obtain a copy of the `environment.yml` file. Click the green code button and click 'Download ZIP'.
 2. On Windows go to the start menu and open the Anaconda prompt under the newly installed Anaconda program. On OSX or Linux open a terminal window. Note the path in the prompt for the next step. On Windows this should be something like `C:\Users\username\`.
 3. Unzip and move the `environment.yml` file to the folder identified by the path from the previous step.
 4. In your Anaconda prompt or terminal type `conda env create -f environment.yml`  
