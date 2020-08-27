@@ -446,7 +446,7 @@ def filter_irr(df, irr_col, low, high, ref_val=None):
     high : float or int
         Max value as fraction (1.2) or absolute 800 (W/m^2)
     ref_val : float or int
-        Must provide arg when min/max are fractions
+        Must provide arg when low/high are fractions
 
     Returns
     -------
@@ -2217,11 +2217,12 @@ class CapData(object):
         Parameters
         ----------
         low : float or int
-            Minimum value as fraction (0.8) or absolute 200 (W/m^2)
+            Minimum value as fraction (0.8) or absolute 200 (W/m^2).
         high : float or int
-            Max value as fraction (1.2) or absolute 800 (W/m^2)
-        ref_val : float or int
-            Must provide arg when min/max are fractions
+            Max value as fraction (1.2) or absolute 800 (W/m^2).
+        ref_val : float or int or `self_val`
+            Must provide arg when `low` and `high` are fractions.
+            Pass `self_val` to use the value in `self.rc`.
         col_name : str, default None
             Column name of irradiance data to filter.  By default uses the POA
             irradiance set in regression_cols attribute or average of the POA
@@ -2239,6 +2240,9 @@ class CapData(object):
             irr_col = self.__get_poa_col()
         else:
             irr_col = col_name
+
+        if ref_val == 'self_val':
+            ref_val = self.rc['poa'][0]
 
         df_flt = filter_irr(self.data_filtered, irr_col, low, high,
                             ref_val=ref_val)
