@@ -386,7 +386,10 @@ def perc_difference(x, y):
     if x == y == 0:
         return 0
     else:
-        return abs(x - y) / ((x + y) / 2)
+        if x + y == 0:
+            return 1
+        else:
+            return abs(x - y) / ((x + y) / 2)
 
 
 def check_all_perc_diff_comb(series, perc_diff):
@@ -1343,8 +1346,8 @@ class CapData(object):
                 all_data.columns = new_cols
 
         all_data = all_data.apply(pd.to_numeric, errors='coerce')
-        all_data.dropna(axis=1, how='all', inplace=True)
-        all_data.dropna(how='all', inplace=True)
+        # all_data.dropna(axis=1, how='all', inplace=True)
+        # all_data.dropna(how='all', inplace=True)
 
         if source != 'AlsoEnergy':
             all_data.columns = [' '.join(col).strip() for col in all_data.columns.values]  # noqa: E501
