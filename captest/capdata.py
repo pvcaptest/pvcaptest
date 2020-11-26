@@ -1960,7 +1960,7 @@ class CapData(object):
         hover.tooltips = [
             ("Name", "$name"),
             ("Datetime", "@Timestamp{%F %H:%M}"),
-            ("Value", "$y"),
+            ("Value", "$y{0,0.00}"),
         ]
         hover.formatters = {"@Timestamp": "datetime"}
 
