@@ -1959,10 +1959,10 @@ class CapData(object):
         hover = HoverTool()
         hover.tooltips = [
             ("Name", "$name"),
-            ("Datetime", "@Timestamp{%D %H:%M}"),
+            ("Datetime", "@Timestamp{%F %H:%M}"),
             ("Value", "$y"),
         ]
-        hover.formatters = {"Timestamp": "datetime"}
+        hover.formatters = {"@Timestamp": "datetime"}
 
         tools = 'pan, xwheel_pan, xwheel_zoom, box_zoom, save, reset'
 
