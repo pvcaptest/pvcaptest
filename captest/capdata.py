@@ -2336,7 +2336,7 @@ class CapData(object):
             return self.data_filtered.loc[index_shd, :]
 
     @update_summary
-    def filter_time(self, start=None, end=None, days=None, test_date=None,
+    def filter_time(self, start=None, end=None, drop=False, days=None, test_date=None,
                     inplace=True, wrap_year=False):
         """
         Select data for a specified time period.
@@ -2351,6 +2351,10 @@ class CapData(object):
             End date for data to be returned.  If a string is passed it must
             be in format that can be converted by pandas.to_datetime.  Not
             required if test_date and days arguments are passed.
+        drop : bool, default False
+            Set to true to drop time period between `start` and `end` rather
+            than keep it. Must supply `start` and `end` and `wrap_year` must
+            be false.
         days : int or None, default None
             Days in time period to be returned.  Not required if `start` and
             `end` are specified.
@@ -2377,6 +2381,9 @@ class CapData(object):
                 df_temp = wrap_year_end(self.data_filtered, start, end)
             else:
                 df_temp = self.data_filtered.loc[start:end, :]
+                if drop:
+                    keep_ix = self.data_filtered.index.difference(df_temp.index)
+                    df_temp = self.data_filtered.loc[keep_ix, :]
 
         if start is not None and end is None:
             if days is None:
