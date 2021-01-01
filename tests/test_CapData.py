@@ -19,14 +19,6 @@ df = pd.DataFrame(data=data, index=index, columns=['poa'])
 # capdata.df = df
 
 """
-Run all tests from project root:
-'python -m tests.test_CapData'
-
-Run individual tests:
-'python -m unittest tests.test_CapData.Class.Method'
-
--m flag imports unittest as module rather than running as script
-
 Run tests using pytest use the following from project root.
 To run a class of tests
 pytest tests/test_CapData.py::TestCapDataEmpty
