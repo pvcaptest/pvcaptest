@@ -1,4 +1,5 @@
 from captest import capdata
+from captest import prtest
 
 from ._version import get_versions
 __version__ = get_versions()['version']
