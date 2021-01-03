@@ -62,3 +62,50 @@ class TestTempCorrectPower:
     def test_user_base_temp(self):
         corr_power = pr.temp_correct_power(10, -0.37, 30, base_temp=27.5)
         assert corr_power == 9.9075
+
+class TestBackOfModuleTemp:
+    """Test calculation of back of module (BOM) temperature from weather."""
+    def test_float_inputs(self):
+        assert pr.back_of_module_temp(800, 30, 3) == pytest.approx(48.1671)
+
+    def test_series_inputs(self):
+        ix = pd.date_range(
+            start='1/1/2021 12:00',
+            freq='H',
+            periods=3
+        )
+        poa = pd.Series([805, 810, 812], index=ix)
+        temp_amb = pd.Series([26, 27, 27.5], index=ix)
+        wind = pd.Series([0.5, 1, 2.5], index=ix)
+
+        exp_results = pd.Series(
+            [48.0506544,
+             48.3709869,
+             46.6442104],
+             index=ix
+        )
+
+        assert pd.testing.assert_series_equal(
+            pr.back_of_module_temp(poa, temp_amb, wind),
+            exp_results
+        ) is None
+
+    @pytest.mark.parametrize(
+        'racking, module_type, expected',
+        [
+            ('open_rack', 'glass_cell_glass', 50.77154),
+            ('open_rack', 'glass_cell_poly', 48.33028),
+            ('open_rack', 'poly_tf_steel', 46.82361),
+            ('close_roof_mount', 'glass_cell_glass', 65.86252),
+            ('insulated_back', 'glass_cell_poly', 72.98647)
+        ]
+    )
+    def test_emp_heat_coeffs(self, racking, module_type, expected):
+        bom = pr.back_of_module_temp(
+            800,
+            28,
+            1.5,
+            module_type=module_type,
+            racking=racking
+        )
+        assert bom == pytest.approx(expected)

@@ -1,4 +1,6 @@
 from captest import capdata
+import numpy as np
+import pandas as pd
 
 emp_heat_coeff = {
     'open_rack': {
@@ -61,6 +63,50 @@ def temp_correct_power(power, power_temp_coeff, cell_temp, base_temp=25):
     return corr_power
 
 
+def back_of_module_temp(
+    poa,
+    temp_amb,
+    wind_speed,
+    module_type='glass_cell_poly',
+    racking='open_rack'
+):
+    """Calculate back of module temperature from measured weather data.
+
+    Calculate back of module temperature from POA irradiance, ambient
+    temperature, wind speed (at height of 10 meters), and empirically
+    derived heat transfer coefficients.
+
+    Equation from NREL Weather Corrected Performance Ratio Report.
+
+    Parameters
+    ----------
+    poa : numeric or Series
+        POA irradiance in W/m^2.
+    temp_amb : numeric or Series
+        Ambient temperature in degrees C.
+    wind_speed : numeric or Series
+        Measured wind speed (m/sec) corrected to measurement height of
+        10 meters.
+    module_type : str, default 'glass_cell_poly'
+        Any of glass_cell_poly, glass_cell_glass, or 'poly_tf_steel'.
+    racking: str, default 'open_rack'
+        Any of 'open_rack', 'close_roof_mount', or 'insulated_back'
+
+    Returns
+    -------
+    numeric or Series
+        Back of module temperatures.
+    """
+    a = emp_heat_coeff[racking][module_type]['a']
+    b = emp_heat_coeff[racking][module_type]['b']
+    return poa * np.exp(a + b * wind_speed) + temp_amb
+
+
+"""
+************************************************************************
+********** BELOW FUNCTIONS ARE NOT FULLY IMPLEMENTED / TESTED **********
+************************************************************************
+"""
 def cell_temp(
     df,
     bom="Tm",
