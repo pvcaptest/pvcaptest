@@ -102,12 +102,41 @@ def back_of_module_temp(
     return poa * np.exp(a + b * wind_speed) + temp_amb
 
 
+def cell_temp(bom, poa, module_type='glass_cell_poly', racking='open_rack'):
+    """Calculate cell temp from BOM temp, POA, and heat transfer coefficient.
+
+    Equation from NREL Weather Corrected Performance Ratio Report.
+
+    Parameters
+    ----------
+    bom : numeric or Series
+        Back of module temperature (degrees C). Strictly followin the NREL
+        procedure this value would be obtained from the `back_of_module_temp`
+        function.
+
+        Alternatively, a measured BOM temperature may be used.
+
+        Refer to p.7 of NREL Weather Corrected Performance Ratio Report.
+    poa : numeric or Series
+        POA irradiance in W/m^2.
+    module_type : str, default 'glass_cell_poly'
+        Any of glass_cell_poly, glass_cell_glass, or 'poly_tf_steel'.
+    racking: str, default 'open_rack'
+        Any of 'open_rack', 'close_roof_mount', or 'insulated_back'
+
+    Returns
+    -------
+    numeric or Series
+        Cell temperature(s).
+    """
+    return bom + (poa / 1000) * emp_heat_coeff[racking][module_type]['del_tcnd']
+
 """
 ************************************************************************
 ********** BELOW FUNCTIONS ARE NOT FULLY IMPLEMENTED / TESTED **********
 ************************************************************************
 """
-def cell_temp(
+def cell_temp_old(
     df,
     bom="Tm",
     poa_col=None,

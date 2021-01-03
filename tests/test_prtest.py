@@ -109,3 +109,49 @@ class TestBackOfModuleTemp:
             racking=racking
         )
         assert bom == pytest.approx(expected)
+
+class TestCellTemp():
+    def test_float_inputs(self):
+        assert pr.cell_temp(30, 850) == pytest.approx(32.55)
+
+    def test_series_inputs(self):
+        ix = pd.date_range(
+            start='1/1/2021 12:00',
+            freq='H',
+            periods=3
+        )
+        poa = pd.Series([805, 810, 812], index=ix)
+        temp_bom = pd.Series([26, 27, 27.5], index=ix)
+
+        exp_results = pd.Series(
+            [
+                28.415,
+                29.43,
+                29.936
+            ],
+             index=ix
+        )
+
+        assert pd.testing.assert_series_equal(
+            pr.cell_temp(temp_bom, poa),
+            exp_results
+        ) is None
+
+    @pytest.mark.parametrize(
+        'racking, module_type, expected',
+        [
+            ('open_rack', 'glass_cell_glass', 30.4),
+            ('open_rack', 'glass_cell_poly', 30.4),
+            ('open_rack', 'poly_tf_steel', 30.4),
+            ('close_roof_mount', 'glass_cell_glass', 28.8),
+            ('insulated_back', 'glass_cell_poly', 28)
+        ]
+    )
+    def test_emp_heat_coeffs(self, racking, module_type, expected):
+        bom = pr.cell_temp(
+            28,
+            800,
+            module_type=module_type,
+            racking=racking
+        )
+        assert bom == pytest.approx(expected)
