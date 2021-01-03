@@ -34,6 +34,33 @@ emp_heat_coeff = {
     }
 }
 
+
+def temp_correct_power(power, power_temp_coeff, cell_temp, base_temp=25):
+    """Apply temperature correction to PV power.
+
+    Parameters
+    ----------
+    power : numeric or Series
+        PV power (in watts) to correct to the `base_temp`.
+    power_temp_coeff : numeric
+        Module power temperature coefficient as percent per degree celsius.
+        Ex. -0.36
+    cell_temp : numeric or Series
+        Cell temperature (in Celsius) used to calculate temperature
+        differential from the `base_temp`.
+    base_temp : numeric, default 25
+        Base temperature (in Celsius) to correct power to. Default is the
+        STC of 25 degrees Celsius.
+
+    Returns
+    -------
+    type matches `power`
+        Power corrected for temperature.
+    """
+    corr_power = power * (1 - (power_temp_coeff / 100) * (base_temp - cell_temp))
+    return corr_power
+
+
 def cell_temp(
     df,
     bom="Tm",
