@@ -1,6 +1,12 @@
-from captest import capdata
+import warnings
+
 import numpy as np
 import pandas as pd
+import param
+from scipy import stats
+
+from captest import capdata
+
 
 emp_heat_coeff = {
     'open_rack': {
@@ -35,6 +41,40 @@ emp_heat_coeff = {
         }
     }
 }
+
+
+def get_common_timestep(data, units='m', string_output=True):
+    """
+    Get the most commonly occuring timestep of data as frequency string.
+    Parameters
+    ----------
+    data : Series or DataFrame
+        Data with a DateTimeIndex.
+    units : str, default 'm'
+        String representing date/time unit, such as (D)ay, (M)onth, (Y)ear,
+        (h)ours, (m)inutes, or (s)econds.
+    string_output : bool, default True
+        Set to False to return a numeric value.
+    Returns
+    -------
+    str
+        frequency string
+    """
+    units_abbrev = {
+        'D': 'Day',
+        'M': 'Months',
+        'Y': 'Year',
+        'h': 'hours',
+        'm': 'minutes',
+        's': 'seconds'
+    }
+    common_timestep = stats.mode(np.diff(data.index.values))[0][0]
+    common_timestep_tdelta = common_timestep.astype('timedelta64[m]')
+    freq = common_timestep_tdelta / np.timedelta64(1, units)
+    if string_output:
+        return str(freq) + ' ' + units_abbrev[units]
+    else:
+        return freq
 
 
 def temp_correct_power(power, power_temp_coeff, cell_temp, base_temp=25):
@@ -131,6 +171,323 @@ def cell_temp(bom, poa, module_type='glass_cell_poly', racking='open_rack'):
     """
     return bom + (poa / 1000) * emp_heat_coeff[racking][module_type]['del_tcnd']
 
+
+def avg_typ_cell_temp(poa, cell_temp):
+    """Calculate irradiance weighted cell temperature.
+
+    Parameters
+    ----------
+    poa : Series
+        POA irradiance (W/m^2).
+    cell_temp : Series
+        Cell temperature for each interval (degrees C).
+
+    Returns
+    -------
+    float
+        Average irradiance-weighted cell temperature.
+    """
+    return (poa * cell_temp).sum() / poa.sum()
+
+"""DIRECTLY BELOW DRAFT PR FUNCTION TO DO ALL VERSIONS OF CALC
+DECIDED TO BREAK INTO SMALLER FUNCTIONS, LEAVE TEMPORARILY"""
+def perf_ratio(
+    ac_energy,
+    dc_nameplate,
+    poa,
+    temp_corrected=False,
+    bom_as_cell_temp=False,
+    power_temp_coeff=None,
+    cell_temp=None,
+    temp_amb=None,
+    wind_speed=None,
+    module_type='glass_cell_poly',
+    racking='open_rack',
+    degradation=None,
+    year=None,
+    availability=None,
+):
+    """Calculate performance ratio.
+
+    Parameters
+    ----------
+    ac_energy : Series
+        Measured energy production (kWh) from system meter.
+    dc_nameplate : numeric
+        Summation of nameplate ratings (W) for all installed modules of system
+        under test.
+    poa : Series
+        POA irradiance (W/m^2) for each time interval of the test.
+    temp_corrected : bool, default False
+        Set to true to calculate a temperature corrected performance ratio.
+        Must also supply `power_temp_coeff` and may optionally specify
+        `cell_temp`. Setting to True and only passing `power_temp_coeff` will
+        result in the `cell_temp` and `avg_typ_cell_temp` calculated follwing
+        the NREL procedure.
+    bom_as_cell_temp : boolean, default False
+        Set to true to use a measured back of module (BOM) temperatuere as the
+        cell temperature, which is used in the temperature adjustment to the
+        PR result.
+    power_temp_coeff : numeric, default None
+        Module power temperature coefficient as percent per degree celsius.
+        Ex. -0.36
+    cell_temp : Series, default None
+        Cell temperature (in Celsius) used to calculate temperature
+        differential from the `avg_typ_cell_temp`.
+        By default, the cell temperature is calculated from
+    temp_amb : Series
+        Ambient temperature (degrees C) measurements.
+        Argument is ignored if `bom_as_cell_temp` is True.
+    wind_speed : Series
+        Measured wind speed (m/sec) corrected to measurement height of
+        10 meters. Argument is ignored if `bom_as_cell_temp` is True.
+    module_type : str, default 'glass_cell_poly'
+        Any of glass_cell_poly, glass_cell_glass, or 'poly_tf_steel'.
+        Argument is ignored if `bom_as_cell_temp` is True.
+    racking: str, default 'open_rack'
+        Any of 'open_rack', 'close_roof_mount', or 'insulated_back'
+        Argument is ignored if `bom_as_cell_temp` is True.
+    degradation : numeric, default None
+        Apply a derate for degradation to the expected power (denominator).
+        Must also pass specify a value for the `year` argument.
+    year : numeric
+        Year of operation to use in degradation calculation.
+    availability : numeric or Series, default None
+        Apply an adjustment for plant availability to the expected power
+        (denominator).
+
+    Returns
+    -------
+    numeric or tuple
+        By default returns the performance ratio as a decimal. If
+        `detailed_results` is True, then returns a tuple of the perfromance
+        ratio and the intermediate calculation results.
+    """
+    pass
+    # def back_of_module_temp(
+    #     poa,
+    #     temp_amb,
+    #     wind_speed,
+    #     module_type='glass_cell_poly',
+    #     racking='open_rack'
+    # )
+    # def cell_temp(bom, poa, module_type='glass_cell_poly', racking='open_rack')
+    # def avg_typ_cell_temp(poa, cell_temp)
+    # def temp_correct_power(power, power_temp_coeff, cell_temp, base_temp=25)
+
+
+def perf_ratio(
+    ac_energy,
+    dc_nameplate,
+    poa,
+    unit_adj=1,
+    degradation=0,
+    year=1,
+    availability=1,
+):
+    """Calculate performance ratio.
+
+    Parameters
+    ----------
+    ac_energy : Series
+        Measured energy production (Wh) from system meter.
+    dc_nameplate : numeric
+        Summation of nameplate ratings (W) for all installed modules of system
+        under test.
+    poa : Series
+        POA irradiance (W/m^2) for each time interval of the test.
+    unit_adj : numeric, default 1
+        Scale factor to adjust units of `ac_energy`. For exmaple pass 1000
+        to convert measured energy from kWh to Wh within PR calculation.
+    degradation : numeric, default None
+        Apply a derate for degradation to the expected power (denominator).
+        Must also pass specify a value for the `year` argument.
+    year : numeric
+        Year of operation to use in degradation calculation.
+    availability : numeric or Series, default None
+        Apply an adjustment for plant availability to the expected power
+        (denominator).
+
+    Returns
+    -------
+    PrResults
+        Instance of class PrResults.
+    """
+    if not isinstance(ac_energy, pd.Series):
+        warnings.warn('ac_energy must be a Pandas Series.')
+    if not isinstance(poa, pd.Series):
+        warnings.warn('poa must be a Pandas Series.')
+    if not ac_energy.index.equals(poa.index):
+        warnings.warn('indices of poa and ac_energy must match.')
+
+    timestep = get_common_timestep(poa, units='h', string_output=False)
+    timestep_str = get_common_timestep(poa, units='h', string_output=True)
+
+    expected_dc = (
+        availability
+        * dc_nameplate
+        * poa / 1000
+        * (1 - degradation)**year
+        * timestep
+    )
+    pr = ac_energy.sum()  * unit_adj / expected_dc.sum()
+
+    input_cd = capdata.CapData('input_cd')
+    input_cd.data = pd.concat([poa, ac_energy], axis=1)
+
+    pr_per_timestep = ac_energy * unit_adj / expected_dc
+    results_data = pd.concat([ac_energy, expected_dc, pr_per_timestep], axis=1)
+    results_data.columns = ['ac_energy', 'expected_dc', 'pr_per_timestep']
+
+    results = PrResults(
+        timestep=(timestep, timestep_str),
+        pr=pr,
+        dc_nameplate=dc_nameplate,
+        input_data=input_cd,
+        results_data=results_data
+    )
+    return results
+
+
+        # df[en_dc] = avail * DC_nameplate * (df[poa_col] / 1000) * (1 - degradation)**year * timestep
+    # return ((df[ac_energy_col].sum() * unit_adj) / df[en_dc].sum()) * 100
+
+def perf_ratio_temp_corr_nrel(
+    ac_energy,
+    dc_nameplate,
+    poa,
+    power_temp_coeff=None,
+    temp_amb=None,
+    wind_speed=None,
+    module_type='glass_cell_poly',
+    racking='open_rack',
+    degradation=None,
+    year=None,
+    availability=None,
+):
+    """Calculate performance ratio.
+
+    Parameters
+    ----------
+    ac_energy : Series
+        Measured energy production (kWh) from system meter.
+    dc_nameplate : numeric
+        Summation of nameplate ratings (W) for all installed modules of system
+        under test.
+    poa : Series
+        POA irradiance (W/m^2) for each time interval of the test.
+    power_temp_coeff : numeric, default None
+        Module power temperature coefficient as percent per degree celsius.
+        Ex. -0.36
+    temp_amb : Series
+        Ambient temperature (degrees C) measurements.
+        Argument is ignored if `bom_as_cell_temp` is True.
+    wind_speed : Series
+        Measured wind speed (m/sec) corrected to measurement height of
+        10 meters. Argument is ignored if `bom_as_cell_temp` is True.
+    module_type : str, default 'glass_cell_poly'
+        Any of glass_cell_poly, glass_cell_glass, or 'poly_tf_steel'.
+        Argument is ignored if `bom_as_cell_temp` is True.
+    racking: str, default 'open_rack'
+        Any of 'open_rack', 'close_roof_mount', or 'insulated_back'
+        Argument is ignored if `bom_as_cell_temp` is True.
+    degradation : numeric, default None
+        NOT IMPLEMENTED
+        Apply a derate for degradation to the expected power (denominator).
+        Must also pass specify a value for the `year` argument.
+    year : numeric
+        NOT IMPLEMENTED
+        Year of operation to use in degradation calculation.
+    availability : numeric or Series, default None
+        NOT IMPLEMENTED
+        Apply an adjustment for plant availability to the expected power
+        (denominator).
+
+    Returns
+    -------
+    """
+
+
+def perf_ratio_temp_corr_meas_bom(
+    ac_energy,
+    dc_nameplate,
+    poa,
+    temp_bom,
+    power_temp_coeff=None,
+    degradation=None,
+    year=None,
+    availability=None,
+):
+    """Calculate PR using measured back of module temperature as cell temp.
+
+    Parameters
+    ----------
+    ac_energy : Series
+        Measured energy production (kWh) from system meter.
+    dc_nameplate : numeric
+        Summation of nameplate ratings (W) for all installed modules of system
+        under test.
+    poa : Series
+        POA irradiance (W/m^2) for each time interval of the test.
+    temp_bom : Series
+        Measured back of module (BOM) temperature (degrees C), which will be
+        used as the cell temperature when calculating the temperature
+        adjustment to the PR.
+    power_temp_coeff : numeric, default None
+        Module power temperature coefficient as percent per degree celsius.
+        Ex. -0.36
+    degradation : numeric, default None
+        NOT IMPLEMENTED
+        Apply a derate for degradation to the expected power (denominator).
+        Must also pass specify a value for the `year` argument.
+    year : numeric
+        NOT IMPLEMENTED
+        Year of operation to use in degradation calculation.
+    availability : numeric or Series, default None
+        NOT IMPLEMENTED
+        Apply an adjustment for plant availability to the expected power
+        (denominator).
+
+    Returns
+    -------
+    """
+
+
+class PrResults(param.Parameterized):
+    """Results from a PR calculation.
+    """
+    dc_nameplate = param.Number(
+        bounds=(0, None),
+        doc=(
+            'Summation of nameplate ratings (W) for all installed modules'
+            ' of system.'
+        )
+    )
+    pr = param.Number(doc='Performance ratio result decimal fraction.')
+    timestep = param.Tuple(doc='Timestep of series.')
+    expected_pr = param.Number(
+        bounds=(0, 1),
+        doc='Expected Performance ratio result decimal fraction.'
+    )
+    input_data = param.ClassSelector(capdata.CapData)
+    results_data = param.ClassSelector(pd.DataFrame)
+
+
+    def print_pr_result(self):
+        """Print summary of PR result - passing / failing and by how much
+        """
+        if self.pr >= self.expected_pr:
+            print('The test is PASSING with a measured PR of {:.2f}, '
+                  'which is {:.2f} above the expected PR of {:.2f}'.format(
+                    self.pr,
+                    self.pr - self.expected_pr,
+                    self.expected_pr))
+        else:
+            print('The test is FAILING with a measured PR of {:.2f}, '
+                  'which is {:.2f} below the expected PR of {:.2f}'.format(
+                    self.pr,
+                    self.expected_pr - self.pr,
+                    self.expected_pr))
 """
 ************************************************************************
 ********** BELOW FUNCTIONS ARE NOT FULLY IMPLEMENTED / TESTED **********

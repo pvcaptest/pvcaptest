@@ -16,6 +16,39 @@ pytest tests/test_CapData.py::TestCapDataEmpty
 To run a specific test:
 pytest tests/test_CapData.py::TestCapDataEmpty::test_capdata_empty
 """
+
+ix = pd.date_range(
+    start='1/1/2021 12:00',
+    freq='H',
+    periods=3
+)
+
+class TestGetCommonTimestep():
+    def test_output_type_str(self):
+        df = pd.DataFrame({'a':[1, 2, 4]}, index=ix)
+        time_step = pr.get_common_timestep(df, units='h', string_output=True)
+        assert isinstance(time_step, str)
+
+    def test_output_type_numeric(self):
+        df = pd.DataFrame({'a':[1, 2, 4]}, index=ix)
+        time_step = pr.get_common_timestep(df, units='h', string_output=False)
+        assert isinstance(time_step, np.float64)
+
+    def test_hours_string(self):
+        df = pd.DataFrame({'a':[1, 2, 4]}, index=ix)
+        time_step = pr.get_common_timestep(df, units='h', string_output=True)
+        assert time_step == '1.0 hours'
+
+    def test_hours_numeric(self):
+        df = pd.DataFrame({'a':[1, 2, 4]}, index=ix)
+        time_step = pr.get_common_timestep(df, units='h', string_output=False)
+        assert time_step == 1.0
+
+    def test_minutes_numeric(self):
+        df = pd.DataFrame({'a':[1, 2, 4]}, index=ix)
+        time_step = pr.get_common_timestep(df, units='m', string_output=False)
+        assert time_step == 60.0
+
 class TestTempCorrectPower:
     """Test correction of power by temperature coefficient."""
 
@@ -155,3 +188,44 @@ class TestCellTemp():
             racking=racking
         )
         assert bom == pytest.approx(expected)
+
+class TestAvgTypCellTemp():
+    def test_math(self):
+        ix = pd.date_range(
+            start='1/1/2021 12:00',
+            freq='H',
+            periods=3
+        )
+        poa = pd.Series([805, 810, 812], index=ix)
+        cell_temp = pd.Series([26, 27, 27.5], index=ix)
+
+        assert pr.avg_typ_cell_temp(poa, cell_temp) == pytest.approx(26.8356)
+
+class TestPerfRatio():
+    def test_warn_ac_energy_type(self):
+        """Raise warning if `ac_energy` is not a Pandas Series."""
+        ac_energy = pd.DataFrame({'energy':[90, 95, 97]}, index=ix)
+        poa = pd.Series([805, 810, 812], index=ix)
+        with pytest.warns(UserWarning):
+            pr.perf_ratio(ac_energy, 110, poa)
+
+    def test_warn_poa_type(self):
+        """Raise warning if `poa` is not a Pandas Series."""
+        ac_energy = pd.Series([90, 95, 97], index=ix)
+        poa = pd.DataFrame({'poa':[805, 810, 812]}, index=ix)
+        with pytest.warns(UserWarning):
+            pr.perf_ratio(ac_energy, 110, poa)
+
+    def test_poa_ac_energy_index_match(self):
+        """Raise warning if indices of poa and ac_energy do not match."""
+        ix_poa = pd.date_range(
+            start='1/1/2021 13:00',
+            freq='H',
+            periods=3
+        )
+        ac_energy = pd.Series([90, 95, 97], index=ix)
+        poa = pd.Series([805, 810, 812], index=ix_poa)
+        with pytest.warns(UserWarning):
+            pr.perf_ratio(ac_energy, 110, poa)
+
+    def test
