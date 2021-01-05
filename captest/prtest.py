@@ -300,8 +300,10 @@ def perf_ratio(
         Scale factor to adjust units of `ac_energy`. For exmaple pass 1000
         to convert measured energy from kWh to Wh within PR calculation.
     degradation : numeric, default None
-        Apply a derate for degradation to the expected power (denominator).
-        Must also pass specify a value for the `year` argument.
+        Apply a derate (percent, Ex: 0.5%) for degradation to the expected
+        power (denominator). Must also pass specify a value for the `year`
+        argument.
+        NOTE: Percent is divided by 100 to convert to decimal within function.
     year : numeric
         Year of operation to use in degradation calculation.
     availability : numeric or Series, default None
@@ -315,10 +317,20 @@ def perf_ratio(
     """
     if not isinstance(ac_energy, pd.Series):
         warnings.warn('ac_energy must be a Pandas Series.')
+        return
     if not isinstance(poa, pd.Series):
         warnings.warn('poa must be a Pandas Series.')
+        return
     if not ac_energy.index.equals(poa.index):
         warnings.warn('indices of poa and ac_energy must match.')
+        return
+    if isinstance(availability, pd.Series):
+        if not availability.index.equals(poa.index):
+            warnings.warn(
+                'Index of availability must match the index of '
+                'the poa and ac_energy.'
+            )
+            return
 
     timestep = get_common_timestep(poa, units='h', string_output=False)
     timestep_str = get_common_timestep(poa, units='h', string_output=True)
@@ -327,10 +339,10 @@ def perf_ratio(
         availability
         * dc_nameplate
         * poa / 1000
-        * (1 - degradation)**year
+        * (1 - degradation / 100)**year
         * timestep
     )
-    pr = ac_energy.sum()  * unit_adj / expected_dc.sum()
+    pr = ac_energy.sum() * unit_adj / expected_dc.sum()
 
     input_cd = capdata.CapData('input_cd')
     input_cd.data = pd.concat([poa, ac_energy], axis=1)
