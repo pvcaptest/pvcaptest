@@ -491,15 +491,15 @@ class PrResults(param.Parameterized):
         if self.pr >= self.expected_pr:
             print('The test is PASSING with a measured PR of {:.2f}, '
                   'which is {:.2f} above the expected PR of {:.2f}'.format(
-                    self.pr,
-                    self.pr - self.expected_pr,
-                    self.expected_pr))
+                    self.pr * 100,
+                    (self.pr - self.expected_pr) *100,
+                    self.expected_pr * 100))
         else:
             print('The test is FAILING with a measured PR of {:.2f}, '
                   'which is {:.2f} below the expected PR of {:.2f}'.format(
-                    self.pr,
-                    self.expected_pr - self.pr,
-                    self.expected_pr))
+                    self.pr * 100,
+                    (self.expected_pr - self.pr) * 100,
+                    self.expected_pr * 100))
 """
 ************************************************************************
 ********** BELOW FUNCTIONS ARE NOT FULLY IMPLEMENTED / TESTED **********
