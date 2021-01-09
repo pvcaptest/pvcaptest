@@ -275,7 +275,7 @@ def perf_ratio(
     # def avg_typ_cell_temp(poa, cell_temp)
     # def temp_correct_power(power, power_temp_coeff, cell_temp, base_temp=25)
 
-def perf_ratio_inputs_ok(ac_energy, dc_nameplate, poa, availability=None):
+def perf_ratio_inputs_ok(ac_energy, dc_nameplate, poa, availability=1):
     """Check types of perf_ratio arguments.
 
     Parameters
@@ -287,7 +287,7 @@ def perf_ratio_inputs_ok(ac_energy, dc_nameplate, poa, availability=None):
         under test.
     poa : Series
         POA irradiance (W/m^2) for each time interval of the test.
-    availability : numeric or Series, default None
+    availability : numeric or Series, default 1
         Apply an adjustment for plant availability to the expected power
         (denominator).
     """
@@ -343,7 +343,7 @@ def perf_ratio(
         NOTE: Percent is divided by 100 to convert to decimal within function.
     year : numeric
         Year of operation to use in degradation calculation.
-    availability : numeric or Series, default None
+    availability : numeric or Series, default 1
         Apply an adjustment for plant availability to the expected power
         (denominator).
 
@@ -400,7 +400,7 @@ def perf_ratio_temp_corr_nrel(
     racking='open_rack',
     degradation=None,
     year=None,
-    availability=None,
+    availability=1,
 ):
     """Calculate performance ratio.
 
@@ -435,7 +435,7 @@ def perf_ratio_temp_corr_nrel(
     year : numeric
         NOT IMPLEMENTED
         Year of operation to use in degradation calculation.
-    availability : numeric or Series, default None
+    availability : numeric or Series, default 1
         NOT IMPLEMENTED
         Apply an adjustment for plant availability to the expected power
         (denominator).
@@ -453,7 +453,7 @@ def perf_ratio_temp_corr_meas_bom(
     power_temp_coeff=None,
     degradation=None,
     year=None,
-    availability=None,
+    availability=1,
 ):
     """Calculate PR using measured back of module temperature as cell temp.
 
@@ -480,7 +480,7 @@ def perf_ratio_temp_corr_meas_bom(
     year : numeric
         NOT IMPLEMENTED
         Year of operation to use in degradation calculation.
-    availability : numeric or Series, default None
+    availability : numeric or Series, default 1
         NOT IMPLEMENTED
         Apply an adjustment for plant availability to the expected power
         (denominator).
