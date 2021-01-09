@@ -275,6 +275,43 @@ def perf_ratio(
     # def avg_typ_cell_temp(poa, cell_temp)
     # def temp_correct_power(power, power_temp_coeff, cell_temp, base_temp=25)
 
+def perf_ratio_inputs_ok(ac_energy, dc_nameplate, poa, availability=None):
+    """Check types of perf_ratio arguments.
+
+    Parameters
+    ----------
+    ac_energy : Series
+        Measured energy production (Wh) from system meter.
+    dc_nameplate : numeric
+        Summation of nameplate ratings (W) for all installed modules of system
+        under test.
+    poa : Series
+        POA irradiance (W/m^2) for each time interval of the test.
+    availability : numeric or Series, default None
+        Apply an adjustment for plant availability to the expected power
+        (denominator).
+    """
+    if not isinstance(ac_energy, pd.Series):
+        warnings.warn('ac_energy must be a Pandas Series.')
+        return False
+    elif not isinstance(poa, pd.Series):
+        warnings.warn('poa must be a Pandas Series.')
+        return False
+    elif not ac_energy.index.equals(poa.index):
+        warnings.warn('indices of poa and ac_energy must match.')
+        return False
+    elif isinstance(availability, pd.Series):
+        if not availability.index.equals(poa.index):
+            warnings.warn(
+                'Index of availability must match the index of '
+                'the poa and ac_energy.'
+            )
+            return False
+        else:
+            return True
+    else:
+        return True
+
 
 def perf_ratio(
     ac_energy,
@@ -315,22 +352,13 @@ def perf_ratio(
     PrResults
         Instance of class PrResults.
     """
-    if not isinstance(ac_energy, pd.Series):
-        warnings.warn('ac_energy must be a Pandas Series.')
+    if not perf_ratio_inputs_ok(
+        ac_energy,
+        dc_nameplate,
+        poa,
+        availability=availability
+    ):
         return
-    if not isinstance(poa, pd.Series):
-        warnings.warn('poa must be a Pandas Series.')
-        return
-    if not ac_energy.index.equals(poa.index):
-        warnings.warn('indices of poa and ac_energy must match.')
-        return
-    if isinstance(availability, pd.Series):
-        if not availability.index.equals(poa.index):
-            warnings.warn(
-                'Index of availability must match the index of '
-                'the poa and ac_energy.'
-            )
-            return
 
     timestep = get_common_timestep(poa, units='h', string_output=False)
     timestep_str = get_common_timestep(poa, units='h', string_output=True)
@@ -360,9 +388,6 @@ def perf_ratio(
     )
     return results
 
-
-        # df[en_dc] = avail * DC_nameplate * (df[poa_col] / 1000) * (1 - degradation)**year * timestep
-    # return ((df[ac_energy_col].sum() * unit_adj) / df[en_dc].sum()) * 100
 
 def perf_ratio_temp_corr_nrel(
     ac_energy,

@@ -207,20 +207,30 @@ class TestAvgTypCellTemp():
 
         assert pr.avg_typ_cell_temp(poa, cell_temp) == pytest.approx(26.8356)
 
-class TestPerfRatio():
+
+
+class TestCheckPerfRatioInputs():
+    def test_ok_inputs(self):
+        ac_energy = pd.Series({'energy':[90, 95, 97]}, index=ix)
+        poa = pd.Series([805, 810, 812], index=ix)
+        input_ok = pr.perf_ratio_inputs_ok(ac_energy, 110, poa)
+        assert input_ok is True
+
     def test_warn_ac_energy_type(self):
         """Raise warning if `ac_energy` is not a Pandas Series."""
         ac_energy = pd.DataFrame({'energy':[90, 95, 97]}, index=ix)
         poa = pd.Series([805, 810, 812], index=ix)
         with pytest.warns(UserWarning):
-            pr.perf_ratio(ac_energy, 110, poa)
+            input_ok = pr.perf_ratio_inputs_ok(ac_energy, 110, poa)
+        assert input_ok is False
 
     def test_warn_poa_type(self):
         """Raise warning if `poa` is not a Pandas Series."""
         ac_energy = pd.Series([90, 95, 97], index=ix)
         poa = pd.DataFrame({'poa':[805, 810, 812]}, index=ix)
         with pytest.warns(UserWarning):
-            pr.perf_ratio(ac_energy, 110, poa)
+            input_ok = pr.perf_ratio_inputs_ok(ac_energy, 110, poa)
+        assert input_ok is False
 
     def test_poa_ac_energy_index_match(self):
         """Raise warning if indices of poa and ac_energy do not match."""
@@ -232,7 +242,8 @@ class TestPerfRatio():
         ac_energy = pd.Series([90, 95, 97], index=ix)
         poa = pd.Series([805, 810, 812], index=ix_poa)
         with pytest.warns(UserWarning):
-            pr.perf_ratio(ac_energy, 110, poa)
+            input_ok = pr.perf_ratio_inputs_ok(ac_energy, 110, poa)
+        assert input_ok is False
 
     def test_avail_index_match(self):
         """Raise warning if index of availability does not match poa."""
@@ -247,6 +258,7 @@ class TestPerfRatio():
         with pytest.warns(UserWarning):
             pr.perf_ratio(ac_energy, 110, poa, availability=avail)
 
+class TestPerfRatio():
     def test_simple_pr_hourly(self):
         """Test a short series of data for a hypothetical system.
 
@@ -283,7 +295,7 @@ class TestPerfRatio():
 
         perf_ratio = pr.perf_ratio(ac_energy, dc_nameplate, poa, unit_adj=1000)
         assert perf_ratio.pr <= 1
-        assert perf_ratio.pr > 0
+        assert perf_ratio.pr >= 0
         assert isinstance(perf_ratio.timestep[0], np.float64)
         assert isinstance(perf_ratio.timestep[1], str)
         assert perf_ratio.dc_nameplate == dc_nameplate
@@ -337,7 +349,7 @@ class TestPerfRatio():
 
         System specs:
         - ac nameplate: 100 kW
-        - dc/ac ratio: 1.2a
+        - dc/ac ratio: 1.2
         - dc nameplate: 120 kW-DC
         """
          # Wh for 3 hours
