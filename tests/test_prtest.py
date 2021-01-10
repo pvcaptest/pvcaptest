@@ -398,3 +398,34 @@ class TestPerfRatio():
             degradation=degrad
         )
         assert perf_ratio.pr == pytest.approx(expected)
+
+
+class TestPerfRatioTempCorrNREL():
+    def test_simple_pr_hourly(self):
+        """Test a short series of data for a hypothetical system.
+
+        System specs:
+        - ac nameplate: 100 kW
+        - dc/ac ratio: 1.2
+        - dc nameplate: 120 kW-DC
+        """
+         # Wh for 3 hours
+        ac_energy = pd.Series([80_000, 90_000, 95_000], index=ix)
+        poa = pd.Series([850, 900, 1000], index=ix) # poa W/m^2
+        dc_nameplate = 120_000 #W-DC
+        temp_amb = pd.Series([30, 32, 34], index=ix)
+        wind_speed = pd.Series([1, 1.5, 0.8], index=ix)
+        perf_ratio = pr.perf_ratio_temp_corr_nrel(
+            ac_energy,
+            dc_nameplate,
+            poa,
+            power_temp_coeff = -0.37,
+            temp_amb = temp_amb,
+            wind_speed = wind_speed,
+        )
+        assert perf_ratio.pr <= 1
+        assert perf_ratio.pr > 0
+        assert isinstance(perf_ratio.timestep[0], np.float64)
+        assert isinstance(perf_ratio.timestep[1], str)
+        assert perf_ratio.dc_nameplate == dc_nameplate
+        assert isinstance(perf_ratio.results_data, pd.DataFrame)

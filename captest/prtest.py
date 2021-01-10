@@ -205,7 +205,7 @@ def perf_ratio(
     racking='open_rack',
     degradation=None,
     year=None,
-    availability=None,
+    availability=1,
 ):
     """Calculate performance ratio.
 
@@ -252,7 +252,7 @@ def perf_ratio(
         Must also pass specify a value for the `year` argument.
     year : numeric
         Year of operation to use in degradation calculation.
-    availability : numeric or Series, default None
+    availability : numeric or Series, default 1
         Apply an adjustment for plant availability to the expected power
         (denominator).
 
@@ -396,8 +396,10 @@ def perf_ratio_temp_corr_nrel(
     power_temp_coeff=None,
     temp_amb=None,
     wind_speed=None,
+    base_temp=25,
     module_type='glass_cell_poly',
     racking='open_rack',
+    unit_adj=1,
     degradation=None,
     year=None,
     availability=1,
@@ -418,16 +420,20 @@ def perf_ratio_temp_corr_nrel(
         Ex. -0.36
     temp_amb : Series
         Ambient temperature (degrees C) measurements.
-        Argument is ignored if `bom_as_cell_temp` is True.
     wind_speed : Series
         Measured wind speed (m/sec) corrected to measurement height of
-        10 meters. Argument is ignored if `bom_as_cell_temp` is True.
+        10 meters.
+    base_temp : numeric, default 25
+        Base temperature (in Celsius) to correct power to. Default is the
+        STC of 25 degrees Celsius. The NREL Weather-Corrected Performance
+        Ratio technical report uses the term 'Tcell_typ_avg' for this value.
     module_type : str, default 'glass_cell_poly'
         Any of glass_cell_poly, glass_cell_glass, or 'poly_tf_steel'.
-        Argument is ignored if `bom_as_cell_temp` is True.
     racking: str, default 'open_rack'
         Any of 'open_rack', 'close_roof_mount', or 'insulated_back'
-        Argument is ignored if `bom_as_cell_temp` is True.
+    unit_adj : numeric, default 1
+        Scale factor to adjust units of `ac_energy`. For exmaple pass 1000
+        to convert measured energy from kWh to Wh within PR calculation.
     degradation : numeric, default None
         NOT IMPLEMENTED
         Apply a derate for degradation to the expected power (denominator).
@@ -443,6 +449,49 @@ def perf_ratio_temp_corr_nrel(
     Returns
     -------
     """
+    timestep = get_common_timestep(poa, units='h', string_output=False)
+    timestep_str = get_common_timestep(poa, units='h', string_output=True)
+
+    temp_bom = back_of_module_temp(
+        poa,
+        temp_amb,
+        wind_speed,
+        module_type,
+        racking
+    )
+    temp_cell = cell_temp(temp_bom, poa, module_type, racking)
+    dc_nameplate_temp_corr = temp_correct_power(
+        dc_nameplate,
+        power_temp_coeff,
+        temp_cell,
+        base_temp=base_temp
+    )
+    # below is same as the perf_ratio function
+    # move to a separate function?
+    expected_dc = (
+        availability
+        * dc_nameplate_temp_corr
+        * poa / 1000
+        # * (1 - degradation / 100)**year
+        * timestep
+    )
+    pr = ac_energy.sum() * unit_adj / expected_dc.sum()
+
+    input_cd = capdata.CapData('input_cd')
+    input_cd.data = pd.concat([poa, ac_energy], axis=1)
+
+    pr_per_timestep = ac_energy * unit_adj / expected_dc
+    results_data = pd.concat([ac_energy, expected_dc, pr_per_timestep], axis=1)
+    results_data.columns = ['ac_energy', 'expected_dc', 'pr_per_timestep']
+
+    results = PrResults(
+        timestep=(timestep, timestep_str),
+        pr=pr,
+        dc_nameplate=dc_nameplate,
+        input_data=input_cd,
+        results_data=results_data
+    )
+    return results
 
 
 def perf_ratio_temp_corr_meas_bom(
