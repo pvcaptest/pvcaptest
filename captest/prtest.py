@@ -9,41 +9,17 @@ from captest import capdata
 
 
 emp_heat_coeff = {
-    'open_rack': {
-        'glass_cell_glass': {
-            'a': -3.47,
-            'b': -0.0594,
-            'del_tcnd': 3
-        },
-        'glass_cell_poly': {
-            'a': -3.56,
-            'b': -0.0750,
-            'del_tcnd': 3
-        },
-        'poly_tf_steel': {
-            'a': -3.58,
-            'b': -0.1130,
-            'del_tcnd': 3
-        },
+    "open_rack": {
+        "glass_cell_glass": {"a": -3.47, "b": -0.0594, "del_tcnd": 3},
+        "glass_cell_poly": {"a": -3.56, "b": -0.0750, "del_tcnd": 3},
+        "poly_tf_steel": {"a": -3.58, "b": -0.1130, "del_tcnd": 3},
     },
-    'close_roof_mount': {
-        'glass_cell_glass': {
-            'a': -2.98,
-            'b': -0.0471,
-            'del_tcnd': 1
-        }
-    },
-    'insulated_back': {
-        'glass_cell_poly': {
-            'a': -2.81,
-            'b': -0.0455,
-            'del_tcnd': 0
-        }
-    }
+    "close_roof_mount": {"glass_cell_glass": {"a": -2.98, "b": -0.0471, "del_tcnd": 1}},
+    "insulated_back": {"glass_cell_poly": {"a": -2.81, "b": -0.0455, "del_tcnd": 0}},
 }
 
 
-def get_common_timestep(data, units='m', string_output=True):
+def get_common_timestep(data, units="m", string_output=True):
     """
     Get the most commonly occuring timestep of data as frequency string.
     Parameters
@@ -61,18 +37,18 @@ def get_common_timestep(data, units='m', string_output=True):
         frequency string
     """
     units_abbrev = {
-        'D': 'Day',
-        'M': 'Months',
-        'Y': 'Year',
-        'h': 'hours',
-        'm': 'minutes',
-        's': 'seconds'
+        "D": "Day",
+        "M": "Months",
+        "Y": "Year",
+        "h": "hours",
+        "m": "minutes",
+        "s": "seconds",
     }
     common_timestep = stats.mode(np.diff(data.index.values))[0][0]
-    common_timestep_tdelta = common_timestep.astype('timedelta64[m]')
+    common_timestep_tdelta = common_timestep.astype("timedelta64[m]")
     freq = common_timestep_tdelta / np.timedelta64(1, units)
     if string_output:
-        return str(freq) + ' ' + units_abbrev[units]
+        return str(freq) + " " + units_abbrev[units]
     else:
         return freq
 
@@ -104,11 +80,7 @@ def temp_correct_power(power, power_temp_coeff, cell_temp, base_temp=25):
 
 
 def back_of_module_temp(
-    poa,
-    temp_amb,
-    wind_speed,
-    module_type='glass_cell_poly',
-    racking='open_rack'
+    poa, temp_amb, wind_speed, module_type="glass_cell_poly", racking="open_rack"
 ):
     """Calculate back of module temperature from measured weather data.
 
@@ -137,12 +109,12 @@ def back_of_module_temp(
     numeric or Series
         Back of module temperatures.
     """
-    a = emp_heat_coeff[racking][module_type]['a']
-    b = emp_heat_coeff[racking][module_type]['b']
+    a = emp_heat_coeff[racking][module_type]["a"]
+    b = emp_heat_coeff[racking][module_type]["b"]
     return poa * np.exp(a + b * wind_speed) + temp_amb
 
 
-def cell_temp(bom, poa, module_type='glass_cell_poly', racking='open_rack'):
+def cell_temp(bom, poa, module_type="glass_cell_poly", racking="open_rack"):
     """Calculate cell temp from BOM temp, POA, and heat transfer coefficient.
 
     Equation from NREL Weather Corrected Performance Ratio Report.
@@ -169,7 +141,7 @@ def cell_temp(bom, poa, module_type='glass_cell_poly', racking='open_rack'):
     numeric or Series
         Cell temperature(s).
     """
-    return bom + (poa / 1000) * emp_heat_coeff[racking][module_type]['del_tcnd']
+    return bom + (poa / 1000) * emp_heat_coeff[racking][module_type]["del_tcnd"]
 
 
 def avg_typ_cell_temp(poa, cell_temp):
@@ -189,8 +161,11 @@ def avg_typ_cell_temp(poa, cell_temp):
     """
     return (poa * cell_temp).sum() / poa.sum()
 
+
 """DIRECTLY BELOW DRAFT PR FUNCTION TO DO ALL VERSIONS OF CALC
 DECIDED TO BREAK INTO SMALLER FUNCTIONS, LEAVE TEMPORARILY"""
+
+
 def perf_ratio(
     ac_energy,
     dc_nameplate,
@@ -201,8 +176,8 @@ def perf_ratio(
     cell_temp=None,
     temp_amb=None,
     wind_speed=None,
-    module_type='glass_cell_poly',
-    racking='open_rack',
+    module_type="glass_cell_poly",
+    racking="open_rack",
     degradation=None,
     year=None,
     availability=1,
@@ -275,6 +250,7 @@ def perf_ratio(
     # def avg_typ_cell_temp(poa, cell_temp)
     # def temp_correct_power(power, power_temp_coeff, cell_temp, base_temp=25)
 
+
 def perf_ratio_inputs_ok(ac_energy, dc_nameplate, poa, availability=1):
     """Check types of perf_ratio arguments.
 
@@ -292,19 +268,19 @@ def perf_ratio_inputs_ok(ac_energy, dc_nameplate, poa, availability=1):
         (denominator).
     """
     if not isinstance(ac_energy, pd.Series):
-        warnings.warn('ac_energy must be a Pandas Series.')
+        warnings.warn("ac_energy must be a Pandas Series.")
         return False
     elif not isinstance(poa, pd.Series):
-        warnings.warn('poa must be a Pandas Series.')
+        warnings.warn("poa must be a Pandas Series.")
         return False
     elif not ac_energy.index.equals(poa.index):
-        warnings.warn('indices of poa and ac_energy must match.')
+        warnings.warn("indices of poa and ac_energy must match.")
         return False
     elif isinstance(availability, pd.Series):
         if not availability.index.equals(poa.index):
             warnings.warn(
-                'Index of availability must match the index of '
-                'the poa and ac_energy.'
+                "Index of availability must match the index of "
+                "the poa and ac_energy."
             )
             return False
         else:
@@ -313,14 +289,102 @@ def perf_ratio_inputs_ok(ac_energy, dc_nameplate, poa, availability=1):
         return True
 
 
+class PRCalc(param.Parameterized):
+    """Class for performance ratio (PR) calculation.
+    """
+
+    ac_energy = param.ClassSelector(
+        pd.Series, doc=("Measured energy production (Wh) from system meter.")
+    )
+    dc_nameplate = param.Number(
+        bounds=(0, None),
+        doc=(
+            "Summation of nameplate ratings (W) for all installed modules of " "system."
+        ),
+    )
+    poa = param.ClassSelector(
+        pd.Series, doc=("POA irradiance (W/m^2) for each time interval of the" "test.")
+    )
+    unit_adj = param.Number(
+        1,
+        bounds=(0, None),
+        doc=(
+            "Scale factor to adjust units of `ac_energy`. For exmaple pass "
+            "1000 to convert measured energy from kWh to Wh within PR "
+            "calculation."
+        ),
+    )
+    degradation = param.Number(
+        0,
+        bounds=(0, 100),
+        doc=(
+            "Apply a derate (percent, Ex: 0.5%) for degradation to the "
+            "expected power (denominator). Must also pass specify a value for"
+            " the `year` argument. "
+            "NOTE: Percent is divided by 100 to convert to decimal within"
+            " function."
+        ),
+    )
+    year = param.Number(
+        1,
+        bounds=(0, None),
+        doc=("Year of operation to use in degradation calculation."),
+    )
+    availability = param.Number(
+        1,
+        bounds=(0, 1),
+        doc=(
+            "Apply an adjustment for plant availability to the expected power "
+            "denominator."
+        ),
+    )
+    timestep = param.Number(
+        bounds=(0, None), doc=("Time interval of the `poa` data in hours."),
+    )
+    timestep_str = param.String(
+        doc=("Time interval of the `poa` data in hours as string with units."),
+    )
+    reference_yield = param.ClassSelector(
+        pd.Series,
+        doc=(
+            "Reference yield (Yr) i.e. the denominator of the PR. "
+            "See IEC 61724-1:2017 Section 10.3 Performance Ratios."
+        ),
+    )
+    pr = param.Number(doc=("Performance ratio result decimal fraction."))
+
+    def __init__(self, **params):
+        super().__init__(**params)
+        self.timestep = get_common_timestep(self.poa, units="h", string_output=False)
+        self.timestep_str = get_common_timestep(self.poa, units="h", string_output=True)
+
+    # def get_reference_yield(self, dc_nameplate, poa):
+    #     """
+    #     dc_nameplate : numeric
+    #         Summation of nameplate ratings (W) for all installed modules of
+    #         system under test.
+    #     poa : Series
+    #         POA irradiance (W/m^2) for each time interval of the test.
+    #     """
+    def get_reference_yield(self):
+        """Calculate reference yield from `dc_nameplate` and `poa`.
+        """
+        self.reference_yield = self.dc_nameplate * self.poa / 1000 * self.timestep
+
+    def get_pr(self, unit_adj=1):
+        """Calculate pr.
+
+        Parameters
+        ----------
+        unit_adj : numeric, default 1
+            Scale factor to adjust units of `ac_energy`. For exmaple pass 1000
+            to convert measured energy from kWh to Wh within PR calculation.
+        """
+        self.pr = self.ac_energy.sum() * self.unit_adj / self.reference_yield.sum()
+
+
 def perf_ratio(
-    ac_energy,
-    dc_nameplate,
-    poa,
-    unit_adj=1,
-    degradation=0,
-    year=1,
-    availability=1,
+    ac_energy, dc_nameplate, poa, unit_adj=1, degradation=0, year=1, availability=1,
 ):
     """Calculate performance ratio.
 
@@ -353,38 +417,36 @@ def perf_ratio(
         Instance of class PrResults.
     """
     if not perf_ratio_inputs_ok(
-        ac_energy,
-        dc_nameplate,
-        poa,
-        availability=availability
+        ac_energy, dc_nameplate, poa, availability=availability
     ):
         return
 
-    timestep = get_common_timestep(poa, units='h', string_output=False)
-    timestep_str = get_common_timestep(poa, units='h', string_output=True)
+    timestep = get_common_timestep(poa, units="h", string_output=False)
+    timestep_str = get_common_timestep(poa, units="h", string_output=True)
 
     expected_dc = (
         availability
         * dc_nameplate
-        * poa / 1000
-        * (1 - degradation / 100)**year
+        * poa
+        / 1000
+        * (1 - degradation / 100) ** year
         * timestep
     )
     pr = ac_energy.sum() * unit_adj / expected_dc.sum()
 
-    input_cd = capdata.CapData('input_cd')
+    input_cd = capdata.CapData("input_cd")
     input_cd.data = pd.concat([poa, ac_energy], axis=1)
 
     pr_per_timestep = ac_energy * unit_adj / expected_dc
     results_data = pd.concat([ac_energy, expected_dc, pr_per_timestep], axis=1)
-    results_data.columns = ['ac_energy', 'expected_dc', 'pr_per_timestep']
+    results_data.columns = ["ac_energy", "expected_dc", "pr_per_timestep"]
 
     results = PrResults(
         timestep=(timestep, timestep_str),
         pr=pr,
         dc_nameplate=dc_nameplate,
         input_data=input_cd,
-        results_data=results_data
+        results_data=results_data,
     )
     return results
 
@@ -397,8 +459,8 @@ def perf_ratio_temp_corr_nrel(
     temp_amb=None,
     wind_speed=None,
     base_temp=25,
-    module_type='glass_cell_poly',
-    racking='open_rack',
+    module_type="glass_cell_poly",
+    racking="open_rack",
     unit_adj=1,
     degradation=None,
     year=None,
@@ -449,47 +511,39 @@ def perf_ratio_temp_corr_nrel(
     Returns
     -------
     """
-    timestep = get_common_timestep(poa, units='h', string_output=False)
-    timestep_str = get_common_timestep(poa, units='h', string_output=True)
+    timestep = get_common_timestep(poa, units="h", string_output=False)
+    timestep_str = get_common_timestep(poa, units="h", string_output=True)
 
-    temp_bom = back_of_module_temp(
-        poa,
-        temp_amb,
-        wind_speed,
-        module_type,
-        racking
-    )
+    temp_bom = back_of_module_temp(poa, temp_amb, wind_speed, module_type, racking)
     temp_cell = cell_temp(temp_bom, poa, module_type, racking)
     dc_nameplate_temp_corr = temp_correct_power(
-        dc_nameplate,
-        power_temp_coeff,
-        temp_cell,
-        base_temp=base_temp
+        dc_nameplate, power_temp_coeff, temp_cell, base_temp=base_temp
     )
     # below is same as the perf_ratio function
     # move to a separate function?
     expected_dc = (
         availability
         * dc_nameplate_temp_corr
-        * poa / 1000
+        * poa
+        / 1000
         # * (1 - degradation / 100)**year
         * timestep
     )
     pr = ac_energy.sum() * unit_adj / expected_dc.sum()
 
-    input_cd = capdata.CapData('input_cd')
+    input_cd = capdata.CapData("input_cd")
     input_cd.data = pd.concat([poa, ac_energy], axis=1)
 
     pr_per_timestep = ac_energy * unit_adj / expected_dc
     results_data = pd.concat([ac_energy, expected_dc, pr_per_timestep], axis=1)
-    results_data.columns = ['ac_energy', 'expected_dc', 'pr_per_timestep']
+    results_data.columns = ["ac_energy", "expected_dc", "pr_per_timestep"]
 
     results = PrResults(
         timestep=(timestep, timestep_str),
         pr=pr,
         dc_nameplate=dc_nameplate,
         input_data=input_cd,
-        results_data=results_data
+        results_data=results_data,
     )
     return results
 
@@ -542,43 +596,51 @@ def perf_ratio_temp_corr_meas_bom(
 class PrResults(param.Parameterized):
     """Results from a PR calculation.
     """
+
     dc_nameplate = param.Number(
         bounds=(0, None),
         doc=(
-            'Summation of nameplate ratings (W) for all installed modules'
-            ' of system.'
-        )
+            "Summation of nameplate ratings (W) for all installed modules" " of system."
+        ),
     )
-    pr = param.Number(doc='Performance ratio result decimal fraction.')
-    timestep = param.Tuple(doc='Timestep of series.')
+    pr = param.Number(doc="Performance ratio result decimal fraction.")
+    timestep = param.Tuple(doc="Timestep of series.")
     expected_pr = param.Number(
-        bounds=(0, 1),
-        doc='Expected Performance ratio result decimal fraction.'
+        bounds=(0, 1), doc="Expected Performance ratio result decimal fraction."
     )
     input_data = param.ClassSelector(capdata.CapData)
     results_data = param.ClassSelector(pd.DataFrame)
-
 
     def print_pr_result(self):
         """Print summary of PR result - passing / failing and by how much
         """
         if self.pr >= self.expected_pr:
-            print('The test is PASSING with a measured PR of {:.2f}, '
-                  'which is {:.2f} above the expected PR of {:.2f}'.format(
+            print(
+                "The test is PASSING with a measured PR of {:.2f}, "
+                "which is {:.2f} above the expected PR of {:.2f}".format(
                     self.pr * 100,
-                    (self.pr - self.expected_pr) *100,
-                    self.expected_pr * 100))
+                    (self.pr - self.expected_pr) * 100,
+                    self.expected_pr * 100,
+                )
+            )
         else:
-            print('The test is FAILING with a measured PR of {:.2f}, '
-                  'which is {:.2f} below the expected PR of {:.2f}'.format(
+            print(
+                "The test is FAILING with a measured PR of {:.2f}, "
+                "which is {:.2f} below the expected PR of {:.2f}".format(
                     self.pr * 100,
                     (self.expected_pr - self.pr) * 100,
-                    self.expected_pr * 100))
+                    self.expected_pr * 100,
+                )
+            )
+
+
 """
 ************************************************************************
 ********** BELOW FUNCTIONS ARE NOT FULLY IMPLEMENTED / TESTED **********
 ************************************************************************
 """
+
+
 def cell_temp_old(
     df,
     bom="Tm",
