@@ -172,6 +172,7 @@ def update_summary(func):
     @wraps(func)
     def wrapper(self, *args, **kwargs):
         pts_before = self.data_filtered.shape[0]
+        ix_before = self.data_filtered.index
         if pts_before == 0:
             pts_before = self.data.shape[0]
             self.summary_ix.append((self.name, 'count'))
@@ -213,6 +214,17 @@ def update_summary(func):
         self.summary.append({columns[0]: pts_after,
                              columns[1]: pts_removed,
                              columns[2]: arg_str})
+
+        filter_name = func.__name__
+        if filter_name in self.filter_counts.keys():
+            self.filter_counts[filter_name] += 1
+            filter_name_enum = filter_name + '-' + str(self.filter_counts[filter_name])
+        else:
+            self.filter_counts[filter_name] = 1
+            filter_name_enum = filter_name
+
+        ix_after = self.data_filtered.index
+        self.removed[filter_name_enum ] = ix_before.difference(ix_after)
 
         if pts_after == 0:
             warnings.warn('The last filter removed all data! '
@@ -1187,6 +1199,8 @@ class CapData(object):
         self.col_colors = {}
         self.summary_ix = []
         self.summary = []
+        self.removed = collections.OrderedDict()
+        self.filter_counts = {}
         self.rc = None
         self.regression_results = None
         self.regression_formula = ('power ~ poa + I(poa * poa)'
@@ -2038,6 +2052,8 @@ class CapData(object):
         self.data_filtered = self.data.copy()
         self.summary_ix = []
         self.summary = []
+        self.filter_counts = {}
+        self.removed = collections.OrderedDict()
 
     def reset_agg(self):
         """
@@ -3085,6 +3101,20 @@ class CapData(object):
         #
         # return(sy)
 
+    def get_filtering_df(self):
+        filtering_data = pd.DataFrame(index=self.data.index)
+        last_filter_id = None
+        for filter_id, pts_removed_ix in self.removed.items():
+            if last_filter_id is None:
+                filtering_data.loc[:, filter_id] = 0
+            else:
+                filtering_data.loc[self.removed[last_filter_id], filter_id] = 0
+            filtering_data.loc[pts_removed_ix, filter_id] = 1
+            last_filter_id = filter_id
+        filtering_data['all_filters'] = filtering_data.apply(
+            lambda x: all(x == 0), axis=1
+        )
+        return filtering_data
 
 if __name__ == "__main__":
     import doctest
