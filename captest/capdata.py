@@ -1344,10 +1344,8 @@ class CapData(object):
                     new_cols.append(str(one) + ' ' + str(two) + ', ' + str(three))  # noqa: E501
 
                 all_data.columns = new_cols
-
+                all_data = all_data.iloc[i:, :]
         all_data = all_data.apply(pd.to_numeric, errors='coerce')
-        # all_data.dropna(axis=1, how='all', inplace=True)
-        # all_data.dropna(how='all', inplace=True)
 
         if source != 'AlsoEnergy':
             all_data.columns = [' '.join(col).strip() for col in all_data.columns.values]  # noqa: E501
