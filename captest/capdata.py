@@ -217,14 +217,15 @@ def update_summary(func):
 
         filter_name = func.__name__
         if filter_name in self.filter_counts.keys():
-            self.filter_counts[filter_name] += 1
             filter_name_enum = filter_name + '-' + str(self.filter_counts[filter_name])
+            self.filter_counts[filter_name] += 1
         else:
             self.filter_counts[filter_name] = 1
             filter_name_enum = filter_name
 
         ix_after = self.data_filtered.index
-        self.removed[filter_name_enum ] = ix_before.difference(ix_after)
+        self.removed[filter_name_enum] = ix_before.difference(ix_after)
+        self.kept[filter_name_enum] = ix_after
 
         if pts_after == 0:
             warnings.warn('The last filter removed all data! '
@@ -1200,6 +1201,7 @@ class CapData(object):
         self.summary_ix = []
         self.summary = []
         self.removed = collections.OrderedDict()
+        self.kept = collections.OrderedDict()
         self.filter_counts = {}
         self.rc = None
         self.regression_results = None
@@ -3101,14 +3103,14 @@ class CapData(object):
         #
         # return(sy)
 
-    def get_filtering_df(self):
+    def get_filtering_table(self):
         filtering_data = pd.DataFrame(index=self.data.index)
         last_filter_id = None
         for filter_id, pts_removed_ix in self.removed.items():
             if last_filter_id is None:
                 filtering_data.loc[:, filter_id] = 0
             else:
-                filtering_data.loc[self.removed[last_filter_id], filter_id] = 0
+                filtering_data.loc[self.kept[last_filter_id], filter_id] = 0
             filtering_data.loc[pts_removed_ix, filter_id] = 1
             last_filter_id = filter_id
         filtering_data['all_filters'] = filtering_data.apply(
