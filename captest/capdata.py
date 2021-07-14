@@ -2756,8 +2756,13 @@ class CapData(object):
         else:
             meas_ghi = self.data_filtered[ghi_col]
 
-        clear_per = detect_clearsky(meas_ghi, self.data_filtered['ghi_mod_csky'],  # noqa: E501
-                                    meas_ghi.index, window_length, **kwargs)
+        clear_per = detect_clearsky(
+            meas_ghi,
+            self.data_filtered['ghi_mod_csky'],
+            meas_ghi.index,
+            window_length,
+            **kwargs,
+        )
         if not any(clear_per):
             return warnings.warn('No clear periods detected. Try increasing '
                                  'the window length.')
