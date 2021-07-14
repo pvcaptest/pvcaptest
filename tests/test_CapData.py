@@ -1626,6 +1626,14 @@ class Test_Csky_Filter(unittest.TestCase):
                              'Filter changed column {} to '
                              '{}'.format(self.meas.data.columns[i], col))
 
+    def test_default_drop_clear_sky(self):
+        self.meas.filter_clearsky()
+        clear_ix = self.meas.data_filtered.index
+        self.meas.reset_filter()
+        self.meas.filter_clearsky(keep_clear=False)
+        cloudy_ix = self.meas.data_filtered.index
+        assert (self.meas.data.index.difference(clear_ix).equals(cloudy_ix))
+
     def test_two_ghi_cols(self):
         self.meas.data['ws 2 ghi W/m^2'] = self.meas.view('irr-ghi-') * 1.05
         self.meas.data_filtered = self.meas.data.copy()
