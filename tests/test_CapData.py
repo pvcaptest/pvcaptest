@@ -1369,6 +1369,14 @@ class TestFilterIrr(unittest.TestCase):
         self.assertLess(self.meas.data_filtered.shape[0], pts_before,
                         'Filter did not remove points.')
 
+    def test_refval_use_attribute(self):
+        self.meas.rc = pd.DataFrame({'poa':500, 'w_vel':1, 't_amb':20}, index=[0])
+        pts_before = self.meas.data_filtered.shape[0]
+        self.meas.filter_irr(0.8, 1.2, ref_val='self_val', col_name=None,
+                             inplace=True)
+        self.assertLess(self.meas.data_filtered.shape[0], pts_before,
+                        'Filter did not remove points.')
+
     def test_refval_withcol_notinplace(self):
         pts_before = self.meas.data_filtered.shape[0]
         df = self.meas.filter_irr(500, 600, ref_val=None, col_name=None,
