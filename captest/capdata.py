@@ -208,13 +208,6 @@ def update_summary(func):
         else:
             arg_str = arg_str + ', ' + kwarg_str
 
-        pts_after = self.data_filtered.shape[0]
-        pts_removed = pts_before - pts_after
-        self.summary_ix.append((self.name, func.__name__))
-        self.summary.append({columns[0]: pts_after,
-                             columns[1]: pts_removed,
-                             columns[2]: arg_str})
-
         filter_name = func.__name__
         if filter_name in self.filter_counts.keys():
             filter_name_enum = filter_name + '-' + str(self.filter_counts[filter_name])
@@ -223,9 +216,22 @@ def update_summary(func):
             self.filter_counts[filter_name] = 1
             filter_name_enum = filter_name
 
+        pts_after = self.data_filtered.shape[0]
+        pts_removed = pts_before - pts_after
+        self.summary_ix.append((self.name, filter_name_enum))
+        self.summary.append({columns[0]: pts_after,
+                             columns[1]: pts_removed,
+                             columns[2]: arg_str})
+
         ix_after = self.data_filtered.index
-        self.removed[filter_name_enum] = ix_before.difference(ix_after)
-        self.kept[filter_name_enum] = ix_after
+        self.removed.append({
+            'name': filter_name_enum,
+            'index': ix_before.difference(ix_after)
+        })
+        self.kept.append({
+            'name': filter_name_enum,
+            'index': ix_after
+        })
 
         if pts_after == 0:
             warnings.warn('The last filter removed all data! '
@@ -1200,8 +1206,8 @@ class CapData(object):
         self.col_colors = {}
         self.summary_ix = []
         self.summary = []
-        self.removed = collections.OrderedDict()
-        self.kept = collections.OrderedDict()
+        self.removed = []
+        self.kept = []
         self.filter_counts = {}
         self.rc = None
         self.regression_results = None
@@ -2042,6 +2048,54 @@ class CapData(object):
         grid = gridplot(plots, ncols=ncols, **kwargs)
         return show(grid)
 
+    def scatter_filters(self):
+        """
+        Returns an overlay of scatter plots of intervals removed for each filter.
+
+        A scatter plot of power vs irradiance is generated for the time intervals
+        removed for each filtering step. Each of these plots is labeled and
+        overlayed.
+        """
+        scatters = []
+
+        data = self.get_reg_cols(reg_vars=['power', 'poa'], filtered_data=False)
+        data['index'] = self.data.loc[:, 'index']
+        plt_no_filtering = hv.Scatter(data, 'poa', ['power', 'index']).relabel('all')
+        scatters.append(plt_no_filtering)
+
+        d1 = data.loc[self.removed[0]['index'], :]
+        plt_first_filter = hv.Scatter(d1, 'poa', ['power', 'index']).relabel(
+            self.removed[0]['name']
+        )
+        scatters.append(plt_first_filter)
+
+        for i, filtering_step in enumerate(self.kept):
+            if i >= len(self.kept) - 1:
+                break
+            else:
+                flt_legend = self.kept[i + 1]['name']
+            d_flt = data.loc[filtering_step['index'], :]
+            plt = hv.Scatter(d_flt, 'poa', ['power', 'index']).relabel(flt_legend)
+            scatters.append(plt)
+
+        scatter_overlay = hv.Overlay(scatters)
+        scatter_overlay.opts(
+            hv.opts.Scatter(
+                size=5,
+                width=650,
+                height=500,
+                muted_fill_alpha=0,
+                fill_alpha=0.4,
+                line_width=0,
+                tools=['hover'],
+            ),
+            hv.opts.Overlay(
+                legend_position='right',
+                toolbar='above'
+            ),
+        )
+        return scatter_overlay
+
     def reset_filter(self):
         """
         Set `data_filtered` to `data` and reset filtering summary.
@@ -2055,7 +2109,8 @@ class CapData(object):
         self.summary_ix = []
         self.summary = []
         self.filter_counts = {}
-        self.removed = collections.OrderedDict()
+        self.removed = []
+        self.kept = []
 
     def reset_agg(self):
         """
@@ -3105,14 +3160,15 @@ class CapData(object):
 
     def get_filtering_table(self):
         filtering_data = pd.DataFrame(index=self.data.index)
-        last_filter_id = None
-        for filter_id, pts_removed_ix in self.removed.items():
-            if last_filter_id is None:
-                filtering_data.loc[:, filter_id] = 0
+        for i, (flt_step_kept, flt_step_removed) in (
+            enumerate(zip(self.kept, self.removed))
+        ):
+            if i == 0:
+                filtering_data.loc[:, flt_step_removed['name']] = 0
             else:
-                filtering_data.loc[self.kept[last_filter_id], filter_id] = 0
-            filtering_data.loc[pts_removed_ix, filter_id] = 1
-            last_filter_id = filter_id
+                filtering_data.loc[self.kept[i - 1]['index'], flt_step_kept['name']] = 0
+            filtering_data.loc[flt_step_removed['index'], flt_step_removed['name']] = 1
+
         filtering_data['all_filters'] = filtering_data.apply(
             lambda x: all(x == 0), axis=1
         )
