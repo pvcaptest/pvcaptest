@@ -2096,6 +2096,57 @@ class CapData(object):
         )
         return scatter_overlay
 
+    def timeseries_filters(self):
+        """
+        Returns an overlay of scatter plots of intervals removed for each filter.
+
+        A scatter plot of power vs irradiance is generated for the time intervals
+        removed for each filtering step. Each of these plots is labeled and
+        overlayed.
+        """
+        scatters = []
+
+        # data = self.get_reg_cols(reg_vars=['power', 'poa'], filtered_data=False)
+        # data['index'] = self.data.loc[:, 'index']
+        plt_no_filtering = self.rview('power').hvplot().relabel('all').opts(
+            line_color='black',
+            line_width=1,
+            width=1500,
+            height=450,
+        )
+        scatters.append(plt_no_filtering)
+
+        d1 = self.rview('power').loc[self.removed[0]['index'], :]
+        plt_first_filter = d1.hvplot(kind='scatter').relabel(
+            self.removed[0]['name']
+        )
+        scatters.append(plt_first_filter)
+
+        for i, filtering_step in enumerate(self.kept):
+            if i >= len(self.kept) - 1:
+                break
+            else:
+                flt_legend = self.kept[i + 1]['name']
+            d_flt = self.rview('power').loc[filtering_step['index'], :]
+            plt = d_flt.hvplot(kind='scatter').relabel(flt_legend)
+            scatters.append(plt)
+
+        scatter_overlay = hv.Overlay(scatters)
+        scatter_overlay.opts(
+            hv.opts.Scatter(
+                size=5,
+                muted_fill_alpha=0,
+                fill_alpha=1,
+                line_width=0,
+                tools=['hover'],
+            ),
+            hv.opts.Overlay(
+                legend_position='bottom',
+                toolbar='right'
+            ),
+        )
+        return scatter_overlay
+
     def reset_filter(self):
         """
         Set `data_filtered` to `data` and reset filtering summary.
