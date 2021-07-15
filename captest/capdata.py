@@ -3210,6 +3210,16 @@ class CapData(object):
         # return(sy)
 
     def get_filtering_table(self):
+        """
+        Returns DataFrame showing which filter removed each filtered time interval.
+
+        Time intervals removed are marked with a "1".
+        Time intervals kept are marked with a "0".
+        Time intervals removed by a previous filter are np.NaN/blank.
+        Columns/filters are in order they are run from left to right.
+        The last column labeled "all_filters" shows is True for intervals that were
+        not removed by any of the filters.
+        """
         filtering_data = pd.DataFrame(index=self.data.index)
         for i, (flt_step_kept, flt_step_removed) in (
             enumerate(zip(self.kept, self.removed))
