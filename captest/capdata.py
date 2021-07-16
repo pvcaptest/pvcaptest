@@ -1136,6 +1136,30 @@ def captest_results_check_pvalues(sim, das, nameplate, tolerance,
                                                             'sim_pvals']))
 
 
+def run_test(cd, steps):
+    """
+    Apply a list of capacity test steps to a given CapData object.
+
+    A list of CapData methods is applied sequentially with the passed
+    parameters.  This method allows succintly defining a capacity test,
+    which facilitates parametric and automatic testing.
+
+    Parameters
+    ----------
+    cd : CapData
+        The CapData methods will be applied to this instance of the pvcaptest
+        CapData class.
+    steps : list of tuples
+        A list of the methods to be applied and the arguments to be used.
+        Each item in the list should be a tuple of the CapData method followed
+        by a tuple of arguments and a dictionary of keyword arguments. If
+        there are not args or kwargs an empty tuple or dict should be included.
+        Example: [(CapData.filter_irr, (400, 1500), {})]
+    """
+    for step in steps:
+        step[0](cd, *step[1], **step[2])
+
+
 class CapData(object):
     """
     Class to store capacity test data and translation of column names.
