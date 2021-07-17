@@ -63,6 +63,7 @@ else:
     warnings.warn('Clear sky functions will not work without the '
                   'pvlib package.')
 
+from captest import util
 
 plot_colors_brewer = {'real_pwr': ['#2b8cbe', '#7bccc4', '#bae4bc', '#f0f9e8'],
                       'irr-poa': ['#e31a1c', '#fd8d3c', '#fecc5c', '#ffffb2'],
@@ -3258,6 +3259,37 @@ class CapData(object):
             lambda x: all(x == 0), axis=1
         )
         return filtering_data
+
+    def points_summary(self, hrs_req=12.5):
+        """
+        Print summary data on the number of points collected.
+
+        Parameters
+        ----------
+        hrs_req : numeric, default 12.5
+            Number of hours to be represented by final filtered test data set.
+            Default of 12.5 hours is dictated by ASTM E2848 and corresponds to
+            750 1-minute data points, 150 5-minute, or 50 15-minute points.
+        """
+        test_period = self.data_filtered.index[-1] - self.data_filtered.index[0]
+        print('Length of test period to date: {}'.format(test_period))
+        pts_collected = self.data_filtered.shape[0]
+        pts_required = (
+            (hrs_req * 60) /
+            util.get_common_timestep(self.data, units='m', string_output=False)
+        )
+        avg_pts_per_day = pts_collected / test_period.ceil('D').days
+        if pts_collected > pts_required:
+            print('Sufficient points have been collected. {} points required; '
+                  '{} points collected'.format(pts_required, pts_collected))
+        else:
+            print('{} points of {} points needed, {} remaining to collect.'.format(
+                pts_collected, pts_required, pts_required - pts_collected)
+            )
+            print('{:0.2f} points / day on average.'.format(avg_pts_per_day))
+            print('Approximate days remaining: {:0.0f}'.format(
+                round(((pts_required - pts_collected) / avg_pts_per_day), 0) + 1)
+            )
 
 if __name__ == "__main__":
     import doctest
