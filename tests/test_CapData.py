@@ -1906,6 +1906,35 @@ class TestGetFilteringTable:
             flt0_removed_ix.union(flt1_removed_ix).union(flt2_removed_ix)
         )
 
+@pytest.fixture
+def meas():
+    """Create an instance of CapData with example data loaded."""
+    meas = pvc.CapData('meas')
+    meas.load_data(
+        path='./tests/data/',
+        fname='example_meas_data.csv',
+        source='AlsoEnergy'
+    )
+    meas.set_regression_cols(
+        power='-mtr-',
+        poa='irr-poa-',
+        t_amb='temp-amb-',
+        w_vel='wind--',
+    )
+    return meas
+
+class TestPointsSummary():
+    def test_length_test_period_no_filter(self, meas):
+        assert meas.length_test_period() == 5
+
+    def test_length_test_period_after_one_filter_time(self, meas):
+        meas.filter_time(start='10/9/1990', end='10/12/1990 23:00')
+        assert meas.length_test_period() == 4
+
+    def test_length_test_period_after_two_filter_time(self, meas):
+        meas.filter_time(start='10/9/1990', end='10/12/1990 23:00')
+        meas.filter_time(start='10/9/1990', end='10/11/1990 23:00')
+        assert meas.length_test_period() == 4
 
 
 if __name__ == '__main__':

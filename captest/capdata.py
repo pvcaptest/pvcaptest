@@ -3294,6 +3294,46 @@ class CapData(object):
                 round(((pts_required - pts_collected) / avg_pts_per_day), 0) + 1)
             )
 
+    def print_points_summary(self, hrs_req=12.5):
+        """
+        Print summary data on the number of points collected.
+        """
+        test_period = self.length_test_period()
+        pts_collected = self.data_filtered.shape[0]
+        print('Length of test period to date: {}'.format(test_period))
+        if pts_collected > pts_required:
+            print('Sufficient points have been collected. {} points required; '
+                  '{} points collected'.format(pts_required, pts_collected))
+        else:
+            print('{} points of {} points needed, {} remaining to collect.'.format(
+                pts_collected, pts_required, pts_required - pts_collected)
+            )
+            print('{:0.2f} points / day on average.'.format(avg_pts_per_day))
+            print('Approximate days remaining: {:0.0f}'.format(
+                round(((pts_required - pts_collected) / avg_pts_per_day), 0) + 1)
+            )
+
+    def length_test_period(self):
+        """
+        Get length of test period.
+
+        Uses length of `data` unless `filter_time` has been run, then uses length
+        of the kept data after `filter_time` was run the first time. Subsequent
+        uses of `filter_time` are ignored.
+
+        Rounds up to a period of full days.
+
+        Returns
+        -------
+        int
+            Days in test period.
+        """
+        test_period = self.data.index[-1] - self.data.index[0]
+        for filter in self.kept:
+            if 'filter_time' == filter['name']:
+                test_period = filter['index'][-1] - filter['index'][0]
+        return test_period.ceil('D').days
+
 if __name__ == "__main__":
     import doctest
     import pandas as pd  # noqa F811
