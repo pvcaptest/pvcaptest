@@ -3271,7 +3271,10 @@ class CapData(object):
             Default of 12.5 hours is dictated by ASTM E2848 and corresponds to
             750 1-minute data points, 150 5-minute, or 50 15-minute points.
         """
-        test_period = self.data_filtered.index[-1] - self.data_filtered.index[0]
+        test_period = self.data.index[-1] - self.data.index[0]
+        for filter in self.kept:
+            if 'filter_time' in filter['name']:
+                test_period = filter['index'][-1] - filter['index'][0]
         print('Length of test period to date: {}'.format(test_period))
         pts_collected = self.data_filtered.shape[0]
         pts_required = (
