@@ -1913,7 +1913,8 @@ def meas():
     meas.load_data(
         path='./tests/data/',
         fname='example_meas_data.csv',
-        source='AlsoEnergy'
+        source='AlsoEnergy',
+        column_type_report=False,
     )
     meas.set_regression_cols(
         power='-mtr-',
@@ -1923,18 +1924,51 @@ def meas():
     )
     return meas
 
+@pytest.fixture
+def pts_summary(meas):
+    pts_summary = pvc.PointsSummary(meas)
+    return pts_summary
+
 class TestPointsSummary():
     def test_length_test_period_no_filter(self, meas):
-        assert meas.length_test_period() == 5
+        meas.get_length_test_period()
+        assert meas.length_test_period == 5
 
     def test_length_test_period_after_one_filter_time(self, meas):
         meas.filter_time(start='10/9/1990', end='10/12/1990 23:00')
-        assert meas.length_test_period() == 4
+        meas.get_length_test_period()
+        assert meas.length_test_period == 4
 
     def test_length_test_period_after_two_filter_time(self, meas):
         meas.filter_time(start='10/9/1990', end='10/12/1990 23:00')
         meas.filter_time(start='10/9/1990', end='10/11/1990 23:00')
-        assert meas.length_test_period() == 4
+        meas.get_length_test_period()
+        assert meas.length_test_period == 4
+
+    def test_get_pts_required_default(self, meas):
+        meas.get_pts_required()
+        assert meas.pts_required == 150
+
+    def test_get_pts_required_10_hrs(self, meas):
+        meas.get_pts_required(hrs_req=10)
+        assert meas.pts_required == 120
+
+    def test_set_test_complete_equal_pts_req(self, meas):
+        meas.set_test_complete(1440)
+        assert meas.test_complete
+
+    def test_set_test_complete_more_than_pts_req(self, meas):
+        meas.set_test_complete(1439)
+        assert meas.test_complete
+
+    def test_set_test_complete_not_enough_pts(self, meas):
+        meas.set_test_complete(1441)
+        assert not meas.test_complete
+
+    # NEED TO ADD TEST OF THE print_points_summary method
+    # def test_print_points_summary(self, meas):
+    #     meas.
+
 
 
 if __name__ == '__main__':
