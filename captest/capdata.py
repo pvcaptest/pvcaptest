@@ -1161,6 +1161,37 @@ def run_test(cd, steps):
         step[0](cd, *step[1], **step[2])
 
 
+def overlay_scatters(measured, expected, expected_label='PVsyst'):
+    """
+    Plot labeled overlay scatter of final filtered measured and simulated data.
+
+    Parameters
+    ----------
+    measured : Overlay
+        Holoviews overlay scatter plot produced from CapData object used to
+        calculate reporting conditions.
+    expected : Overlay
+        Holoviews overlay scatter plot produced from CapData object not used to
+        calculate reporting conditions.
+    rcs_from_meas : bool
+        If rest was run calculating reporting conditions from measured or
+        simulated data.
+
+    Returns
+    -------
+    Overlay scatter plot of remaining data after filtering from measured and
+    simulated data.
+    """
+    meas_last_filter_scatter = getattr(
+        measured.Scatter,
+        measured.Scatter.children[-1]
+    ).relabel('Measured')
+    exp_last_filter_scatter = getattr(
+        expected.Scatter,
+        expected.Scatter.children[-1]
+    ).relabel(expected_label)
+    return meas_last_filter_scatter * exp_last_filter_scatter
+
 class CapData(object):
     """
     Class to store capacity test data and translation of column names.
