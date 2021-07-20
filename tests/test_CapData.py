@@ -1965,10 +1965,35 @@ class TestPointsSummary():
         meas.set_test_complete(1441)
         assert not meas.test_complete
 
-    # NEED TO ADD TEST OF THE print_points_summary method
-    # def test_print_points_summary(self, meas):
-    #     meas.
+    @pytest.fixture(autouse=True)
+    def _pass_fixtures(self, capsys):
+        self.capsys = capsys
 
+    def test_print_points_summary_pass(self, meas):
+        meas.print_points_summary()
+        captured = self.capsys.readouterr()
+
+        results_str = (
+            'length of test period to date: 5 days\n'
+            'sufficient points have been collected. 150.0 points required; '
+            '1440 points collected\n'
+        )
+
+        assert results_str == captured.out
+
+    def test_print_points_summary_fail(self, meas):
+        meas.data_filtered = meas.data.iloc[0:10, :]
+        meas.print_points_summary()
+        captured = self.capsys.readouterr()
+
+        results_str = (
+            'length of test period to date: 5 days\n'
+            '10 points of 150.0 points needed, 140.0 remaining to collect.\n'
+            '2.00 points / day on average.\n'
+            'Approximate days remaining: 71\n'
+        )
+
+        assert results_str == captured.out
 
 
 if __name__ == '__main__':

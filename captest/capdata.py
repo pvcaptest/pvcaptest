@@ -3261,40 +3261,6 @@ class CapData(object):
         return filtering_data
 
 
-    # def points_summary(self, hrs_req=12.5):
-    #     """
-    #     Print summary data on the number of points collected.
-    #
-    #     Parameters
-    #     ----------
-    #     hrs_req : numeric, default 12.5
-    #         Number of hours to be represented by final filtered test data set.
-    #         Default of 12.5 hours is dictated by ASTM E2848 and corresponds to
-    #         750 1-minute data points, 150 5-minute, or 50 15-minute points.
-    #     """
-    #     test_period = self.data.index[-1] - self.data.index[0]
-    #     for filter in self.kept:
-    #         if 'filter_time' in filter['name']:
-    #             test_period = filter['index'][-1] - filter['index'][0]
-    #     print('Length of test period to date: {}'.format(test_period))
-    #     pts_collected = self.data_filtered.shape[0]
-    #     pts_required = (
-    #         (hrs_req * 60) /
-    #         util.get_common_timestep(self.data, units='m', string_output=False)
-    #     )
-    #     avg_pts_per_day = pts_collected / test_period.ceil('D').days
-    #     if pts_collected > pts_required:
-    #         print('Sufficient points have been collected. {} points required; '
-    #               '{} points collected'.format(pts_required, pts_collected))
-    #     else:
-    #         print('{} points of {} points needed, {} remaining to collect.'.format(
-    #             pts_collected, pts_required, pts_required - pts_collected)
-    #         )
-    #         print('{:0.2f} points / day on average.'.format(avg_pts_per_day))
-    #         print('Approximate days remaining: {:0.0f}'.format(
-    #             round(((pts_required - pts_collected) / avg_pts_per_day), 0) + 1)
-    #         )
-
     def print_points_summary(self, hrs_req=12.5):
         """
         print summary data on the number of points collected.
@@ -3318,33 +3284,6 @@ class CapData(object):
             print('Approximate days remaining: {:0.0f}'.format(
                 round(((self.pts_required - pts_collected) / avg_pts_per_day), 0) + 1)
             )
-
-    # def print_points_summary(
-    #     self,
-    #     length_test_period,
-    #
-    #     """
-    #     print summary data on the number of points collected.
-    #     """
-    #     self.get_length_test_period()
-    #     self.get_pts_required(hrs_req=hrs_req)
-    #     self.set_test_complete(self.pts_required)
-    #     pts_collected = self.data_filtered.shape[0]
-    #     avg_pts_per_day = pts_collected / self.length_test_period
-    #     print('length of test period to date: {} days'.format(self.length_test_period))
-    #     if self.test_complete:
-    #         print('sufficient points have been collected. {} points required; '
-    #               '{} points collected'.format(self.pts_required, pts_collected))
-    #     else:
-    #         print('{} points of {} points needed, {} remaining to collect.'.format(
-    #             pts_collected,
-    #             self.pts_required,
-    #             self.pts_required - pts_collected)
-    #         )
-    #         print('{:0.2f} points / day on average.'.format(avg_pts_per_day))
-    #         print('Approximate days remaining: {:0.0f}'.format(
-    #             round(((self.pts_required - pts_collected) / avg_pts_per_day), 0) + 1)
-    #         )
 
     def get_length_test_period(self):
         """
