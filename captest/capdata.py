@@ -1190,7 +1190,10 @@ def overlay_scatters(measured, expected, expected_label='PVsyst'):
         expected.Scatter,
         expected.Scatter.children[-1]
     ).relabel(expected_label)
-    return meas_last_filter_scatter * exp_last_filter_scatter
+    overlay = (
+        meas_last_filter_scatter * exp_last_filter_scatter
+    ).opts(hv.opts.Overlay(legend_position='right'))
+    return overlay
 
 class CapData(object):
     """
