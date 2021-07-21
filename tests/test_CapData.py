@@ -969,6 +969,29 @@ class TestGetRegCols(unittest.TestCase):
                          df['w_vel'].iloc[100],
                          'Data in column labeled w_vel is not w_vel.')
 
+    def test_all_coeffs_custom_regression_columns(self):
+        self.das.regression_cols = {
+            'power':'Elkor Production Meter KW, kW',
+            'poa_front':'Weather Station 1 Sun, W/m^2',
+            'wind_speed':'Weather Station 2 WindSpeed, mph',
+        }
+        print(self.das.data.columns)
+        cols = ['power', 'poa_front', 'wind_speed']
+        df = self.das.get_reg_cols()
+        self.assertEqual(len(df.columns), 3,
+                         'Returned number of columns is incorrect.')
+        self.assertEqual(df.columns.to_list(), cols,
+                         'Columns are not renamed properly.')
+        self.assertEqual(self.das.data['Elkor Production Meter KW, kW'].iloc[100],
+                         df['power'].iloc[100],
+                         'Data in column labeled power is not power.')
+        self.assertEqual(self.das.data['Weather Station 1 Sun, W/m^2'].iloc[100],
+                         df['poa_front'].iloc[100],
+                         'Data in column labeled poa is not poa.')
+        self.assertEqual(self.das.data['Weather Station 2 WindSpeed, mph'].iloc[100],
+                         df['wind_speed'].iloc[100],
+                         'Data in column labeled wind_speed is not wind speed.')
+
     def test_poa_power(self):
         self.das.agg_sensors()
         cols = ['poa', 'power']
