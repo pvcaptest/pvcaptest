@@ -1195,6 +1195,7 @@ def overlay_scatters(measured, expected, expected_label='PVsyst'):
     ).opts(hv.opts.Overlay(legend_position='right'))
     return overlay
 
+
 class CapData(object):
     """
     Class to store capacity test data and translation of column names.
@@ -2460,13 +2461,15 @@ class CapData(object):
         index = df.index
 
         for column in columns:
+            if column not in df.columns:
+                column = column.replace(' ', '_')
             if column in df.columns:
                 indices_to_drop = df[df[column] > 0].index
                 if not index.equals(indices_to_drop):
                     index = index.difference(indices_to_drop)
             else:
-                warnings.warn('{} is not a column in the'
-                              'data.'.format(column))
+                warnings.warn('{} or {} is not a column in the '
+                              'data.'.format(column, column.replace('_', ' ')))
 
         if inplace:
             self.data_filtered = self.data_filtered.loc[index, :]

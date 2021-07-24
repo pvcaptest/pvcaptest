@@ -598,6 +598,23 @@ class Test_CapData_methods_sim(unittest.TestCase):
                           of IL Pmin, IL Pmax, IL Vmin, IL Vmax that are\
                           greater than zero.')
 
+    def test_filter_pvsyst_default_newer_pvsyst_var_names(self):
+        self.pvsyst.data_filtered.rename(
+            columns={
+                'IL Pmin':'IL_Pmin',
+                'IL Vmin':'IL_Vmin',
+                'IL Pmax':'IL_Pmax',
+                'IL Vmax':'IL_Vmax',
+            }, inplace=True
+        )
+        assert self.pvsyst.data_filtered.shape[0] == 8760
+        print(self.pvsyst.data_filtered.columns)
+        self.pvsyst.filter_pvsyst()
+        self.assertEqual(self.pvsyst.data_filtered.shape[0], 8670,
+                         'Data should contain 8670 points after removing any\
+                          of IL Pmin, IL Pmax, IL Vmin, IL Vmax that are\
+                          greater than zero.')
+
     def test_filter_pvsyst_not_inplace(self):
         df = self.pvsyst.filter_pvsyst(inplace=False)
         self.assertIsInstance(df, pd.core.frame.DataFrame,

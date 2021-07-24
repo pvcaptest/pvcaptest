@@ -12,6 +12,8 @@ By default removes only intervals that contain missing data in the regression va
 columns.
 
 ### Changed
+- Updated filter_pvsyst method to handle inverter output variables that have underscores
+or spaces like 'IL Pmin' and 'IL_Pmin'.
 
 
 [0.9.0]: https://github.com/pvcaptest/pvcaptest/compare/v0.8.0...v0.9.0
