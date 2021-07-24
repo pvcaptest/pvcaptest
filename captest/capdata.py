@@ -2943,6 +2943,26 @@ class CapData(object):
         else:
             return df_out
 
+    @update_summary
+    def filter_missing(self, columns=None):
+        """
+        Drops time intervals with missing data for specified columns.
+
+        By default drops intervals which have missing data in the columns defined
+        by `regression_cols`.
+
+        Parameters
+        ----------
+        columns : list, default None
+            Subset of columns to check for missing data.
+        """
+        if columns is None:
+            columns = list(self.regression_cols.values())
+        df_reg_vars = self.data_filtered[columns]
+        ix = df_reg_vars.dropna().index
+        self.data_filtered = self.data_filtered.loc[ix, :]
+
+
     def filter_op_state(self, op_state, mult_inv=None, inplace=True):
         """
         NOT CURRENTLY IMPLEMENTED - Filter on inverter operation state.
