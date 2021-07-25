@@ -598,6 +598,23 @@ class Test_CapData_methods_sim(unittest.TestCase):
                           of IL Pmin, IL Pmax, IL Vmin, IL Vmax that are\
                           greater than zero.')
 
+    def test_filter_pvsyst_default_newer_pvsyst_var_names(self):
+        self.pvsyst.data_filtered.rename(
+            columns={
+                'IL Pmin':'IL_Pmin',
+                'IL Vmin':'IL_Vmin',
+                'IL Pmax':'IL_Pmax',
+                'IL Vmax':'IL_Vmax',
+            }, inplace=True
+        )
+        assert self.pvsyst.data_filtered.shape[0] == 8760
+        print(self.pvsyst.data_filtered.columns)
+        self.pvsyst.filter_pvsyst()
+        self.assertEqual(self.pvsyst.data_filtered.shape[0], 8670,
+                         'Data should contain 8670 points after removing any\
+                          of IL Pmin, IL Pmax, IL Vmin, IL Vmax that are\
+                          greater than zero.')
+
     def test_filter_pvsyst_not_inplace(self):
         df = self.pvsyst.filter_pvsyst(inplace=False)
         self.assertIsInstance(df, pd.core.frame.DataFrame,
@@ -1369,6 +1386,14 @@ class TestFilterIrr(unittest.TestCase):
         self.assertLess(self.meas.data_filtered.shape[0], pts_before,
                         'Filter did not remove points.')
 
+    def test_refval_use_attribute(self):
+        self.meas.rc = pd.DataFrame({'poa':500, 'w_vel':1, 't_amb':20}, index=[0])
+        pts_before = self.meas.data_filtered.shape[0]
+        self.meas.filter_irr(0.8, 1.2, ref_val='self_val', col_name=None,
+                             inplace=True)
+        self.assertLess(self.meas.data_filtered.shape[0], pts_before,
+                        'Filter did not remove points.')
+
     def test_refval_withcol_notinplace(self):
         pts_before = self.meas.data_filtered.shape[0]
         df = self.meas.filter_irr(500, 600, ref_val=None, col_name=None,
@@ -1651,6 +1676,48 @@ class Test_Csky_Filter(unittest.TestCase):
             self.meas.filter_clearsky(window_length=2)
 
 
+class TestFilterMissing():
+    """
+    Newer tests written for pytest. Uses the meas pytest fixture defined below.
+    """
+    def test_filter_missing_default(self, meas):
+        """Checks missing data in regression columns are removed."""
+        meas.set_regression_cols(
+            power='meter power',
+            poa='met1 poa_refcell',
+            t_amb='met2 amb_temp',
+            w_vel='met1 windspeed',
+        )
+        assert all(meas.rview('all', filtered_data=True).isna().sum() == 0)
+        assert meas.data_filtered.shape[0] == 1440
+        meas.data_filtered.loc['10/9/90 12:00', 'meter power'] = np.NaN
+        meas.data_filtered.loc['10/9/90 12:30', 'met1 poa_refcell'] = np.NaN
+        meas.data_filtered.loc['10/10/90 12:35', 'met2 amb_temp'] = np.NaN
+        meas.data_filtered.loc['10/10/90 12:50', 'met1 windspeed'] = np.NaN
+        meas.filter_missing()
+        assert meas.data_filtered.shape[0] == 1436
+
+    def test_filter_missing_missing_not_in_columns_considered(self, meas):
+        """Checks that nothing is dropped for missing data not in `columns`."""
+        meas.set_regression_cols(
+            power='meter power',
+            poa='met1 poa_refcell',
+            t_amb='met2 amb_temp',
+            w_vel='met1 windspeed',
+        )
+        assert all(meas.rview('all', filtered_data=True).isna().sum() == 0)
+        assert meas.data_filtered.shape[0] == 1440
+        assert meas.data_filtered.isna().sum().sum() > 0
+        meas.filter_missing()
+        assert meas.data_filtered.shape[0] == 1440
+
+    def test_filter_missing_missing_passed_columns(self, meas):
+        """Checks that nothing is dropped for missing data not in `columns`."""
+        assert meas.data_filtered.shape[0] == 1440
+        assert meas.data_filtered.isna().sum().sum() > 0
+        meas.filter_missing(columns=['met1 amb_temp'])
+        assert meas.data_filtered.shape[0] == 1424
+
 class TestCapTestCpResultsSingleCoeff(unittest.TestCase):
     """Tests for the capactiy test results method using a regression formula
     with a single coefficient."""
@@ -1858,6 +1925,133 @@ class TestCapTestCpResultsMultCoeff(unittest.TestCase):
 
         with self.assertWarns(UserWarning):
             pvc.captest_results(sim, das, 100, '+/- 5', check_pvalues=True)
+
+
+class TestGetFilteringTable:
+    """Check the DataFrame summary showing which filter removed which intervals."""
+
+    def test_get_filtering_table(self):
+        self.meas = pvc.CapData('meas')
+        self.meas.load_data('./tests/data/', 'nrel_data.csv',
+                            source='AlsoEnergy')
+        self.meas.set_regression_cols(power='', poa='irr-poa-',
+                                      t_amb='temp--', w_vel='wind--')
+        self.meas.filter_irr(200, 900)
+        flt0_kept_ix = self.meas.data_filtered.index
+        flt0_removed_ix = self.meas.data.index.difference(flt0_kept_ix)
+        self.meas.filter_irr(400, 800)
+        flt1_kept_ix = self.meas.data_filtered.index
+        flt1_removed_ix = flt0_kept_ix.difference(flt1_kept_ix)
+        self.meas.filter_irr(500, 600)
+        flt2_kept_ix = self.meas.data_filtered.index
+        flt2_removed_ix = flt1_kept_ix.difference(flt2_kept_ix)
+        flt_table = self.meas.get_filtering_table()
+        print(flt_table)
+        assert isinstance(flt_table, pd.DataFrame)
+        assert flt_table.shape == (self.meas.data.shape[0], 4)
+        table_flt0_column = flt_table.iloc[:, 0]
+        table_flt0_removed = table_flt0_column[table_flt0_column == 1].index
+        assert table_flt0_removed.equals(flt0_removed_ix)
+        table_flt1_column = flt_table.iloc[:, 1]
+        table_flt1_removed = table_flt1_column[table_flt1_column == 1].index
+        assert table_flt1_removed.equals(flt1_removed_ix)
+        table_flt2_column = flt_table.iloc[:, 2]
+        table_flt2_removed = table_flt2_column[table_flt2_column == 1].index
+        assert table_flt2_removed.equals(flt2_removed_ix)
+        table_flt_all_column = flt_table.iloc[:, 3]
+        table_flt_all_removed = table_flt_all_column[~table_flt_all_column].index
+        out = pd.concat([flt_table, self.meas.rview('poa')], axis=1)
+        assert table_flt_all_removed.equals(
+            flt0_removed_ix.union(flt1_removed_ix).union(flt2_removed_ix)
+        )
+
+@pytest.fixture
+def meas():
+    """Create an instance of CapData with example data loaded."""
+    meas = pvc.CapData('meas')
+    meas.load_data(
+        path='./tests/data/',
+        fname='example_meas_data.csv',
+        column_type_report=False,
+    )
+    meas.set_regression_cols(
+        power='-mtr-',
+        poa='irr-poa-',
+        t_amb='temp-amb-',
+        w_vel='wind--',
+    )
+    return meas
+
+@pytest.fixture
+def pts_summary(meas):
+    pts_summary = pvc.PointsSummary(meas)
+    return pts_summary
+
+class TestPointsSummary():
+    def test_length_test_period_no_filter(self, meas):
+        meas.get_length_test_period()
+        assert meas.length_test_period == 5
+
+    def test_length_test_period_after_one_filter_time(self, meas):
+        meas.filter_time(start='10/9/1990', end='10/12/1990 23:00')
+        meas.get_length_test_period()
+        assert meas.length_test_period == 4
+
+    def test_length_test_period_after_two_filter_time(self, meas):
+        meas.filter_time(start='10/9/1990', end='10/12/1990 23:00')
+        meas.filter_time(start='10/9/1990', end='10/11/1990 23:00')
+        meas.get_length_test_period()
+        assert meas.length_test_period == 4
+
+    def test_get_pts_required_default(self, meas):
+        meas.get_pts_required()
+        assert meas.pts_required == 150
+
+    def test_get_pts_required_10_hrs(self, meas):
+        meas.get_pts_required(hrs_req=10)
+        assert meas.pts_required == 120
+
+    def test_set_test_complete_equal_pts_req(self, meas):
+        meas.set_test_complete(1440)
+        assert meas.test_complete
+
+    def test_set_test_complete_more_than_pts_req(self, meas):
+        meas.set_test_complete(1439)
+        assert meas.test_complete
+
+    def test_set_test_complete_not_enough_pts(self, meas):
+        meas.set_test_complete(1441)
+        assert not meas.test_complete
+
+    @pytest.fixture(autouse=True)
+    def _pass_fixtures(self, capsys):
+        self.capsys = capsys
+
+    def test_print_points_summary_pass(self, meas):
+        meas.print_points_summary()
+        captured = self.capsys.readouterr()
+
+        results_str = (
+            'length of test period to date: 5 days\n'
+            'sufficient points have been collected. 150.0 points required; '
+            '1440 points collected\n'
+        )
+
+        assert results_str == captured.out
+
+    def test_print_points_summary_fail(self, meas):
+        meas.data_filtered = meas.data.iloc[0:10, :]
+        meas.print_points_summary()
+        captured = self.capsys.readouterr()
+
+        results_str = (
+            'length of test period to date: 5 days\n'
+            '10 points of 150.0 points needed, 140.0 remaining to collect.\n'
+            '2.00 points / day on average.\n'
+            'Approximate days remaining: 71\n'
+        )
+
+        assert results_str == captured.out
 
 
 if __name__ == '__main__':
