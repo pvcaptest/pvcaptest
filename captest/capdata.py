@@ -63,6 +63,7 @@ else:
     warnings.warn('Clear sky functions will not work without the '
                   'pvlib package.')
 
+from captest import util
 
 plot_colors_brewer = {'real_pwr': ['#2b8cbe', '#7bccc4', '#bae4bc', '#f0f9e8'],
                       'irr-poa': ['#e31a1c', '#fd8d3c', '#fecc5c', '#ffffb2'],
@@ -172,6 +173,7 @@ def update_summary(func):
     @wraps(func)
     def wrapper(self, *args, **kwargs):
         pts_before = self.data_filtered.shape[0]
+        ix_before = self.data_filtered.index
         if pts_before == 0:
             pts_before = self.data.shape[0]
             self.summary_ix.append((self.name, 'count'))
@@ -207,12 +209,30 @@ def update_summary(func):
         else:
             arg_str = arg_str + ', ' + kwarg_str
 
+        filter_name = func.__name__
+        if filter_name in self.filter_counts.keys():
+            filter_name_enum = filter_name + '-' + str(self.filter_counts[filter_name])
+            self.filter_counts[filter_name] += 1
+        else:
+            self.filter_counts[filter_name] = 1
+            filter_name_enum = filter_name
+
         pts_after = self.data_filtered.shape[0]
         pts_removed = pts_before - pts_after
-        self.summary_ix.append((self.name, func.__name__))
+        self.summary_ix.append((self.name, filter_name_enum))
         self.summary.append({columns[0]: pts_after,
                              columns[1]: pts_removed,
                              columns[2]: arg_str})
+
+        ix_after = self.data_filtered.index
+        self.removed.append({
+            'name': filter_name_enum,
+            'index': ix_before.difference(ix_after)
+        })
+        self.kept.append({
+            'name': filter_name_enum,
+            'index': ix_after
+        })
 
         if pts_after == 0:
             warnings.warn('The last filter removed all data! '
@@ -386,7 +406,10 @@ def perc_difference(x, y):
     if x == y == 0:
         return 0
     else:
-        return abs(x - y) / ((x + y) / 2)
+        if x + y == 0:
+            return 1
+        else:
+            return abs(x - y) / ((x + y) / 2)
 
 
 def check_all_perc_diff_comb(series, perc_diff):
@@ -446,7 +469,7 @@ def filter_irr(df, irr_col, low, high, ref_val=None):
     high : float or int
         Max value as fraction (1.2) or absolute 800 (W/m^2)
     ref_val : float or int
-        Must provide arg when min/max are fractions
+        Must provide arg when low/high are fractions
 
     Returns
     -------
@@ -1114,6 +1137,65 @@ def captest_results_check_pvalues(sim, das, nameplate, tolerance,
                                                             'sim_pvals']))
 
 
+def run_test(cd, steps):
+    """
+    Apply a list of capacity test steps to a given CapData object.
+
+    A list of CapData methods is applied sequentially with the passed
+    parameters.  This method allows succintly defining a capacity test,
+    which facilitates parametric and automatic testing.
+
+    Parameters
+    ----------
+    cd : CapData
+        The CapData methods will be applied to this instance of the pvcaptest
+        CapData class.
+    steps : list of tuples
+        A list of the methods to be applied and the arguments to be used.
+        Each item in the list should be a tuple of the CapData method followed
+        by a tuple of arguments and a dictionary of keyword arguments. If
+        there are not args or kwargs an empty tuple or dict should be included.
+        Example: [(CapData.filter_irr, (400, 1500), {})]
+    """
+    for step in steps:
+        step[0](cd, *step[1], **step[2])
+
+
+def overlay_scatters(measured, expected, expected_label='PVsyst'):
+    """
+    Plot labeled overlay scatter of final filtered measured and simulated data.
+
+    Parameters
+    ----------
+    measured : Overlay
+        Holoviews overlay scatter plot produced from CapData object used to
+        calculate reporting conditions.
+    expected : Overlay
+        Holoviews overlay scatter plot produced from CapData object not used to
+        calculate reporting conditions.
+    rcs_from_meas : bool
+        If rest was run calculating reporting conditions from measured or
+        simulated data.
+
+    Returns
+    -------
+    Overlay scatter plot of remaining data after filtering from measured and
+    simulated data.
+    """
+    meas_last_filter_scatter = getattr(
+        measured.Scatter,
+        measured.Scatter.children[-1]
+    ).relabel('Measured')
+    exp_last_filter_scatter = getattr(
+        expected.Scatter,
+        expected.Scatter.children[-1]
+    ).relabel(expected_label)
+    overlay = (
+        meas_last_filter_scatter * exp_last_filter_scatter
+    ).opts(hv.opts.Overlay(legend_position='right'))
+    return overlay
+
+
 class CapData(object):
     """
     Class to store capacity test data and translation of column names.
@@ -1184,6 +1266,9 @@ class CapData(object):
         self.col_colors = {}
         self.summary_ix = []
         self.summary = []
+        self.removed = []
+        self.kept = []
+        self.filter_counts = {}
         self.rc = None
         self.regression_results = None
         self.regression_formula = ('power ~ poa + I(poa * poa)'
@@ -1341,10 +1426,8 @@ class CapData(object):
                     new_cols.append(str(one) + ' ' + str(two) + ', ' + str(three))  # noqa: E501
 
                 all_data.columns = new_cols
-
+                all_data = all_data.iloc[i:, :]
         all_data = all_data.apply(pd.to_numeric, errors='coerce')
-        all_data.dropna(axis=1, how='all', inplace=True)
-        all_data.dropna(how='all', inplace=True)
 
         if source != 'AlsoEnergy':
             all_data.columns = [' '.join(col).strip() for col in all_data.columns.values]  # noqa: E501
@@ -1956,10 +2039,10 @@ class CapData(object):
         hover = HoverTool()
         hover.tooltips = [
             ("Name", "$name"),
-            ("Datetime", "@Timestamp{%D %H:%M}"),
-            ("Value", "$y"),
+            ("Datetime", "@Timestamp{%F %H:%M}"),
+            ("Value", "$y{0,0.00}"),
         ]
-        hover.formatters = {"Timestamp": "datetime"}
+        hover.formatters = {"@Timestamp": "datetime"}
 
         tools = 'pan, xwheel_pan, xwheel_zoom, box_zoom, save, reset'
 
@@ -2025,6 +2108,105 @@ class CapData(object):
         grid = gridplot(plots, ncols=ncols, **kwargs)
         return show(grid)
 
+    def scatter_filters(self):
+        """
+        Returns an overlay of scatter plots of intervals removed for each filter.
+
+        A scatter plot of power vs irradiance is generated for the time intervals
+        removed for each filtering step. Each of these plots is labeled and
+        overlayed.
+        """
+        scatters = []
+
+        data = self.get_reg_cols(reg_vars=['power', 'poa'], filtered_data=False)
+        data['index'] = self.data.loc[:, 'index']
+        plt_no_filtering = hv.Scatter(data, 'poa', ['power', 'index']).relabel('all')
+        scatters.append(plt_no_filtering)
+
+        d1 = data.loc[self.removed[0]['index'], :]
+        plt_first_filter = hv.Scatter(d1, 'poa', ['power', 'index']).relabel(
+            self.removed[0]['name']
+        )
+        scatters.append(plt_first_filter)
+
+        for i, filtering_step in enumerate(self.kept):
+            if i >= len(self.kept) - 1:
+                break
+            else:
+                flt_legend = self.kept[i + 1]['name']
+            d_flt = data.loc[filtering_step['index'], :]
+            plt = hv.Scatter(d_flt, 'poa', ['power', 'index']).relabel(flt_legend)
+            scatters.append(plt)
+
+        scatter_overlay = hv.Overlay(scatters)
+        scatter_overlay.opts(
+            hv.opts.Scatter(
+                size=5,
+                width=650,
+                height=500,
+                muted_fill_alpha=0,
+                fill_alpha=0.4,
+                line_width=0,
+                tools=['hover'],
+            ),
+            hv.opts.Overlay(
+                legend_position='right',
+                toolbar='above'
+            ),
+        )
+        return scatter_overlay
+
+    def timeseries_filters(self):
+        """
+        Returns an overlay of scatter plots of intervals removed for each filter.
+
+        A scatter plot of power vs irradiance is generated for the time intervals
+        removed for each filtering step. Each of these plots is labeled and
+        overlayed.
+        """
+        scatters = []
+
+        # data = self.get_reg_cols(reg_vars=['power', 'poa'], filtered_data=False)
+        # data['index'] = self.data.loc[:, 'index']
+        plt_no_filtering = self.rview('power').hvplot().relabel('all').opts(
+            line_color='black',
+            line_width=1,
+            width=1500,
+            height=450,
+        )
+        scatters.append(plt_no_filtering)
+
+        d1 = self.rview('power').loc[self.removed[0]['index'], :]
+        plt_first_filter = d1.hvplot(kind='scatter').relabel(
+            self.removed[0]['name']
+        )
+        scatters.append(plt_first_filter)
+
+        for i, filtering_step in enumerate(self.kept):
+            if i >= len(self.kept) - 1:
+                break
+            else:
+                flt_legend = self.kept[i + 1]['name']
+            d_flt = self.rview('power').loc[filtering_step['index'], :]
+            plt = d_flt.hvplot(kind='scatter').relabel(flt_legend)
+            scatters.append(plt)
+
+        scatter_overlay = hv.Overlay(scatters)
+        scatter_overlay.opts(
+            hv.opts.Scatter(
+                size=5,
+                muted_fill_alpha=0,
+                fill_alpha=1,
+                line_width=0,
+                tools=['hover'],
+            ),
+            hv.opts.Overlay(
+                legend_position='bottom',
+                toolbar='right'
+            ),
+        )
+        return scatter_overlay
+
     def reset_filter(self):
         """
         Set `data_filtered` to `data` and reset filtering summary.
@@ -2037,6 +2219,9 @@ class CapData(object):
         self.data_filtered = self.data.copy()
         self.summary_ix = []
         self.summary = []
+        self.filter_counts = {}
+        self.removed = []
+        self.kept = []
 
     def reset_agg(self):
         """
@@ -2217,11 +2402,12 @@ class CapData(object):
         Parameters
         ----------
         low : float or int
-            Minimum value as fraction (0.8) or absolute 200 (W/m^2)
+            Minimum value as fraction (0.8) or absolute 200 (W/m^2).
         high : float or int
-            Max value as fraction (1.2) or absolute 800 (W/m^2)
-        ref_val : float or int
-            Must provide arg when min/max are fractions
+            Max value as fraction (1.2) or absolute 800 (W/m^2).
+        ref_val : float or int or `self_val`
+            Must provide arg when `low` and `high` are fractions.
+            Pass `self_val` to use the value in `self.rc`.
         col_name : str, default None
             Column name of irradiance data to filter.  By default uses the POA
             irradiance set in regression_cols attribute or average of the POA
@@ -2239,6 +2425,9 @@ class CapData(object):
             irr_col = self.__get_poa_col()
         else:
             irr_col = col_name
+
+        if ref_val == 'self_val':
+            ref_val = self.rc['poa'][0]
 
         df_flt = filter_irr(self.data_filtered, irr_col, low, high,
                             ref_val=ref_val)
@@ -2272,13 +2461,15 @@ class CapData(object):
         index = df.index
 
         for column in columns:
+            if column not in df.columns:
+                column = column.replace(' ', '_')
             if column in df.columns:
                 indices_to_drop = df[df[column] > 0].index
                 if not index.equals(indices_to_drop):
                     index = index.difference(indices_to_drop)
             else:
-                warnings.warn('{} is not a column in the'
-                              'data.'.format(column))
+                warnings.warn('{} or {} is not a column in the '
+                              'data.'.format(column, column.replace('_', ' ')))
 
         if inplace:
             self.data_filtered = self.data_filtered.loc[index, :]
@@ -2755,6 +2946,26 @@ class CapData(object):
         else:
             return df_out
 
+    @update_summary
+    def filter_missing(self, columns=None):
+        """
+        Drops time intervals with missing data for specified columns.
+
+        By default drops intervals which have missing data in the columns defined
+        by `regression_cols`.
+
+        Parameters
+        ----------
+        columns : list, default None
+            Subset of columns to check for missing data.
+        """
+        if columns is None:
+            columns = list(self.regression_cols.values())
+        df_reg_vars = self.data_filtered[columns]
+        ix = df_reg_vars.dropna().index
+        self.data_filtered = self.data_filtered.loc[ix, :]
+
+
     def filter_op_state(self, op_state, mult_inv=None, inplace=True):
         """
         NOT CURRENTLY IMPLEMENTED - Filter on inverter operation state.
@@ -3080,6 +3291,103 @@ class CapData(object):
         #
         # return(sy)
 
+    def get_filtering_table(self):
+        """
+        Returns DataFrame showing which filter removed each filtered time interval.
+
+        Time intervals removed are marked with a "1".
+        Time intervals kept are marked with a "0".
+        Time intervals removed by a previous filter are np.NaN/blank.
+        Columns/filters are in order they are run from left to right.
+        The last column labeled "all_filters" shows is True for intervals that were
+        not removed by any of the filters.
+        """
+        filtering_data = pd.DataFrame(index=self.data.index)
+        for i, (flt_step_kept, flt_step_removed) in (
+            enumerate(zip(self.kept, self.removed))
+        ):
+            if i == 0:
+                filtering_data.loc[:, flt_step_removed['name']] = 0
+            else:
+                filtering_data.loc[self.kept[i - 1]['index'], flt_step_kept['name']] = 0
+            filtering_data.loc[flt_step_removed['index'], flt_step_removed['name']] = 1
+
+        filtering_data['all_filters'] = filtering_data.apply(
+            lambda x: all(x == 0), axis=1
+        )
+        return filtering_data
+
+
+    def print_points_summary(self, hrs_req=12.5):
+        """
+        print summary data on the number of points collected.
+        """
+        self.get_length_test_period()
+        self.get_pts_required(hrs_req=hrs_req)
+        self.set_test_complete(self.pts_required)
+        pts_collected = self.data_filtered.shape[0]
+        avg_pts_per_day = pts_collected / self.length_test_period
+        print('length of test period to date: {} days'.format(self.length_test_period))
+        if self.test_complete:
+            print('sufficient points have been collected. {} points required; '
+                  '{} points collected'.format(self.pts_required, pts_collected))
+        else:
+            print('{} points of {} points needed, {} remaining to collect.'.format(
+                pts_collected,
+                self.pts_required,
+                self.pts_required - pts_collected)
+            )
+            print('{:0.2f} points / day on average.'.format(avg_pts_per_day))
+            print('Approximate days remaining: {:0.0f}'.format(
+                round(((self.pts_required - pts_collected) / avg_pts_per_day), 0) + 1)
+            )
+
+    def get_length_test_period(self):
+        """
+        Get length of test period.
+
+        Uses length of `data` unless `filter_time` has been run, then uses length
+        of the kept data after `filter_time` was run the first time. Subsequent
+        uses of `filter_time` are ignored.
+
+        Rounds up to a period of full days.
+
+        Returns
+        -------
+        int
+            Days in test period.
+        """
+        test_period = self.data.index[-1] - self.data.index[0]
+        for filter in self.kept:
+            if 'filter_time' == filter['name']:
+                test_period = filter['index'][-1] - filter['index'][0]
+        self.length_test_period = test_period.ceil('D').days
+
+    def get_pts_required(self, hrs_req=12.5):
+        """
+        Set number of data points required for complete test attribute.
+
+        Parameters
+        ----------
+        hrs_req : numeric, default 12.5
+            Number of hours to be represented by final filtered test data set.
+            Default of 12.5 hours is dictated by ASTM E2848 and corresponds to
+            750 1-minute data points, 150 5-minute, or 50 15-minute points.
+        """
+        self.pts_required = (
+            (hrs_req * 60) /
+            util.get_common_timestep(self.data, units='m', string_output=False)
+        )
+
+    def set_test_complete(self, pts_required):
+        """Sets `test_complete` attribute.
+
+        Parameters
+        ----------
+        pts_required : int
+            Number of points required to remain after filtering for a complete test.
+        """
+        self.test_complete = self.data_filtered.shape[0] >= pts_required
 
 if __name__ == "__main__":
     import doctest
