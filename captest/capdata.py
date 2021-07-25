@@ -2162,23 +2162,24 @@ class CapData(object):
         removed for each filtering step. Each of these plots is labeled and
         overlayed.
         """
-        scatters = []
+        plots = []
 
-        # data = self.get_reg_cols(reg_vars=['power', 'poa'], filtered_data=False)
-        # data['index'] = self.data.loc[:, 'index']
-        plt_no_filtering = self.rview('power').hvplot().relabel('all').opts(
+        data = self.get_reg_cols(reg_vars='power', filtered_data=False)
+        data.reset_index(inplace=True)
+        plt_no_filtering  = hv.Curve(data, ['Timestamp'], ['power'], label='all')
+        plt_no_filtering.opts(
             line_color='black',
             line_width=1,
             width=1500,
             height=450,
         )
-        scatters.append(plt_no_filtering)
+        plots.append(plt_no_filtering)
 
         d1 = self.rview('power').loc[self.removed[0]['index'], :]
-        plt_first_filter = d1.hvplot(kind='scatter').relabel(
-            self.removed[0]['name']
-        )
-        scatters.append(plt_first_filter)
+        plt_first_filter = hv.Scatter(
+            (d1.index, d1.iloc[:, 0]),
+            label=self.removed[0]['name'])
+        plots.append(plt_first_filter)
 
         for i, filtering_step in enumerate(self.kept):
             if i >= len(self.kept) - 1:
@@ -2186,10 +2187,10 @@ class CapData(object):
             else:
                 flt_legend = self.kept[i + 1]['name']
             d_flt = self.rview('power').loc[filtering_step['index'], :]
-            plt = d_flt.hvplot(kind='scatter').relabel(flt_legend)
-            scatters.append(plt)
+            plt = hv.Scatter((d_flt.index, d_flt.iloc[:, 0]), label=flt_legend)
+            plots.append(plt)
 
-        scatter_overlay = hv.Overlay(scatters)
+        scatter_overlay = hv.Overlay(plots)
         scatter_overlay.opts(
             hv.opts.Scatter(
                 size=5,
@@ -2200,7 +2201,7 @@ class CapData(object):
             ),
             hv.opts.Overlay(
                 legend_position='bottom',
-                toolbar='right'
+                toolbar='right',
             ),
         )
         return scatter_overlay
