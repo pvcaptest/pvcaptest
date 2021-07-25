@@ -1447,6 +1447,18 @@ class TestFilterTime(unittest.TestCase):
                          pd.Timestamp(year=1990, month=2, day=15, hour=00),
                          'Last timestamp should be 2/15/1990 00:00')
 
+    def test_start_end_drop_is_true(self):
+        self.pvsyst.filter_time(start='2/1/90', end='2/15/90', drop=True)
+        self.assertEqual(self.pvsyst.data_filtered.index[0],
+                         pd.Timestamp(year=1990, month=1, day=1, hour=0),
+                         'First timestamp should be 1/1/1990')
+        self.assertEqual(self.pvsyst.data_filtered.index[-1],
+                         pd.Timestamp(year=1990, month=12, day=31, hour=23),
+                         'Last timestamp should be 12/31/1990 23:00')
+        self.assertEqual(self.pvsyst.data_filtered.shape[0],
+                         (8760 - 14 * 24) - 1,
+                         'Filtered data should have 14 days removed')
+
     def test_start_days(self):
         self.pvsyst.filter_time(start='2/1/90', days=15)
         self.assertEqual(self.pvsyst.data_filtered.index[0],
@@ -1630,6 +1642,14 @@ class Test_Csky_Filter(unittest.TestCase):
             self.assertEqual(col, self.meas.data.columns[i],
                              'Filter changed column {} to '
                              '{}'.format(self.meas.data.columns[i], col))
+
+    def test_default_drop_clear_sky(self):
+        self.meas.filter_clearsky()
+        clear_ix = self.meas.data_filtered.index
+        self.meas.reset_filter()
+        self.meas.filter_clearsky(keep_clear=False)
+        cloudy_ix = self.meas.data_filtered.index
+        assert (self.meas.data.index.difference(clear_ix).equals(cloudy_ix))
 
     def test_two_ghi_cols(self):
         self.meas.data['ws 2 ghi W/m^2'] = self.meas.view('irr-ghi-') * 1.05
