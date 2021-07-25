@@ -5,15 +5,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 [0.10.0]: https://github.com/pvcaptest/pvcaptest/compare/v0.9.0...v0.10.0
-## [0.10.0] - 2021-07-xx
+## [0.10.0] - 2021-07-25
 ### Added
 - Added the filter_missing CapData method to remove missing data from specified columns.
 By default removes only intervals that contain missing data in the regression variable
 columns.
+- Added option to filter_irr method to specify using the reporting irradiance in the CapData object as the
+reference irradiance.
+- Added option to the filter_time method to drop the specified time period instead of dropping all other times.
+- Added option to filter_clearsky method to keep time periods with unstable irradiance.
+- Added new attributes to CapData: removed, kept, filter_counts. The update_summary decorator now stores the
+index of points removed, the index of points remaining after each filter, and the number of times any filter has been run for each filter applied.
+- Adds new plotting method, scatter_filters, which shows which filtering step removed which time intervals of data in a plot of irradiance vs. power.
+- New plotting method, timeseries_filters, which shows which fitlering step removed which time intervals of data in a plot of power vs. time.
+- New plotting function, overlay_scatters, that overlays irradiance vs. power scatter plots of the data remaining after the last filtering step of the two CapData objects passed to the function.
+- New get_filtering_table method that returns a DataFrame documenting the which time intervals are removed by which filter and which time intervals remain after all filtering.
+- Adds the run_test function, which applies the passed list of CapData filtering methods to the CapData object passed.
+- Adds the points_summary method, which prints the number of points remaining after all filtering, the length of the test period, the average points remaining after filtering per day, if enough points have been collected, if
+more points are needed how many, and how many days left if the rate of points holds.
 
 ### Changed
 - Updated filter_pvsyst method to handle inverter output variables that have underscores
 or spaces like 'IL Pmin' and 'IL_Pmin'.
+- load_das method no longer drops columns and rows that contain no data
+- Format of hover tooltip in plots produced by plot method now includes comma separator for thousands.
+- Changes captest to pvcaptest in documentation.
+- get_reg_cols method default changed to get and rename the columns defined in the `regression_cols` attribute
+rather than expecting regression variables/columns to be identified by the keys 'power', 'poa', 't_amb', and 'w_vel' in the `regression_cols` attribute.
 
 
 [0.9.0]: https://github.com/pvcaptest/pvcaptest/compare/v0.8.0...v0.9.0
