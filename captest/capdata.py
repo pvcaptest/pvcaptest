@@ -1764,27 +1764,25 @@ class CapData(object):
         self.data.drop(columns, axis=1, inplace=True)
         self.data_filtered.drop(columns, axis=1, inplace=True)
 
-    def get_reg_cols(self, reg_vars=['power', 'poa', 't_amb', 'w_vel'],
-                     filtered_data=True):
+    def get_reg_cols(self, reg_vars=None, filtered_data=True):
         """
-        Get and rename the regression columns.
+        Get regression columns renamed with keys from `regression_cols`.
 
         Parameters
         ----------
-        reg_vars : list or str
-            Default is all of 'power', 'poa', 't_amb', 'w_vel'.  Any
-            combination of the four is valid.
-            Pass any of the four as a string to get only one regression column.
+        reg_vars : list or str, default None
+            By default returns all columns identified in `regression_cols`.
+            A list with any combination of the keys of `regression_cols` is valid
+            or pass a single key as a string.
         filtered_data : bool, default true
-            Return filtered or unfiltered dataself.
+            Return filtered or unfiltered data.
+
         Returns
         -------
         DataFrame
-
-        Todo
-        ----
-        Pass list of reg coeffs to rename default all of them.
         """
+        if reg_vars is None:
+            reg_vars = list(self.regression_cols.keys())
         df = self.rview(reg_vars, filtered_data=filtered_data).copy()
         rename = {df.columns[0]: reg_vars}
 
