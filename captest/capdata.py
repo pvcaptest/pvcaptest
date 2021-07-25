@@ -2522,7 +2522,7 @@ class CapData(object):
             return self.data_filtered.loc[index_shd, :]
 
     @update_summary
-    def filter_time(self, start=None, end=None, days=None, test_date=None,
+    def filter_time(self, start=None, end=None, drop=False, days=None, test_date=None,
                     inplace=True, wrap_year=False):
         """
         Select data for a specified time period.
@@ -2537,6 +2537,10 @@ class CapData(object):
             End date for data to be returned.  If a string is passed it must
             be in format that can be converted by pandas.to_datetime.  Not
             required if test_date and days arguments are passed.
+        drop : bool, default False
+            Set to true to drop time period between `start` and `end` rather
+            than keep it. Must supply `start` and `end` and `wrap_year` must
+            be false.
         days : int or None, default None
             Days in time period to be returned.  Not required if `start` and
             `end` are specified.
@@ -2563,6 +2567,9 @@ class CapData(object):
                 df_temp = wrap_year_end(self.data_filtered, start, end)
             else:
                 df_temp = self.data_filtered.loc[start:end, :]
+                if drop:
+                    keep_ix = self.data_filtered.index.difference(df_temp.index)
+                    df_temp = self.data_filtered.loc[keep_ix, :]
 
         if start is not None and end is None:
             if days is None:
@@ -2876,7 +2883,7 @@ class CapData(object):
 
     @update_summary
     def filter_clearsky(self, window_length=20, ghi_col=None, inplace=True,
-                        **kwargs):
+                        keep_clear=True, **kwargs):
         """
         Use pvlib detect_clearsky to remove periods with unstable irradiance.
 
@@ -2900,6 +2907,8 @@ class CapData(object):
             When true removes periods with unstable irradiance.  When false
             returns pvlib detect_clearsky results, which by default is a series
             of booleans.
+        keep_clear : bool, default True
+            Set to False to keep cloudy periods.
         **kwargs
             kwargs are passed to pvlib detect_clearsky.  See pvlib
             documentation for details.
@@ -2933,13 +2942,21 @@ class CapData(object):
         else:
             meas_ghi = self.data_filtered[ghi_col]
 
-        clear_per = detect_clearsky(meas_ghi, self.data_filtered['ghi_mod_csky'],  # noqa: E501
-                                    meas_ghi.index, window_length, **kwargs)
+        clear_per = detect_clearsky(
+            meas_ghi,
+            self.data_filtered['ghi_mod_csky'],
+            meas_ghi.index,
+            window_length,
+            **kwargs,
+        )
         if not any(clear_per):
             return warnings.warn('No clear periods detected. Try increasing '
                                  'the window length.')
 
-        df_out = self.data_filtered[clear_per]
+        if keep_clear:
+            df_out = self.data_filtered[clear_per]
+        else:
+            df_out = self.data_filtered[~clear_per]
 
         if inplace:
             self.data_filtered = df_out
