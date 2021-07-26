@@ -11,4 +11,4 @@ sphinx_rtd_theme
 recommonmark
 pvlib
 tables
-captest
+captest==0.10.0
