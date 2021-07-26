@@ -1324,10 +1324,13 @@ class TestPredictCapacities(unittest.TestCase):
         reg = pvc.fit_model(df)
         july_manual = reg.predict(self.pvsyst.rc)[0]
         self.assertAlmostEqual(
-            july_manual, july_grpby,
-            'Manual prediction for July {} is not equal'
-            'to the predict_capacites groupby'
-            'prediction {}'.format(july_manual, july_grpby))
+            july_manual,
+            july_grpby,
+            places=5,
+            msg=('Manual prediction for July {} is not equal'
+                 'to the predict_capacites groupby'
+                 'prediction {}'.format(july_manual, july_grpby))
+        )
 
     def test_no_irr_filter(self):
         self.pvsyst.rep_cond(freq='M')
