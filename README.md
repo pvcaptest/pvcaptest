@@ -33,7 +33,7 @@ This will install the pvcaptest package in the base environment created when Ana
 2. Go to the [project github page](https://github.com/pvcaptest/pvcaptest) and download the project source to obtain a copy of the `environment.yml` file. Click the green code button and click 'Download ZIP'.
 2. On Windows go to the start menu and open the Anaconda prompt under the newly installed Anaconda program. On OSX or Linux open a terminal window. Note the path in the prompt for the next step. On Windows this should be something like `C:\Users\username\`.
 3. Unzip and move the `environment.yml` file to the folder identified by the path from the previous step.
-4. In your Anaconda prompt or terminal type `conda env create -f environment.yml`  
+4. In your Anaconda prompt or terminal type `conda env create -f environment.yml`
 and hit enter. Wait for a few seconds while conda works to solve the environment. It should ask you if you want to proceed to install new packages including pvcaptest. Type `y` enter to proceed and wait for conda to finish installing pvcaptest and the other packages.
 5. Once the installation is complete conda will print out a command for activating the new environment. Run that command, which should be like `conda activate captest_env`.
 
@@ -51,3 +51,33 @@ Conda install into an existing environment:
 If you prefer, you can pip install pvcaptest, but the recommended approach is to use the conda package.
 
 **Note: The conda package is named pvcaptest and the pip package is named captest. The project is moving to consistent use of the pvcaptest name, but the package name on pypi will remain as captest.**
+
+### Install using pip without conda
+You can also install the packages and dependencies without conda using Python's
+native `pip` installation function.
+
+First, check that you are running at least Python version 3.7.
+`python --version` \
+
+Then, in your terminal, run
+`pip install captest` \
+
+Check what packages you already have installed by running
+`pip list` \
+
+Then run: \
+`pip install holoviz` \
+`pip install holoviz` \
+`pip install matplotlib` \
+`pip install numpy` \
+`pip install pandas>=1*` \
+`pip install python-dateutil` \
+`pip install statsmodels` \
+`pip install scikit-learn` \
+`pip install scipy=1.2.1` \
+`pip install ipython` \
+`pip install jupyterlab` \
+`pip install notebook` \
+`pip install nodejs` \
+
+Exclude the packages that are already installed on your machine.
