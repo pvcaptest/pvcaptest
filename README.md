@@ -57,13 +57,13 @@ You can also install the packages and dependencies without conda using Python's
 native `pip` installation function.
 
 First, check that you are running at least Python version 3.7.
-`python --version` \
+`python --version`
 
 Then, in your terminal, run
-`pip install captest` \
+`pip install captest`
 
 Check what packages you already have installed by running
-`pip list` \
+`pip list`
 
 Then run: \
 `pip install holoviz` \
@@ -78,6 +78,6 @@ Then run: \
 `pip install ipython` \
 `pip install jupyterlab` \
 `pip install notebook` \
-`pip install nodejs` \
+`pip install nodejs`
 
 Exclude the packages that are already installed on your machine.
