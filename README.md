@@ -80,4 +80,4 @@ Then run: \
 `pip install notebook` \
 `pip install nodejs`
 
-Exclude the packages that are already installed on your machine.
+Exclude the packages from the above list that are already installed on your machine.
