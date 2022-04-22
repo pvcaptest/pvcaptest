@@ -46,6 +46,7 @@ hv_spec = importlib.util.find_spec('holoviews')
 if hv_spec is not None:
     import holoviews as hv
     from holoviews.plotting.links import DataLink
+    from holoviews import opts
 else:
     warnings.warn('Some plotting functions will not work without the '
                   'holoviews package.')
@@ -521,84 +522,166 @@ def filter_grps(grps, rcs, irr_col, low, high, **kwargs):
     return df_flt_grpby
 
 
-def irr_rc_balanced(df, low, high, irr_col='GlobInc', plot=False):
+def irr_rc_balanced(df,
+    low,
+    high,
+    irr_col='GlobInc',
+    min_percent_below=40,
+    max_percent_above=60,
+    min_ref_irradiance=500,
+    points_required=750,
+    max_ref_irradiance=None,
+    output_plot_path=None,
+    output_csv_path=None
+):
     """
     Calculate a reporting irradiance that achieves 40/60 balance.
 
     This function is intended to implement a strict interpratation of common
     contract language that specifies the reporting irradiance be determined by
     finding the irradiance that results in a balance of points within a
-    +/- percent range of the reporting irradiance. This function
-    iterates to a solution for the reporting irradiance by calculating the
-    irradiance that has 10 datpoints in the filtered dataset above it, then
-    filtering for a percentage of points around that irradiance, calculating
-    what percentile the reporting irradiance is in.  This procedure continues
-    until 40% of the points in the filtered dataset are above the calculated
-    reporting irradiance.
+    +/- percent range of the reporting irradiance.
 
     Parameters
     ----------
-    df: pandas DataFrame
-        DataFrame containing irradiance data for calculating the irradiance
-        reporting condition.
-    low: float
-        Bottom value for irradiance filter, usually between 0.5 and 0.8.
-    high: float
-        Top value for irradiance filter, usually between 1.2 and 1.5.
-    irr_col: str
-        String that is the name of the column with the irradiance data.
-    plot: bool, default False
-        Plots graphical view of algorithim searching for reporting irradiance.
-        Useful for troubleshooting or understanding the method.
+    df : DataFrame
+        Data to use to calculate reporting irradiance.
+    low : numeric, default 0.8
+        Low Percent band to filter around
+    high : numeric, default 1.2
+        High percent band to filter around
+    irr_col : str
+        Name of column in `df` containing irradiance data.
+    min_percent_below : numeric, default 40
+        Minimum number of points as a percentage allowed below the reporting
+        irradiance.
+    max_percent_above=60
+        Maximum number of points as a percentage allowed above the reporting
+        irradiance.
+    min_ref_irradiance : numeric, 500
+        Minimum value allowed for the reference irradiance.
+    points_required : float, default 750
+        This is value is only used in the plot to overlay a horizontal line
+        on the plot of the total points.
+    max_ref_irradiance : numeric, default None
+        Maximum value allowed for the reference irradiance. By default this
+        maximum is calculated by dividing the highest irradiance value in `df`
+        by `high`.
+    output_plot_path : str or None, default None
+        Provide path to save a plot of the possible reporting irradiances.
+        Do not include file extension. .html is added automatically.
+        Default does not save plot.
+    output_csv_path : str or None, default None
+        Provide path to save a table of the possible reporting irradiances.
+        Default does not save csv.
 
     Returns
     -------
     Tuple
         Float reporting irradiance and filtered dataframe.
-
     """
-    if plot:
-        irr = df[irr_col].values
-        x = np.ones(irr.shape[0])
-        plt.plot(x, irr, 'o', markerfacecolor=(0.5, 0.7, 0.5, 0.1))
-        plt.ylabel('irr')
-        x_inc = 1.01
+    poa_flt = df.copy()
 
-    vals_above = 10
-    perc = 100.
-    pt_qty = 0
-    loop_count = 0
-    pt_qty_array = []
-    # print('--------------- MONTH START --------------')
-    while perc > 0.6 or pt_qty < 50:
-        # print('####### LOOP START #######')
-        df_count = df.shape[0]
-        df_perc = 1 - (vals_above / df_count)
-        # print('in percent: {}'.format(df_perc))
-        irr_RC = (df[irr_col].agg(perc_wrap(df_perc * 100)))
-        # print('ref irr: {}'.format(irr_RC))
-        flt_df = filter_irr(df, irr_col, low, high, ref_val=irr_RC)
-        # print('number of vals: {}'.format(df.shape))
-        pt_qty = flt_df.shape[0]
-        # print('flt pt qty: {}'.format(pt_qty))
-        perc = stats.percentileofscore(flt_df[irr_col], irr_RC) / 100
-        # print('out percent: {}'.format(perc))
-        vals_above += 1
-        pt_qty_array.append(pt_qty)
-        if perc <= 0.6 and pt_qty <= pt_qty_array[loop_count - 1]:
-            break
-        loop_count += 1
+    poa_flt['plus_perc'] = poa_flt.iloc[:, 0] * high
+    poa_flt['minus_perc'] = poa_flt.iloc[:, 0] * low
 
-        if plot:
-            x_inc += 0.02
-            y1 = irr_RC * low
-            y2 = irr_RC * high
-            plt.plot(x_inc, irr_RC, 'ro')
-            plt.plot([x_inc, x_inc], [y1, y2])
+    poa_flt.sort_values(irr_col, inplace=True)
 
-    if plot:
-        plt.show()
-    return(irr_RC, flt_df)
+    poa_flt['below_count'] = [
+        poa_flt[irr_col].between(low, ref).sum() for low, ref
+        in zip(poa_flt['minus_perc'], poa_flt[irr_col])
+    ]
+    # poa_flt['below_count'] = below_count
+    poa_flt['above_count'] = [
+        poa_flt[irr_col].between(ref, high).sum() for ref, high
+        in zip(poa_flt[irr_col], poa_flt['plus_perc'])
+    ]
+    # poa_flt['above_count'] = above_count
+
+    poa_flt['total_pts'] = poa_flt['above_count'] + poa_flt['below_count']
+    poa_flt['perc_above'] = (poa_flt['above_count'] / poa_flt['total_pts']) * 100
+    poa_flt['perc_below'] =  (poa_flt['below_count'] / poa_flt['total_pts']) * 100
+
+    # set index to the poa irradiance
+    poa_flt.set_index(irr_col, inplace=True)
+
+    if max_ref_irradiance is None:
+        max_ref_irradiance = poa_flt.index[-1] / high
+
+    # determine ref irradiance by finding 50/50 irradiance in upper group of data
+    poa_flt['valid'] = (
+        poa_flt['perc_below'].between(min_percent_below, max_percent_above) &
+        poa_flt.index.to_series().between(min_ref_irradiance, max_ref_irradiance)
+    )
+    poa_flt['perc_below_minus_50_abs'] = (poa_flt['perc_below'] - 50).abs()
+    valid_df = poa_flt[poa_flt['valid']].copy()
+    valid_df.sort_values('perc_below_minus_50_abs', inplace=True)
+    # if there are more than one points that are exactly 50 points above and
+    # 50 above then pick the one that results in the most points
+    fifty_fifty_points = valid_df['perc_below_minus_50_abs'] == 0
+    if (fifty_fifty_points ).sum() > 1:
+        possible_points = poa_flt.loc[
+            fifty_fifty_points[fifty_fifty_points].index,
+            'total_pts'
+        ]
+        possible_points.sort_values(ascending=False, inplace=True)
+        irr_RC = possible_points.index[0]
+    else:
+        irr_RC = valid_df.index[0]
+
+    # output csv file if path is passed
+    if output_csv_path is not None:
+        poa_flt.to_csv(output_csv_path.with_suffix('.csv'))
+
+    # create a plot of possible reporting irradiances
+    if output_plot_path is not None:
+        below_count_scatter = poa_flt['below_count'].hvplot(kind='scatter')
+        above_count_scatter = poa_flt['above_count'].hvplot(kind='scatter')
+        count_ellipse = hv.Ellipse(
+            irr_RC,
+            poa_flt.loc[irr_RC, 'below_count'],
+            (20, 50)
+        )
+        perc_below_scatter = (
+            poa_flt['perc_below'].hvplot(kind='scatter') *\
+            hv.HLine(min_percent_below) *\
+            hv.HLine(max_percent_above) *\
+            hv.VLine(min_ref_irradiance) *\
+            hv.VLine(max_ref_irradiance)
+        )
+        perc_ellipse = hv.Ellipse(
+            irr_RC,
+            poa_flt.loc[irr_RC, 'perc_below'],
+            (20, 10)
+        )
+        total_points_scatter = (
+            poa_flt['total_pts'].hvplot(kind='scatter') *\
+            hv.HLine(points_required)
+        )
+        total_points_ellipse = hv.Ellipse(
+            irr_RC,
+            poa_flt.loc[irr_RC, 'total_pts'],
+            (20, 50)
+        )
+        rep_cond_plot = (
+            below_count_scatter * above_count_scatter * count_ellipse +\
+            (perc_below_scatter * perc_ellipse).opts(ylim=(0, 100)) +\
+            total_points_scatter * total_points_ellipse
+        ).opts(
+            opts.HLine(line_width=1),
+            opts.VLine(line_width=1),
+            opts.Layout(title='Reporting Irradiance: {:0.2f}'.format(irr_RC)),
+        ).cols(1)
+        # save plot to path passed
+        hv.save(
+            rep_cond_plot,
+            output_plot_path.with_suffix('.html'),
+            fmt='html',
+            toolbar=True
+        )
+
+    flt_df = filter_irr(df, irr_col, low, high, ref_val=irr_RC)
+    return (irr_RC, flt_df)
 
 
 def fit_model(df, fml='power ~ poa + I(poa * poa) + I(poa * t_amb) + I(poa * w_vel) - 1'):  # noqa E501
@@ -3082,7 +3165,7 @@ class CapData(object):
     def rep_cond(self, irr_bal=False, percent_filter=None, w_vel=None,
                  inplace=True,
                  func={'poa': perc_wrap(60), 't_amb': 'mean', 'w_vel': 'mean'},
-                 freq=None, **kwargs):
+                 freq=None, grouper_kwargs={}, rc_kwargs={}):
         """
         Calculate reporting conditons.
 
@@ -3115,11 +3198,12 @@ class CapData(object):
         inplace: bool, True by default
             When true updates object rc parameter, when false returns
             dicitionary of reporting conditions.
-        **kwargs
+        grouper_kwargs : dict
             Passed to pandas Grouper to control label and closed side of
             intervals. See pandas Grouper doucmentation for details. Default is
             left labeled and left closed.
-
+        rc_kwargs : dict
+            Passed to the irr_rc_balanced function if `irr_bal` is set to True.
 
         Returns
         -------
@@ -3144,7 +3228,13 @@ class CapData(object):
             else:
                 low, high = perc_bounds(percent_filter)
 
-                results = irr_rc_balanced(df, low, high, irr_col='poa')
+                results = irr_rc_balanced(
+                    df,
+                    low,
+                    high,
+                    irr_col='poa',
+                    **rc_kwargs
+                )
                 flt_df = results[1]
                 temp_RC = flt_df['t_amb'].mean()
                 wind_RC = flt_df['w_vel'].mean()
@@ -3160,7 +3250,7 @@ class CapData(object):
             # 'BQ-JAN', 'BQ-FEB', 'BQ-APR', 'BQ-MAY', 'BQ-JUL',
             # 'BQ-AUG', 'BQ-OCT', 'BQ-NOV'
             df = wrap_seasons(df, freq)
-            df_grpd = df.groupby(pd.Grouper(freq=freq, **kwargs))
+            df_grpd = df.groupby(pd.Grouper(freq=freq, **grouper_kwargs))
 
             if irr_bal:
                 freq = list(df_grpd.groups.keys())[0].freq
