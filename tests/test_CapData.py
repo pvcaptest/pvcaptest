@@ -33,6 +33,9 @@ pytest tests/test_CapData.py::TestCapDataEmpty
 
 To run a specific test:
 pytest tests/test_CapData.py::TestCapDataEmpty::test_capdata_empty
+
+To create a test coverage report (html output) with pytest:
+pytest --cov-report html --cov=captest tests/
 """
 
 test_files = ['test1.csv', 'test2.csv', 'test3.CSV', 'test4.txt',
