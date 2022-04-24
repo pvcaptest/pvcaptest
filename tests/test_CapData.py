@@ -1,3 +1,4 @@
+from pathlib import Path
 import os
 import collections
 import unittest
@@ -529,6 +530,25 @@ class TestCapDataSeriesTypes(unittest.TestCase):
                               'Returned object is not a string.')
         self.assertIs(out, '',
                       'Returned object is not empty string.')
+
+
+class TestIrrRcBalanced():
+    """Test the functionality of the irr_rc_balanced function"""
+    def test_check_csv_output_exists(self, meas, tmp_path):
+        """Check that function outputs a csv file when given a file path."""
+        f = tmp_path / 'output.csv'
+        # f = Path('~/python/pvcaptest_bt-/tests/irr_balance_output.csv')
+        print(meas.column_groups)
+        meas.agg_sensors(agg_map={'irr-poa-pyran':'mean'})
+        print(meas.regression_cols['poa'])
+        pvc.irr_rc_balanced(
+            meas.data,
+            0.8,
+            1.2,
+            irr_col=meas.regression_cols['poa'],
+            output_csv_path=f
+        )
+        assert f.exists()
 
 
 class Test_CapData_methods_sim(unittest.TestCase):
@@ -2026,7 +2046,7 @@ def meas():
     )
     meas.set_regression_cols(
         power='-mtr-',
-        poa='irr-poa-',
+        poa='irr-poa-pyran',
         t_amb='temp-amb-',
         w_vel='wind--',
     )
