@@ -41,6 +41,8 @@ from bokeh.palettes import Category10
 from bokeh.layouts import gridplot
 from bokeh.models import Legend, HoverTool, ColumnDataSource
 
+import param
+
 # visualization library imports
 hv_spec = importlib.util.find_spec('holoviews')
 if hv_spec is not None:
@@ -520,6 +522,101 @@ def filter_grps(grps, rcs, irr_col, low, high, **kwargs):
     df_flt = pd.concat(flt_dfs)
     df_flt_grpby = df_flt.groupby(pd.Grouper(freq=freq, **kwargs))
     return df_flt_grpby
+
+
+class ReportingIrradiance(param.Parameterized):
+    df = param.DataFrame(
+        doc='Data to use to calculate reporting irradiance.',
+        precedence=-1)
+    # low = param.Magnitude(default=0.8, doc='Low')
+    # high = param.Number(default=1.2, doc='High percent band to filter around')
+    percent_band = param.Magnitude(0.2, softbounds=(0.2, 0.5), step=0.02)
+    irr_col = param.String(
+        default='GlobInc',
+        doc="Name of column in `df` containing irradiance data.")
+    min_percent_below = param.Integer(
+        default=40,
+        doc='Minimum number of points as a percentage allowed below the \
+        reporting irradiance.')
+    max_percent_above = param.Integer(
+        default=60,
+        doc='Maximum number of points as a percentage allowed above the \
+        reporting irradiance.')
+    min_ref_irradiance = param.Integer(
+        default=500,
+        doc='Minimum value allowed for the reference irradiance.')
+    points_required = param.Integer(
+        default=750,
+        doc='This is value is only used in the plot to overlay a horizontal \
+        line on the plot of the total points.')
+    max_ref_irradiance = param.Integer(None,
+        doc='Maximum value allowed for the reference irradiance. By default this\
+        maximum is calculated by dividing the highest irradiance value in `df`\
+        by `high`.')
+    output_plot_path = param.String(None,
+        doc='Provide path to save a plot of the possible reporting irradiances.\
+        Do not include file extension. .html is added automatically.\
+        Default does not save plot.',
+        precedence=-1)
+    output_csv_path = param.String(None,
+        doc='Provide path to save a table of the possible reporting irradiances.\
+        Default does not save csv.',
+        precedence=-1)
+
+    def get_rep_irr(self):
+        low, high = perc_bounds(percent_filter)
+        poa_flt = self.df.copy()
+
+        poa_flt['plus_perc'] = poa_flt.iloc[:, 0] * high
+        poa_flt['minus_perc'] = poa_flt.iloc[:, 0] * low
+
+        poa_flt.sort_values(self.irr_col, inplace=True)
+
+        poa_flt['below_count'] = [
+            poa_flt[self.irr_col].between(low, ref).sum() for low, ref
+            in zip(poa_flt['minus_perc'], poa_flt[self.irr_col])
+        ]
+        poa_flt['above_count'] = [
+            poa_flt[self.irr_col].between(ref, high).sum() for ref, high
+            in zip(poa_flt[self.irr_col], poa_flt['plus_perc'])
+        ]
+
+        poa_flt['total_pts'] = poa_flt['above_count'] + poa_flt['below_count']
+        poa_flt['perc_above'] = (poa_flt['above_count'] / poa_flt['total_pts']) * 100
+        poa_flt['perc_below'] =  (poa_flt['below_count'] / poa_flt['total_pts']) * 100
+
+        # set index to the poa irradiance
+        poa_flt.set_index(self.irr_col, inplace=True)
+
+        if self.max_ref_irradiance is None:
+            self.max_ref_irradiance = int(poa_flt.index[-1] / self.high)
+
+        # determine ref irradiance by finding 50/50 irradiance in upper group of data
+        poa_flt['valid'] = (
+            poa_flt['perc_below'].between(
+                self.min_percent_below, self.max_percent_above) &
+            poa_flt.index.to_series().between(
+                self.min_ref_irradiance, self.max_ref_irradiance)
+        )
+        poa_flt['perc_below_minus_50_abs'] = (poa_flt['perc_below'] - 50).abs()
+        valid_df = poa_flt[poa_flt['valid']].copy()
+        valid_df.sort_values('perc_below_minus_50_abs', inplace=True)
+        # if there are more than one points that are exactly 50 points above and
+        # 50 above then pick the one that results in the most points
+        fifty_fifty_points = valid_df['perc_below_minus_50_abs'] == 0
+        if (fifty_fifty_points).sum() > 1:
+            possible_points = poa_flt.loc[
+                fifty_fifty_points[fifty_fifty_points].index,
+                'total_pts'
+            ]
+            possible_points.sort_values(ascending=False, inplace=True)
+            irr_RC = possible_points.index[0]
+        else:
+            irr_RC = valid_df.index[0]
+        flt_df = filter_irr(df, irr_col, low, high, ref_val=irr_RC)
+        return (irr_RC, flt_df)
+
+
 
 
 def irr_rc_balanced(df,
