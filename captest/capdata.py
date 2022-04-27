@@ -42,6 +42,7 @@ from bokeh.layouts import gridplot
 from bokeh.models import Legend, HoverTool, ColumnDataSource
 
 import param
+import hvplot.pandas
 
 # visualization library imports
 hv_spec = importlib.util.find_spec('holoviews')
@@ -528,12 +529,18 @@ class ReportingIrradiance(param.Parameterized):
     df = param.DataFrame(
         doc='Data to use to calculate reporting irradiance.',
         precedence=-1)
-    # low = param.Magnitude(default=0.8, doc='Low')
-    # high = param.Number(default=1.2, doc='High percent band to filter around')
-    percent_band = param.Magnitude(0.2, softbounds=(0.2, 0.5), step=0.02)
     irr_col = param.String(
         default='GlobInc',
-        doc="Name of column in `df` containing irradiance data.")
+        doc="Name of column in `df` containing irradiance data.",
+        precedence=-1)
+    irr_rc = param.Number(precedence=-1)
+    poa_flt = param.DataFrame(precedence=-1)
+    total_pts = param.Number(precedence=-1)
+    rc_irr_60th_perc = param.Number(precedence=-1)
+    # low = param.Magnitude(default=0.8, doc='Low')
+    # high = param.Number(default=1.2, doc='High percent band to filter around')
+    # percent_band = param.Magnitude(0.2, softbounds=(0.2, 0.5), step=0.02)
+    percent_band = param.Integer(20, softbounds=(2, 50), step=1)
     min_percent_below = param.Integer(
         default=40,
         doc='Minimum number of points as a percentage allowed below the \
@@ -545,14 +552,14 @@ class ReportingIrradiance(param.Parameterized):
     min_ref_irradiance = param.Integer(
         default=500,
         doc='Minimum value allowed for the reference irradiance.')
-    points_required = param.Integer(
-        default=750,
-        doc='This is value is only used in the plot to overlay a horizontal \
-        line on the plot of the total points.')
     max_ref_irradiance = param.Integer(None,
         doc='Maximum value allowed for the reference irradiance. By default this\
         maximum is calculated by dividing the highest irradiance value in `df`\
         by `high`.')
+    points_required = param.Integer(
+        default=750,
+        doc='This is value is only used in the plot to overlay a horizontal \
+        line on the plot of the total points.')
     output_plot_path = param.String(None,
         doc='Provide path to save a plot of the possible reporting irradiances.\
         Do not include file extension. .html is added automatically.\
@@ -563,14 +570,21 @@ class ReportingIrradiance(param.Parameterized):
         Default does not save csv.',
         precedence=-1)
 
+    def __init__(self, df, irr_col, **param):
+        super().__init__(**param)
+        self.df = df
+        self.irr_col = irr_col
+        self.rc_irr_60th_perc = np.percentile(self.df[self.irr_col], 60)
+
     def get_rep_irr(self):
-        low, high = perc_bounds(percent_filter)
+        low, high = perc_bounds(self.percent_band)
         poa_flt = self.df.copy()
 
-        poa_flt['plus_perc'] = poa_flt.iloc[:, 0] * high
-        poa_flt['minus_perc'] = poa_flt.iloc[:, 0] * low
-
         poa_flt.sort_values(self.irr_col, inplace=True)
+
+        poa_flt['plus_perc'] = poa_flt[self.irr_col] * high
+        poa_flt['minus_perc'] = poa_flt[self.irr_col] * low
+
 
         poa_flt['below_count'] = [
             poa_flt[self.irr_col].between(low, ref).sum() for low, ref
@@ -589,7 +603,7 @@ class ReportingIrradiance(param.Parameterized):
         poa_flt.set_index(self.irr_col, inplace=True)
 
         if self.max_ref_irradiance is None:
-            self.max_ref_irradiance = int(poa_flt.index[-1] / self.high)
+            self.max_ref_irradiance = int(poa_flt.index[-1] / high)
 
         # determine ref irradiance by finding 50/50 irradiance in upper group of data
         poa_flt['valid'] = (
@@ -613,11 +627,64 @@ class ReportingIrradiance(param.Parameterized):
             irr_RC = possible_points.index[0]
         else:
             irr_RC = valid_df.index[0]
-        flt_df = filter_irr(df, irr_col, low, high, ref_val=irr_RC)
+        flt_df = filter_irr(self.df, self.irr_col, low, high, ref_val=irr_RC)
+        self.irr_rc = irr_RC
+        self.poa_flt = poa_flt
+        self.total_pts = poa_flt.loc[self.irr_rc, 'total_pts']
         return (irr_RC, flt_df)
 
+    @param.depends('percent_band', 'min_percent_below', 'max_percent_above', 'min_ref_irradiance', 'points_required', 'max_ref_irradiance')
+    def plot(self):
+        self.get_rep_irr()
+        below_count_scatter = self.poa_flt['below_count'].hvplot(kind='scatter')
+        above_count_scatter = self.poa_flt['above_count'].hvplot(kind='scatter')
+        count_ellipse = hv.Ellipse(
+            self.irr_rc,
+            self.poa_flt.loc[self.irr_rc, 'below_count'],
+            (20, 50)
+        )
+        perc_below_scatter = (
+            self.poa_flt['perc_below'].hvplot(kind='scatter') *\
+            hv.HLine(self.min_percent_below) *\
+            hv.HLine(self.max_percent_above) *\
+            hv.VLine(self.min_ref_irradiance) *\
+            hv.VLine(self.max_ref_irradiance)
+        )
+        perc_ellipse = hv.Ellipse(
+            self.irr_rc,
+            self.poa_flt.loc[self.irr_rc, 'perc_below'],
+            (20, 10)
+        )
+        total_points_scatter = (
+            self.poa_flt['total_pts'].hvplot(kind='scatter') *\
+            hv.HLine(self.points_required)
+        )
+        total_points_ellipse = hv.Ellipse(
+            self.irr_rc,
+            self.poa_flt.loc[self.irr_rc, 'total_pts'],
+            (20, 50)
+        )
 
-
+        ylim_bottom = self.poa_flt['total_pts'].min() - 20
+        if self.total_pts < self.points_required:
+            ylim_top =  self.points_required + 20
+        else:
+            ylim_top = self.total_pts + 50
+        rep_cond_plot = (
+            below_count_scatter * above_count_scatter * count_ellipse +\
+            (perc_below_scatter * perc_ellipse).opts(ylim=(0, 100)) +\
+            (total_points_scatter * total_points_ellipse).opts(
+                ylim=(ylim_bottom, ylim_top ))
+        ).opts(
+            opts.HLine(line_width=1),
+            opts.VLine(line_width=1),
+            opts.Layout(
+                title='Reporting Irradiance: {:0.2f}, Total Points {}'.format(
+                    self.irr_rc,
+                    self.total_pts)),
+        ).cols(1)
+        return rep_cond_plot
+        # save plot to path passed
 
 def irr_rc_balanced(df,
     low,
