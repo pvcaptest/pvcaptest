@@ -670,8 +670,9 @@ class ReportingIrradiance(param.Parameterized):
             ylim_top =  self.points_required + 20
         else:
             ylim_top = self.total_pts + 50
+        vl = hv.VLine(self.rc_irr_60th_perc).opts(line_color='gray')
         rep_cond_plot = (
-            below_count_scatter * above_count_scatter * count_ellipse +\
+            below_count_scatter * above_count_scatter * count_ellipse * vl +\
             (perc_below_scatter * perc_ellipse).opts(ylim=(0, 100)) +\
             (total_points_scatter * total_points_ellipse).opts(
                 ylim=(ylim_bottom, ylim_top ))
