@@ -550,7 +550,7 @@ class ReportingIrradiance(param.Parameterized):
         doc='Maximum number of points as a percentage allowed above the \
         reporting irradiance.')
     min_ref_irradiance = param.Integer(
-        default=500,
+        default=None,
         doc='Minimum value allowed for the reference irradiance.')
     max_ref_irradiance = param.Integer(None,
         doc='Maximum value allowed for the reference irradiance. By default this\
@@ -604,6 +604,9 @@ class ReportingIrradiance(param.Parameterized):
 
         if self.max_ref_irradiance is None:
             self.max_ref_irradiance = int(poa_flt.index[-1] / high)
+
+        if self.min_ref_irradiance is None:
+            self.min_ref_irradiance = int(poa_flt.index[0] / low)
 
         # determine ref irradiance by finding 50/50 irradiance in upper group of data
         poa_flt['valid'] = (
@@ -693,7 +696,8 @@ def irr_rc_balanced(df,
     irr_col='GlobInc',
     min_percent_below=40,
     max_percent_above=60,
-    min_ref_irradiance=500,
+    min_ref_irradiance=None,
+    min_allowed_irradiance=400,
     points_required=750,
     max_ref_irradiance=None,
     output_plot_path=None,
@@ -723,8 +727,12 @@ def irr_rc_balanced(df,
     max_percent_above=60
         Maximum number of points as a percentage allowed above the reporting
         irradiance.
-    min_ref_irradiance : numeric, 500
-        Minimum value allowed for the reference irradiance.
+    min_ref_irradiance : numeric, default None
+        Minimum value allowed for the reference irradiance. Calculated as
+        `min_allowed_irradiance` / (1 - `min_ref_irradiance`).
+    min_allowed_irradiance : numeric, default 400
+        The minimum irradiance above which data has not been removed in a
+        filtering step prior to calculating reporting irradiance.
     points_required : float, default 750
         This is value is only used in the plot to overlay a horizontal line
         on the plot of the total points.
@@ -772,6 +780,9 @@ def irr_rc_balanced(df,
 
     if max_ref_irradiance is None:
         max_ref_irradiance = poa_flt.index[-1] / high
+
+    if min_ref_irradiance is None:
+        min_ref_irradiance = min_allowed_irradiance / low
 
     # determine ref irradiance by finding 50/50 irradiance in upper group of data
     poa_flt['valid'] = (
