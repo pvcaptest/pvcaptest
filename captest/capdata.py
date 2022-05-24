@@ -10,6 +10,7 @@ the results of the capacity test, respectively.
 """
 # standard library imports
 import os
+from pathlib import Path
 import re
 import datetime
 import copy
@@ -576,7 +577,24 @@ class ReportingIrradiance(param.Parameterized):
         self.irr_col = irr_col
         self.rc_irr_60th_perc = np.percentile(self.df[self.irr_col], 60)
 
-    def get_rep_irr(self):
+    def get_rep_irr(self, save_plot=False, save_csv=False):
+        """
+        Calculates the reporting irradiance.
+
+        Parameters
+        ----------
+        save_plot : bool or str, default False
+            Pass True or a filepath to save a plot of the possible reporting
+            conditions when calculating the reporting irradiance.
+        save_csv : bool or str, default False
+            Pass True or a filepath to save a csv of the possible reporting
+            conditions when calculating the reporting irradiance.
+
+        Returns
+        -------
+        Tuple
+            Float reporting irradiance and filtered dataframe.
+        """
         low, high = perc_bounds(self.percent_band)
         poa_flt = self.df.copy()
 
@@ -634,6 +652,25 @@ class ReportingIrradiance(param.Parameterized):
         self.irr_rc = irr_RC
         self.poa_flt = poa_flt
         self.total_pts = poa_flt.loc[self.irr_rc, 'total_pts']
+
+        # save plot if save_plot is True or str
+        save_plot_is_str = isinstance(save_plot, str)
+        if save_plot or save_plot_is_str:
+            if save_plot_is_str:
+                self.output_plot_path = save_plot
+            hv.save(
+                self.plot(),
+                Path(self.output_plot_path).with_suffix('.html'),
+                fmt='html',
+                toolbar=True
+            )
+
+        # save csv if save_csv is True or str
+        save_csv_is_str = isinstance(save_csv, str)
+        if save_csv or save_csv_is_str:
+            if save_csv_is_str:
+                self.output_csv_path = save_csv
+            self.poa_flt.to_csv(Path(self.output_csv_path).with_suffix('.csv'))
         return (irr_RC, flt_df)
 
     @param.depends('percent_band', 'min_percent_below', 'max_percent_above', 'min_ref_irradiance', 'points_required', 'max_ref_irradiance')
@@ -690,7 +727,8 @@ class ReportingIrradiance(param.Parameterized):
         return rep_cond_plot
         # save plot to path passed
 
-def irr_rc_balanced(df,
+def irr_rc_balanced(
+    df,
     low,
     high,
     irr_col='GlobInc',
