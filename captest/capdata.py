@@ -10,6 +10,7 @@ the results of the capacity test, respectively.
 """
 # standard library imports
 import os
+from pathlib import Path
 import re
 import datetime
 import copy
@@ -560,15 +561,6 @@ class ReportingIrradiance(param.Parameterized):
         default=750,
         doc='This is value is only used in the plot to overlay a horizontal \
         line on the plot of the total points.')
-    output_plot_path = param.String(None,
-        doc='Provide path to save a plot of the possible reporting irradiances.\
-        Do not include file extension. .html is added automatically.\
-        Default does not save plot.',
-        precedence=-1)
-    output_csv_path = param.String(None,
-        doc='Provide path to save a table of the possible reporting irradiances.\
-        Default does not save csv.',
-        precedence=-1)
 
     def __init__(self, df, irr_col, **param):
         super().__init__(**param)
@@ -576,7 +568,24 @@ class ReportingIrradiance(param.Parameterized):
         self.irr_col = irr_col
         self.rc_irr_60th_perc = np.percentile(self.df[self.irr_col], 60)
 
-    def get_rep_irr(self):
+    def get_rep_irr(self, save_plot=False, save_csv=False):
+        """
+        Calculates the reporting irradiance.
+
+        Parameters
+        ----------
+        save_plot : bool or str, default False
+            Pass True or a filepath to save a plot of the possible reporting
+            conditions when calculating the reporting irradiance.
+        save_csv : bool or str, default False
+            Pass True or a filepath to save a csv of the possible reporting
+            conditions when calculating the reporting irradiance.
+
+        Returns
+        -------
+        Tuple
+            Float reporting irradiance and filtered dataframe.
+        """
         low, high = perc_bounds(self.percent_band)
         poa_flt = self.df.copy()
 
@@ -620,6 +629,7 @@ class ReportingIrradiance(param.Parameterized):
         valid_df.sort_values('perc_below_minus_50_abs', inplace=True)
         # if there are more than one points that are exactly 50 points above and
         # 50 above then pick the one that results in the most points
+        self.valid_df = valid_df
         fifty_fifty_points = valid_df['perc_below_minus_50_abs'] == 0
         if (fifty_fifty_points).sum() > 1:
             possible_points = poa_flt.loc[
@@ -634,7 +644,31 @@ class ReportingIrradiance(param.Parameterized):
         self.irr_rc = irr_RC
         self.poa_flt = poa_flt
         self.total_pts = poa_flt.loc[self.irr_rc, 'total_pts']
+
         return (irr_RC, flt_df)
+
+
+    def save_plot(self, output_plot_path=None):
+        """
+        Save a plot of the possible reporting irradiances and time intervals.
+
+        Saves plot as an html file at path given.
+
+        output_plot_path : str or Path
+            Path to save plot to.
+        """
+        hv.save(
+            self.plot(),
+            output_plot_path,
+            fmt='html',
+            toolbar=True
+        )
+
+    def save_csv(self, output_csv_path):
+        """
+        Save possible reporting irradiance data to csv file at given path.
+        """
+        self.poa_flt.to_csv(output_csv_path)
 
     @param.depends('percent_band', 'min_percent_below', 'max_percent_above', 'min_ref_irradiance', 'points_required', 'max_ref_irradiance')
     def plot(self):
@@ -689,175 +723,6 @@ class ReportingIrradiance(param.Parameterized):
         ).cols(1)
         return rep_cond_plot
         # save plot to path passed
-
-def irr_rc_balanced(df,
-    low,
-    high,
-    irr_col='GlobInc',
-    min_percent_below=40,
-    max_percent_above=60,
-    min_ref_irradiance=None,
-    min_allowed_irradiance=400,
-    points_required=750,
-    max_ref_irradiance=None,
-    output_plot_path=None,
-    output_csv_path=None
-):
-    """
-    Calculate a reporting irradiance that achieves 40/60 balance.
-
-    This function is intended to implement a strict interpratation of common
-    contract language that specifies the reporting irradiance be determined by
-    finding the irradiance that results in a balance of points within a
-    +/- percent range of the reporting irradiance.
-
-    Parameters
-    ----------
-    df : DataFrame
-        Data to use to calculate reporting irradiance.
-    low : numeric, default 0.8
-        Low Percent band to filter around
-    high : numeric, default 1.2
-        High percent band to filter around
-    irr_col : str
-        Name of column in `df` containing irradiance data.
-    min_percent_below : numeric, default 40
-        Minimum number of points as a percentage allowed below the reporting
-        irradiance.
-    max_percent_above=60
-        Maximum number of points as a percentage allowed above the reporting
-        irradiance.
-    min_ref_irradiance : numeric, default None
-        Minimum value allowed for the reference irradiance. Calculated as
-        `min_allowed_irradiance` / (1 - `min_ref_irradiance`).
-    min_allowed_irradiance : numeric, default 400
-        The minimum irradiance above which data has not been removed in a
-        filtering step prior to calculating reporting irradiance.
-    points_required : float, default 750
-        This is value is only used in the plot to overlay a horizontal line
-        on the plot of the total points.
-    max_ref_irradiance : numeric, default None
-        Maximum value allowed for the reference irradiance. By default this
-        maximum is calculated by dividing the highest irradiance value in `df`
-        by `high`.
-    output_plot_path : str or None, default None
-        Provide path to save a plot of the possible reporting irradiances.
-        Do not include file extension. .html is added automatically.
-        Default does not save plot.
-    output_csv_path : str or None, default None
-        Provide path to save a table of the possible reporting irradiances.
-        Default does not save csv.
-
-    Returns
-    -------
-    Tuple
-        Float reporting irradiance and filtered dataframe.
-    """
-    poa_flt = df.copy()
-
-    poa_flt['plus_perc'] = poa_flt.iloc[:, 0] * high
-    poa_flt['minus_perc'] = poa_flt.iloc[:, 0] * low
-
-    poa_flt.sort_values(irr_col, inplace=True)
-
-    poa_flt['below_count'] = [
-        poa_flt[irr_col].between(low, ref).sum() for low, ref
-        in zip(poa_flt['minus_perc'], poa_flt[irr_col])
-    ]
-    # poa_flt['below_count'] = below_count
-    poa_flt['above_count'] = [
-        poa_flt[irr_col].between(ref, high).sum() for ref, high
-        in zip(poa_flt[irr_col], poa_flt['plus_perc'])
-    ]
-    # poa_flt['above_count'] = above_count
-
-    poa_flt['total_pts'] = poa_flt['above_count'] + poa_flt['below_count']
-    poa_flt['perc_above'] = (poa_flt['above_count'] / poa_flt['total_pts']) * 100
-    poa_flt['perc_below'] =  (poa_flt['below_count'] / poa_flt['total_pts']) * 100
-
-    # set index to the poa irradiance
-    poa_flt.set_index(irr_col, inplace=True)
-
-    if max_ref_irradiance is None:
-        max_ref_irradiance = poa_flt.index[-1] / high
-
-    if min_ref_irradiance is None:
-        min_ref_irradiance = min_allowed_irradiance / low
-
-    # determine ref irradiance by finding 50/50 irradiance in upper group of data
-    poa_flt['valid'] = (
-        poa_flt['perc_below'].between(min_percent_below, max_percent_above) &
-        poa_flt.index.to_series().between(min_ref_irradiance, max_ref_irradiance)
-    )
-    poa_flt['perc_below_minus_50_abs'] = (poa_flt['perc_below'] - 50).abs()
-    valid_df = poa_flt[poa_flt['valid']].copy()
-    valid_df.sort_values('perc_below_minus_50_abs', inplace=True)
-    # if there are more than one points that are exactly 50 points above and
-    # 50 above then pick the one that results in the most points
-    fifty_fifty_points = valid_df['perc_below_minus_50_abs'] == 0
-    if (fifty_fifty_points ).sum() > 1:
-        possible_points = poa_flt.loc[
-            fifty_fifty_points[fifty_fifty_points].index,
-            'total_pts'
-        ]
-        possible_points.sort_values(ascending=False, inplace=True)
-        irr_RC = possible_points.index[0]
-    else:
-        irr_RC = valid_df.index[0]
-
-    # output csv file if path is passed
-    if output_csv_path is not None:
-        poa_flt.to_csv(output_csv_path.with_suffix('.csv'))
-
-    # create a plot of possible reporting irradiances
-    if output_plot_path is not None:
-        below_count_scatter = poa_flt['below_count'].hvplot(kind='scatter')
-        above_count_scatter = poa_flt['above_count'].hvplot(kind='scatter')
-        count_ellipse = hv.Ellipse(
-            irr_RC,
-            poa_flt.loc[irr_RC, 'below_count'],
-            (20, 50)
-        )
-        perc_below_scatter = (
-            poa_flt['perc_below'].hvplot(kind='scatter') *\
-            hv.HLine(min_percent_below) *\
-            hv.HLine(max_percent_above) *\
-            hv.VLine(min_ref_irradiance) *\
-            hv.VLine(max_ref_irradiance)
-        )
-        perc_ellipse = hv.Ellipse(
-            irr_RC,
-            poa_flt.loc[irr_RC, 'perc_below'],
-            (20, 10)
-        )
-        total_points_scatter = (
-            poa_flt['total_pts'].hvplot(kind='scatter') *\
-            hv.HLine(points_required)
-        )
-        total_points_ellipse = hv.Ellipse(
-            irr_RC,
-            poa_flt.loc[irr_RC, 'total_pts'],
-            (20, 50)
-        )
-        rep_cond_plot = (
-            below_count_scatter * above_count_scatter * count_ellipse +\
-            (perc_below_scatter * perc_ellipse).opts(ylim=(0, 100)) +\
-            total_points_scatter * total_points_ellipse
-        ).opts(
-            opts.HLine(line_width=1),
-            opts.VLine(line_width=1),
-            opts.Layout(title='Reporting Irradiance: {:0.2f}'.format(irr_RC)),
-        ).cols(1)
-        # save plot to path passed
-        hv.save(
-            rep_cond_plot,
-            output_plot_path.with_suffix('.html'),
-            fmt='html',
-            toolbar=True
-        )
-
-    flt_df = filter_irr(df, irr_col, low, high, ref_val=irr_RC)
-    return (irr_RC, flt_df)
 
 
 def fit_model(df, fml='power ~ poa + I(poa * poa) + I(poa * t_amb) + I(poa * w_vel) - 1'):  # noqa E501
@@ -3338,10 +3203,16 @@ class CapData(object):
             print('No filters have been run.')
 
     @update_summary
-    def rep_cond(self, irr_bal=False, percent_filter=None, w_vel=None,
-                 inplace=True,
-                 func={'poa': perc_wrap(60), 't_amb': 'mean', 'w_vel': 'mean'},
-                 freq=None, grouper_kwargs={}, rc_kwargs={}):
+    def rep_cond(
+        self,
+        irr_bal=False,
+        percent_filter=20,
+        w_vel=None,
+        inplace=True,
+        func={'poa': perc_wrap(60), 't_amb': 'mean', 'w_vel': 'mean'},
+        freq=None,
+        grouper_kwargs={},
+        rc_kwargs={}):
         """
         Calculate reporting conditons.
 
@@ -3351,12 +3222,9 @@ class CapData(object):
             If true, uses the irr_rc_balanced function to determine the
             reporting conditions. Replaces the calculations specified by func
             with or without freq.
-        percent_filter : float or tuple, default None
-            Percentage or tuple of percentages used to filter around reporting
-            irradiance in the irr_rc_balanced function.  Required argument when
-            irr_bal is True.
-            Tuple option allows specifying different percentage for above and
-            below reporting irradiance. (below, above)
+        percent_filter : Int, default 20
+            Percentage as integer used to filter around reporting
+            irradiance in the irr_rc_balanced function.
         func: callable, string, dictionary, or list of string/callables
             Determines how the reporting condition is calculated.
             Default is a dictionary poa - 60th numpy_percentile, t_amb - mean
@@ -3398,25 +3266,19 @@ class CapData(object):
         RCs_df = pd.DataFrame(df.agg(func)).T
 
         if irr_bal:
-            if percent_filter is None:
-                return warnings.warn('percent_filter required when irr_bal is '
-                                     'True')
-            else:
-                low, high = perc_bounds(percent_filter)
-
-                results = irr_rc_balanced(
-                    df,
-                    low,
-                    high,
-                    irr_col='poa',
-                    **rc_kwargs
-                )
-                flt_df = results[1]
-                temp_RC = flt_df['t_amb'].mean()
-                wind_RC = flt_df['w_vel'].mean()
-                RCs_df = pd.DataFrame({'poa': results[0],
-                                       't_amb': temp_RC,
-                                       'w_vel': wind_RC}, index=[0])
+            self.rc_tool = ReportingIrradiance(
+                df,
+                'poa',
+                percent_band=percent_filter,
+                **rc_kwargs,
+            )
+            results = self.rc_tool.get_rep_irr()
+            flt_df = results[1]
+            temp_RC = flt_df['t_amb'].mean()
+            wind_RC = flt_df['w_vel'].mean()
+            RCs_df = pd.DataFrame({'poa': results[0],
+                                   't_amb': temp_RC,
+                                   'w_vel': wind_RC}, index=[0])
 
         if w_vel is not None:
             RCs_df['w_vel'][0] = w_vel
