@@ -561,15 +561,6 @@ class ReportingIrradiance(param.Parameterized):
         default=750,
         doc='This is value is only used in the plot to overlay a horizontal \
         line on the plot of the total points.')
-    output_plot_path = param.String(None,
-        doc='Provide path to save a plot of the possible reporting irradiances.\
-        Do not include file extension. .html is added automatically.\
-        Default does not save plot.',
-        precedence=-1)
-    output_csv_path = param.String(None,
-        doc='Provide path to save a table of the possible reporting irradiances.\
-        Default does not save csv.',
-        precedence=-1)
 
     def __init__(self, df, irr_col, **param):
         super().__init__(**param)
@@ -654,25 +645,30 @@ class ReportingIrradiance(param.Parameterized):
         self.poa_flt = poa_flt
         self.total_pts = poa_flt.loc[self.irr_rc, 'total_pts']
 
-        # save plot if save_plot is True or str
-        save_plot_is_str = isinstance(save_plot, str)
-        if save_plot or save_plot_is_str:
-            if save_plot_is_str:
-                self.output_plot_path = save_plot
-            hv.save(
-                self.plot(),
-                Path(self.output_plot_path).with_suffix('.html'),
-                fmt='html',
-                toolbar=True
-            )
-
-        # save csv if save_csv is True or str
-        save_csv_is_str = isinstance(save_csv, str)
-        if save_csv or save_csv_is_str:
-            if save_csv_is_str:
-                self.output_csv_path = save_csv
-            self.poa_flt.to_csv(Path(self.output_csv_path).with_suffix('.csv'))
         return (irr_RC, flt_df)
+
+
+    def save_plot(self, output_plot_path=None):
+        """
+        Save a plot of the possible reporting irradiances and time intervals.
+
+        Saves plot as an html file at path given.
+
+        output_plot_path : str or Path
+            Path to save plot to.
+        """
+        hv.save(
+            self.plot(),
+            output_plot_path,
+            fmt='html',
+            toolbar=True
+        )
+
+    def save_csv(self, output_csv_path):
+        """
+        Save possible reporting irradiance data to csv file at given path.
+        """
+        self.poa_flt.to_csv(output_csv_path)
 
     @param.depends('percent_band', 'min_percent_below', 'max_percent_above', 'min_ref_irradiance', 'points_required', 'max_ref_irradiance')
     def plot(self):
