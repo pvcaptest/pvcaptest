@@ -638,6 +638,7 @@ class ReportingIrradiance(param.Parameterized):
         valid_df.sort_values('perc_below_minus_50_abs', inplace=True)
         # if there are more than one points that are exactly 50 points above and
         # 50 above then pick the one that results in the most points
+        self.valid_df = valid_df
         fifty_fifty_points = valid_df['perc_below_minus_50_abs'] == 0
         if (fifty_fifty_points).sum() > 1:
             possible_points = poa_flt.loc[
@@ -3376,10 +3377,16 @@ class CapData(object):
             print('No filters have been run.')
 
     @update_summary
-    def rep_cond(self, irr_bal=False, percent_filter=None, w_vel=None,
-                 inplace=True,
-                 func={'poa': perc_wrap(60), 't_amb': 'mean', 'w_vel': 'mean'},
-                 freq=None, grouper_kwargs={}, rc_kwargs={}):
+    def rep_cond(
+        self,
+        irr_bal=False,
+        percent_filter=20,
+        w_vel=None,
+        inplace=True,
+        func={'poa': perc_wrap(60), 't_amb': 'mean', 'w_vel': 'mean'},
+        freq=None,
+        grouper_kwargs={},
+        rc_kwargs={}):
         """
         Calculate reporting conditons.
 
@@ -3389,12 +3396,9 @@ class CapData(object):
             If true, uses the irr_rc_balanced function to determine the
             reporting conditions. Replaces the calculations specified by func
             with or without freq.
-        percent_filter : float or tuple, default None
-            Percentage or tuple of percentages used to filter around reporting
-            irradiance in the irr_rc_balanced function.  Required argument when
-            irr_bal is True.
-            Tuple option allows specifying different percentage for above and
-            below reporting irradiance. (below, above)
+        percent_filter : Int, default 20
+            Percentage as integer used to filter around reporting
+            irradiance in the irr_rc_balanced function.
         func: callable, string, dictionary, or list of string/callables
             Determines how the reporting condition is calculated.
             Default is a dictionary poa - 60th numpy_percentile, t_amb - mean
@@ -3436,25 +3440,19 @@ class CapData(object):
         RCs_df = pd.DataFrame(df.agg(func)).T
 
         if irr_bal:
-            if percent_filter is None:
-                return warnings.warn('percent_filter required when irr_bal is '
-                                     'True')
-            else:
-                low, high = perc_bounds(percent_filter)
-
-                results = irr_rc_balanced(
-                    df,
-                    low,
-                    high,
-                    irr_col='poa',
-                    **rc_kwargs
-                )
-                flt_df = results[1]
-                temp_RC = flt_df['t_amb'].mean()
-                wind_RC = flt_df['w_vel'].mean()
-                RCs_df = pd.DataFrame({'poa': results[0],
-                                       't_amb': temp_RC,
-                                       'w_vel': wind_RC}, index=[0])
+            self.rc_tool = ReportingIrradiance(
+                df,
+                'poa',
+                percent_band=percent_filter,
+                **rc_kwargs,
+            )
+            results = self.rc_tool.get_rep_irr()
+            flt_df = results[1]
+            temp_RC = flt_df['t_amb'].mean()
+            wind_RC = flt_df['w_vel'].mean()
+            RCs_df = pd.DataFrame({'poa': results[0],
+                                   't_amb': temp_RC,
+                                   'w_vel': wind_RC}, index=[0])
 
         if w_vel is not None:
             RCs_df['w_vel'][0] = w_vel
