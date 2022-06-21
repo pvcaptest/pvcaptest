@@ -2370,7 +2370,7 @@ class CapData(object):
                         self.regression_cols[reg_var] = agg_col
             self.data = pd.concat(dfs_to_concat, axis=1)
             self.data_filtered = self.data.copy()
-
+            self.set_plot_attributes()
             inv_sum_in_cols = [True for col
                                in self.data.columns if '-inv-sum-agg' in col]
             if inv_sum_in_cols and inv_sum_vs_power:
