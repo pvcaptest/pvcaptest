@@ -2466,9 +2466,11 @@ class CapData(object):
                 else:
                     col_name = trans_key + agg_funcs.__name__ + '-agg'
                     df.rename(columns={df.columns[0]: col_name}, inplace=True)
+                self.column_groups[trans_key].append(col_name)
             else:
                 df.rename(columns=(lambda x: trans_key + x + '-agg'),
                           inplace=True)
+                self.column_groups[trans_key].extend(list(df.columns))
             dfs_to_concat.append(df)
 
         if keep:
@@ -2490,10 +2492,9 @@ class CapData(object):
                         except TypeError:
                             agg_col = trans_group + col_name + '-agg'
                         self.regression_cols[reg_var] = agg_col
-
             self.data = pd.concat(dfs_to_concat, axis=1)
             self.data_filtered = self.data.copy()
-            self.group_columns(column_type_report=False)
+            self.set_plot_attributes()
             inv_sum_in_cols = [True for col
                                in self.data.columns if '-inv-sum-agg' in col]
             if inv_sum_in_cols and inv_sum_vs_power:
