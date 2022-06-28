@@ -67,20 +67,20 @@ class TestTempCorrectPower:
             pd.Series
         )
 
-    def test_high_temp_lower_power(self):
+    def test_high_temp_higher_power(self):
         power = 10
         corr_power = pr.temp_correct_power(power, -0.37, 50)
-        assert corr_power < power
+        assert corr_power > power
 
     def test_low_temp_lower_power(self):
         power = 10
         corr_power = pr.temp_correct_power(power, -0.37, 10)
-        assert corr_power > power
+        assert corr_power < power
 
     def test_math_numeric_power(self):
         power = 10
         corr_power = pr.temp_correct_power(power, -0.37, 50)
-        assert corr_power == 9.075
+        assert pytest.approx(corr_power, 0.3) == 11.019
 
     def test_math_series_power(self):
         ix = pd.date_range(
@@ -90,17 +90,14 @@ class TestTempCorrectPower:
         )
         power = pd.Series([10, 20, 15], index=ix)
         corr_power = pr.temp_correct_power(power, -0.37, 50)
-        assert pd.testing.assert_series_equal(
-            corr_power,
-            pd.Series([9.075, 18.15, 13.6125], index=ix)
-        ) is None
+        assert pytest.approx(corr_power.values, 0.3) == [11.019, 22.038, 16.528]
 
     def test_no_temp_diff(self):
         assert pr.temp_correct_power(10, -0.37, 25) == 10
 
     def test_user_base_temp(self):
         corr_power = pr.temp_correct_power(10, -0.37, 30, base_temp=27.5)
-        assert corr_power == 9.9075
+        assert pytest.approx(corr_power, 0.3) == 10.093
 
 class TestBackOfModuleTemp:
     """Test calculation of back of module (BOM) temperature from weather."""
