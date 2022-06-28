@@ -56,6 +56,10 @@ def get_common_timestep(data, units="m", string_output=True):
 def temp_correct_power(power, power_temp_coeff, cell_temp, base_temp=25):
     """Apply temperature correction to PV power.
 
+    Divides `power` by the temperature correction, so low power values that
+    are above `base_temp` will be increased and high power values that are
+    below the `base_temp` will be decreased.
+
     Parameters
     ----------
     power : numeric or Series
@@ -75,7 +79,10 @@ def temp_correct_power(power, power_temp_coeff, cell_temp, base_temp=25):
     type matches `power`
         Power corrected for temperature.
     """
-    corr_power = power * (1 - (power_temp_coeff / 100) * (base_temp - cell_temp))
+    corr_power = (
+        power /
+        (1 + ((power_temp_coeff / 100) * (cell_temp - base_temp)))
+    )
     return corr_power
 
 
