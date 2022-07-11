@@ -3466,6 +3466,71 @@ class CapData(object):
             spatial_uncerts[group] = b_spatial
         self.spatial_uncerts = spatial_uncerts
 
+    def expanded_uncert(self, grp_to_term, k=1.96):
+        """
+        Calculate expanded uncertainty of the predicted power.
+
+        Adds instrument uncertainty and spatial uncertainty in quadrature and
+        passes the result through the regression to calculate the
+        Systematic Standard Uncertainty, which is then added in quadrature with
+        the Random Standard Uncertainty of the regression and multiplied by the
+        k factor, `k`.
+
+        1. Combine by adding in quadrature the spatial and instrument uncertainties
+        for each measurand.
+        2. Add the absolute uncertainties from step 1 to each of the respective
+        reporting conditions to determine a value for the reporting condition
+        plus the uncertainty.
+        3. Calculate the predicted power using the RCs plus uncertainty three
+        times i.e. calculate for each RC plus uncertainty. For example, to
+        estimate the impact of the uncertainty of the reporting irradiance one
+        would calculate expected power using the irradiance RC plus irradiance
+        uncertainty at the reporting irradiance and the original temperature and
+        wind reporting conditions that have not had any uncertainty added to them.
+        6. Calculate the percent difference between the three new expected power
+        values that include uncertainty of the RCs and the expected power with
+        the unmodified RC.
+        7. Take the square root of the sum of the squares of those three percent
+        differences to obtain the Systematic Standard Uncertainty (bY).
+
+        Expects CapData to have a instrument_uncert and spatial_uncerts
+        attributes with matching keys.
+
+        Parameters
+        ----------
+        grp_to_term : dict
+            Map the groups of measurement types to the term in the
+            regression formula that was regressed against an aggregated value
+            (typically mean) from that group.
+        k : numeric
+            Coverage factor.
+
+        Returns
+        -------
+            Expanded uncertainty as a decimal value.
+        """
+        pred = self.regression_results.get_prediction(self.rc)
+        pred_cap = pred.predicted_mean[0]
+        perc_diffs = {}
+        for group, inst_uncert in self.instrument_uncert.items():
+            by_group = (inst_uncert ** 2 + self.spatial_uncerts[group] ** 2) ** (1 / 2)
+            rcs = self.rc.copy()
+            rcs.loc[0, grp_to_term[group]] = rcs.loc[0, grp_to_term[group]] + by_group
+            pred_cap_uncert = self.regression_results.get_prediction(rcs).predicted_mean[0]
+            perc_diffs[group] = (pred_cap_uncert - pred_cap) / pred_cap
+        df = pd.DataFrame(perc_diffs.values())
+        by = (df ** 2).sum().values[0] ** (1 / 2)
+        sy = pred.se_obs[0] / pred_cap
+        return (by ** 2 + sy ** 2) ** (1 / 2) * k
+
+
+
+
+
+
+
+
+
     def get_filtering_table(self):
         """
         Returns DataFrame showing which filter removed each filtered time interval.
