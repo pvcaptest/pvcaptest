@@ -2041,7 +2041,7 @@ class CapData(object):
                       title=self.name, alpha=0.2)
         return(plt)
 
-    def scatter_hv(self, timeseries=False):
+    def scatter_hv(self, timeseries=False, all_reg_columns=False):
         """
         Create holoviews scatter plot of irradiance vs power.
 
@@ -2057,12 +2057,13 @@ class CapData(object):
             True adds timeseries plot of the data linked to the scatter plot.
             Points selected in teh scatter plot will be highlighted in the
             timeseries plot.
+        all_reg_columns : boolean, default False
+            Set to True to include the data used in the regression in addition
+            to poa irradiance and power in the hover tooltip.
         """
-        new_names = ['power', 'poa', 't_amb', 'w_vel']
-        df = self.get_reg_cols(reg_vars=new_names, filtered_data=True)
-        df['index'] = self.data_filtered.loc[:, 'index']
-        df.index.name = 'date_index'
-        df['date'] = df.index.values
+        df = self.get_reg_cols(filtered_data=True)
+        df.index.name = 'index'
+        df.reset_index(inplace=True)
         opt_dict = {'Scatter': {'style': dict(size=5),
                                 'plot': dict(tools=['box_select',
                                                     'lasso_select',
@@ -2075,11 +2076,14 @@ class CapData(object):
                                            height=400,
                                            width=800)},
                     'Layout': {'plot': dict(shared_datasource=True)}}
-        poa_vs_kw = hv.Scatter(df, 'poa', ['power', 'w_vel', 'index'])
-        poa_vs_time = hv.Curve(df, 'date', ['power', 'poa'])
+        vdims = ['power', 'index']
+        if all_reg_columns:
+            vdims.extend(list(df.columns.difference(vdims)))
+        poa_vs_kw = hv.Scatter(df, 'poa', vdims)
         layout_scatter = (poa_vs_kw).opts(opt_dict)
-        layout_timeseries = (poa_vs_kw + poa_vs_time).opts(opt_dict)
         if timeseries:
+            poa_vs_time = hv.Curve(df, 'index', ['power', 'poa'])
+            layout_timeseries = (poa_vs_kw + poa_vs_time).opts(opt_dict)
             DataLink(poa_vs_kw, poa_vs_time)
             return(layout_timeseries.cols(1))
         else:
