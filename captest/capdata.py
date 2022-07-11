@@ -3440,6 +3440,32 @@ class CapData(object):
         #
         # return(sy)
 
+    def spatial_uncert(self, column_groups):
+        """
+        Spatial uncertainties of the independent regression variables.
+
+        Parameters
+        ----------
+        column_groups : list
+            Measurement groups to calculate spatial uncertainty.
+
+        Returns
+        -------
+        None, stores dictionary of spatial uncertainties as an attribute.
+        """
+        spatial_uncerts = {}
+        for group in column_groups:
+            df = self.view(group, filtered_data=True)
+            # prevent aggregation from updating column groups?
+            # would not need the below line then
+            df = df[[col for col in df.columns if 'agg' not in col]]
+            qty_sensors = df.shape[1]
+            s_spatial = df.std(axis=1)
+            b_spatial_j = s_spatial / (qty_sensors ** (1 / 2))
+            b_spatial = ((b_spatial_j ** 2).sum() / b_spatial_j.shape[0]) ** (1 / 2)
+            spatial_uncerts[group] = b_spatial
+        self.spatial_uncerts = spatial_uncerts
+
     def get_filtering_table(self):
         """
         Returns DataFrame showing which filter removed each filtered time interval.
