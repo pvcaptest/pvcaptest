@@ -1196,6 +1196,24 @@ def overlay_scatters(measured, expected, expected_label='PVsyst'):
     return overlay
 
 
+class ColumnGroups(object):
+    """
+    Class with a dictionary of column groups and related functionality.
+
+    Parameters
+    ----------
+    column_groups : dict
+    """
+    def __init__(self, column_groups):
+        super(ColumnGroups, self).__init__()
+        self.column_groups = column_groups
+        self.assign_column_groups(column_groups)
+
+    def assign_column_groups(self, column_groups):
+        for grp_id, cols in column_groups.items():
+            setattr(self, grp_id.replace('-', '_'), cols)
+
+
 class CapData(object):
     """
     Class to store capacity test data and translation of column names.
@@ -1277,6 +1295,31 @@ class CapData(object):
         self.pre_agg_cols = None
         self.pre_agg_trans = None
         self.pre_agg_reg_trans = None
+
+    def __getitem__(self, label):
+        if isinstance(label, str):
+            if label in self.column_groups.keys():
+                return self.data[self.column_groups[label]]
+            elif label in self.regression_cols.keys():
+                return self.data[self.column_groups[self.regression_cols[label]]]
+            elif label in self.data.columns:
+                return self.data[label]
+        elif isinstance(label, list):
+            cols_to_return = []
+            for l in label:
+                if l in self.column_groups.keys():
+                    cols_to_return.extend(self.column_groups[l])
+                elif l in self.regression_cols.keys():
+                    col_or_grp = self.regression_cols[l]
+                    if col_or_grp in self.column_groups.keys():
+                        cols_to_return.extend(self.column_groups[col_or_grp])
+                    elif col_or_grp in self.data.columns:
+                        cols_to_return.append(col_or_grp)
+                elif l in self.data.columns:
+                    cols_to_return.append(l)
+            return self.data[cols_to_return]
+
+
 
     def set_regression_cols(self, power='', poa='', t_amb='', w_vel=''):
         """
