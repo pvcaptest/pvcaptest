@@ -1,5 +1,8 @@
-from captest import capdata
-from captest import util
+from captest import (
+    capdata,
+    util,
+    columngroups,
+)
 
 from ._version import get_versions
 __version__ = get_versions()['version']

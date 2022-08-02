@@ -14,4 +14,5 @@ class ColumnGroups(object):
 
     def assign_column_groups(self, column_groups):
         for grp_id, cols in column_groups.items():
-            setattr(self, grp_id.replace('-', '_'), cols)
+            # setattr(self, grp_id.replace('-', '_'), cols)
+            setattr(self, grp_id, cols)
