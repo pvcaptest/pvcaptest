@@ -1,22 +1,23 @@
+import param
 
-class ColumnGroups(object):
+class ColumnGroups(param.Parameterized):
     """
-    Class with a dictionary of column groups and related functionality.
-
-    Parameters
-    ----------
-    column_groups : dict
+    Parametrized class with a dictionary of column groups and related functionality.
 
     Todo
     ----
-    - Convert to a parametrized class with param library
     - Create a function or method to create instance from excel file
     - Create a function or method to create instance from json
     - Create a function or method to create instance from yaml
     - Create a function or method to create instance from DataFrame columns?
     """
-    def __init__(self, column_groups):
-        super(ColumnGroups, self).__init__()
+    column_groups = param.Dict(
+        doc='Column groups dictionary with string group id keys and lists '
+            'of column names for values.'
+    )
+
+    def __init__(self, column_groups, **params):
+        super().__init__(**params)
         self.column_groups = column_groups
         self.assign_column_groups(column_groups)
 
