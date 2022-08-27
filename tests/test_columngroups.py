@@ -65,10 +65,6 @@ class TestColumnGroups():
         for group in col_groups_bad_ids.keys():
             assert hasattr(col_grp, group)
 
-    def test_call(self, col_grp):
-        returned_col_grp = col_grp()
-        assert returned_col_grp == col_groups
-
     def test_str(self, col_grp):
         output_str = str(col_grp)
         pretty_col_groups = (
