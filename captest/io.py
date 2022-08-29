@@ -1,7 +1,14 @@
-import pandas as pd
-from captest.capdata import CapData
+import os
+import dateutil
+import datetime
 
-def load_das(self, path, filename, source=None, **kwargs):
+import numpy as np
+import pandas as pd
+
+from captest.capdata import CapData
+from captest.capdata import csky
+
+def load_das(path, filename, source=None, **kwargs):
     """
     Read measured solar data from a csv file.
 
@@ -108,7 +115,7 @@ def load_das(self, path, filename, source=None, **kwargs):
 
     return all_data
 
-def load_pvsyst(self, path, filename, **kwargs):
+def load_pvsyst(path, filename, **kwargs):
     """
     Load data from a PVsyst energy production model.
 
@@ -151,9 +158,9 @@ def load_pvsyst(self, path, filename, **kwargs):
     pvraw = pvraw.rename(columns={"T Amb": "TAmb"})
     return pvraw
 
-def load_data(self, path='./data/', fname=None, group_columns=True,
-          column_type_report=True, source=None, load_pvsyst=False,
-          clear_sky=False, loc=None, sys=None, **kwargs):
+def load_data(path='./data/', fname=None, group_columns=True,
+          column_type_report=True, source=None, pvsyst=False,
+          clear_sky=False, loc=None, sys=None, name='meas', **kwargs):
     """
     Import data from csv files.
 
@@ -182,7 +189,7 @@ def load_data(self, path='./data/', fname=None, group_columns=True,
         Default of None uses general approach that concatenates header
         data. Set to 'AlsoEnergy' to use column heading parsing specific to
         downloads from AlsoEnergy.
-    load_pvsyst : bool, default False
+    pvsyst : bool, default False
         By default skips any csv file that has 'pvsyst' in the name.  Is
         not case sensitive.  Set to true to import a csv with 'pvsyst' in
         the name and skip all other files.
@@ -194,7 +201,7 @@ def load_data(self, path='./data/', fname=None, group_columns=True,
     sys : dict
         See the csky function for details on dictionary options.
     **kwargs
-        Will pass kwargs onto load_pvsyst or load_das, which will pass to
+        Will pass kwargs onto pvsyst or load_das, which will pass to
         Pandas.read_csv.  Useful to adjust the separator (Ex. sep=';').
 
     Returns
@@ -211,34 +218,37 @@ def load_data(self, path='./data/', fname=None, group_columns=True,
 
         all_sensors = pd.DataFrame()
 
-        if not load_pvsyst:
+        if not pvsyst:
             for filename in files_to_read:
                 if filename.lower().find('pvsyst') != -1:
                     print("Skipped file: " + filename)
                     continue
-                nextData = self.load_das(path, filename, source=source,
+                nextData = load_das(path, filename, source=source,
                                          **kwargs)
                 all_sensors = pd.concat([all_sensors, nextData], axis=0)
                 print("Read: " + filename)
-        elif load_pvsyst:
+        elif pvsyst:
             for filename in files_to_read:
                 if filename.lower().find('pvsyst') == -1:
                     print("Skipped file: " + filename)
                     continue
-                nextData = self.load_pvsyst(path, filename, **kwargs)
+                nextData = load_pvsyst(path, filename, **kwargs)
                 all_sensors = pd.concat([all_sensors, nextData], axis=0)
                 print("Read: " + filename)
     else:
-        if not load_pvsyst:
-            all_sensors = self.load_das(path, fname, source=source, **kwargs)  # noqa: E501
-        elif load_pvsyst:
-            all_sensors = self.load_pvsyst(path, fname, **kwargs)
+        if not pvsyst:
+            all_sensors = load_das(path, fname, source=source, **kwargs)  # noqa: E501
+        elif pvsyst:
+            print(path)
+            print(fname)
+            all_sensors = load_pvsyst(path, fname, **kwargs)
 
     ix_ser = all_sensors.index.to_series()
     all_sensors['index'] = ix_ser.apply(lambda x: x.strftime('%m/%d/%Y %H %M'))  # noqa: E501
-    self.data = all_sensors
+    cd = CapData(name)
+    cd.data = all_sensors
 
-    if not load_pvsyst:
+    if not pvsyst:
         if clear_sky:
             if loc is None:
                 warnings.warn('Must provide loc and sys dictionary\
@@ -246,10 +256,11 @@ def load_data(self, path='./data/', fname=None, group_columns=True,
             if sys is None:
                 warnings.warn('Must provide loc and sys dictionary\
                               when clear_sky is True.  Sys dict missing.')
-            self.data = csky(self.data, loc=loc, sys=sys, concat=True,
+            cd.data = csky(cd.data, loc=loc, sys=sys, concat=True,
                              output='both')
 
     if group_columns:
-        self.group_columns(column_type_report=column_type_report)
+        cd.group_columns(column_type_report=column_type_report)
 
-    self.data_filtered = self.data.copy()
+    cd.data_filtered = cd.data.copy()
+    return cd
