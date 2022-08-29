@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+[0.11.0]: https://github.com/pvcaptest/pvcaptest/compare/v0.10.0...v0.11.0
+## [0.11.0] - 2022-09-xx
+### Added
+- Added columngroups module with a ColumnGroups class that extends python
+dictionaries to include each column group as an attribute and __repr__ is
+formatted for easy reading.
+- Implemented __getitem__ for the CapData class. Allows easier access than and will eventually replace the functionality of the `view` method.
+
+
 [0.10.0]: https://github.com/pvcaptest/pvcaptest/compare/v0.9.0...v0.10.0
 ## [0.10.0] - 2021-07-25
 ### Added
