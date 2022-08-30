@@ -13,7 +13,6 @@ import os
 import re
 import datetime
 import copy
-import collections
 from functools import wraps
 from itertools import combinations
 import warnings
@@ -74,40 +73,6 @@ plot_colors_brewer = {'real_pwr': ['#2b8cbe', '#7bccc4', '#bae4bc', '#f0f9e8'],
 
 met_keys = ['poa', 't_amb', 'w_vel', 'power']
 
-# The search strings for types cannot be duplicated across types.
-type_defs = collections.OrderedDict([
-    ('irr', [['irradiance', 'irr', 'plane of array', 'poa', 'ghi',
-              'global', 'glob', 'w/m^2', 'w/m2', 'w/m', 'w/'],
-             (-10, 1500)]),
-    ('temp', [['temperature', 'temp', 'degrees', 'deg', 'ambient',
-               'amb', 'cell temperature', 'TArray'],
-              (-49, 127)]),
-    ('wind', [['wind', 'speed'],
-              (0, 18)]),
-    ('pf', [['power factor', 'factor', 'pf'],
-            (-1, 1)]),
-    ('op_state', [['operating state', 'state', 'op', 'status'],
-                  (0, 10)]),
-    ('real_pwr', [['real power', 'ac power', 'e_grid'],
-                  (-1000000, 1000000000000)]),  # set to very lax bounds
-    ('shade', [['fshdbm', 'shd', 'shade'], (0, 1)]),
-    ('pvsyt_losses', [['IL Pmax', 'IL Pmin', 'IL Vmax', 'IL Vmin'],
-                      (-1000000000, 100000000)]),
-    ('index', [['index'], ('', 'z')])])
-
-sub_type_defs = collections.OrderedDict([
-    ('ghi', [['sun2', 'global horizontal', 'ghi', 'global',
-              'GlobHor']]),
-    ('poa', [['sun', 'plane of array', 'poa', 'GlobInc']]),
-    ('amb', [['TempF', 'ambient', 'amb']]),
-    ('mod', [['Temp1', 'module', 'mod', 'TArray']]),
-    ('mtr', [['revenue meter', 'rev meter', 'billing meter', 'meter']]),
-    ('inv', [['inverter', 'inv']])])
-
-irr_sensors_defs = {'ref_cell': [['reference cell', 'reference', 'ref',
-                                  'referance', 'pvel']],
-                    'pyran': [['pyranometer', 'pyran']],
-                    'clear_sky': [['csky']]}
 
 columns = ['pts_after_filter', 'pts_removed', 'filter_arguments']
 
@@ -1354,78 +1319,6 @@ class CapData(object):
                                   len(self.column_groups) == 0]
         return all(tests_indicating_empty)
 
-    def __series_type(self, series, type_defs, bounds_check=True,
-                      warnings=False):
-        """
-        Assign columns to a category by analyzing the column names.
-
-        The type_defs parameter is a dictionary which defines search strings
-        and value limits for each key, where the key is a categorical name
-        and the search strings are possible related names.  For example an
-        irradiance sensor has the key 'irr' with search strings 'irradiance'
-        'plane of array', 'poa', etc.
-
-        Parameters
-        ----------
-        series : pandas series
-            Row or column of dataframe passed by pandas.df.apply.
-        type_defs : dictionary
-            Dictionary with the following structure.  See type_defs
-            {'category abbreviation': [[category search strings],
-                                       (min val, max val)]}
-        bounds_check : bool, default True
-            When true checks series values against min and max values in the
-            type_defs dictionary.
-        warnings : bool, default False
-            When true prints warning that values in series are outside expected
-            range and adds '-valuesError' to returned str.
-
-        Returns
-        -------
-        string
-            Returns a string representing the category for the series.
-            Concatenates '-valuesError' if bounds_check and warnings are both
-            True and values within the series are outside the expected range.
-        """
-        for key in type_defs.keys():
-            # print('################')
-            # print(key)
-            for search_str in type_defs[key][0]:
-                # print(search_str)
-                if series.name.lower().find(search_str.lower()) == -1:
-                    continue
-                else:
-                    if bounds_check:
-                        type_min = type_defs[key][1][0]
-                        type_max = type_defs[key][1][1]
-                        ser_min = series.min()
-                        ser_max = series.max()
-                        min_bool = ser_min >= type_min
-                        max_bool = ser_max <= type_max
-                        if min_bool and max_bool:
-                            return key
-                        else:
-                            if warnings:
-                                if not min_bool and not max_bool:
-                                    print('{} in {} is below {} for '
-                                          '{}'.format(ser_min, series.name,
-                                                      type_min, key))
-                                    print('{} in {} is above {} for '
-                                          '{}'.format(ser_max, series.name,
-                                                      type_max, key))
-                                elif not min_bool:
-                                    print('{} in {} is below {} for '
-                                          '{}'.format(ser_min, series.name,
-                                                      type_min, key))
-                                elif not max_bool:
-                                    print('{} in {} is above {} for '
-                                          '{}'.format(ser_max, series.name,
-                                                      type_max, key))
-                            return key
-                    else:
-                        return key
-        return ''
-
     def set_plot_attributes(self):
         """Set column colors used in plot method."""
         dframe = self.data
@@ -1450,68 +1343,6 @@ class CapData(object):
                 except KeyError:
                     j = i % 10
                     self.col_colors[col] = Category10[10][j]
-
-    def group_columns(self, column_type_report=True):
-        """
-        Create a dict of raw column names paired to categorical column names.
-
-        Uses multiple type_def formatted dictionaries to determine the type,
-        sub-type, and equipment type for data series of a dataframe.  The
-        determined types are concatenated to a string used as a dictionary key
-        with a list of one or more original column names as the paired value.
-
-        Parameters
-        ----------
-        column_type_report : bool, default True
-            Sets the warnings option of __series_type when applied to determine
-            the column types.
-
-        Returns
-        -------
-        None
-            Sets attributes self.column_groups and self.trans_keys
-
-        Todo
-        ----
-        type_defs parameter
-            Consider refactoring to have a list of type_def dictionaries as an
-            input and loop over each dict in the list.
-        """
-        col_types = self.data.apply(self.__series_type, args=(type_defs,),
-                                    warnings=column_type_report).tolist()
-        sub_types = self.data.apply(self.__series_type, args=(sub_type_defs,),
-                                    bounds_check=False).tolist()
-        irr_types = self.data.apply(self.__series_type, args=(irr_sensors_defs,),  # noqa: E501
-                                    bounds_check=False).tolist()
-
-        col_indices = []
-        for typ, sub_typ, irr_typ in zip(col_types, sub_types, irr_types):
-            col_indices.append('-'.join([typ, sub_typ, irr_typ]))
-
-        names = []
-        for new_name, old_name in zip(col_indices, self.data.columns.tolist()):
-            names.append((new_name, old_name))
-        names.sort()
-        orig_names_sorted = [name_pair[1] for name_pair in names]
-
-        trans = {}
-        col_indices.sort()
-        cols = list(set(col_indices))
-        cols.sort()
-        for name in set(cols):
-            start = col_indices.index(name)
-            count = col_indices.count(name)
-            trans[name] = orig_names_sorted[start:start + count]
-
-        self.column_groups = trans
-
-        trans_keys = list(self.column_groups.keys())
-        if 'index--' in trans_keys:
-            trans_keys.remove('index--')
-        trans_keys.sort()
-        self.trans_keys = trans_keys
-
-        self.set_plot_attributes()
 
     def drop_cols(self, columns):
         """
@@ -2091,9 +1922,9 @@ class CapData(object):
         self.summary_ix = []
         self.summary = []
 
-        self.pre_agg_cols = self.data.columns
-        self.pre_agg_trans = self.column_groups.copy()
-        self.pre_agg_reg_trans = self.regression_cols.copy()
+        self.pre_agg_cols = self.data.columns.copy()
+        self.pre_agg_trans = copy.deepcopy(self.column_groups)
+        self.pre_agg_reg_trans = copy.deepcopy(self.regression_cols)
 
         if agg_map is None:
             agg_map = {self.regression_cols['power']: 'sum',
@@ -2114,9 +1945,11 @@ class CapData(object):
                 else:
                     col_name = trans_key + agg_funcs.__name__ + '-agg'
                     df.rename(columns={df.columns[0]: col_name}, inplace=True)
+                self.column_groups[trans_key].append(col_name)
             else:
                 df.rename(columns=(lambda x: trans_key + x + '-agg'),
                           inplace=True)
+                self.column_groups[trans_key].extend(list(df.columns))
             dfs_to_concat.append(df)
 
         if keep:
@@ -2141,7 +1974,6 @@ class CapData(object):
 
             self.data = pd.concat(dfs_to_concat, axis=1)
             self.data_filtered = self.data.copy()
-            self.group_columns(column_type_report=False)
             inv_sum_in_cols = [True for col
                                in self.data.columns if '-inv-sum-agg' in col]
             if inv_sum_in_cols and inv_sum_vs_power:

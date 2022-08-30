@@ -10,6 +10,8 @@ import statsmodels.formula.api as smf
 import pvlib
 
 from .context import capdata as pvc
+from .context import util
+from .context import columngroups as cg
 from .context import(
     load_das,
     load_pvsyst,
@@ -436,7 +438,7 @@ class TestCapDataLoadMethods(unittest.TestCase):
             with open('test_csvs/' + fname, 'a') as f:
                 f.write('Date, val\n11/21/2017, 1')
 
-        self.capdata = load_data(path='test_csvs/', group_columns=False)
+        self.capdata = load_data(path='test_csvs/')
 
     def tearDown(self):
         for fname in test_files:
@@ -446,6 +448,20 @@ class TestCapDataLoadMethods(unittest.TestCase):
     def test_read_csvs(self):
         self.assertEqual(self.capdata.data.shape[0], 3,
                          'imported a non csv or pvsyst file')
+
+class TestLoadDataColumnGrouping():
+    def test_is_json(self):
+        """Test loading a json column groups file."""
+        das = load_data(
+            path='./tests/data/',
+            fname='example_meas_data.csv',
+            group_columns='./tests/data/column_groups.json',
+        )
+        column_groups = cg.ColumnGroups(
+            util.read_json('./tests/data/column_groups.json')
+        )
+        print(das.column_groups)
+        assert das.column_groups == column_groups
 
 
 class TestCapDataEmpty:
@@ -458,9 +474,10 @@ class TestCapDataEmpty:
 
     def test_capdata_not_empty(self):
         """Test that an CapData object with data returns False."""
-        cd_with_data = load_data(path='tests/data/',
-                               fname='example_meas_data.csv',
-                               group_columns=False)
+        cd_with_data = load_data(
+            path='tests/data/',
+            fname='example_meas_data.csv',
+        )
         assert not cd_with_data.empty()
 
 
@@ -473,7 +490,7 @@ class TestCapDataSeriesTypes(unittest.TestCase):
     def test_series_type(self):
         name = 'weather station 1 weather station 1 ghi poa w/m2'
         test_series = pd.Series(np.arange(0, 900, 100), name=name)
-        out = self.cdata._CapData__series_type(test_series, pvc.type_defs)
+        out = cg.series_type(test_series, cg.type_defs)
 
         self.assertIsInstance(out, str,
                               'Returned object is not a string.')
@@ -484,11 +501,10 @@ class TestCapDataSeriesTypes(unittest.TestCase):
         name = 'weather station 1 weather station 1 ghi poa w/m2'
         test_series = pd.Series(np.arange(0, 900, 100), name=name)
         type_def = collections.OrderedDict([
-                     ('irr', [['IRRADIANCE', 'IRR', 'PLANE OF ARRAY', 'POA',
-                               'GHI', 'GLOBAL', 'GLOB', 'W/M^2', 'W/M2', 'W/M',
-                               'W/'],
-                              (-10, 1500)])])
-        out = self.cdata._CapData__series_type(test_series, type_def)
+            ('irr', ['IRRADIANCE', 'IRR', 'PLANE OF ARRAY', 'POA',
+                     'GHI', 'GLOBAL', 'GLOB', 'W/M^2', 'W/M2', 'W/M', 'W/']),
+        ])
+        out = cg.series_type(test_series, type_def)
 
         self.assertIsInstance(out, str,
                               'Returned object is not a string.')
@@ -501,7 +517,7 @@ class TestCapDataSeriesTypes(unittest.TestCase):
         out = []
         i = 0
         while i < 100:
-            out.append(self.cdata._CapData__series_type(test_series, pvc.type_defs))
+            out.append(cg.series_type(test_series, cg.type_defs))
             i += 1
         out_np = np.array(out)
 
@@ -511,7 +527,7 @@ class TestCapDataSeriesTypes(unittest.TestCase):
     def test_series_type_valErr(self):
         name = 'weather station 1 weather station 1 ghi poa w/m2'
         test_series = pd.Series(name=name)
-        out = self.cdata._CapData__series_type(test_series, pvc.type_defs)
+        out = cg.series_type(test_series, cg.type_defs)
 
         self.assertIsInstance(out, str,
                               'Returned object is not a string.')
@@ -521,7 +537,7 @@ class TestCapDataSeriesTypes(unittest.TestCase):
     def test_series_type_no_str(self):
         name = 'should not return key string'
         test_series = pd.Series(name=name)
-        out = self.cdata._CapData__series_type(test_series, pvc.type_defs)
+        out = cg.series_type(test_series, cg.type_defs)
 
         self.assertIsInstance(out, str,
                               'Returned object is not a string.')
@@ -1170,8 +1186,7 @@ class TestAggSensors(unittest.TestCase):
 class TestFilterSensors(unittest.TestCase):
     def setUp(self):
         self.das = load_data(path='./tests/data/',
-                           fname='example_meas_data.csv',
-                           column_type_report=False)
+                           fname='example_meas_data.csv')
         self.das.set_regression_cols(power='-mtr-', poa='irr-poa-ref_cell',
                                      t_amb='temp-amb-', w_vel='wind--')
 
@@ -1368,7 +1383,7 @@ class TestFilterIrr(unittest.TestCase):
 
     def test_get_poa_col_multcols(self):
         self.meas.data['POA second column'] = self.meas.rview('poa').values
-        self.meas.group_columns()
+        self.meas.column_groups['irr-poa-'].append('POA second column')
         with self.assertWarns(UserWarning):
             col = self.meas._CapData__get_poa_col()
 
@@ -1382,7 +1397,7 @@ class TestFilterIrr(unittest.TestCase):
     def test_lowhigh_colname(self):
         pts_before = self.meas.data_filtered.shape[0]
         self.meas.data['POA second column'] = self.meas.rview('poa').values
-        self.meas.group_columns()
+        self.meas.column_groups['irr-poa-'].append('POA second column')
         self.meas.data_filtered = self.meas.data.copy()
         self.meas.filter_irr(500, 600, ref_val=None,
                              col_name='POA second column', inplace=True)
@@ -1399,7 +1414,7 @@ class TestFilterIrr(unittest.TestCase):
     def test_refval_withcol(self):
         pts_before = self.meas.data_filtered.shape[0]
         self.meas.data['POA second column'] = self.meas.rview('poa').values
-        self.meas.group_columns()
+        self.meas.column_groups['irr-poa-'].append('POA second column')
         self.meas.data_filtered = self.meas.data.copy()
         self.meas.filter_irr(0.8, 1.2, ref_val=500,
                              col_name='POA second column', inplace=True)
@@ -1586,7 +1601,7 @@ class TestFilterPF(unittest.TestCase):
         pf = np.append(pf, np.arange(0, 1, 0.1))
         self.meas.data['pf'] = np.tile(pf, 576)
         self.meas.data_filtered = self.meas.data.copy()
-        self.meas.group_columns()
+        self.meas.column_groups['pf--'] = ['pf']
         self.meas.filter_pf(1)
         self.assertEqual(self.meas.data_filtered.shape[0], 5760,
                          'Incorrect number of points removed.')
@@ -1668,7 +1683,7 @@ class Test_Csky_Filter(unittest.TestCase):
     def test_two_ghi_cols(self):
         self.meas.data['ws 2 ghi W/m^2'] = self.meas.view('irr-ghi-') * 1.05
         self.meas.data_filtered = self.meas.data.copy()
-        self.meas.group_columns()
+        self.meas.column_groups['irr-ghi-'].append('ws 2 ghi W/m^2')
 
         with self.assertWarns(UserWarning):
             self.meas.filter_clearsky()
@@ -1676,7 +1691,7 @@ class Test_Csky_Filter(unittest.TestCase):
     def test_mult_ghi_categories(self):
         cn = 'irrad ghi pyranometer W/m^2'
         self.meas.data[cn] = self.meas.view('irr-ghi-') * 1.05
-        self.meas.group_columns()
+        self.meas.column_groups['irr-ghi-pyran'] = ['irrad ghi pyranometer W/m^2']
 
         with self.assertWarns(UserWarning):
             self.meas.filter_clearsky()
@@ -1689,8 +1704,8 @@ class Test_Csky_Filter(unittest.TestCase):
 
     def test_specify_ghi_col(self):
         self.meas.data['ws 2 ghi W/m^2'] = self.meas.view('irr-ghi-') * 1.05
-        self.meas.group_columns()
         self.meas.data_filtered = self.meas.data.copy()
+        self.meas.column_groups['irr-ghi-'].append('ws 2 ghi W/m^2')
 
         self.meas.filter_clearsky(ghi_col='ws 2 ghi W/m^2')
 
@@ -2004,7 +2019,6 @@ def meas():
     meas = load_data(
         path='./tests/data/',
         fname='example_meas_data.csv',
-        column_type_report=False,
     )
     meas.set_regression_cols(
         power='-mtr-',

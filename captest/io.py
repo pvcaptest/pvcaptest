@@ -1,12 +1,15 @@
 import os
 import dateutil
 import datetime
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
 from captest.capdata import CapData
 from captest.capdata import csky
+from captest import columngroups as cg
+from captest import util
 
 def load_das(path, filename, source=None, **kwargs):
     """
@@ -158,8 +161,8 @@ def load_pvsyst(path, filename, **kwargs):
     pvraw = pvraw.rename(columns={"T Amb": "TAmb"})
     return pvraw
 
-def load_data(path='./data/', fname=None, group_columns=True,
-          column_type_report=True, source=None, pvsyst=False,
+def load_data(path='./data/', fname=None, group_columns=cg.group_columns,
+          source=None, pvsyst=False,
           clear_sky=False, loc=None, sys=None, name='meas', **kwargs):
     """
     Import data from csv files.
@@ -178,13 +181,10 @@ def load_data(path='./data/', fname=None, group_columns=True,
     fname: str, default None
         Filename of specific file to load. If filename is none method will
         load all csv files into one dataframe.
-    group_columns : bool, default True
-        Generates translation dicitionary for column names after loading
-        data.
-    column_type_report : bool, default True
-        If group_columns is true, then method prints summary of
-        group_columns dictionary process including any possible data
-        issues.  No effect on method when set to False.
+    group_columns : function, string
+        If function should accept a DataFrame and return a ColumnGroups object
+        or a dictionary. Or, specify a path to a file to load a column
+        grouping.
     source : str, default None
         Default of None uses general approach that concatenates header
         data. Set to 'AlsoEnergy' to use column heading parsing specific to
@@ -259,8 +259,15 @@ def load_data(path='./data/', fname=None, group_columns=True,
             cd.data = csky(cd.data, loc=loc, sys=sys, concat=True,
                              output='both')
 
-    if group_columns:
-        cd.group_columns(column_type_report=column_type_report)
+    if callable(group_columns):
+        cd.column_groups = group_columns(cd.data)
+    elif isinstance(group_columns, str):
+        p = Path(group_columns)
+        if p.suffix == '.json':
+            cd.column_groups = cg.ColumnGroups(util.read_json(group_columns))
+        # elif p.suffix == '.xlsx':
+        #     cd.column_groups = "read excel file"
 
     cd.data_filtered = cd.data.copy()
+    cd.trans_keys = cd.column_groups.keys()
     return cd

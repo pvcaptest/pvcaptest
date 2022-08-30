@@ -1,7 +1,13 @@
+import json
 import numpy as np
 import pandas as pd
 from scipy import stats
 
+
+def read_json(path):
+    with open(path) as f:
+        json_data = json.load(f)
+    return json_data
 
 def get_common_timestep(data, units='m', string_output=True):
     """

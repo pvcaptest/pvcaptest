@@ -8,6 +8,7 @@ from captest import (
     capdata,
     util,
     columngroups,
+    util,
 )
 
 from captest.io import(
