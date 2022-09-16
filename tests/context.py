@@ -9,10 +9,11 @@ from captest import (
     util,
     columngroups,
     util,
+    io,
 )
 
 from captest.io import(
     load_data,
-    load_das,
     load_pvsyst,
+    DataLoader,
 )

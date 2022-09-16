@@ -1,7 +1,12 @@
+# this file is formatted with black
 import os
 import dateutil
 import datetime
 from pathlib import Path
+from dataclasses import dataclass, field
+from typing import Optional
+import warnings
+from itertools import combinations
 
 import numpy as np
 import pandas as pd
@@ -11,112 +16,10 @@ from captest.capdata import csky
 from captest import columngroups as cg
 from captest import util
 
-def load_das(path, filename, source=None, **kwargs):
-    """
-    Read measured solar data from a csv file.
 
-    Utilizes pandas read_csv to import measure solar data from a csv file.
-    Attempts a few diferent encodings, trys to determine the header end
-    by looking for a date in the first column, and concantenates column
-    headings to a single string.
+def flatten_multi_index(columns):
+    return ["_".join(col_name) for col_name in columns.to_list()]
 
-    Parameters
-    ----------
-    path : str
-        Path to file to import.
-    filename : str
-        Name of file to import.
-    **kwargs
-        Use to pass additional kwargs to pandas read_csv.
-
-    Returns
-    -------
-    pandas dataframe
-    """
-    data = os.path.normpath(path + filename)
-
-    encodings = ['utf-8', 'latin1', 'iso-8859-1', 'cp1252']
-    for encoding in encodings:
-        try:
-            all_data = pd.read_csv(data, encoding=encoding, index_col=0,
-                                   parse_dates=True, skip_blank_lines=True,
-                                   low_memory=False, **kwargs)
-        except UnicodeDecodeError:
-            continue
-        else:
-            break
-
-    if not isinstance(all_data.index[0], pd.Timestamp):
-        for i, indice in enumerate(all_data.index):
-            try:
-                isinstance(dateutil.parser.parse(str(all_data.index[i])),
-                           datetime.date)
-                header_end = i + 1
-                break
-            except ValueError:
-                continue
-
-        if source == 'AlsoEnergy':
-            header = 'infer'
-        else:
-            header = list(np.arange(header_end))
-
-        for encoding in encodings:
-            try:
-                all_data = pd.read_csv(data, encoding=encoding,
-                                       header=header, index_col=0,
-                                       parse_dates=True,
-                                       skip_blank_lines=True,
-                                       low_memory=False, **kwargs)
-            except UnicodeDecodeError:
-                continue
-            else:
-                break
-
-        if source == 'AlsoEnergy':
-            row0 = all_data.iloc[0, :]
-            row1 = all_data.iloc[1, :]
-            row2 = all_data.iloc[2, :]
-
-            row0_noparen = []
-            for val in row0:
-                if type(val) is str:
-                    row0_noparen.append(val.split('(')[0].strip())
-                else:
-                    row0_noparen.append(val)
-
-            row1_nocomm = []
-            for val in row1:
-                if type(val) is str:
-                    strings = val.split(',')
-                    if len(strings) == 1:
-                        row1_nocomm.append(val)
-                    else:
-                        row1_nocomm.append(strings[-1].strip())
-                else:
-                    row1_nocomm.append(val)
-
-            row2_noNan = []
-            for val in row2:
-                if val is pd.np.nan:
-                    row2_noNan.append('')
-                else:
-                    row2_noNan.append(val)
-
-            new_cols = []
-            for one, two, three in zip(row0_noparen, row1_nocomm, row2_noNan):  # noqa: E501
-                new_cols.append(str(one) + ' ' + str(two) + ', ' + str(three))  # noqa: E501
-
-            all_data.columns = new_cols
-            all_data = all_data.iloc[i:, :]
-    all_data = all_data.apply(pd.to_numeric, errors='coerce')
-
-    if source != 'AlsoEnergy':
-        all_data.columns = [' '.join(col).strip() for col in all_data.columns.values]  # noqa: E501
-    else:
-        all_data.index = pd.to_datetime(all_data.index)
-
-    return all_data
 
 def load_pvsyst(path, filename, **kwargs):
     """
@@ -137,137 +40,354 @@ def load_pvsyst(path, filename, **kwargs):
     """
     dirName = os.path.normpath(path + filename)
 
-    encodings = ['utf-8', 'latin1', 'iso-8859-1', 'cp1252']
+    encodings = ["utf-8", "latin1", "iso-8859-1", "cp1252"]
     for encoding in encodings:
         try:
             # pvraw = pd.read_csv(dirName, skiprows=10, encoding=encoding,
             #                     header=[0, 1], parse_dates=[0],
             #                     infer_datetime_format=True, **kwargs)
-            pvraw = pd.read_csv(dirName, skiprows=10, encoding=encoding,
-                                header=[0, 1], **kwargs)
+            pvraw = pd.read_csv(
+                dirName, skiprows=10, encoding=encoding, header=[0, 1], **kwargs
+            )
         except UnicodeDecodeError:
             continue
         else:
             break
 
     pvraw.columns = pvraw.columns.droplevel(1)
-    dates = pvraw.loc[:, 'date']
+    dates = pvraw.loc[:, "date"]
     try:
-        dt_index = pd.to_datetime(dates, format='%m/%d/%y %H:%M')
+        dt_index = pd.to_datetime(dates, format="%m/%d/%y %H:%M")
     except ValueError:
         dt_index = pd.to_datetime(dates)
     pvraw.index = dt_index
-    pvraw.drop('date', axis=1, inplace=True)
+    pvraw.drop("date", axis=1, inplace=True)
     pvraw = pvraw.rename(columns={"T Amb": "TAmb"})
     return pvraw
 
-def load_data(path='./data/', fname=None, group_columns=cg.group_columns,
-          source=None, pvsyst=False,
-          clear_sky=False, loc=None, sys=None, name='meas', **kwargs):
+
+def file_reader(path, **kwargs):
     """
-    Import data from csv files.
+    Read measured solar data from a csv file.
 
-    The intent of the default behavior is to combine csv files that have
-    the same columns and rows of data from different times. For example,
-    combining daily files of 5 minute measurements from the same sensors
-    for each day.
-
-    Use the path and fname arguments to specify a single file to import.
+    Utilizes pandas read_csv to import measure solar data from a csv file.
+    Attempts a few diferent encodings, trys to determine the header end
+    by looking for a date in the first column, and concantenates column
+    headings to a single string.
 
     Parameters
     ----------
-    path : str, default './data/'
-        Path to directory containing csv files to load.
-    fname: str, default None
-        Filename of specific file to load. If filename is none method will
-        load all csv files into one dataframe.
-    group_columns : function, string
-        If function should accept a DataFrame and return a ColumnGroups object
-        or a dictionary. Or, specify a path to a file to load a column
-        grouping.
-    source : str, default None
-        Default of None uses general approach that concatenates header
-        data. Set to 'AlsoEnergy' to use column heading parsing specific to
-        downloads from AlsoEnergy.
-    pvsyst : bool, default False
-        By default skips any csv file that has 'pvsyst' in the name.  Is
-        not case sensitive.  Set to true to import a csv with 'pvsyst' in
-        the name and skip all other files.
-    clear_sky : bool, default False
-        Set to true and provide loc and sys arguments to add columns of
-        clear sky modeled poa and ghi to loaded data.
-    loc : dict
-        See the csky function for details on dictionary options.
-    sys : dict
-        See the csky function for details on dictionary options.
+    path : Path
+        Path to file to import.
     **kwargs
-        Will pass kwargs onto pvsyst or load_das, which will pass to
-        Pandas.read_csv.  Useful to adjust the separator (Ex. sep=';').
+        Use to pass additional kwargs to pandas read_csv.
 
     Returns
     -------
-    None
+    pandas DataFrame
     """
-    if fname is None:
-        files_to_read = []
-        for file in os.listdir(path):
-            if file.endswith('.csv'):
-                files_to_read.append(file)
-            elif file.endswith('.CSV'):
-                files_to_read.append(file)
+    encodings = ["utf-8", "latin1", "iso-8859-1", "cp1252"]
+    for encoding in encodings:
+        try:
+            data_file = pd.read_csv(
+                path,
+                encoding=encoding,
+                index_col=0,
+                parse_dates=True,
+                skip_blank_lines=True,
+                low_memory=False,
+                **kwargs,
+            )
+        except UnicodeDecodeError:
+            continue
+        else:
+            break
+    data_file.dropna(how='all', axis=0, inplace=True)
+    if not isinstance(data_file.index[0], pd.Timestamp):
+        for i, _indice in enumerate(data_file.index):
+            try:
+                isinstance(
+                    dateutil.parser.parse(str(data_file.index[i])), datetime.date
+                )
+                header_end = i + 1
+                break
+            except ValueError:
+                continue
+        header = list(np.arange(header_end))
+        data_file = pd.read_csv(
+            path,
+            encoding=encoding,
+            header=header,
+            index_col=0,
+            parse_dates=True,
+            skip_blank_lines=True,
+            low_memory=False,
+            **kwargs,
+        )
 
-        all_sensors = pd.DataFrame()
+    data_file = data_file.apply(pd.to_numeric, errors="coerce")
+    if isinstance(data_file.columns, pd.MultiIndex):
+        data_file.columns = flatten_multi_index(data_file.columns)
+    data_file = data_file.rename(columns=(lambda x: x.strip()))
+    return data_file
 
-        if not pvsyst:
-            for filename in files_to_read:
-                if filename.lower().find('pvsyst') != -1:
-                    print("Skipped file: " + filename)
-                    continue
-                nextData = load_das(path, filename, source=source,
-                                         **kwargs)
-                all_sensors = pd.concat([all_sensors, nextData], axis=0)
-                print("Read: " + filename)
-        elif pvsyst:
-            for filename in files_to_read:
-                if filename.lower().find('pvsyst') == -1:
-                    print("Skipped file: " + filename)
-                    continue
-                nextData = load_pvsyst(path, filename, **kwargs)
-                all_sensors = pd.concat([all_sensors, nextData], axis=0)
-                print("Read: " + filename)
+
+def reindex_loaded_files(loaded_files, check_frequencies=True):
+    reindexed_dfs = {}
+    file_frequencies = []
+    for name, file in loaded_files.items():
+        current_file, missing_intervals, freq_str = util.reindex_datetime(
+            file,
+            report=False,
+            add_index_col=True,
+        )
+        reindexed_dfs[name] = current_file
+        file_frequencies.append(freq_str)
+
+    if check_frequencies:
+        unique_freq = np.unique(
+            np.array([freq for freq in file_frequencies]),
+            return_counts=True,
+        )
+        common_freq = unique_freq[0][np.argmax(unique_freq[1])]
+
+    if check_frequencies:
+        return reindexed_dfs, common_freq, file_frequencies
     else:
-        if not pvsyst:
-            all_sensors = load_das(path, fname, source=source, **kwargs)  # noqa: E501
-        elif pvsyst:
-            print(path)
-            print(fname)
-            all_sensors = load_pvsyst(path, fname, **kwargs)
+        return reindexed_dfs
 
-    ix_ser = all_sensors.index.to_series()
-    all_sensors['index'] = ix_ser.apply(lambda x: x.strftime('%m/%d/%Y %H %M'))  # noqa: E501
-    cd = CapData(name)
-    cd.data = all_sensors
 
-    if not pvsyst:
-        if clear_sky:
-            if loc is None:
-                warnings.warn('Must provide loc and sys dictionary\
-                              when clear_sky is True.  Loc dict missing.')
-            if sys is None:
-                warnings.warn('Must provide loc and sys dictionary\
-                              when clear_sky is True.  Sys dict missing.')
-            cd.data = csky(cd.data, loc=loc, sys=sys, concat=True,
-                             output='both')
+def join_files(loaded_files, common_freq):
+    all_columns = [df.columns for df in loaded_files.values()]
+    columns_match = all(
+        [pair[0].equals(pair[1]) for pair in combinations(all_columns, 2)]
+    )
+    if columns_match:
+        data = pd.concat(loaded_files.values(), axis=1)
+    else:
+        joined_columns = pd.Index(
+            set([item for cols in all_columns for item in cols])
+        ).sort_values()
+        data = pd.DataFrame(
+            index=pd.date_range(
+                start=min([df.index.min() for df in loaded_files.values()]),
+                end=max([df.index.max() for df in loaded_files.values()]),
+                freq=common_freq,
+            ),
+            columns=joined_columns,
+        )
+        for file in loaded_files.values():
+            data.loc[file.index, file.columns] = file.values
+    return data
 
-    if callable(group_columns):
-        cd.column_groups = group_columns(cd.data)
-    elif isinstance(group_columns, str):
-        p = Path(group_columns)
-        if p.suffix == '.json':
-            cd.column_groups = cg.ColumnGroups(util.read_json(group_columns))
-        # elif p.suffix == '.xlsx':
-        #     cd.column_groups = "read excel file"
 
-    cd.data_filtered = cd.data.copy()
-    cd.trans_keys = cd.column_groups.keys()
+@dataclass
+class DataLoader:
+    """
+    Class to load SCADA data and return a CapData object.
+    """
+
+    path: str = "./data/"
+    loc: Optional[dict] = field(default=None)
+    sys: Optional[dict] = field(default=None)
+    group_columns: object = cg.group_columns
+    file_reader: object = file_reader
+    name: str = "meas"
+    files_to_load: Optional[list] = field(default=None)
+
+    def __setattr__(self, key, value):
+        if key == "path":
+            value = Path(value)
+        super().__setattr__(key, value)
+
+    def set_files_to_load(self, extension="csv"):
+        """
+        Set `files_to_load` attribute to a list of filepaths.
+        """
+        self.files_to_load = [file for file in self.path.glob("*." + extension)]
+        if len(self.files_to_load) == 0:
+            return warnings.warn(
+                "No files with .{} extension were found in the directory: {}".format(
+                    extension,
+                    self.path,
+                )
+            )
+
+    def load(self, sort=True, drop_duplicates=True, reindex=True, extension="csv"):
+        """
+        Load file(s) of timeseries data from SCADA / DAS systems.
+
+        This is a convience function to generate an instance of DataLoader
+        and call the `load` method.
+
+        A single file or multiple files can be loaded. Multiple files will be joined together
+        and may include files with different column headings.
+
+        Parameters
+        ----------
+        sort : bool, default True
+            By default sorts the data by the datetime index from old to new.
+        drop_duplicates : bool, default True
+            By default drops rows of the joined data where all the columns are duplicats
+            of another row. Keeps the first instance of the duplicated values. This is
+            helpful if individual datafiles have overlaping rows with the same data.
+        reindex : bool, default True
+            By default will create a new index for the data using the earliest datetime,
+            latest datetime, and the most frequent time interval ensuring there are no
+            missing intervals.
+        extension : str, default "csv"
+            Change the extension to allow loading different filetypes. Must also set
+            the `file_reader` attribute to a function that will read that type of file.
+        """
+        if self.path.is_file():
+            data = self.file_reader(self.path)
+        elif self.path.is_dir():
+            if self.files_to_load is not None:
+                self.loaded_files = {
+                    file.stem: self.file_reader(file) for file in self.files_to_load
+                }
+            else:
+                self.set_files_to_load(extension=extension)
+                self.loaded_files = {
+                    file.stem: self.file_reader(file) for file in self.files_to_load
+                }
+            (
+                self.loaded_files,
+                self.common_freq,
+                self.file_frequencies,
+            ) = reindex_loaded_files(self.loaded_files, check_frequencies=True)
+            data = join_files(self.loaded_files, self.common_freq)
+
+        # try:
+        cd = CapData(self.name)
+        data.index.name = "Timestamp"
+        cd.data = data.copy()
+
+        if sort:
+            cd.data.sort_index(inplace=True)
+        if drop_duplicates:
+            cd.data.drop_duplicates(inplace=True)
+        if reindex:
+            if not self.path.is_dir():
+                cd.data, missing_intervals, freq_str = util.reindex_datetime(
+                    cd.data,
+                    report=False,
+                )
+                self.missing_intervals = missing_intervals
+                self.freq_str = freq_str
+
+        cd.data_loader = self
+        cd.data_filtered = cd.data.copy()
+
+        # group columns
+        if callable(self.group_columns):
+            cd.column_groups = self.group_columns(cd.data)
+        elif isinstance(self.group_columns, str):
+            p = Path(self.group_columns)
+            if p.suffix == ".json":
+                cd.column_groups = cg.ColumnGroups(
+                    util.read_json(self.group_columns)
+                )
+
+        cd.trans_keys = list(cd.column_groups.keys())
+        return cd
+        # except:
+        #     print(type(cd.data.index))
+        #     print(cd.data.columns[0:5])
+        #     print(cd.data.head())
+        #     cd.data_loader = self
+        #     return cd
+        #     raise
+
+
+def load_data(
+    path,
+    group_columns=cg.group_columns,
+    file_reader=file_reader,
+    name="meas",
+    **kwargs,
+):
+    """
+    Load file(s) of timeseries data from SCADA / DAS systems.
+
+    This is a convience function to generate an instance of DataLoader
+    and call the `load` method.
+
+    A single file or multiple files can be loaded. Multiple files will be joined together
+    and may include files with different column headings.
+
+    Parameters
+    ----------
+    path : str
+        Path to either a single file to load or a directory of files to load.
+    group_columns : function or str, default columngroups.group_columns
+        Function to use to group the columns of the loaded data. Function should accept
+        a DataFrame and return a dictionary with keys that are ids and valeus that are
+        lists of column names. Will be set to the `group_columns` attribute of the
+        CapData.DataLoader object.
+        Provide a string to load column grouping from a json file.
+    file_reader : function, default io.file_reader
+        Function to use to load an individual file. By default will use the built in
+        `file_reader` function to try to load csv files. If passing a function to read
+        other filetypes, the kwargs should include the filetype extension e.g. 'parquet'.
+    name : str
+        Identifier that will be assigned to the returned CapData instance.
+    **kwargs
+        Passed to `DataLoader.load` Options include: sort, drop_duplicates, reindex,
+        extension. See `DataLoader` for complete documentation.
+    """
+    dl = DataLoader(
+        path=path,
+        group_columns=group_columns,
+        file_reader=file_reader,
+        name=name,
+    )
+    cd = dl.load(**kwargs)
     return cd
+
+
+
+#     loc=None,
+#     sys=None,
+#     """
+#     Import data from csv files.
+#
+#     The intent of the default behavior is to combine csv files that have
+#     the same columns and rows of data from different times. For example,
+#     combining daily files of 5 minute measurements from the same sensors
+#     for each day.
+#
+#     Use the path and fname arguments to specify a single file to import.
+#
+#     Parameters
+#     ----------
+#     loc : dict
+#         See the csky function for details on dictionary options.
+#     sys : dict
+#         See the csky function for details on dictionary options.
+#   """
+#         if clear_sky:
+#             if loc is None:
+#                 warnings.warn(
+#                     "Must provide loc and sys dictionary\
+#                               when clear_sky is True.  Loc dict missing."
+#                 )
+#             if sys is None:
+#                 warnings.warn(
+#                     "Must provide loc and sys dictionary\
+#                               when clear_sky is True.  Sys dict missing."
+#                 )
+#             cd.data = csky(cd.data, loc=loc, sys=sys, concat=True, output="both")
+#
+#     if callable(group_columns):
+#         cd.column_groups = group_columns(cd.data)
+#     elif isinstance(group_columns, str):
+#         p = Path(group_columns)
+#         if p.suffix == ".json":
+#             cd.column_groups = cg.ColumnGroups(util.read_json(group_columns))
+#         # elif p.suffix == '.xlsx':
+#         #     cd.column_groups = "read excel file"
+#
+#     cd.data_filtered = cd.data.copy()
+#     cd.trans_keys = list(cd.column_groups.keys())
+#     return cd

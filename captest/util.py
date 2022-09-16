@@ -83,6 +83,5 @@ def reindex_datetime(data, report=False, add_index_col=True):
         print('Frequency determined to be ' + freq_str + ' minutes.')
         print('{:,} intervals added to index.'.format(missing_intervals))
         print('')
-        return df, missing_intervals, freq_str
 
-    return df
+    return df, missing_intervals, freq_str

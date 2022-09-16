@@ -13,7 +13,6 @@ from .context import capdata as pvc
 from .context import util
 from .context import columngroups as cg
 from .context import(
-    load_das,
     load_pvsyst,
     load_data,
 )
@@ -42,8 +41,6 @@ To run a specific test:
 pytest tests/test_CapData.py::TestCapDataEmpty::test_capdata_empty
 """
 
-test_files = ['test1.csv', 'test2.csv', 'test3.CSV', 'test4.txt',
-              'pvsyst.csv', 'pvsyst_data.csv']
 
 
 class TestUpdateSummary:
@@ -372,82 +369,6 @@ class TestTopLevelFuncs(unittest.TestCase):
 
         self.assertEqual(results_str, captured.out)
 
-
-class TestLoadDataMethods(unittest.TestCase):
-    """Test for load data methods without setup."""
-
-    def test_load_pvsyst(self):
-        pvsyst = load_pvsyst('./tests/data/', 'pvsyst_example_HourlyRes_2.CSV')
-        self.assertEqual(8760, pvsyst.shape[0],
-                         'Not the correct number of rows in imported data.')
-        self.assertIsInstance(pvsyst.index,
-                              pd.core.indexes.datetimes.DatetimeIndex,
-                              'Index is not a datetime index.')
-        self.assertIsInstance(pvsyst.columns,
-                              pd.core.indexes.base.Index,
-                              'Columns might be MultiIndex; should be base index')
-
-
-    def test_source_alsoenergy(self):
-        das_1 = load_data(
-            path='./tests/data/col_naming_examples/',
-            fname='ae_site1.csv', source='AlsoEnergy'
-        )
-        col_names1 = [
-            'Elkor Production Meter PowerFactor, ',
-            'Elkor Production Meter KW, kW',
-            'Weather Station 1 TempF, °F',
-            'Weather Station 2 Sun2, W/m²',
-            'Weather Station 1 Sun, W/m²',
-            'Weather Station 1 WindSpeed, mph',
-            'index'
-        ]
-        self.assertTrue(all(das_1.data.columns == col_names1),
-                        'Column names are not expected value for ae_site1')
-
-        das_2 = load_data(path='./tests/data/col_naming_examples/',
-                          fname='ae_site2.csv', source='AlsoEnergy')
-        col_names2 = ['Acuvim II Meter PowerFactor, PF', 'Acuvim II Meter KW, kW',
-                      'Weather Station 1 TempF, °F', 'Weather Station 3 TempF, °F',
-                      'Weather Station 2 Sun2, W/m²', 'Weather Station 4 Sun2, W/m²',
-                      'Weather Station 1 Sun, W/m²', 'Weather Station 3 Sun, W/m²',
-                      'Weather Station 1 WindSpeed, mph',
-                      'Weather Station 3 WindSpeed, mph',
-                      'index']
-        self.assertTrue(all(das_2.data.columns == col_names2),
-                        'Column names are not expected value for ae_site1')
-
-    def test_load_das(self):
-        das = load_das('./tests/data/', 'example_meas_data.csv')
-        self.assertEqual(1440, das.shape[0],
-                         'Not the correct number of rows in imported data.')
-        self.assertIsInstance(das.index,
-                              pd.core.indexes.datetimes.DatetimeIndex,
-                              'Index is not a datetime index.')
-        self.assertIsInstance(das.columns,
-                              pd.core.indexes.base.Index,
-                              'Columns might be MultiIndex; should be base index')
-
-
-class TestCapDataLoadMethods(unittest.TestCase):
-    """Tests for load_data method."""
-
-    def setUp(self):
-        os.mkdir('test_csvs')
-        for fname in test_files:
-            with open('test_csvs/' + fname, 'a') as f:
-                f.write('Date, val\n11/21/2017, 1')
-
-        self.capdata = load_data(path='test_csvs/')
-
-    def tearDown(self):
-        for fname in test_files:
-            os.remove('test_csvs/' + fname)
-        os.rmdir('test_csvs')
-
-    def test_read_csvs(self):
-        self.assertEqual(self.capdata.data.shape[0], 3,
-                         'imported a non csv or pvsyst file')
 
 class TestLoadDataColumnGrouping():
     def test_is_json(self):
