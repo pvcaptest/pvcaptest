@@ -132,31 +132,6 @@ def file_reader(path, **kwargs):
     return data_file
 
 
-def reindex_loaded_files(loaded_files, check_frequencies=True):
-    reindexed_dfs = {}
-    file_frequencies = []
-    for name, file in loaded_files.items():
-        current_file, missing_intervals, freq_str = util.reindex_datetime(
-            file,
-            report=False,
-            add_index_col=True,
-        )
-        reindexed_dfs[name] = current_file
-        file_frequencies.append(freq_str)
-
-    if check_frequencies:
-        unique_freq = np.unique(
-            np.array([freq for freq in file_frequencies]),
-            return_counts=True,
-        )
-        common_freq = unique_freq[0][np.argmax(unique_freq[1])]
-
-    if check_frequencies:
-        return reindexed_dfs, common_freq, file_frequencies
-    else:
-        return reindexed_dfs
-
-
 def join_files(loaded_files, common_freq):
     all_columns = [df.columns for df in loaded_files.values()]
     columns_match = all(
@@ -213,6 +188,38 @@ class DataLoader:
                 )
             )
 
+    def _reindex_loaded_files(self):
+        """
+        Reindex files to ensure not missing indices and deterine frequency for each file.
+
+        Returns
+        -------
+        reindexed_dfs : dict
+            Filenames mapped to reindexed DataFrames.
+        common_freq : str
+            The index frequency most common across the reindexed DataFrames.
+        file_frequencies : list
+            The index frequencies for each file.
+        """
+        reindexed_dfs = {}
+        file_frequencies = []
+        for name, file in self.loaded_files.items():
+            current_file, missing_intervals, freq_str = util.reindex_datetime(
+                file,
+                report=False,
+                add_index_col=True,
+            )
+            reindexed_dfs[name] = current_file
+            file_frequencies.append(freq_str)
+
+        unique_freq = np.unique(
+            np.array([freq for freq in file_frequencies]),
+            return_counts=True,
+        )
+        common_freq = unique_freq[0][np.argmax(unique_freq[1])]
+
+        return reindexed_dfs, common_freq, file_frequencies
+
     def load(self, sort=True, drop_duplicates=True, reindex=True, extension="csv"):
         """
         Load file(s) of timeseries data from SCADA / DAS systems.
@@ -255,7 +262,7 @@ class DataLoader:
                 self.loaded_files,
                 self.common_freq,
                 self.file_frequencies,
-            ) = reindex_loaded_files(self.loaded_files, check_frequencies=True)
+            ) = self._reindex_loaded_files()
             data = join_files(self.loaded_files, self.common_freq)
 
         # try:

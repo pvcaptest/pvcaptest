@@ -9,6 +9,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from captest.io import file_reader
+
 from .context import capdata as pvc
 from .context import util
 from .context import columngroups as cg
@@ -162,6 +164,25 @@ class TestDataLoader:
         assert isinstance(dl.path, Path)
         assert dl.path == Path("./data/data_for_yyyy-mm-dd.csv")
 
+    def test_reindex_loaded_files(self):
+        day1 = pd.DataFrame(
+            {'a':np.arange(24)},
+            index=pd.date_range(start='1/1/22', freq='60 min', periods=24)
+        )
+        day2 = pd.DataFrame(
+            {'a':np.arange(24 * 6)},
+            index=pd.date_range(start='1/1/22', freq='5 min', periods=24 * 6)
+        )
+        day3 = day1.copy()
+        dl = io.DataLoader()
+        dl.loaded_files = {
+            'day1' : day1,
+            'day2' : day2,
+            'day3' : day3,
+        }
+        reix_dfs, common_freq, file_frequencies = dl._reindex_loaded_files()
+        assert common_freq == '60min'
+        assert file_frequencies == ['60min', '5min', '60min']
 
 class TestLoadDataMethods(unittest.TestCase):
     """Test for load data methods without setup."""
