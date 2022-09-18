@@ -4,6 +4,7 @@ from io import StringIO
 import collections
 import unittest
 import pytest
+import warnings
 import pytz
 from pathlib import Path
 import numpy as np
@@ -183,6 +184,110 @@ class TestDataLoader:
         reix_dfs, common_freq, file_frequencies = dl._reindex_loaded_files()
         assert common_freq == '60min'
         assert file_frequencies == ['60min', '5min', '60min']
+
+    def test_join_files_same_headers(self):
+        day1 = pd.DataFrame(
+            {'a':np.arange(24), 'b':np.arange(24, 48, 1)},
+            index=pd.date_range(start='1/1/22', freq='60 min', periods=24)
+        )
+        day2 = pd.DataFrame(
+            {'a':np.arange(24, 48, 1), 'b':np.arange(24)},
+            index=pd.date_range(start='1/2/22', freq='60 min', periods=24)
+        )
+        dl = io.DataLoader()
+        dl.loaded_files = {
+            'day1' : day1,
+            'day2' : day2,
+        }
+        dl.common_freq = '60min'
+        data = dl._join_files()
+        print(data)
+        assert data.shape == (48, 2)
+        assert data.index.is_monotonic_increasing
+
+    def test_join_files_same_headers_same_index_warning(self):
+        day1 = pd.DataFrame(
+            {'a':np.arange(24), 'b':np.arange(24, 48, 1)},
+            index=pd.date_range(start='1/1/22', freq='60 min', periods=24)
+        )
+        day2 = pd.DataFrame(
+            {'a':np.arange(24, 48, 1), 'b':np.arange(24)},
+            index=pd.date_range(start='1/1/22', freq='60 min', periods=24)
+        )
+        dl = io.DataLoader()
+        dl.loaded_files = {
+            'day1' : day1,
+            'day2' : day2,
+        }
+        dl.common_freq = '60min'
+        with pytest.warns(UserWarning):
+            data = dl._join_files()
+            warnings.warn('Some columns contain overlapping indices.', UserWarning)
+        assert data.shape == (48, 2)
+
+
+    def test_join_files_different_headers(self):
+        day1 = pd.DataFrame(
+            {'a':np.arange(24), 'b':np.arange(24, 48, 1)},
+            index=pd.date_range(start='1/1/22', freq='60 min', periods=24)
+        )
+        day2 = pd.DataFrame(
+            {'c':np.arange(24, 48, 1), 'd':np.arange(24)},
+            index=pd.date_range(start='1/1/22', freq='60 min', periods=24)
+        )
+        dl = io.DataLoader()
+        dl.loaded_files = {
+            'day1' : day1,
+            'day2' : day2,
+        }
+        dl.common_freq = '60min'
+        data = dl._join_files()
+        assert data.shape == (24, 4)
+        assert data.isna().sum().sum() == 0
+
+    def test_join_files_different_headers_and_days(self):
+        day1 = pd.DataFrame(
+            {'a':np.arange(24), 'b':np.arange(24, 48, 1)},
+            index=pd.date_range(start='1/1/22', freq='60 min', periods=24)
+        )
+        day2 = pd.DataFrame(
+            {'c':np.arange(24, 48, 1), 'd':np.arange(24)},
+            index=pd.date_range(start='1/2/22', freq='60 min', periods=24)
+        )
+        dl = io.DataLoader()
+        dl.loaded_files = {
+            'day1' : day1,
+            'day2' : day2,
+        }
+        dl.common_freq = '60min'
+        data = dl._join_files()
+        assert data.shape == (48, 4)
+        assert data['1/2/22'][['a', 'b']].isna().sum().sum() == 48
+        assert data['1/1/22'][['c', 'd']].isna().sum().sum() == 48
+        assert data.index.is_monotonic_increasing
+
+    def test_join_files_overlapping_headers(self):
+        day1 = pd.DataFrame(
+            {'a':np.arange(24), 'b':np.arange(24, 48, 1)},
+            index=pd.date_range(start='1/1/22', freq='60 min', periods=24)
+        )
+        day2 = pd.DataFrame(
+            {'b':np.arange(24, 48, 1), 'c':np.arange(24)},
+            index=pd.date_range(start='1/2/22', freq='60 min', periods=24)
+        )
+        dl = io.DataLoader()
+        dl.loaded_files = {
+            'day1' : day1,
+            'day2' : day2,
+        }
+        dl.common_freq = '60min'
+        data = dl._join_files()
+        assert data.shape == (48, 3)
+        assert data.index[0] == pd.to_datetime('1/1/22')
+        assert data.index[-1] == pd.to_datetime('1/2/22 23:00')
+        assert all(data['1/1/22']['c'].isna())
+        assert all(data['1/2/22']['a'].isna())
+        assert data.index.is_monotonic_increasing
 
 class TestLoadDataMethods(unittest.TestCase):
     """Test for load data methods without setup."""

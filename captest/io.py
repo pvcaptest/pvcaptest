@@ -1,4 +1,5 @@
 # this file is formatted with black
+from distutils.log import warn
 import os
 import dateutil
 import datetime
@@ -132,28 +133,6 @@ def file_reader(path, **kwargs):
     return data_file
 
 
-def join_files(loaded_files, common_freq):
-    all_columns = [df.columns for df in loaded_files.values()]
-    columns_match = all(
-        [pair[0].equals(pair[1]) for pair in combinations(all_columns, 2)]
-    )
-    if columns_match:
-        data = pd.concat(loaded_files.values(), axis=1)
-    else:
-        joined_columns = pd.Index(
-            set([item for cols in all_columns for item in cols])
-        ).sort_values()
-        data = pd.DataFrame(
-            index=pd.date_range(
-                start=min([df.index.min() for df in loaded_files.values()]),
-                end=max([df.index.max() for df in loaded_files.values()]),
-                freq=common_freq,
-            ),
-            columns=joined_columns,
-        )
-        for file in loaded_files.values():
-            data.loc[file.index, file.columns] = file.values
-    return data
 
 
 @dataclass
@@ -220,6 +199,36 @@ class DataLoader:
 
         return reindexed_dfs, common_freq, file_frequencies
 
+    def _join_files(self):
+        all_columns = [df.columns for df in self.loaded_files.values()]
+        columns_match = all(
+            [pair[0].equals(pair[1]) for pair in combinations(all_columns, 2)]
+        )
+        all_indices = [df.index for df in self.loaded_files.values()]
+        indices_match = all(
+            [pair[0].equals(pair[1]) for pair in combinations(all_indices, 2)]
+        )
+        if columns_match and not indices_match:
+            data = pd.concat(self.loaded_files.values(), axis='index')
+        elif columns_match and indices_match:
+            warnings.warn('Some columns contain overlapping indices.')
+            data = pd.concat(self.loaded_files.values(), axis='index')
+        else:
+            joined_columns = pd.Index(
+                set([item for cols in all_columns for item in cols])
+            ).sort_values()
+            data = pd.DataFrame(
+                index=pd.date_range(
+                    start=min([df.index.min() for df in self.loaded_files.values()]),
+                    end=max([df.index.max() for df in self.loaded_files.values()]),
+                    freq=self.common_freq,
+                ),
+                columns=joined_columns,
+            )
+            for file in self.loaded_files.values():
+                data.loc[file.index, file.columns] = file.values
+        return data
+
     def load(self, sort=True, drop_duplicates=True, reindex=True, extension="csv"):
         """
         Load file(s) of timeseries data from SCADA / DAS systems.
@@ -263,7 +272,7 @@ class DataLoader:
                 self.common_freq,
                 self.file_frequencies,
             ) = self._reindex_loaded_files()
-            data = join_files(self.loaded_files, self.common_freq)
+            data = join_files()
 
         # try:
         cd = CapData(self.name)
