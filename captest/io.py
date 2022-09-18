@@ -168,8 +168,7 @@ class DataLoader:
             )
 
     def _reindex_loaded_files(self):
-        """
-        Reindex files to ensure not missing indices and deterine frequency for each file.
+        """Reindex files to ensure no missing indices and find frequency for each file.
 
         Returns
         -------
@@ -200,6 +199,21 @@ class DataLoader:
         return reindexed_dfs, common_freq, file_frequencies
 
     def _join_files(self):
+        """Combine the DataFrames of `loaded_files` into a single DataFrame.
+
+        Checks if the columns of each DataFrame in `loaded_files` matches. If they do
+        all match, then they will be combined along vertically along the index.
+
+        If they do not match, then they will be combined by creating a datetime index
+        that begins with the earliest datetime in all the indices to the latest datetime
+        in all the indices using the most common frequency across all the indices. The
+        columns will be a set of all the columns.
+
+        Returns
+        -------
+        data : DataFrame
+            The combined data.
+        """
         all_columns = [df.columns for df in self.loaded_files.values()]
         columns_match = all(
             [pair[0].equals(pair[1]) for pair in combinations(all_columns, 2)]
