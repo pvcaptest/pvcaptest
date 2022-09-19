@@ -1,6 +1,4 @@
 # this file is formatted with black
-from distutils.log import warn
-import os
 import dateutil
 import datetime
 from pathlib import Path
@@ -22,7 +20,7 @@ def flatten_multi_index(columns):
     return ["_".join(col_name) for col_name in columns.to_list()]
 
 
-def load_pvsyst(path, filename, **kwargs):
+def load_pvsyst(path, **kwargs):
     """
     Load data from a PVsyst energy production model.
 
@@ -30,8 +28,6 @@ def load_pvsyst(path, filename, **kwargs):
     ----------
     path : str
         Path to file to import.
-    filename : str
-        Name of file to import.
     **kwargs
         Use to pass additional kwargs to pandas read_csv.
 
@@ -39,7 +35,7 @@ def load_pvsyst(path, filename, **kwargs):
     -------
     pandas dataframe
     """
-    dirName = os.path.normpath(path + filename)
+    dirName = Path(path)
 
     encodings = ["utf-8", "latin1", "iso-8859-1", "cp1252"]
     for encoding in encodings:

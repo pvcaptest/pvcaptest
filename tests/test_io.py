@@ -150,6 +150,13 @@ class TestFileReader:
         assert isinstance(das.columns, pd.Index)
 
 
+class TestLoadPVsyst:
+    def test_load_pvsyst(self):
+        pvsyst = load_pvsyst("./tests/data/pvsyst_example_HourlyRes_2.CSV")
+        assert 8760 == pvsyst.shape[0]
+        assert isinstance(pvsyst.index, pd.DatetimeIndex)
+        assert isinstance(pvsyst.columns, pd.Index)
+
 class TestDataLoader:
     """
     Tests of the data loader class.
@@ -291,23 +298,6 @@ class TestDataLoader:
 
 class TestLoadDataMethods(unittest.TestCase):
     """Test for load data methods without setup."""
-
-    def test_load_pvsyst(self):
-        pvsyst = load_pvsyst("./tests/data/", "pvsyst_example_HourlyRes_2.CSV")
-        self.assertEqual(
-            8760, pvsyst.shape[0], "Not the correct number of rows in imported data."
-        )
-        self.assertIsInstance(
-            pvsyst.index,
-            pd.core.indexes.datetimes.DatetimeIndex,
-            "Index is not a datetime index.",
-        )
-        self.assertIsInstance(
-            pvsyst.columns,
-            pd.core.indexes.base.Index,
-            "Columns might be MultiIndex; should be base index",
-        )
-
     def test_source_alsoenergy(self):
         das_1 = load_data(path="./tests/data/col_naming_examples/ae_site1.csv")
         col_names1 = [
