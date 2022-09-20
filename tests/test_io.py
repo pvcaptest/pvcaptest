@@ -60,13 +60,13 @@ class TestFileReader:
 
         No blank rows between column headings and the beginning of the data.
         """
-        csv_path = tmp_path / 'simple_data.csv'
+        csv_path = tmp_path / "simple_data.csv"
         pd.DataFrame(
             {
                 "met1_poa1": np.arange(0, 20),
                 "met1_poa2": np.arange(20, 40),
             },
-            index=pd.date_range(start='8/1/22', periods=20, freq='1min')
+            index=pd.date_range(start="8/1/22", periods=20, freq="1min"),
         ).to_csv(csv_path)
         loaded_data = io.file_reader(csv_path)
         assert isinstance(loaded_data, pd.DataFrame)
@@ -78,68 +78,68 @@ class TestFileReader:
         Two rows of headers that should be concatenated in the loaded data.
         No blank rows between the last header row and the data.
         """
-        csv_path = tmp_path / 'double_headers.csv'
+        csv_path = tmp_path / "double_headers.csv"
         pd.DataFrame(
             np.column_stack((np.arange(0, 20), np.arange(20, 40))),
-            index=pd.date_range(start='8/1/22', periods=20, freq='1min'),
-            columns=pd.MultiIndex.from_tuples([('met1', 'poa'), ('met2', 'poa')])
+            index=pd.date_range(start="8/1/22", periods=20, freq="1min"),
+            columns=pd.MultiIndex.from_tuples([("met1", "poa"), ("met2", "poa")]),
         ).to_csv(csv_path)
         loaded_data = io.file_reader(csv_path)
         assert isinstance(loaded_data, pd.DataFrame)
-        assert loaded_data.columns[0] == 'met1_poa'
+        assert loaded_data.columns[0] == "met1_poa"
         assert isinstance(loaded_data.index, pd.DatetimeIndex)
 
     def test_empty_rows_at_start(self, tmp_path):
         """
         Test loading a well csv with empty rows between headers and data.
-        
+
         Single row of headers and a single blank row between header and data.
         """
         test_csv = StringIO()
-        csv_path = tmp_path / 'empty_rows.csv'
+        csv_path = tmp_path / "empty_rows.csv"
         pd.DataFrame(
             {
                 "met1_poa1": np.arange(0, 20),
                 "met1_poa2": np.arange(20, 40),
             },
-            index=pd.date_range(start='8/1/22', periods=20, freq='1min')
+            index=pd.date_range(start="8/1/22", periods=20, freq="1min"),
         ).to_csv(test_csv)
         test_csv.seek(0)
         df_str = test_csv.getvalue()
         df_with_blank_row = df_str[0:21] + ",,\n" + df_str[21:]
-        with open(csv_path, 'w') as f:
+        with open(csv_path, "w") as f:
             f.write(df_with_blank_row)
         loaded_data = io.file_reader(csv_path)
         assert isinstance(loaded_data, pd.DataFrame)
-        assert loaded_data.columns[0] == 'met1_poa1'
+        assert loaded_data.columns[0] == "met1_poa1"
         assert isinstance(loaded_data.index, pd.DatetimeIndex)
 
     def test_double_headers_with_blank(self, tmp_path):
         """Two header rows followed by a blank line."""
         test_csv = StringIO()
-        csv_path = tmp_path / 'double_headers_with_blank.csv'
+        csv_path = tmp_path / "double_headers_with_blank.csv"
         pd.DataFrame(
             np.column_stack((np.arange(0, 20), np.arange(20, 40))),
-            index=pd.date_range(start='8/1/22', periods=20, freq='1min'),
-            columns=pd.MultiIndex.from_tuples([('met1', 'poa'), ('met2', 'poa')])
+            index=pd.date_range(start="8/1/22", periods=20, freq="1min"),
+            columns=pd.MultiIndex.from_tuples([("met1", "poa"), ("met2", "poa")]),
         ).to_csv(test_csv)
         test_csv.seek(0)
         df_str = test_csv.getvalue()
         df_with_blank_row = df_str[0:20] + ",,\n" + df_str[20:]
-        with open(csv_path, 'w') as f:
+        with open(csv_path, "w") as f:
             f.write(df_with_blank_row)
         loaded_data = io.file_reader(csv_path)
         print(loaded_data)
         assert isinstance(loaded_data, pd.DataFrame)
-        assert loaded_data.columns[0] == 'met1_poa'
+        assert loaded_data.columns[0] == "met1_poa"
         assert isinstance(loaded_data.index, pd.DatetimeIndex)
 
     def test_ae_headers(self):
         """Four rows of headers, no blank rows, header in first column on third row."""
-        loaded_data = io.file_reader('./tests/data/example_meas_data_aeheaders.csv')
+        loaded_data = io.file_reader("./tests/data/example_meas_data_aeheaders.csv")
         assert isinstance(loaded_data, pd.DataFrame)
         assert loaded_data.columns[0] == (
-            'Example Project_Weather Station 1 (Standard w/ POA GHI)_Weather Station 1 (Standard w/ POA GHI), Sun_W/m^2'
+            "Example Project_Weather Station 1 (Standard w/ POA GHI)_Weather Station 1 (Standard w/ POA GHI), Sun_W/m^2"
         )
         assert isinstance(loaded_data.index, pd.DatetimeIndex)
 
@@ -153,9 +153,31 @@ class TestFileReader:
 class TestLoadPVsyst:
     def test_load_pvsyst(self):
         pvsyst = load_pvsyst("./tests/data/pvsyst_example_HourlyRes_2.CSV")
-        assert 8760 == pvsyst.shape[0]
-        assert isinstance(pvsyst.index, pd.DatetimeIndex)
-        assert isinstance(pvsyst.columns, pd.Index)
+        assert isinstance(pvsyst, pvc.CapData)
+        assert 8760 == pvsyst.data.shape[0]
+        assert isinstance(pvsyst.data.index, pd.DatetimeIndex)
+        assert isinstance(pvsyst.data.columns, pd.Index)
+        assert pvsyst.data.loc["1/1/90 12:00", "E_Grid"] == 5_469_083
+        assert pvsyst.regression_cols == {
+            "power": "E_Grid",
+            "poa": "GlobInc",
+            "t_amb": "TAmb",
+            "w_vel": "WindVel",
+        }
+
+    def test_scale_egrid(self):
+        pvsyst = load_pvsyst(
+            "./tests/data/pvsyst_example_HourlyRes_2.CSV", egrid_unit_adj_factor=1_000
+        )
+        assert pvsyst.data.loc["1/1/90 12:00", "E_Grid"] == 5_469.083
+
+    def test_dont_set_reg_cols(self):
+        pvsyst = load_pvsyst(
+            "./tests/data/pvsyst_example_HourlyRes_2.CSV",
+            set_regression_columns=False,
+        )
+        assert pvsyst.regression_cols == {}
+
 
 class TestDataLoader:
     """
@@ -174,39 +196,39 @@ class TestDataLoader:
 
     def test_reindex_loaded_files(self):
         day1 = pd.DataFrame(
-            {'a':np.arange(24)},
-            index=pd.date_range(start='1/1/22', freq='60 min', periods=24)
+            {"a": np.arange(24)},
+            index=pd.date_range(start="1/1/22", freq="60 min", periods=24),
         )
         day2 = pd.DataFrame(
-            {'a':np.arange(24 * 6)},
-            index=pd.date_range(start='1/1/22', freq='5 min', periods=24 * 6)
+            {"a": np.arange(24 * 6)},
+            index=pd.date_range(start="1/1/22", freq="5 min", periods=24 * 6),
         )
         day3 = day1.copy()
         dl = io.DataLoader()
         dl.loaded_files = {
-            'day1' : day1,
-            'day2' : day2,
-            'day3' : day3,
+            "day1": day1,
+            "day2": day2,
+            "day3": day3,
         }
         reix_dfs, common_freq, file_frequencies = dl._reindex_loaded_files()
-        assert common_freq == '60min'
-        assert file_frequencies == ['60min', '5min', '60min']
+        assert common_freq == "60min"
+        assert file_frequencies == ["60min", "5min", "60min"]
 
     def test_join_files_same_headers(self):
         day1 = pd.DataFrame(
-            {'a':np.arange(24), 'b':np.arange(24, 48, 1)},
-            index=pd.date_range(start='1/1/22', freq='60 min', periods=24)
+            {"a": np.arange(24), "b": np.arange(24, 48, 1)},
+            index=pd.date_range(start="1/1/22", freq="60 min", periods=24),
         )
         day2 = pd.DataFrame(
-            {'a':np.arange(24, 48, 1), 'b':np.arange(24)},
-            index=pd.date_range(start='1/2/22', freq='60 min', periods=24)
+            {"a": np.arange(24, 48, 1), "b": np.arange(24)},
+            index=pd.date_range(start="1/2/22", freq="60 min", periods=24),
         )
         dl = io.DataLoader()
         dl.loaded_files = {
-            'day1' : day1,
-            'day2' : day2,
+            "day1": day1,
+            "day2": day2,
         }
-        dl.common_freq = '60min'
+        dl.common_freq = "60min"
         data = dl._join_files()
         print(data)
         assert data.shape == (48, 2)
@@ -214,90 +236,91 @@ class TestDataLoader:
 
     def test_join_files_same_headers_same_index_warning(self):
         day1 = pd.DataFrame(
-            {'a':np.arange(24), 'b':np.arange(24, 48, 1)},
-            index=pd.date_range(start='1/1/22', freq='60 min', periods=24)
+            {"a": np.arange(24), "b": np.arange(24, 48, 1)},
+            index=pd.date_range(start="1/1/22", freq="60 min", periods=24),
         )
         day2 = pd.DataFrame(
-            {'a':np.arange(24, 48, 1), 'b':np.arange(24)},
-            index=pd.date_range(start='1/1/22', freq='60 min', periods=24)
+            {"a": np.arange(24, 48, 1), "b": np.arange(24)},
+            index=pd.date_range(start="1/1/22", freq="60 min", periods=24),
         )
         dl = io.DataLoader()
         dl.loaded_files = {
-            'day1' : day1,
-            'day2' : day2,
+            "day1": day1,
+            "day2": day2,
         }
-        dl.common_freq = '60min'
+        dl.common_freq = "60min"
         with pytest.warns(UserWarning):
             data = dl._join_files()
-            warnings.warn('Some columns contain overlapping indices.', UserWarning)
+            warnings.warn("Some columns contain overlapping indices.", UserWarning)
         assert data.shape == (48, 2)
-
 
     def test_join_files_different_headers(self):
         day1 = pd.DataFrame(
-            {'a':np.arange(24), 'b':np.arange(24, 48, 1)},
-            index=pd.date_range(start='1/1/22', freq='60 min', periods=24)
+            {"a": np.arange(24), "b": np.arange(24, 48, 1)},
+            index=pd.date_range(start="1/1/22", freq="60 min", periods=24),
         )
         day2 = pd.DataFrame(
-            {'c':np.arange(24, 48, 1), 'd':np.arange(24)},
-            index=pd.date_range(start='1/1/22', freq='60 min', periods=24)
+            {"c": np.arange(24, 48, 1), "d": np.arange(24)},
+            index=pd.date_range(start="1/1/22", freq="60 min", periods=24),
         )
         dl = io.DataLoader()
         dl.loaded_files = {
-            'day1' : day1,
-            'day2' : day2,
+            "day1": day1,
+            "day2": day2,
         }
-        dl.common_freq = '60min'
+        dl.common_freq = "60min"
         data = dl._join_files()
         assert data.shape == (24, 4)
         assert data.isna().sum().sum() == 0
 
     def test_join_files_different_headers_and_days(self):
         day1 = pd.DataFrame(
-            {'a':np.arange(24), 'b':np.arange(24, 48, 1)},
-            index=pd.date_range(start='1/1/22', freq='60 min', periods=24)
+            {"a": np.arange(24), "b": np.arange(24, 48, 1)},
+            index=pd.date_range(start="1/1/22", freq="60 min", periods=24),
         )
         day2 = pd.DataFrame(
-            {'c':np.arange(24, 48, 1), 'd':np.arange(24)},
-            index=pd.date_range(start='1/2/22', freq='60 min', periods=24)
+            {"c": np.arange(24, 48, 1), "d": np.arange(24)},
+            index=pd.date_range(start="1/2/22", freq="60 min", periods=24),
         )
         dl = io.DataLoader()
         dl.loaded_files = {
-            'day1' : day1,
-            'day2' : day2,
+            "day1": day1,
+            "day2": day2,
         }
-        dl.common_freq = '60min'
+        dl.common_freq = "60min"
         data = dl._join_files()
         assert data.shape == (48, 4)
-        assert data['1/2/22'][['a', 'b']].isna().sum().sum() == 48
-        assert data['1/1/22'][['c', 'd']].isna().sum().sum() == 48
+        assert data["1/2/22"][["a", "b"]].isna().sum().sum() == 48
+        assert data["1/1/22"][["c", "d"]].isna().sum().sum() == 48
         assert data.index.is_monotonic_increasing
 
     def test_join_files_overlapping_headers(self):
         day1 = pd.DataFrame(
-            {'a':np.arange(24), 'b':np.arange(24, 48, 1)},
-            index=pd.date_range(start='1/1/22', freq='60 min', periods=24)
+            {"a": np.arange(24), "b": np.arange(24, 48, 1)},
+            index=pd.date_range(start="1/1/22", freq="60 min", periods=24),
         )
         day2 = pd.DataFrame(
-            {'b':np.arange(24, 48, 1), 'c':np.arange(24)},
-            index=pd.date_range(start='1/2/22', freq='60 min', periods=24)
+            {"b": np.arange(24, 48, 1), "c": np.arange(24)},
+            index=pd.date_range(start="1/2/22", freq="60 min", periods=24),
         )
         dl = io.DataLoader()
         dl.loaded_files = {
-            'day1' : day1,
-            'day2' : day2,
+            "day1": day1,
+            "day2": day2,
         }
-        dl.common_freq = '60min'
+        dl.common_freq = "60min"
         data = dl._join_files()
         assert data.shape == (48, 3)
-        assert data.index[0] == pd.to_datetime('1/1/22')
-        assert data.index[-1] == pd.to_datetime('1/2/22 23:00')
-        assert all(data['1/1/22']['c'].isna())
-        assert all(data['1/2/22']['a'].isna())
+        assert data.index[0] == pd.to_datetime("1/1/22")
+        assert data.index[-1] == pd.to_datetime("1/2/22 23:00")
+        assert all(data["1/1/22"]["c"].isna())
+        assert all(data["1/2/22"]["a"].isna())
         assert data.index.is_monotonic_increasing
+
 
 class TestLoadDataMethods(unittest.TestCase):
     """Test for load data methods without setup."""
+
     def test_source_alsoenergy(self):
         das_1 = load_data(path="./tests/data/col_naming_examples/ae_site1.csv")
         col_names1 = [
@@ -335,9 +358,14 @@ class TestLoadDataMethods(unittest.TestCase):
         )
 
 
-
-test_files = ['test1.csv', 'test2.csv', 'test3.CSV', 'test4.txt',
-              'pvsyst.csv', 'pvsyst_data.csv']
+test_files = [
+    "test1.csv",
+    "test2.csv",
+    "test3.CSV",
+    "test4.txt",
+    "pvsyst.csv",
+    "pvsyst_data.csv",
+]
 
 
 # class TestCapDataLoadMethods(unittest.TestCase):

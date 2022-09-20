@@ -20,7 +20,13 @@ def flatten_multi_index(columns):
     return ["_".join(col_name) for col_name in columns.to_list()]
 
 
-def load_pvsyst(path, **kwargs):
+def load_pvsyst(
+    path,
+    name="pvsyst",
+    egrid_unit_adj_factor=None,
+    set_regression_columns=True,
+    **kwargs,
+):
     """
     Load data from a PVsyst energy production model.
 
@@ -28,21 +34,25 @@ def load_pvsyst(path, **kwargs):
     ----------
     path : str
         Path to file to import.
+    name : str, default pvsyst
+        Name to assign to returned CapData object.
+    egrid_unit_adj_factor : numeric, default None
+        E_Grid will be divided by the value passed.
+    set_regression_columns : bool, default True
+        By default sets power to E_Grid, poa to GlobInc, t_amb to T Amb, and w_vel to
+        WindVel. Set to False to not set regression columns on load.
     **kwargs
         Use to pass additional kwargs to pandas read_csv.
 
     Returns
     -------
-    pandas dataframe
+    CapData
     """
     dirName = Path(path)
 
     encodings = ["utf-8", "latin1", "iso-8859-1", "cp1252"]
     for encoding in encodings:
         try:
-            # pvraw = pd.read_csv(dirName, skiprows=10, encoding=encoding,
-            #                     header=[0, 1], parse_dates=[0],
-            #                     infer_datetime_format=True, **kwargs)
             pvraw = pd.read_csv(
                 dirName, skiprows=10, encoding=encoding, header=[0, 1], **kwargs
             )
@@ -60,7 +70,22 @@ def load_pvsyst(path, **kwargs):
     pvraw.index = dt_index
     pvraw.drop("date", axis=1, inplace=True)
     pvraw = pvraw.rename(columns={"T Amb": "TAmb"})
-    return pvraw
+
+    cd = CapData(name)
+    pvraw.index.name = "Timestamp"
+    cd.data = pvraw.copy()
+    if egrid_unit_adj_factor is not None:
+        cd.data["E_Grid"] = cd.data["E_Grid"] / egrid_unit_adj_factor
+    cd.data_filtered = pvraw.copy()
+    cd.column_groups = cg.group_columns(cd.data)
+    cd.trans_keys = list(cd.column_groups.keys())
+    if set_regression_columns:
+        cd.set_regression_cols(
+            power="E_Grid", poa="GlobInc", t_amb="TAmb", w_vel="WindVel"
+        )
+    return cd
+
+
 
 
 def file_reader(path, **kwargs):
@@ -99,7 +124,7 @@ def file_reader(path, **kwargs):
             continue
         else:
             break
-    data_file.dropna(how='all', axis=0, inplace=True)
+    data_file.dropna(how="all", axis=0, inplace=True)
     if not isinstance(data_file.index[0], pd.Timestamp):
         for i, _indice in enumerate(data_file.index):
             try:
@@ -127,8 +152,6 @@ def file_reader(path, **kwargs):
         data_file.columns = flatten_multi_index(data_file.columns)
     data_file = data_file.rename(columns=(lambda x: x.strip()))
     return data_file
-
-
 
 
 @dataclass
@@ -219,10 +242,10 @@ class DataLoader:
             [pair[0].equals(pair[1]) for pair in combinations(all_indices, 2)]
         )
         if columns_match and not indices_match:
-            data = pd.concat(self.loaded_files.values(), axis='index')
+            data = pd.concat(self.loaded_files.values(), axis="index")
         elif columns_match and indices_match:
-            warnings.warn('Some columns contain overlapping indices.')
-            data = pd.concat(self.loaded_files.values(), axis='index')
+            warnings.warn("Some columns contain overlapping indices.")
+            data = pd.concat(self.loaded_files.values(), axis="index")
         else:
             joined_columns = pd.Index(
                 set([item for cols in all_columns for item in cols])
@@ -311,9 +334,7 @@ class DataLoader:
         elif isinstance(self.group_columns, str):
             p = Path(self.group_columns)
             if p.suffix == ".json":
-                cd.column_groups = cg.ColumnGroups(
-                    util.read_json(self.group_columns)
-                )
+                cd.column_groups = cg.ColumnGroups(util.read_json(self.group_columns))
 
         cd.trans_keys = list(cd.column_groups.keys())
         return cd
@@ -370,7 +391,6 @@ def load_data(
     )
     cd = dl.load(**kwargs)
     return cd
-
 
 
 #     loc=None,
