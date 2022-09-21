@@ -317,6 +317,18 @@ class TestDataLoader:
         assert all(data["1/2/22"]["a"].isna())
         assert data.index.is_monotonic_increasing
 
+    def test_load_single_file(self, tmp_path):
+        csv_path = tmp_path / "single_file.csv"
+        pd.DataFrame(
+            {
+                "met1_poa1": np.arange(0, 20),
+                "met1_poa2": np.arange(20, 40),
+            },
+            index=pd.date_range(start="8/1/22", periods=20, freq="1min"),
+        ).to_csv(csv_path)
+        dl = DataLoader(csv_path)
+        cd = dl.load()
+        assert isinstance(cd.data, pd.DataFrame)
 
 class TestLoadDataMethods(unittest.TestCase):
     """Test for load data methods without setup."""
