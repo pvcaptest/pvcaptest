@@ -69,19 +69,22 @@ def load_pvsyst(
         dt_index = pd.to_datetime(dates)
     pvraw.index = dt_index
     pvraw.drop("date", axis=1, inplace=True)
-    pvraw = pvraw.rename(columns={"T Amb": "TAmb"})
+    pvraw = pvraw.rename(columns={"T Amb": "T_Amb"})
 
     cd = CapData(name)
     pvraw.index.name = "Timestamp"
     cd.data = pvraw.copy()
+    cd.data['index'] = cd.data.index.to_series().apply(
+        lambda x: x.strftime('%m/%d/%Y %H %M')
+    )
     if egrid_unit_adj_factor is not None:
         cd.data["E_Grid"] = cd.data["E_Grid"] / egrid_unit_adj_factor
-    cd.data_filtered = pvraw.copy()
+    cd.data_filtered = cd.data.copy()
     cd.column_groups = cg.group_columns(cd.data)
     cd.trans_keys = list(cd.column_groups.keys())
     if set_regression_columns:
         cd.set_regression_cols(
-            power="E_Grid", poa="GlobInc", t_amb="TAmb", w_vel="WindVel"
+            power="E_Grid", poa="GlobInc", t_amb="T_Amb", w_vel="WindVel"
         )
     return cd
 
