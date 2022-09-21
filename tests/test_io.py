@@ -161,7 +161,7 @@ class TestLoadPVsyst:
         assert pvsyst.regression_cols == {
             "power": "E_Grid",
             "poa": "GlobInc",
-            "t_amb": "TAmb",
+            "t_amb": "T_Amb",
             "w_vel": "WindVel",
         }
 
