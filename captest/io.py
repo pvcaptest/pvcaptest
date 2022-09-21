@@ -166,9 +166,7 @@ class DataLoader:
     path: str = "./data/"
     loc: Optional[dict] = field(default=None)
     sys: Optional[dict] = field(default=None)
-    group_columns: object = cg.group_columns
     file_reader: object = file_reader
-    name: str = "meas"
     files_to_load: Optional[list] = field(default=None)
 
     def __setattr__(self, key, value):
@@ -265,7 +263,7 @@ class DataLoader:
                 data.loc[file.index, file.columns] = file.values
         return data
 
-    def load(self, sort=True, drop_duplicates=True, reindex=True, extension="csv"):
+    def load(self, extension="csv"):
         """
         Load file(s) of timeseries data from SCADA / DAS systems.
 
@@ -277,16 +275,6 @@ class DataLoader:
 
         Parameters
         ----------
-        sort : bool, default True
-            By default sorts the data by the datetime index from old to new.
-        drop_duplicates : bool, default True
-            By default drops rows of the joined data where all the columns are duplicats
-            of another row. Keeps the first instance of the duplicated values. This is
-            helpful if individual datafiles have overlaping rows with the same data.
-        reindex : bool, default True
-            By default will create a new index for the data using the earliest datetime,
-            latest datetime, and the most frequent time interval ensuring there are no
-            missing intervals.
         extension : str, default "csv"
             Change the extension to allow loading different filetypes. Must also set
             the `file_reader` attribute to a function that will read that type of file.
@@ -309,45 +297,20 @@ class DataLoader:
                 self.file_frequencies,
             ) = self._reindex_loaded_files()
             data = join_files()
+            data.index.name = "Timestamp"
+        self.data = data
 
-        # try:
-        cd = CapData(self.name)
-        data.index.name = "Timestamp"
-        cd.data = data.copy()
+    def sort_data(self):
+        self.data.sort_index(inplace=True)
 
-        if sort:
-            cd.data.sort_index(inplace=True)
-        if drop_duplicates:
-            cd.data.drop_duplicates(inplace=True)
-        if reindex:
-            if not self.path.is_dir():
-                cd.data, missing_intervals, freq_str = util.reindex_datetime(
-                    cd.data,
-                    report=False,
-                )
-                self.missing_intervals = missing_intervals
-                self.freq_str = freq_str
+    def drop_duplicate_rows(self):
+        self.data.drop_duplicates(inplace=True)
 
-        cd.data_loader = self
-        cd.data_filtered = cd.data.copy()
-
-        # group columns
-        if callable(self.group_columns):
-            cd.column_groups = self.group_columns(cd.data)
-        elif isinstance(self.group_columns, str):
-            p = Path(self.group_columns)
-            if p.suffix == ".json":
-                cd.column_groups = cg.ColumnGroups(util.read_json(self.group_columns))
-
-        cd.trans_keys = list(cd.column_groups.keys())
-        return cd
-        # except:
-        #     print(type(cd.data.index))
-        #     print(cd.data.columns[0:5])
-        #     print(cd.data.head())
-        #     cd.data_loader = self
-        #     return cd
-        #     raise
+    def reindex(self):
+        self.data, self.missing_intervals, self.freq_str = util.reindex_datetime(
+            self.data,
+            report=False,
+        )
 
 
 def load_data(
@@ -355,7 +318,10 @@ def load_data(
     group_columns=cg.group_columns,
     file_reader=file_reader,
     name="meas",
-    **kwargs,
+    sort=True,
+    drop_duplicates=True,
+    reindex=True,
+     **kwargs,
 ):
     """
     Load file(s) of timeseries data from SCADA / DAS systems.
@@ -382,17 +348,45 @@ def load_data(
         other filetypes, the kwargs should include the filetype extension e.g. 'parquet'.
     name : str
         Identifier that will be assigned to the returned CapData instance.
+    sort : bool, default True
+        By default sorts the data by the datetime index from old to new.
+    drop_duplicates : bool, default True
+        By default drops rows of the joined data where all the columns are duplicats
+        of another row. Keeps the first instance of the duplicated values. This is
+        helpful if individual datafiles have overlaping rows with the same data.
+    reindex : bool, default True
+        By default will create a new index for the data using the earliest datetime,
+        latest datetime, and the most frequent time interval ensuring there are no
+        missing intervals.
     **kwargs
         Passed to `DataLoader.load` Options include: sort, drop_duplicates, reindex,
         extension. See `DataLoader` for complete documentation.
     """
     dl = DataLoader(
         path=path,
-        group_columns=group_columns,
         file_reader=file_reader,
-        name=name,
     )
-    cd = dl.load(**kwargs)
+    dl.load(**kwargs)
+    
+    if sort:
+        dl.sort_data()
+    if drop_duplicates:
+        dl.drop_duplicate_rows()
+    if reindex:
+        dl.reindex()
+
+    cd = CapData(name)
+    cd.data = dl.data.copy()
+    cd.data_filtered = cd.data.copy()
+    cd.data_loader = dl
+    # group columns
+    if callable(group_columns):
+        cd.column_groups = group_columns(cd.data)
+    elif isinstance(group_columns, str):
+        p = Path(group_columns)
+        if p.suffix == ".json":
+            cd.column_groups = cg.ColumnGroups(util.read_json(group_columns))
+    cd.trans_keys = list(cd.column_groups.keys())
     return cd
 
 
