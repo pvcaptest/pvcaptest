@@ -261,6 +261,7 @@ class DataLoader:
             )
             for file in self.loaded_files.values():
                 data.loc[file.index, file.columns] = file.values
+        data = data.apply(pd.to_numeric, errors="coerce")
         return data
 
     def load(self, extension="csv"):
@@ -296,7 +297,7 @@ class DataLoader:
                 self.common_freq,
                 self.file_frequencies,
             ) = self._reindex_loaded_files()
-            data = join_files()
+            data = self._join_files()
             data.index.name = "Timestamp"
         self.data = data
 
@@ -321,7 +322,7 @@ def load_data(
     sort=True,
     drop_duplicates=True,
     reindex=True,
-     **kwargs,
+    **kwargs,
 ):
     """
     Load file(s) of timeseries data from SCADA / DAS systems.
@@ -367,7 +368,7 @@ def load_data(
         file_reader=file_reader,
     )
     dl.load(**kwargs)
-    
+
     if sort:
         dl.sort_data()
     if drop_duplicates:

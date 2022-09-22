@@ -220,7 +220,7 @@ class TestDataLoader:
             index=pd.date_range(start="1/1/22", freq="60 min", periods=24),
         )
         day2 = pd.DataFrame(
-            {"a": np.arange(24, 48, 1), "b": np.arange(24)},
+            {"a": np.arange(24, 48, 1.0), "b": np.arange(24)},
             index=pd.date_range(start="1/2/22", freq="60 min", periods=24),
         )
         dl = io.DataLoader()
@@ -231,8 +231,11 @@ class TestDataLoader:
         dl.common_freq = "60min"
         data = dl._join_files()
         print(data)
+        print(data.info())
         assert data.shape == (48, 2)
         assert data.index.is_monotonic_increasing
+        assert data.dtypes['a'] == 'float64'
+        assert data.dtypes['b'] == 'int'
 
     def test_join_files_same_headers_same_index_warning(self):
         day1 = pd.DataFrame(
@@ -260,7 +263,7 @@ class TestDataLoader:
             index=pd.date_range(start="1/1/22", freq="60 min", periods=24),
         )
         day2 = pd.DataFrame(
-            {"c": np.arange(24, 48, 1), "d": np.arange(24)},
+            {"c": np.arange(24, 48, 1.0), "d": np.arange(24)},
             index=pd.date_range(start="1/1/22", freq="60 min", periods=24),
         )
         dl = io.DataLoader()
@@ -272,6 +275,10 @@ class TestDataLoader:
         data = dl._join_files()
         assert data.shape == (24, 4)
         assert data.isna().sum().sum() == 0
+        assert data.dtypes['a'] == 'int'
+        assert data.dtypes['b'] == 'int'
+        assert data.dtypes['c'] == 'float64'
+        assert data.dtypes['d'] == 'float64'
 
     def test_join_files_different_headers_and_days(self):
         day1 = pd.DataFrame(
@@ -293,6 +300,10 @@ class TestDataLoader:
         assert data["1/2/22"][["a", "b"]].isna().sum().sum() == 48
         assert data["1/1/22"][["c", "d"]].isna().sum().sum() == 48
         assert data.index.is_monotonic_increasing
+        assert data.dtypes['a'] == 'float64'
+        assert data.dtypes['b'] == 'float64'
+        assert data.dtypes['c'] == 'float64'
+        assert data.dtypes['d'] == 'float64'
 
     def test_join_files_overlapping_headers(self):
         day1 = pd.DataFrame(
@@ -327,8 +338,8 @@ class TestDataLoader:
             index=pd.date_range(start="8/1/22", periods=20, freq="1min"),
         ).to_csv(csv_path)
         dl = DataLoader(csv_path)
-        cd = dl.load()
-        assert isinstance(cd.data, pd.DataFrame)
+        dl.load()
+        assert isinstance(dl.data, pd.DataFrame)
 
 class TestLoadDataMethods(unittest.TestCase):
     """Test for load data methods without setup."""
