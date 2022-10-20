@@ -388,6 +388,7 @@ def load_data(
         if p.suffix == ".json":
             cd.column_groups = cg.ColumnGroups(util.read_json(group_columns))
     cd.trans_keys = list(cd.column_groups.keys())
+    cd.set_plot_attributes()
     return cd
 
 
