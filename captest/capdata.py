@@ -14,7 +14,6 @@ from pathlib import Path
 import re
 import datetime
 import copy
-import collections
 from functools import wraps
 from itertools import combinations
 import warnings
@@ -79,40 +78,6 @@ plot_colors_brewer = {'real_pwr': ['#2b8cbe', '#7bccc4', '#bae4bc', '#f0f9e8'],
 
 met_keys = ['poa', 't_amb', 'w_vel', 'power']
 
-# The search strings for types cannot be duplicated across types.
-type_defs = collections.OrderedDict([
-    ('irr', [['irradiance', 'irr', 'plane of array', 'poa', 'ghi',
-              'global', 'glob', 'w/m^2', 'w/m2', 'w/m', 'w/'],
-             (-10, 1500)]),
-    ('temp', [['temperature', 'temp', 'degrees', 'deg', 'ambient',
-               'amb', 'cell temperature', 'TArray'],
-              (-49, 127)]),
-    ('wind', [['wind', 'speed'],
-              (0, 18)]),
-    ('pf', [['power factor', 'factor', 'pf'],
-            (-1, 1)]),
-    ('op_state', [['operating state', 'state', 'op', 'status'],
-                  (0, 10)]),
-    ('real_pwr', [['real power', 'ac power', 'e_grid'],
-                  (-1000000, 1000000000000)]),  # set to very lax bounds
-    ('shade', [['fshdbm', 'shd', 'shade'], (0, 1)]),
-    ('pvsyt_losses', [['IL Pmax', 'IL Pmin', 'IL Vmax', 'IL Vmin'],
-                      (-1000000000, 100000000)]),
-    ('index', [['index'], ('', 'z')])])
-
-sub_type_defs = collections.OrderedDict([
-    ('ghi', [['sun2', 'global horizontal', 'ghi', 'global',
-              'GlobHor']]),
-    ('poa', [['sun', 'plane of array', 'poa', 'GlobInc']]),
-    ('amb', [['TempF', 'ambient', 'amb']]),
-    ('mod', [['Temp1', 'module', 'mod', 'TArray']]),
-    ('mtr', [['revenue meter', 'rev meter', 'billing meter', 'meter']]),
-    ('inv', [['inverter', 'inv']])])
-
-irr_sensors_defs = {'ref_cell': [['reference cell', 'reference', 'ref',
-                                  'referance', 'pvel']],
-                    'pyran': [['pyranometer', 'pyran']],
-                    'clear_sky': [['csky']]}
 
 columns = ['pts_after_filter', 'pts_removed', 'filter_arguments']
 
@@ -1320,24 +1285,6 @@ def overlay_scatters(measured, expected, expected_label='PVsyst'):
     return overlay
 
 
-class ColumnGroups(object):
-    """
-    Class with a dictionary of column groups and related functionality.
-
-    Parameters
-    ----------
-    column_groups : dict
-    """
-    def __init__(self, column_groups):
-        super(ColumnGroups, self).__init__()
-        self.column_groups = column_groups
-        self.assign_column_groups(column_groups)
-
-    def assign_column_groups(self, column_groups):
-        for grp_id, cols in column_groups.items():
-            setattr(self, grp_id.replace('-', '_'), cols)
-
-
 class CapData(object):
     """
     Class to store capacity test data and translation of column names.
@@ -1496,331 +1443,6 @@ class CapData(object):
                                   len(self.column_groups) == 0]
         return all(tests_indicating_empty)
 
-    def load_das(self, path, filename, source=None, **kwargs):
-        """
-        Read measured solar data from a csv file.
-
-        Utilizes pandas read_csv to import measure solar data from a csv file.
-        Attempts a few diferent encodings, trys to determine the header end
-        by looking for a date in the first column, and concantenates column
-        headings to a single string.
-
-        Parameters
-        ----------
-        path : str
-            Path to file to import.
-        filename : str
-            Name of file to import.
-        **kwargs
-            Use to pass additional kwargs to pandas read_csv.
-
-        Returns
-        -------
-        pandas dataframe
-        """
-        data = os.path.normpath(path + filename)
-
-        encodings = ['utf-8', 'latin1', 'iso-8859-1', 'cp1252']
-        for encoding in encodings:
-            try:
-                all_data = pd.read_csv(data, encoding=encoding, index_col=0,
-                                       parse_dates=True, skip_blank_lines=True,
-                                       low_memory=False, **kwargs)
-            except UnicodeDecodeError:
-                continue
-            else:
-                break
-
-        if not isinstance(all_data.index[0], pd.Timestamp):
-            for i, indice in enumerate(all_data.index):
-                try:
-                    isinstance(dateutil.parser.parse(str(all_data.index[i])),
-                               datetime.date)
-                    header_end = i + 1
-                    break
-                except ValueError:
-                    continue
-
-            if source == 'AlsoEnergy':
-                header = 'infer'
-            else:
-                header = list(np.arange(header_end))
-
-            for encoding in encodings:
-                try:
-                    all_data = pd.read_csv(data, encoding=encoding,
-                                           header=header, index_col=0,
-                                           parse_dates=True,
-                                           skip_blank_lines=True,
-                                           low_memory=False, **kwargs)
-                except UnicodeDecodeError:
-                    continue
-                else:
-                    break
-
-            if source == 'AlsoEnergy':
-                row0 = all_data.iloc[0, :]
-                row1 = all_data.iloc[1, :]
-                row2 = all_data.iloc[2, :]
-
-                row0_noparen = []
-                for val in row0:
-                    if type(val) is str:
-                        row0_noparen.append(val.split('(')[0].strip())
-                    else:
-                        row0_noparen.append(val)
-
-                row1_nocomm = []
-                for val in row1:
-                    if type(val) is str:
-                        strings = val.split(',')
-                        if len(strings) == 1:
-                            row1_nocomm.append(val)
-                        else:
-                            row1_nocomm.append(strings[-1].strip())
-                    else:
-                        row1_nocomm.append(val)
-
-                row2_noNan = []
-                for val in row2:
-                    if val is pd.np.nan:
-                        row2_noNan.append('')
-                    else:
-                        row2_noNan.append(val)
-
-                new_cols = []
-                for one, two, three in zip(row0_noparen, row1_nocomm, row2_noNan):  # noqa: E501
-                    new_cols.append(str(one) + ' ' + str(two) + ', ' + str(three))  # noqa: E501
-
-                all_data.columns = new_cols
-                all_data = all_data.iloc[i:, :]
-        all_data = all_data.apply(pd.to_numeric, errors='coerce')
-
-        if source != 'AlsoEnergy':
-            all_data.columns = [' '.join(col).strip() for col in all_data.columns.values]  # noqa: E501
-        else:
-            all_data.index = pd.to_datetime(all_data.index)
-
-        return all_data
-
-    def load_pvsyst(self, path, filename, **kwargs):
-        """
-        Load data from a PVsyst energy production model.
-
-        Parameters
-        ----------
-        path : str
-            Path to file to import.
-        filename : str
-            Name of file to import.
-        **kwargs
-            Use to pass additional kwargs to pandas read_csv.
-
-        Returns
-        -------
-        pandas dataframe
-        """
-        dirName = os.path.normpath(path + filename)
-
-        encodings = ['utf-8', 'latin1', 'iso-8859-1', 'cp1252']
-        for encoding in encodings:
-            try:
-                # pvraw = pd.read_csv(dirName, skiprows=10, encoding=encoding,
-                #                     header=[0, 1], parse_dates=[0],
-                #                     infer_datetime_format=True, **kwargs)
-                pvraw = pd.read_csv(dirName, skiprows=10, encoding=encoding,
-                                    header=[0, 1], **kwargs)
-            except UnicodeDecodeError:
-                continue
-            else:
-                break
-
-        pvraw.columns = pvraw.columns.droplevel(1)
-        dates = pvraw.loc[:, 'date']
-        try:
-            dt_index = pd.to_datetime(dates, format='%m/%d/%y %H:%M')
-        except ValueError:
-            dt_index = pd.to_datetime(dates)
-        pvraw.index = dt_index
-        pvraw.drop('date', axis=1, inplace=True)
-        pvraw = pvraw.rename(columns={"T Amb": "TAmb"})
-        return pvraw
-
-    def load_data(self, path='./data/', fname=None, group_columns=True,
-                  column_type_report=True, source=None, load_pvsyst=False,
-                  clear_sky=False, loc=None, sys=None, **kwargs):
-        """
-        Import data from csv files.
-
-        The intent of the default behavior is to combine csv files that have
-        the same columns and rows of data from different times. For example,
-        combining daily files of 5 minute measurements from the same sensors
-        for each day.
-
-        Use the path and fname arguments to specify a single file to import.
-
-        Parameters
-        ----------
-        path : str, default './data/'
-            Path to directory containing csv files to load.
-        fname: str, default None
-            Filename of specific file to load. If filename is none method will
-            load all csv files into one dataframe.
-        group_columns : bool, default True
-            Generates translation dicitionary for column names after loading
-            data.
-        column_type_report : bool, default True
-            If group_columns is true, then method prints summary of
-            group_columns dictionary process including any possible data
-            issues.  No effect on method when set to False.
-        source : str, default None
-            Default of None uses general approach that concatenates header
-            data. Set to 'AlsoEnergy' to use column heading parsing specific to
-            downloads from AlsoEnergy.
-        load_pvsyst : bool, default False
-            By default skips any csv file that has 'pvsyst' in the name.  Is
-            not case sensitive.  Set to true to import a csv with 'pvsyst' in
-            the name and skip all other files.
-        clear_sky : bool, default False
-            Set to true and provide loc and sys arguments to add columns of
-            clear sky modeled poa and ghi to loaded data.
-        loc : dict
-            See the csky function for details on dictionary options.
-        sys : dict
-            See the csky function for details on dictionary options.
-        **kwargs
-            Will pass kwargs onto load_pvsyst or load_das, which will pass to
-            Pandas.read_csv.  Useful to adjust the separator (Ex. sep=';').
-
-        Returns
-        -------
-        None
-        """
-        if fname is None:
-            files_to_read = []
-            for file in os.listdir(path):
-                if file.endswith('.csv'):
-                    files_to_read.append(file)
-                elif file.endswith('.CSV'):
-                    files_to_read.append(file)
-
-            all_sensors = pd.DataFrame()
-
-            if not load_pvsyst:
-                for filename in files_to_read:
-                    if filename.lower().find('pvsyst') != -1:
-                        print("Skipped file: " + filename)
-                        continue
-                    nextData = self.load_das(path, filename, source=source,
-                                             **kwargs)
-                    all_sensors = pd.concat([all_sensors, nextData], axis=0)
-                    print("Read: " + filename)
-            elif load_pvsyst:
-                for filename in files_to_read:
-                    if filename.lower().find('pvsyst') == -1:
-                        print("Skipped file: " + filename)
-                        continue
-                    nextData = self.load_pvsyst(path, filename, **kwargs)
-                    all_sensors = pd.concat([all_sensors, nextData], axis=0)
-                    print("Read: " + filename)
-        else:
-            if not load_pvsyst:
-                all_sensors = self.load_das(path, fname, source=source, **kwargs)  # noqa: E501
-            elif load_pvsyst:
-                all_sensors = self.load_pvsyst(path, fname, **kwargs)
-
-        ix_ser = all_sensors.index.to_series()
-        all_sensors['index'] = ix_ser.apply(lambda x: x.strftime('%m/%d/%Y %H %M'))  # noqa: E501
-        self.data = all_sensors
-
-        if not load_pvsyst:
-            if clear_sky:
-                if loc is None:
-                    warnings.warn('Must provide loc and sys dictionary\
-                                  when clear_sky is True.  Loc dict missing.')
-                if sys is None:
-                    warnings.warn('Must provide loc and sys dictionary\
-                                  when clear_sky is True.  Sys dict missing.')
-                self.data = csky(self.data, loc=loc, sys=sys, concat=True,
-                                 output='both')
-
-        if group_columns:
-            self.group_columns(column_type_report=column_type_report)
-
-        self.data_filtered = self.data.copy()
-
-    def __series_type(self, series, type_defs, bounds_check=True,
-                      warnings=False):
-        """
-        Assign columns to a category by analyzing the column names.
-
-        The type_defs parameter is a dictionary which defines search strings
-        and value limits for each key, where the key is a categorical name
-        and the search strings are possible related names.  For example an
-        irradiance sensor has the key 'irr' with search strings 'irradiance'
-        'plane of array', 'poa', etc.
-
-        Parameters
-        ----------
-        series : pandas series
-            Row or column of dataframe passed by pandas.df.apply.
-        type_defs : dictionary
-            Dictionary with the following structure.  See type_defs
-            {'category abbreviation': [[category search strings],
-                                       (min val, max val)]}
-        bounds_check : bool, default True
-            When true checks series values against min and max values in the
-            type_defs dictionary.
-        warnings : bool, default False
-            When true prints warning that values in series are outside expected
-            range and adds '-valuesError' to returned str.
-
-        Returns
-        -------
-        string
-            Returns a string representing the category for the series.
-            Concatenates '-valuesError' if bounds_check and warnings are both
-            True and values within the series are outside the expected range.
-        """
-        for key in type_defs.keys():
-            # print('################')
-            # print(key)
-            for search_str in type_defs[key][0]:
-                # print(search_str)
-                if series.name.lower().find(search_str.lower()) == -1:
-                    continue
-                else:
-                    if bounds_check:
-                        type_min = type_defs[key][1][0]
-                        type_max = type_defs[key][1][1]
-                        ser_min = series.min()
-                        ser_max = series.max()
-                        min_bool = ser_min >= type_min
-                        max_bool = ser_max <= type_max
-                        if min_bool and max_bool:
-                            return key
-                        else:
-                            if warnings:
-                                if not min_bool and not max_bool:
-                                    print('{} in {} is below {} for '
-                                          '{}'.format(ser_min, series.name,
-                                                      type_min, key))
-                                    print('{} in {} is above {} for '
-                                          '{}'.format(ser_max, series.name,
-                                                      type_max, key))
-                                elif not min_bool:
-                                    print('{} in {} is below {} for '
-                                          '{}'.format(ser_min, series.name,
-                                                      type_min, key))
-                                elif not max_bool:
-                                    print('{} in {} is above {} for '
-                                          '{}'.format(ser_max, series.name,
-                                                      type_max, key))
-                            return key
-                    else:
-                        return key
-        return ''
-
     def set_plot_attributes(self):
         """Set column colors used in plot method."""
         dframe = self.data
@@ -1845,68 +1467,6 @@ class CapData(object):
                 except KeyError:
                     j = i % 10
                     self.col_colors[col] = Category10[10][j]
-
-    def group_columns(self, column_type_report=True):
-        """
-        Create a dict of raw column names paired to categorical column names.
-
-        Uses multiple type_def formatted dictionaries to determine the type,
-        sub-type, and equipment type for data series of a dataframe.  The
-        determined types are concatenated to a string used as a dictionary key
-        with a list of one or more original column names as the paired value.
-
-        Parameters
-        ----------
-        column_type_report : bool, default True
-            Sets the warnings option of __series_type when applied to determine
-            the column types.
-
-        Returns
-        -------
-        None
-            Sets attributes self.column_groups and self.trans_keys
-
-        Todo
-        ----
-        type_defs parameter
-            Consider refactoring to have a list of type_def dictionaries as an
-            input and loop over each dict in the list.
-        """
-        col_types = self.data.apply(self.__series_type, args=(type_defs,),
-                                    warnings=column_type_report).tolist()
-        sub_types = self.data.apply(self.__series_type, args=(sub_type_defs,),
-                                    bounds_check=False).tolist()
-        irr_types = self.data.apply(self.__series_type, args=(irr_sensors_defs,),  # noqa: E501
-                                    bounds_check=False).tolist()
-
-        col_indices = []
-        for typ, sub_typ, irr_typ in zip(col_types, sub_types, irr_types):
-            col_indices.append('-'.join([typ, sub_typ, irr_typ]))
-
-        names = []
-        for new_name, old_name in zip(col_indices, self.data.columns.tolist()):
-            names.append((new_name, old_name))
-        names.sort()
-        orig_names_sorted = [name_pair[1] for name_pair in names]
-
-        trans = {}
-        col_indices.sort()
-        cols = list(set(col_indices))
-        cols.sort()
-        for name in set(cols):
-            start = col_indices.index(name)
-            count = col_indices.count(name)
-            trans[name] = orig_names_sorted[start:start + count]
-
-        self.column_groups = trans
-
-        trans_keys = list(self.column_groups.keys())
-        if 'index--' in trans_keys:
-            trans_keys.remove('index--')
-        trans_keys.sort()
-        self.trans_keys = trans_keys
-
-        self.set_plot_attributes()
 
     def drop_cols(self, columns):
         """
@@ -2490,9 +2050,9 @@ class CapData(object):
         self.summary_ix = []
         self.summary = []
 
-        self.pre_agg_cols = self.data.columns
-        self.pre_agg_trans = self.column_groups.copy()
-        self.pre_agg_reg_trans = self.regression_cols.copy()
+        self.pre_agg_cols = self.data.columns.copy()
+        self.pre_agg_trans = copy.deepcopy(self.column_groups)
+        self.pre_agg_reg_trans = copy.deepcopy(self.regression_cols)
 
         if agg_map is None:
             agg_map = {self.regression_cols['power']: 'sum',
@@ -2541,7 +2101,6 @@ class CapData(object):
                         self.regression_cols[reg_var] = agg_col
             self.data = pd.concat(dfs_to_concat, axis=1)
             self.data_filtered = self.data.copy()
-            self.set_plot_attributes()
             inv_sum_in_cols = [True for col
                                in self.data.columns if '-inv-sum-agg' in col]
             if inv_sum_in_cols and inv_sum_vs_power:
