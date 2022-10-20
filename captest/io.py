@@ -322,6 +322,7 @@ def load_data(
     sort=True,
     drop_duplicates=True,
     reindex=True,
+    site=None,
     **kwargs,
 ):
     """
@@ -359,6 +360,13 @@ def load_data(
         By default will create a new index for the data using the earliest datetime,
         latest datetime, and the most frequent time interval ensuring there are no
         missing intervals.
+    site : dict, default None
+        Pass a dictionary containing site data, which will be used to generate
+        modeled clear sky ghi and poa values. The clear sky irradiance values are
+        added to the data and the column_groups attribute is updated to include these
+        two irradiance columns. The site data dictionary should be
+        {sys: {system data}, loc: {location data}}. See the capdata.csky documentation
+        for the format of the system data and location data.
     **kwargs
         Passed to `DataLoader.load` Options include: sort, drop_duplicates, reindex,
         extension. See `DataLoader` for complete documentation.
@@ -387,6 +395,11 @@ def load_data(
         p = Path(group_columns)
         if p.suffix == ".json":
             cd.column_groups = cg.ColumnGroups(util.read_json(group_columns))
+    if site is not None:
+        cd.data = csky(cd.data, loc=site['loc'], sys=site['sys'])
+        cd.data_filtered = cd.data
+        cd.column_groups['irr-poa-clear_sky'] = ['poa_mod_csky']
+        cd.column_groups['irr-ghi-clear_sky'] = ['ghi_mod_csky']
     cd.trans_keys = list(cd.column_groups.keys())
     cd.set_plot_attributes()
     return cd
