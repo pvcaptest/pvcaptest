@@ -1667,30 +1667,28 @@ class CapData(object):
         df = self.get_reg_cols(filtered_data=True)
         df.index.name = 'index'
         df.reset_index(inplace=True)
-        opt_dict = {'Scatter': {'style': dict(size=5),
-                                'plot': dict(tools=['box_select',
-                                                    'lasso_select',
-                                                    'hover'],
-                                             legend_position='right',
-                                             height=400, width=400
-                                             )},
-                    'Curve': {'plot': dict(tools=['box_select', 'lasso_select',
-                                                  'hover'],
-                                           height=400,
-                                           width=800)},
-                    'Layout': {'plot': dict(shared_datasource=True)}}
         vdims = ['power', 'index']
         if all_reg_columns:
             vdims.extend(list(df.columns.difference(vdims)))
-        poa_vs_kw = hv.Scatter(df, 'poa', vdims)
-        layout_scatter = (poa_vs_kw).opts(opt_dict)
+        poa_vs_kw = hv.Scatter(df, 'poa', vdims).opts(
+            size=5,
+            tools=['hover', 'lasso_select', 'box_select'],
+            legend_position='right',
+            height=400,
+            width=400,
+        )
+        # layout_scatter = (poa_vs_kw).opts(opt_dict)
         if timeseries:
-            poa_vs_time = hv.Curve(df, 'index', ['power', 'poa'])
-            layout_timeseries = (poa_vs_kw + poa_vs_time).opts(opt_dict)
+            poa_vs_time = hv.Curve(df, 'index', ['power', 'poa']).opts(
+                tools=['hover', 'lasso_select', 'box_select'],
+                height=400,
+                width=800,
+            )
+            layout_timeseries = (poa_vs_kw + poa_vs_time)
             DataLink(poa_vs_kw, poa_vs_time)
             return(layout_timeseries.cols(1))
         else:
-            return(layout_scatter)
+            return(poa_vs_kw)
 
     def plot(self, marker='line', ncols=2, width=400, height=350,
              legends=False, merge_grps=['irr', 'temp'], subset=None,
