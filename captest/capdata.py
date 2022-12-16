@@ -1448,7 +1448,7 @@ class CapData(object):
         dframe = self.data
 
         for key in self.trans_keys:
-            df = dframe[self.column_groups[key]]
+            df = pd.DataFrame(dframe[self.column_groups[key]])
             cols = df.columns.tolist()
             for i, col in enumerate(cols):
                 abbrev_col_name = key + str(i)
