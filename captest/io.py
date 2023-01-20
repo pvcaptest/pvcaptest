@@ -399,7 +399,7 @@ def load_data(
             cd.column_groups = cg.ColumnGroups(util.read_yaml(group_columns))
     if site is not None:
         cd.data = csky(cd.data, loc=site['loc'], sys=site['sys'])
-        cd.data_filtered = cd.data
+        cd.data_filtered = cd.data.copy()
         cd.column_groups['irr-poa-clear_sky'] = ['poa_mod_csky']
         cd.column_groups['irr-ghi-clear_sky'] = ['ghi_mod_csky']
     cd.trans_keys = list(cd.column_groups.keys())
