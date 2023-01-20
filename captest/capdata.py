@@ -1804,10 +1804,15 @@ class CapData(object):
                     line_dash = (5, 2)
 
                 if marker == 'line':
-                    series = p.line('Timestamp', col, source=source,
-                                    line_color=self.col_colors[col],
-                                    line_dash=line_dash,
-                                    name=name)
+                    try:
+                        series = p.line('Timestamp', col, source=source,
+                                        line_color=self.col_colors[col],
+                                        line_dash=line_dash,
+                                        name=name)
+                    except KeyError:
+                            series = p.line('Timestamp', col, source=source,
+                                            line_dash=line_dash,
+                                            name=name)
                 elif marker == 'circle':
                     series = p.circle('Timestamp', col,
                                       source=source,
