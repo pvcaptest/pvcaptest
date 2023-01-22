@@ -150,7 +150,7 @@ def file_reader(path, **kwargs):
             **kwargs,
         )
 
-    data_file = data_file.apply(pd.to_numeric, errors="coerce")
+    data_file = data_file.apply(pd.to_numeric)
     if isinstance(data_file.columns, pd.MultiIndex):
         data_file.columns = flatten_multi_index(data_file.columns)
     data_file = data_file.rename(columns=(lambda x: x.strip()))
@@ -264,7 +264,7 @@ class DataLoader:
         data = data.apply(pd.to_numeric, errors="coerce")
         return data
 
-    def load(self, extension="csv"):
+    def load(self, extension="csv", **kwargs):
         """
         Load file(s) of timeseries data from SCADA / DAS systems.
 
@@ -290,7 +290,7 @@ class DataLoader:
             else:
                 self.set_files_to_load(extension=extension)
                 self.loaded_files = {
-                    file.stem: self.file_reader(file) for file in self.files_to_load
+                    file.stem: self.file_reader(file, **kwargs) for file in self.files_to_load
                 }
             (
                 self.loaded_files,
