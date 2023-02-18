@@ -161,7 +161,7 @@ class TestLoadPVsyst:
         assert pvsyst.regression_cols == {
             "power": "E_Grid",
             "poa": "GlobInc",
-            "t_amb": "TAmb",
+            "t_amb": "T_Amb",
             "w_vel": "WindVel",
         }
 
@@ -193,6 +193,47 @@ class TestDataLoader:
         dl = DataLoader("./data/data_for_yyyy-mm-dd.csv")
         assert isinstance(dl.path, Path)
         assert dl.path == Path("./data/data_for_yyyy-mm-dd.csv")
+
+    def test_set_files_to_load(self, tmp_path):
+        """Test that file paths for given extension are stored to list."""
+        for fname in ["a.csv", "b.csv", "c.csv"]:
+            with open(tmp_path / fname, "w") as f:
+                pass
+        dl = DataLoader(tmp_path)
+        dl.set_files_to_load()
+        assert dl.files_to_load == [
+            tmp_path / "a.csv",
+            tmp_path / "b.csv",
+            tmp_path / "c.csv",
+        ]
+
+    def test_set_files_to_load_not_all_csv(self, tmp_path):
+        """Test that files with the wrong extension are not loaded."""
+        for fname in ["a.csv", "b.parquet", "c.csv"]:
+            with open(tmp_path / fname, "w") as f:
+                pass
+        dl = DataLoader(tmp_path)
+        dl.set_files_to_load()
+        assert dl.files_to_load == [
+            tmp_path / "a.csv",
+            tmp_path / "c.csv",
+        ]
+
+    def test_set_files_to_load_no_files(self, tmp_path):
+        """Test for warning if an empty directory is passed."""
+        for fname in ["a.html", "b.pdf"]:
+            with open(tmp_path / fname, "w") as f:
+                pass
+        dl = DataLoader(tmp_path)
+        with pytest.warns(
+            UserWarning,
+            match="No files with .* extension were found in the directory: .*",
+        ):
+            dl.set_files_to_load()
+            warnings.warn(
+                "No files with csv extension were found in the directory: ./data/",
+                UserWarning
+            )
 
     def test_reindex_loaded_files(self):
         day1 = pd.DataFrame(
@@ -340,6 +381,9 @@ class TestDataLoader:
         dl = DataLoader(csv_path)
         dl.load()
         assert isinstance(dl.data, pd.DataFrame)
+    
+    # def test_load_csvs_in_directory_no_files_to_load_set(self, tmp_path):
+    # """Test load method path to files is set but files_to_load is not."""
 
 class TestLoadDataMethods(unittest.TestCase):
     """Test for load data methods without setup."""
