@@ -149,9 +149,9 @@ class TestTopLevelFuncs(unittest.TestCase):
         regs -> series of predicted values
         df of reg parameters
         """
-        pvsyst = load_data(path='./tests/data/', pvsyst=True)
+        pvsyst = load_pvsyst(path='./tests/data/pvsyst_example_HourlyRes_2.CSV')
 
-        df_regs = pvsyst.data.loc[:, ['E_Grid', 'GlobInc', 'TAmb', 'WindVel']]
+        df_regs = pvsyst.data.loc[:, ['E_Grid', 'GlobInc', 'T_Amb', 'WindVel']]
         df_regs_day = df_regs.query('GlobInc > 0')
         grps = df_regs_day.groupby(pd.Grouper(freq='M', label='right'))
 
@@ -159,12 +159,12 @@ class TestTopLevelFuncs(unittest.TestCase):
         irr_rc = ones * 500
         temp_rc = ones * 20
         w_vel = ones
-        rcs = pd.DataFrame({'GlobInc': irr_rc, 'TAmb': temp_rc, 'WindVel': w_vel})
+        rcs = pd.DataFrame({'GlobInc': irr_rc, 'T_Amb': temp_rc, 'WindVel': w_vel})
 
         results = pvc.pred_summary(grps, rcs, 0.05,
                                    fml='E_Grid ~ GlobInc +'
                                                  'I(GlobInc * GlobInc) +'
-                                                 'I(GlobInc * TAmb) +'
+                                                 'I(GlobInc * T_Amb) +'
                                                  'I(GlobInc * WindVel) - 1')
 
         self.assertEqual(results.shape[0], 12, 'Not all months in results.')
@@ -218,9 +218,7 @@ class TestTopLevelFuncs(unittest.TestCase):
                          '{} for 40 perc is not 1.4'.format(bounds[1]))
 
     def test_filter_grps(self):
-        pvsyst = load_data(path='./tests/data/',
-                         fname='pvsyst_example_HourlyRes_2.CSV',
-                         pvsyst=True)
+        pvsyst = load_pvsyst(path='./tests/data/pvsyst_example_HourlyRes_2.CSV')
         pvsyst.set_regression_cols(power='real_pwr--', poa='irr-poa-',
                                    t_amb='temp-amb-', w_vel='wind--')
         pvsyst.filter_irr(200, 800)
@@ -1953,8 +1951,8 @@ class TestGetFilteringTable:
 def meas():
     """Create an instance of CapData with example data loaded."""
     meas = load_data(
-        path='./tests/data/',
-        fname='example_meas_data.csv',
+        path='./tests/data/example_meas_data.csv',
+        # fname='example_meas_data.csv',
     )
     meas.set_regression_cols(
         power='-mtr-',

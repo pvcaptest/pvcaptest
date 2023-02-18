@@ -47,6 +47,13 @@ def load_pvsyst(
     Returns
     -------
     CapData
+
+    Notes
+    -----
+    Standardizes the ambient temperature column name to T_Amb. v6.63 of PVsyst
+    used "T Amb", v.6.87 uses "T_Amb", and v7.2 uses "T_Amb". Will change 'T Amb'
+    or 'TAmb' to 'T_Amb' if found in the column names.
+
     """
     dirName = Path(path)
 
@@ -69,7 +76,8 @@ def load_pvsyst(
         dt_index = pd.to_datetime(dates)
     pvraw.index = dt_index
     pvraw.drop("date", axis=1, inplace=True)
-    pvraw = pvraw.rename(columns={"T Amb": "T_Amb"})
+    pvraw = pvraw.rename(columns={"T Amb": "T_Amb"}).rename(columns={"TAmb": "T_Amb"})
+
 
     cd = CapData(name)
     pvraw.index.name = "Timestamp"
