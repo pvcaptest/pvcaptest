@@ -1,0 +1,28 @@
+irr-ghi-:
+    - 'Example Project_Weather Station 1 (Standard w/ POA GHI)_Weather Station 1 (Standard w/ POA GHI), Sun2_W/m^2'
+    - 'Example Project_Weather Station 2 (Standard with POA GHI)_Weather Station 2 (Standard with POA GHI), Sun2_W/m^2'
+irr-poa-:
+    - 'Example Project_Weather Station 1 (Standard w/ POA GHI)_Weather Station 1 (Standard w/ POA GHI), Sun_W/m^2'
+    - 'Example Project_Weather Station 2 (Standard with POA GHI)_Weather Station 2 (Standard with POA GHI), Sun_W/m^2'
+temp-bom-:
+    - 'Example Project_Weather Station 1 (Standard w/ POA GHI)_Weather Station 1 (Standard w/ POA GHI), Temp1_çF'
+    - 'Example Project_Weather Station 2 (Standard with POA GHI)_Weather Station 2 (Standard with POA GHI), Temp1_çF'
+temp-amb-:
+    - 'Example Project_Weather Station 1 (Standard w/ POA GHI)_Weather Station 1 (Standard w/ POA GHI), TempF_çF'
+    - 'Example Project_Weather Station 2 (Standard with POA GHI)_Weather Station 2 (Standard with POA GHI), TempF_çF'
+wind--:
+    - 'Example Project_Weather Station 1 (Standard w/ POA GHI)_Weather Station 1 (Standard w/ POA GHI), WindSpeed_mph'
+    - 'Example Project_Weather Station 2 (Standard with POA GHI)_Weather Station 2 (Standard with POA GHI), WindSpeed_mph'
+-mtr-:
+    - 'Example Project_Elkor Production Meter_Elkor Production Meter, KW_kW'
+index--:
+    index
+-inv-:
+    - 'Example Project_Inverter 1_Inverter 1, KW_kW'
+    - 'Example Project_Inverter 2_Inverter 2, KW_kW'
+    - 'Example Project_Inverter 3_Inverter 3, KW_kW'
+    - 'Example Project_Inverter 4_Inverter 4, KW_kW'
+    - 'Example Project_Inverter 5_Inverter 5, KW_kW'
+    - 'Example Project_Inverter 6_Inverter 6, KW_kW'
+    - 'Example Project_Inverter 7_Inverter 7, KW_kW'
+    - 'Example Project_Inverter 8_Inverter 8, KW_kW'

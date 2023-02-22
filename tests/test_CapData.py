@@ -368,8 +368,7 @@ class TestLoadDataColumnGrouping():
     def test_is_json(self):
         """Test loading a json column groups file."""
         das = load_data(
-            path='./tests/data/',
-            fname='example_meas_data.csv',
+            path='./tests/data/example_meas_data.csv',
             group_columns='./tests/data/column_groups.json',
         )
         column_groups = cg.ColumnGroups(
@@ -390,8 +389,7 @@ class TestCapDataEmpty:
     def test_capdata_not_empty(self):
         """Test that an CapData object with data returns False."""
         cd_with_data = load_data(
-            path='tests/data/',
-            fname='example_meas_data.csv',
+            path='tests/data/example_meas_data.csv',
         )
         assert not cd_with_data.empty()
 
@@ -483,7 +481,7 @@ class Test_CapData_methods_sim(unittest.TestCase):
     """Test for top level irr_rc_balanced function."""
 
     def setUp(self):
-        self.pvsyst = load_data(path='./tests/data/', pvsyst=True)
+        self.pvsyst = load_pvsyst(path='./tests/data/pvsyst_output_8760.csv')
         # self.jun = self.pvsyst.data.loc['06/1990']
         # self.jun_cpy = self.jun.copy()
         # self.low = 0.5
@@ -684,7 +682,13 @@ class Test_csky(unittest.TestCase):
                     'albedo': 0.2}
 
         self.meas = pvc.CapData('meas')
-        self.df = load_das('./tests/data/', 'example_meas_data.csv')
+        # self.df = load_das('./tests/data/', 'example_meas_data.csv')
+        self.df = pd.read_csv(
+            './tests/data/example_meas_data.csv',
+            index_col=0,
+            parse_dates=True,
+            header=1,
+        )
 
     def test_get_tz_index_df(self):
         """Test that get_tz_index function returns a datetime index\
@@ -904,11 +908,13 @@ load_data calls final function with in place to get ghi and poa
 
 class TestGetRegCols(unittest.TestCase):
     def setUp(self):
-        self.das = load_data(path='./tests/data/',
-                           fname='example_meas_data_aeheaders.csv',
-                           source='AlsoEnergy')
-        self.das.set_regression_cols(power='-mtr-', poa='irr-poa-',
-                                     t_amb='temp-amb-', w_vel='wind--')
+        self.das = load_data(
+            path='./tests/data/example_meas_data_aeheaders.csv',
+            group_columns='./tests/data/ae_column_groups.yml',
+        )
+        self.das.set_regression_cols(
+            power='-mtr-', poa='irr-poa-', t_amb='temp-amb-', w_vel='wind--'
+        )
 
     def test_not_aggregated(self):
         with self.assertWarns(UserWarning):
@@ -936,25 +942,25 @@ class TestGetRegCols(unittest.TestCase):
                          'Data in column labeled w_vel is not w_vel.')
 
     def test_all_coeffs_custom_regression_columns(self):
-        self.das.regression_cols = {
-            'power':'Elkor Production Meter KW, kW',
-            'poa_front':'Weather Station 1 Sun, W/m^2',
-            'wind_speed':'Weather Station 2 WindSpeed, mph',
-        }
         print(self.das.data.columns)
+        self.das.regression_cols = {
+            'power':'Example Project_Elkor Production Meter_Elkor Production Meter, KW_kW',
+            'poa_front':'Example Project_Weather Station 1 (Standard w/ POA GHI)_Weather Station 1 (Standard w/ POA GHI), Sun_W/m^2',
+            'wind_speed':'Example Project_Weather Station 2 (Standard with POA GHI)_Weather Station 2 (Standard with POA GHI), WindSpeed_mph',
+        }
         cols = ['power', 'poa_front', 'wind_speed']
         df = self.das.get_reg_cols()
         self.assertEqual(len(df.columns), 3,
                          'Returned number of columns is incorrect.')
         self.assertEqual(df.columns.to_list(), cols,
                          'Columns are not renamed properly.')
-        self.assertEqual(self.das.data['Elkor Production Meter KW, kW'].iloc[100],
+        self.assertEqual(self.das.data['Example Project_Elkor Production Meter_Elkor Production Meter, KW_kW'].iloc[100],
                          df['power'].iloc[100],
                          'Data in column labeled power is not power.')
-        self.assertEqual(self.das.data['Weather Station 1 Sun, W/m^2'].iloc[100],
+        self.assertEqual(self.das.data['Example Project_Weather Station 1 (Standard w/ POA GHI)_Weather Station 1 (Standard w/ POA GHI), Sun_W/m^2'].iloc[100],
                          df['poa_front'].iloc[100],
                          'Data in column labeled poa is not poa.')
-        self.assertEqual(self.das.data['Weather Station 2 WindSpeed, mph'].iloc[100],
+        self.assertEqual(self.das.data['Example Project_Weather Station 2 (Standard with POA GHI)_Weather Station 2 (Standard with POA GHI), WindSpeed_mph'].iloc[100],
                          df['wind_speed'].iloc[100],
                          'Data in column labeled wind_speed is not wind speed.')
 
@@ -997,11 +1003,13 @@ class TestGetRegCols(unittest.TestCase):
 
 class TestAggSensors(unittest.TestCase):
     def setUp(self):
-        self.das = load_data(path='./tests/data/',
-                           fname='example_meas_data_aeheaders.csv',
-                           source='AlsoEnergy')
-        self.das.set_regression_cols(power='-mtr-', poa='irr-poa-',
-                                     t_amb='temp-amb-', w_vel='wind--')
+        self.das = load_data(
+            path='./tests/data/example_meas_data_aeheaders.csv',
+            group_columns='./tests/data/ae_column_groups.yml',
+        )
+        self.das.set_regression_cols(
+            power='-mtr-', poa='irr-poa-', t_amb='temp-amb-', w_vel='wind--'
+        )
 
     def test_agg_map_none(self):
         self.das.agg_sensors()
@@ -1119,10 +1127,12 @@ class TestAggSensors(unittest.TestCase):
 
 class TestFilterSensors(unittest.TestCase):
     def setUp(self):
-        self.das = load_data(path='./tests/data/',
-                           fname='example_meas_data.csv')
-        self.das.set_regression_cols(power='-mtr-', poa='irr-poa-ref_cell',
-                                     t_amb='temp-amb-', w_vel='wind--')
+        self.das = load_data(
+            path='./tests/data/example_meas_data.csv'
+        )
+        self.das.set_regression_cols(
+            power='-mtr-', poa='irr-poa-ref_cell', t_amb='temp-amb-', w_vel='wind--'
+        )
 
     def test_perc_diff_none(self):
         rows_before_flt = self.das.data_filtered.shape[0]
@@ -1161,10 +1171,10 @@ class TestFilterSensors(unittest.TestCase):
 
 class TestRepCondNoFreq(unittest.TestCase):
     def setUp(self):
-        self.meas = load_data(path='./tests/data/', fname='nrel_data.csv',
-                            source='AlsoEnergy')
-        self.meas.set_regression_cols(power='', poa='irr-poa-',
-                                      t_amb='temp--', w_vel='wind--')
+        self.meas = load_data(path='./tests/data/nrel_data.csv')
+        self.meas.set_regression_cols(
+            power='', poa='irr-poa-', t_amb='temp--', w_vel='wind--'
+        )
 
     def test_defaults(self):
         self.meas.rep_cond()
@@ -1206,11 +1216,10 @@ class TestRepCondNoFreq(unittest.TestCase):
 
 class TestRepCondFreq(unittest.TestCase):
     def setUp(self):
-        self.pvsyst = load_data(path='./tests/data/',
-                              fname='pvsyst_example_HourlyRes_2.CSV',
-                              pvsyst=True)
-        self.pvsyst.set_regression_cols(power='real_pwr--', poa='irr-poa-',
-                                        t_amb='temp-amb-', w_vel='wind--')
+        self.pvsyst = load_pvsyst(path='./tests/data/pvsyst_example_HourlyRes_2.CSV')
+        self.pvsyst.set_regression_cols(
+            power='real_pwr--', poa='irr-poa-', t_amb='temp-amb-', w_vel='wind--'
+        )
 
     def test_monthly_no_irr_bal(self):
         self.pvsyst.rep_cond(freq='M')
@@ -1236,11 +1245,10 @@ class TestRepCondFreq(unittest.TestCase):
 
 class TestPredictCapacities(unittest.TestCase):
     def setUp(self):
-        self.pvsyst = load_data(path='./tests/data/',
-                              fname='pvsyst_example_HourlyRes_2.CSV',
-                              pvsyst=True)
-        self.pvsyst.set_regression_cols(power='real_pwr--', poa='irr-poa-',
-                                        t_amb='temp-amb-', w_vel='wind--')
+        self.pvsyst = load_pvsyst(path='./tests/data/pvsyst_example_HourlyRes_2.CSV')
+        self.pvsyst.set_regression_cols(
+            power='real_pwr--', poa='irr-poa-', t_amb='temp-amb-', w_vel='wind--'
+        )
         self.pvsyst.filter_irr(200, 800)
         self.pvsyst.tolerance = '+/- 5'
 
@@ -1305,10 +1313,12 @@ class TestPredictCapacities(unittest.TestCase):
 
 class TestFilterIrr(unittest.TestCase):
     def setUp(self):
-        self.meas = load_data('./tests/data/', 'nrel_data.csv',
-                            source='AlsoEnergy')
-        self.meas.set_regression_cols(power='', poa='irr-poa-',
-                                      t_amb='temp--', w_vel='wind--')
+        self.meas = load_data(
+            path='./tests/data/nrel_data.csv',
+        )
+        self.meas.set_regression_cols(
+            power='', poa='irr-poa-', t_amb='temp--', w_vel='wind--'
+        )
 
     def test_get_poa_col(self):
         col = self.meas._CapData__get_poa_col()
@@ -1377,10 +1387,10 @@ class TestFilterIrr(unittest.TestCase):
 
 class TestGetSummary(unittest.TestCase):
     def setUp(self):
-        self.meas = load_data('./tests/data/', 'nrel_data.csv',
-                            source='AlsoEnergy')
-        self.meas.set_regression_cols(power='', poa='irr-poa-',
-                                      t_amb='temp--', w_vel='wind--')
+        self.meas = load_data('./tests/data/nrel_data.csv')
+        self.meas.set_regression_cols(
+            power='', poa='irr-poa-', t_amb='temp--', w_vel='wind--'
+        )
 
     def test_col_names(self):
         self.meas.filter_irr(200, 500)
@@ -1399,11 +1409,12 @@ class TestGetSummary(unittest.TestCase):
 
 class TestFilterTime(unittest.TestCase):
     def setUp(self):
-        self.pvsyst = load_data(path='./tests/data/',
-                              fname='pvsyst_example_HourlyRes_2.CSV',
-                              pvsyst=True)
-        self.pvsyst.set_regression_cols(power='real_pwr--', poa='irr-poa-',
-                                        t_amb='temp-amb-', w_vel='wind--')
+        self.pvsyst = load_pvsyst(
+            path='./tests/data/pvsyst_example_HourlyRes_2.CSV',
+        )
+        self.pvsyst.set_regression_cols(
+            power='real_pwr--', poa='irr-poa-', t_amb='temp-amb-', w_vel='wind--'
+        )
 
     def test_start_end(self):
         self.pvsyst.filter_time(start='2/1/90', end='2/15/90')
@@ -1478,11 +1489,12 @@ class TestFilterTime(unittest.TestCase):
 
 class TestFilterDays(unittest.TestCase):
     def setUp(self):
-        self.pvsyst = load_data(path='./tests/data/',
-                              fname='pvsyst_example_HourlyRes_2.CSV',
-                              pvsyst=True)
-        self.pvsyst.set_regression_cols(power='real_pwr--', poa='irr-poa-',
-                                        t_amb='temp-amb-', w_vel='wind--')
+        self.pvsyst = load_pvsyst(
+            path='./tests/data/pvsyst_example_HourlyRes_2.CSV',
+        )
+        self.pvsyst.set_regression_cols(
+            power='real_pwr--', poa='irr-poa-', t_amb='temp-amb-', w_vel='wind--'
+        )
 
     def test_keep_one_day(self):
         self.pvsyst.filter_days(['10/5/1990'], drop=False, inplace=True)
@@ -1524,12 +1536,15 @@ class TestFilterDays(unittest.TestCase):
 
 class TestFilterPF(unittest.TestCase):
     def setUp(self):
-        self.meas = load_data(path='./tests/data/', fname='nrel_data.csv',
-                            source='AlsoEnergy')
-        self.meas.set_regression_cols(power='', poa='irr-poa-',
-                                      t_amb='temp--', w_vel='wind--')
+        self.meas = load_data(
+            path='./tests/data/nrel_data.csv',
+        )
+        self.meas.set_regression_cols(
+            power='', poa='irr-poa-', t_amb='temp--', w_vel='wind--'
+        )
 
     def test_pf(self):
+        print(self.meas.column_groups)
         pf = np.ones(5)
         pf = np.append(pf, np.ones(5) * -1)
         pf = np.append(pf, np.arange(0, 1, 0.1))
@@ -1543,11 +1558,13 @@ class TestFilterPF(unittest.TestCase):
 
 class TestFilterOutliersAndPower(unittest.TestCase):
     def setUp(self):
-        self.das = load_data(path='./tests/data/',
-                           fname='example_meas_data_aeheaders.csv',
-                           source='AlsoEnergy')
-        self.das.set_regression_cols(power='-mtr-', poa='irr-poa-',
-                                     t_amb='temp-amb-', w_vel='wind--')
+        self.das = load_data(
+            path='./tests/data/example_meas_data_aeheaders.csv',
+            group_columns='./tests/data/ae_column_groups.yml',
+        )
+        self.das.set_regression_cols(
+            power='-mtr-', poa='irr-poa-', t_amb='temp-amb-', w_vel='wind--'
+        )
 
     def test_not_aggregated(self):
         with self.assertWarns(UserWarning):
@@ -1564,9 +1581,13 @@ class TestFilterOutliersAndPower(unittest.TestCase):
         self.assertEqual(self.das.data_filtered.shape[0], 1388)
 
     def test_filter_power_a_column(self):
-        self.das.filter_power(5_000_000, percent=None,
-                              columns='Elkor Production Meter KW, kW',
-                              inplace=True)
+        print(self.das.data.columns)
+        self.das.filter_power(
+            5_000_000,
+            percent=None,
+            columns='Example Project_Elkor Production Meter_Elkor Production Meter, KW_kW',
+            inplace=True
+        )
         self.assertEqual(self.das.data_filtered.shape[0], 1289)
 
     def test_filter_power_column_group(self):
@@ -1589,8 +1610,10 @@ class Test_Csky_Filter(unittest.TestCase):
                'altitude': 1828.8, 'tz': 'Etc/GMT+7'}
         sys = {'surface_tilt': 40, 'surface_azimuth': 180,
                'albedo': 0.2}
-        self.meas = load_data(path='./tests/data/', fname='nrel_data.csv',
-                       source='AlsoEnergy', clear_sky=True, loc=loc, sys=sys)
+        self.meas = load_data(
+            path='./tests/data/nrel_data.csv',
+            site={'sys': sys, 'loc': loc},
+        )
 
     def test_default(self):
         self.meas.filter_clearsky()
@@ -1665,28 +1688,29 @@ class TestFilterMissing():
     """
     def test_filter_missing_default(self, meas):
         """Checks missing data in regression columns are removed."""
+        print(meas.data.columns)
         meas.set_regression_cols(
-            power='meter power',
-            poa='met1 poa_refcell',
-            t_amb='met2 amb_temp',
-            w_vel='met1 windspeed',
+            power='meter_power',
+            poa='met1_poa_refcell',
+            t_amb='met2_amb_temp',
+            w_vel='met1_windspeed',
         )
         assert all(meas.rview('all', filtered_data=True).isna().sum() == 0)
         assert meas.data_filtered.shape[0] == 1440
-        meas.data_filtered.loc['10/9/90 12:00', 'meter power'] = np.NaN
-        meas.data_filtered.loc['10/9/90 12:30', 'met1 poa_refcell'] = np.NaN
-        meas.data_filtered.loc['10/10/90 12:35', 'met2 amb_temp'] = np.NaN
-        meas.data_filtered.loc['10/10/90 12:50', 'met1 windspeed'] = np.NaN
+        meas.data_filtered.loc['10/9/90 12:00', 'meter_power'] = np.NaN
+        meas.data_filtered.loc['10/9/90 12:30', 'met1_poa_refcell'] = np.NaN
+        meas.data_filtered.loc['10/10/90 12:35', 'met2_amb_temp'] = np.NaN
+        meas.data_filtered.loc['10/10/90 12:50', 'met1_windspeed'] = np.NaN
         meas.filter_missing()
         assert meas.data_filtered.shape[0] == 1436
 
     def test_filter_missing_missing_not_in_columns_considered(self, meas):
         """Checks that nothing is dropped for missing data not in `columns`."""
         meas.set_regression_cols(
-            power='meter power',
-            poa='met1 poa_refcell',
-            t_amb='met2 amb_temp',
-            w_vel='met1 windspeed',
+            power='meter_power',
+            poa='met1_poa_refcell',
+            t_amb='met2_amb_temp',
+            w_vel='met1_windspeed',
         )
         assert all(meas.rview('all', filtered_data=True).isna().sum() == 0)
         assert meas.data_filtered.shape[0] == 1440
@@ -1698,7 +1722,7 @@ class TestFilterMissing():
         """Checks that nothing is dropped for missing data not in `columns`."""
         assert meas.data_filtered.shape[0] == 1440
         assert meas.data_filtered.isna().sum().sum() > 0
-        meas.filter_missing(columns=['met1 amb_temp'])
+        meas.filter_missing(columns=['met1_amb_temp'])
         assert meas.data_filtered.shape[0] == 1424
 
 class TestCapTestCpResultsSingleCoeff(unittest.TestCase):
@@ -1914,10 +1938,10 @@ class TestGetFilteringTable:
     """Check the DataFrame summary showing which filter removed which intervals."""
 
     def test_get_filtering_table(self):
-        self.meas = load_data('./tests/data/', 'nrel_data.csv',
-                            source='AlsoEnergy')
-        self.meas.set_regression_cols(power='', poa='irr-poa-',
-                                      t_amb='temp--', w_vel='wind--')
+        self.meas = load_data('./tests/data/nrel_data.csv')
+        self.meas.set_regression_cols(
+            power='', poa='irr-poa-', t_amb='temp--', w_vel='wind--'
+        )
         self.meas.filter_irr(200, 900)
         flt0_kept_ix = self.meas.data_filtered.index
         flt0_removed_ix = self.meas.data.index.difference(flt0_kept_ix)
@@ -1952,13 +1976,9 @@ def meas():
     """Create an instance of CapData with example data loaded."""
     meas = load_data(
         path='./tests/data/example_meas_data.csv',
-        # fname='example_meas_data.csv',
     )
     meas.set_regression_cols(
-        power='-mtr-',
-        poa='irr-poa-pyran',
-        t_amb='temp-amb-',
-        w_vel='wind--',
+        power='-mtr-', poa='irr-poa-pyran', t_amb='temp-amb-', w_vel='wind--'
     )
     return meas
 
