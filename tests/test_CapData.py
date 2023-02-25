@@ -7,6 +7,7 @@ import pytz
 import numpy as np
 import pandas as pd
 import statsmodels.formula.api as smf
+import json
 
 import pvlib
 
@@ -37,7 +38,23 @@ To create a test coverage report (html output) with pytest:
 pytest --cov-report html --cov=captest tests/
 """
 
-
+@pytest.fixture
+def meas():
+    """Create an instance of CapData with example data loaded."""
+    meas = pvc.CapData('meas')
+    meas.data = pd.read_csv(
+        './tests/data/example_measured_data.csv',
+        index_col=0,
+        parse_dates=True,
+        )
+    meas.data_filtered = meas.data.copy(deep=True)
+    meas.column_groups = cg.ColumnGroups(util.read_json(
+        './tests/data/example_measured_data_column_groups.json'
+    ))
+    meas.set_regression_cols(
+        power='-mtr-', poa='irr-poa-pyran', t_amb='temp-amb-', w_vel='wind--'
+    )
+    return meas
 
 class TestUpdateSummary:
     """Test the update_summary wrapper and functions used within."""
@@ -365,6 +382,7 @@ class TestTopLevelFuncs(unittest.TestCase):
 
 
 class TestLoadDataColumnGrouping():
+    """Move to test_io.py or to test_columngroups.py?"""
     def test_is_json(self):
         """Test loading a json column groups file."""
         das = load_data(
@@ -1970,17 +1988,6 @@ class TestGetFilteringTable:
         assert table_flt_all_removed.equals(
             flt0_removed_ix.union(flt1_removed_ix).union(flt2_removed_ix)
         )
-
-@pytest.fixture
-def meas():
-    """Create an instance of CapData with example data loaded."""
-    meas = load_data(
-        path='./tests/data/example_meas_data.csv',
-    )
-    meas.set_regression_cols(
-        power='-mtr-', poa='irr-poa-pyran', t_amb='temp-amb-', w_vel='wind--'
-    )
-    return meas
 
 @pytest.fixture
 def pts_summary(meas):
