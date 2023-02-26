@@ -56,6 +56,24 @@ def meas():
     )
     return meas
 
+@pytest.fixture
+def location_and_system():
+    """Create a dictionary with a nested dictionary for location and system."""
+    loc_sys = {
+        'location': {
+            'latitude': 30.274583,
+            'longitude': -97.740352,
+            'altitude': 500,
+            'tz': 'America/Chicago',
+        },
+        'system': {
+            'surface_tilt': 20,
+            'surface_azimuth': 180,
+            'albedo': 0.2,
+        }
+    }
+    return loc_sys
+
 class TestUpdateSummary:
     """Test the update_summary wrapper and functions used within."""
 
@@ -404,12 +422,9 @@ class TestCapDataEmpty:
         empty_cd = pvc.CapData('empty')
         assert empty_cd.empty()
 
-    def test_capdata_not_empty(self):
+    def test_capdata_not_empty(self, meas):
         """Test that an CapData object with data returns False."""
-        cd_with_data = load_data(
-            path='tests/data/example_meas_data.csv',
-        )
-        assert not cd_with_data.empty()
+        assert not meas.empty()
 
 
 class TestCapDataSeriesTypes(unittest.TestCase):
@@ -686,6 +701,26 @@ class Test_pvlib_loc_sys(unittest.TestCase):
         #                  'Returned series index has different timezone from\
         #                   passed dataframe.')
 
+class TestGetTimezoneIndex():
+    """Test get_tz_index function."""
+    def test_get_tz_index_df(self, location_and_system):
+        """Test that get_tz_index function returns a datetime index\
+           with a timezone when passed a dataframe without a timezone."""
+        # reindex test dataset to cover DST in the fall and spring
+        ix_3days = pd.date_range(
+            start='11/3/2018', periods=864, freq='5min', tz='America/Chicago'
+        )
+        ix_2days = pd.date_range(
+            start='3/9/2019', periods=576, freq='5min', tz='America/Chicago'
+        )
+        ix_dst = ix_3days.append(ix_2days)
+
+        ix_dst = ix_dst.tz_localize(None) # remove timezone from index
+
+        df = pd.DataFrame(index=ix_dst)
+        tz_ix = pvc.get_tz_index(df, location_and_system['location'])
+        assert(isinstance(tz_ix, pd.core.indexes.datetimes.DatetimeIndex))
+        assert(tz_ix.tz == pytz.timezone(location_and_system['location']['tz']))
 
 class Test_csky(unittest.TestCase):
     """Test clear sky function which returns pvlib ghi and poa clear sky."""
@@ -707,28 +742,6 @@ class Test_csky(unittest.TestCase):
             parse_dates=True,
             header=1,
         )
-
-    def test_get_tz_index_df(self):
-        """Test that get_tz_index function returns a datetime index\
-           with a timezone when passed a dataframe without a timezone."""
-        # reindex test dataset to cover DST in the fall and spring
-        ix_3days = pd.date_range(start='11/3/2018', periods=864, freq='5min',
-                                    tz='America/Chicago')
-        ix_2days = pd.date_range(start='3/9/2019', periods=576, freq='5min',
-                                    tz='America/Chicago')
-        ix_dst = ix_3days.append(ix_2days)
-        ix_dst = ix_dst.tz_localize(None)
-        self.df.index = ix_dst
-
-        self.tz_ix = pvc.get_tz_index(self.df, self.loc)
-
-        self.assertIsInstance(self.tz_ix,
-                              pd.core.indexes.datetimes.DatetimeIndex,
-                              'Returned object is not a pandas DatetimeIndex.')
-        self.assertEqual(self.tz_ix.tz,
-                         pytz.timezone(self.loc['tz']),
-                         'Returned index does not have same timezone as\
-                          the passed location dictionary.')
 
     def test_get_tz_index_df_tz(self):
         """Test that get_tz_index function returns a datetime index\
