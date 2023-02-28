@@ -722,6 +722,22 @@ class TestGetTimezoneIndex():
         assert(isinstance(tz_ix, pd.core.indexes.datetimes.DatetimeIndex))
         assert(tz_ix.tz == pytz.timezone(location_and_system['location']['tz']))
 
+    def test_get_tz_index_df_tz(self, location_and_system):
+        """Test that get_tz_index function returns a datetime index\
+           with a timezone when passed a dataframe WITH a timezone."""
+        # reindex test dataset to cover DST in the fall and spring
+        ix_3days = pd.date_range(
+            start='11/3/2018', periods=864, freq='5min', tz='America/Chicago'
+        )
+        ix_2days = pd.date_range(
+            start='3/9/2019', periods=576, freq='5min', tz='America/Chicago'
+        )
+        ix_dst = ix_3days.append(ix_2days)
+        df = pd.DataFrame(index=ix_dst)
+        tz_ix = pvc.get_tz_index(df, location_and_system['location'])
+        assert(isinstance(tz_ix, pd.core.indexes.datetimes.DatetimeIndex))
+        assert(tz_ix.tz == pytz.timezone(location_and_system['location']['tz']))
+
 class Test_csky(unittest.TestCase):
     """Test clear sky function which returns pvlib ghi and poa clear sky."""
     def setUp(self):
@@ -742,27 +758,6 @@ class Test_csky(unittest.TestCase):
             parse_dates=True,
             header=1,
         )
-
-    def test_get_tz_index_df_tz(self):
-        """Test that get_tz_index function returns a datetime index\
-           with a timezone when passed a dataframe with a timezone."""
-        # reindex test dataset to cover DST in the fall and spring
-        ix_3days = pd.date_range(start='11/3/2018', periods=864, freq='5min',
-                                    tz='America/Chicago')
-        ix_2days = pd.date_range(start='3/9/2019', periods=576, freq='5min',
-                                    tz='America/Chicago')
-        ix_dst = ix_3days.append(ix_2days)
-        self.df.index = ix_dst
-
-        self.tz_ix = pvc.get_tz_index(self.df, self.loc)
-
-        self.assertIsInstance(self.tz_ix,
-                              pd.core.indexes.datetimes.DatetimeIndex,
-                              'Returned object is not a pandas DatetimeIndex.')
-        self.assertEqual(self.tz_ix.tz,
-                         pytz.timezone(self.loc['tz']),
-                         'Returned index does not have same timezone as\
-                          the passed location dictionary.')
 
     def test_get_tz_index_df_tz_warn(self):
         """Test that get_tz_index function returns warns when datetime index\
