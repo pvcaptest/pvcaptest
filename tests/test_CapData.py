@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 import statsmodels.formula.api as smf
 import json
+import warnings
 
 import pvlib
 
@@ -738,6 +739,22 @@ class TestGetTimezoneIndex():
         assert(isinstance(tz_ix, pd.core.indexes.datetimes.DatetimeIndex))
         assert(tz_ix.tz == pytz.timezone(location_and_system['location']['tz']))
 
+    def test_get_tz_index_df_tz_warn(self, location_and_system):
+        """Test that get_tz_index function warns when datetime index\
+           of dataframe does not match loc dic timezone."""
+        df = pd.DataFrame(index=pd.date_range(
+            start='11/3/2018', periods=864, freq='5min', tz='America/New_York'
+        ))  # tz is New York
+        tz_ix = pvc.get_tz_index(df, location_and_system['location']) # tz is Chicago
+        with pytest.warns(UserWarning):
+            warnings.warn(
+                'Passed a DatetimeIndex with a timezone that does not match\
+                the timezone in the loc dict. Using the timezone of the DatetimeIndex.',
+                UserWarning
+            )
+            
+
+
 class Test_csky(unittest.TestCase):
     """Test clear sky function which returns pvlib ghi and poa clear sky."""
     def setUp(self):
@@ -758,20 +775,6 @@ class Test_csky(unittest.TestCase):
             parse_dates=True,
             header=1,
         )
-
-    def test_get_tz_index_df_tz_warn(self):
-        """Test that get_tz_index function returns warns when datetime index\
-           of dataframe does not match loc dic timezone."""
-        # reindex test dataset to cover DST in the fall and spring
-        ix_3days = pd.date_range(start='11/3/2018', periods=864, freq='5min',
-                                    tz='America/New_York')
-        ix_2days = pd.date_range(start='3/9/2019', periods=576, freq='5min',
-                                    tz='America/New_York')
-        ix_dst = ix_3days.append(ix_2days)
-        self.df.index = ix_dst
-
-        with self.assertWarns(UserWarning):
-            self.tz_ix = pvc.get_tz_index(self.df, self.loc)
 
     def test_get_tz_index_ix_tz(self):
         """Test that get_tz_index function returns a datetime index
