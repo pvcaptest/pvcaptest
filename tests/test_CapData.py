@@ -745,8 +745,8 @@ class TestGetTimezoneIndex():
         df = pd.DataFrame(index=pd.date_range(
             start='11/3/2018', periods=864, freq='5min', tz='America/New_York'
         ))  # tz is New York
-        tz_ix = pvc.get_tz_index(df, location_and_system['location']) # tz is Chicago
         with pytest.warns(UserWarning):
+            tz_ix = pvc.get_tz_index(df, location_and_system['location']) # tz is Chicago
             warnings.warn(
                 'Passed a DatetimeIndex with a timezone that does not match\
                 the timezone in the loc dict. Using the timezone of the DatetimeIndex.',
