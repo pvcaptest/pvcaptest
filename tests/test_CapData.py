@@ -752,8 +752,44 @@ class TestGetTimezoneIndex():
                 the timezone in the loc dict. Using the timezone of the DatetimeIndex.',
                 UserWarning
             )
-            
 
+    def test_get_tz_index_ix_tz(self, location_and_system):
+        """Test that get_tz_index function returns a datetime index
+           with a timezone when passed a datetime index with a timezone."""
+        ix = pd.date_range(start='1/1/2019', periods=8760, freq='H',
+                                   tz='America/Chicago')
+        tz_ix = pvc.get_tz_index(ix, location_and_system['location'])  # tz is Chicago
+        assert isinstance(tz_ix, pd.core.indexes.datetimes.DatetimeIndex)
+        # If passing an index with a timezone use that timezone rather than
+        # the timezone in the location dictionary if there is one.
+        assert tz_ix.tz == ix.tz
+
+    def test_get_tz_index_ix_tz_warn(self, location_and_system):
+        """Test that get_tz_index function warns when DatetimeIndex timezone
+           does not match the location dic timezone.
+        """
+        ix = pd.date_range(start='1/1/2019', periods=8760, freq='H',
+                                   tz='America/New_York')
+
+        with pytest.warns(UserWarning):
+            tz_ix = pvc.get_tz_index(ix, location_and_system['location'])
+            warnings.warn('Passed a DatetimeIndex with a timezone that '
+                          'does not match the timezone in the loc dict. '
+                          'Using the timezone of the DatetimeIndex.', UserWarning)
+
+    def test_get_tz_index_ix(self, location_and_system):
+        """Test that get_tz_index function returns a datetime index\
+           with a timezone when passed a datetime index without a timezone."""
+        ix = pd.date_range(
+            start='1/1/2019', periods=8760, freq='H', tz='America/Chicago'
+        )
+        # remove timezone info but keep missing  hour and extra hour due to DST
+        ix = ix.tz_localize(None)
+        tz_ix = pvc.get_tz_index(ix, location_and_system['location']) # tz is Chicago
+        assert isinstance(tz_ix, pd.core.indexes.datetimes.DatetimeIndex)
+        # If passing an index without a timezone use returned index should have
+        # the timezone of the passed location dictionary.
+        assert tz_ix.tz == pytz.timezone(location_and_system['location']['tz'])
 
 class Test_csky(unittest.TestCase):
     """Test clear sky function which returns pvlib ghi and poa clear sky."""
@@ -775,52 +811,6 @@ class Test_csky(unittest.TestCase):
             parse_dates=True,
             header=1,
         )
-
-    def test_get_tz_index_ix_tz(self):
-        """Test that get_tz_index function returns a datetime index
-           with a timezone when passed a datetime index with a timezone."""
-        self.ix = pd.date_range(start='1/1/2019', periods=8760, freq='H',
-                                   tz='America/Chicago')
-        self.tz_ix = pvc.get_tz_index(self.ix, self.loc)
-
-        self.assertIsInstance(self.tz_ix,
-                              pd.core.indexes.datetimes.DatetimeIndex,
-                              'Returned object is not a pandas DatetimeIndex.')
-        # If passing an index with a timezone use that timezone rather than
-        # the timezone in the location dictionary if there is one.
-        self.assertEqual(self.tz_ix.tz,
-                         self.ix.tz,
-                         'Returned index does not have same timezone as\
-                          the passed index.')
-
-    def test_get_tz_index_ix_tz_warn(self):
-        """Test that get_tz_index function warns when DatetimeIndex timezone
-           does not match the location dic timezone.
-        """
-        self.ix = pd.date_range(start='1/1/2019', periods=8760, freq='H',
-                                   tz='America/New_York')
-
-        with self.assertWarns(UserWarning):
-            self.tz_ix = pvc.get_tz_index(self.ix, self.loc)
-
-    def test_get_tz_index_ix(self):
-        """Test that get_tz_index function returns a datetime index\
-           with a timezone when passed a datetime index without a timezone."""
-        self.ix = pd.date_range(start='1/1/2019', periods=8760, freq='H',
-                                   tz='America/Chicago')
-        # remove timezone info but keep missing  hour and extra hour due to DST
-        self.ix = self.ix.tz_localize(None)
-        self.tz_ix = pvc.get_tz_index(self.ix, self.loc)
-
-        self.assertIsInstance(self.tz_ix,
-                              pd.core.indexes.datetimes.DatetimeIndex,
-                              'Returned object is not a pandas DatetimeIndex.')
-        # If passing an index without a timezone use returned index should have
-        # the timezone of the passed location dictionary.
-        self.assertEqual(self.tz_ix.tz,
-                         pytz.timezone(self.loc['tz']),
-                         'Returned index does not have same timezone as\
-                          the passed location dictionary.')
 
     def test_csky_concat(self):
         # concat=True by default
