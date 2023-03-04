@@ -1,5 +1,6 @@
 from pathlib import Path
 import os
+import copy
 import collections
 import unittest
 import pytest
@@ -52,6 +53,7 @@ def meas():
     meas.column_groups = cg.ColumnGroups(util.read_json(
         './tests/data/example_measured_data_column_groups.json'
     ))
+    meas.trans_keys = copy.deepcopy(meas.column_groups.keys())
     meas.set_regression_cols(
         power='-mtr-', poa='irr-poa-pyran', t_amb='temp-amb-', w_vel='wind--'
     )
@@ -895,99 +897,50 @@ Separate function calling location and system to calculate POA
 load_data calls final function with in place to get ghi and poa
 """
 
-class TestGetRegCols(unittest.TestCase):
-    def setUp(self):
-        self.das = load_data(
-            path='./tests/data/example_meas_data_aeheaders.csv',
-            group_columns='./tests/data/ae_column_groups.yml',
-        )
-        self.das.set_regression_cols(
-            power='-mtr-', poa='irr-poa-', t_amb='temp-amb-', w_vel='wind--'
-        )
+class TestGetRegCols():
+    """Test the get_reg_cols method of the CapData class."""
+    def test_not_aggregated(self, meas):
+        with pytest.warns(UserWarning):
+            meas.get_reg_cols()
 
-    def test_not_aggregated(self):
-        with self.assertWarns(UserWarning):
-            self.das.get_reg_cols()
-
-    def test_all_coeffs(self):
-        self.das.agg_sensors()
+    def test_all_coeffs(self, meas):
+        meas.agg_sensors()
         cols = ['power', 'poa', 't_amb', 'w_vel']
-        df = self.das.get_reg_cols()
-        self.assertEqual(len(df.columns), 4,
-                         'Returned number of columns is incorrect.')
-        self.assertEqual(df.columns.to_list(), cols,
-                         'Columns are not renamed properly.')
-        self.assertEqual(self.das.data['-mtr-sum-agg'].iloc[100],
-                         df['power'].iloc[100],
-                         'Data in column labeled power is not power.')
-        self.assertEqual(self.das.data['irr-poa-mean-agg'].iloc[100],
-                         df['poa'].iloc[100],
-                         'Data in column labeled poa is not poa.')
-        self.assertEqual(self.das.data['temp-amb-mean-agg'].iloc[100],
-                         df['t_amb'].iloc[100],
-                         'Data in column labeled t_amb is not t_amb.')
-        self.assertEqual(self.das.data['wind--mean-agg'].iloc[100],
-                         df['w_vel'].iloc[100],
-                         'Data in column labeled w_vel is not w_vel.')
+        df = meas.get_reg_cols()
+        assert len(df.columns) == 4
+        assert df.columns.to_list() == cols
+        assert meas.data['-mtr-sum-agg'].iloc[100] == df['power'].iloc[100]
+        assert meas.data['irr-poa-pyranmean-agg'].iloc[100] == df['poa'].iloc[100]
+        assert meas.data['temp-amb-mean-agg'].iloc[100] == df['t_amb'].iloc[100]
+        assert meas.data['wind--mean-agg'].iloc[100] == df['w_vel'].iloc[100]
 
-    def test_all_coeffs_custom_regression_columns(self):
-        print(self.das.data.columns)
-        self.das.regression_cols = {
-            'power':'Example Project_Elkor Production Meter_Elkor Production Meter, KW_kW',
-            'poa_front':'Example Project_Weather Station 1 (Standard w/ POA GHI)_Weather Station 1 (Standard w/ POA GHI), Sun_W/m^2',
-            'wind_speed':'Example Project_Weather Station 2 (Standard with POA GHI)_Weather Station 2 (Standard with POA GHI), WindSpeed_mph',
-        }
-        cols = ['power', 'poa_front', 'wind_speed']
-        df = self.das.get_reg_cols()
-        self.assertEqual(len(df.columns), 3,
-                         'Returned number of columns is incorrect.')
-        self.assertEqual(df.columns.to_list(), cols,
-                         'Columns are not renamed properly.')
-        self.assertEqual(self.das.data['Example Project_Elkor Production Meter_Elkor Production Meter, KW_kW'].iloc[100],
-                         df['power'].iloc[100],
-                         'Data in column labeled power is not power.')
-        self.assertEqual(self.das.data['Example Project_Weather Station 1 (Standard w/ POA GHI)_Weather Station 1 (Standard w/ POA GHI), Sun_W/m^2'].iloc[100],
-                         df['poa_front'].iloc[100],
-                         'Data in column labeled poa is not poa.')
-        self.assertEqual(self.das.data['Example Project_Weather Station 2 (Standard with POA GHI)_Weather Station 2 (Standard with POA GHI), WindSpeed_mph'].iloc[100],
-                         df['wind_speed'].iloc[100],
-                         'Data in column labeled wind_speed is not wind speed.')
-
-    def test_poa_power(self):
-        self.das.agg_sensors()
+    def test_poa_power(self, meas):
+        meas.agg_sensors()
         cols = ['poa', 'power']
-        df = self.das.get_reg_cols(reg_vars=cols)
-        self.assertEqual(len(df.columns), 2,
-                         'Returned number of columns is incorrect.')
-        self.assertEqual(df.columns.to_list(), cols,
-                         'Columns are not renamed properly.')
-        self.assertEqual(self.das.data['-mtr-sum-agg'].iloc[100],
-                         df['power'].iloc[100],
-                         'Data in column labeled power is not power.')
-        self.assertEqual(self.das.data['irr-poa-mean-agg'].iloc[100],
-                         df['poa'].iloc[100],
-                         'Data in column labeled poa is not poa.')
+        df = meas.get_reg_cols(reg_vars=cols)
+        assert len(df.columns) == 2
+        assert df.columns.to_list() == cols
+        assert meas.data['-mtr-sum-agg'].iloc[100] == df['power'].iloc[100]
+        assert meas.data['irr-poa-pyranmean-agg'].iloc[100] == df['poa'].iloc[100]
 
-    def test_agg_sensors_mix(self):
+    def test_agg_sensors_mix(self, meas):
         """
         Test when agg_sensors resets regression_cols values to a mix of trans keys
         and column names.
         """
-        self.das.agg_sensors(agg_map={'-inv-': 'sum', 'irr-poa-': 'mean',
-                                      'temp-amb-': 'mean', 'wind--': 'mean'})
+        meas.agg_sensors(agg_map={
+            '-inv-': 'sum',
+            'irr-poa-pyran': 'mean',
+            'temp-amb-': 'mean',
+            'wind--': 'mean',
+        })
         cols = ['poa', 'power']
-        df = self.das.get_reg_cols(reg_vars=cols)
-        mtr_col = self.das.column_groups[self.das.regression_cols['power']][0]
-        self.assertEqual(len(df.columns), 2,
-                         'Returned number of columns is incorrect.')
-        self.assertEqual(df.columns.to_list(), cols,
-                         'Columns are not renamed properly.')
-        self.assertEqual(self.das.data[mtr_col].iloc[100],
-                         df['power'].iloc[100],
-                         'Data in column labeled power is not power.')
-        self.assertEqual(self.das.data['irr-poa-mean-agg'].iloc[100],
-                         df['poa'].iloc[100],
-                         'Data in column labeled poa is not poa.')
+        df = meas.get_reg_cols(reg_vars=cols)
+        mtr_col = meas.column_groups[meas.regression_cols['power']][0]
+        assert len(df.columns) == 2
+        assert df.columns.to_list() == cols
+        assert meas.data[mtr_col].iloc[100] == df['power'].iloc[100]
+        assert meas.data['irr-poa-pyranmean-agg'].iloc[100] == df['poa'].iloc[100]
 
 
 class TestAggSensors(unittest.TestCase):
