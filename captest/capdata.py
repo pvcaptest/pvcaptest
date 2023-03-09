@@ -1991,64 +1991,39 @@ class CapData(object):
         else:
             return poa_cols[0]
 
-    def agg_sensors(self, agg_map=None, keep=True, update_regression_cols=True,
-                    inplace=True, inv_sum_vs_power=False):
+    def agg_sensors(self, agg_map=None):
         """
         Aggregate measurments of the same variable from different sensors.
 
         Parameters
         ----------
         agg_map : dict, default None
-            Dictionary specifying types of aggregations to be performed for
-            the column groups defined by the trans attribute.  The dictionary
-            keys should be keys of the trans dictionary attribute. The
-            dictionary values should be aggregation functions or lists of
-            aggregation functions.
-            By default an agg_map dictionary within the method to aggregate the
-            regression parameters as follows:
+            Dictionary specifying aggregations to be performed on
+            the specified groups from the `column_groups` attribute.  The dictionary
+            keys should be keys from the `column_gruops` attribute. The
+            dictionary values should be aggregation functions. See pandas API
+            documentation of Computations / descriptive statistics for a list of all
+            options. 
+            By default the groups of columns assigned to the 'power', 'poa', 't_amb',
+            and 'w_vel' keys in the `regression_cols` attribute are aggregated:
             - sum power
             - mean of poa, t_amb, w_vel
-        keep : bool, default True
-            Appends aggregation results columns rather than returning
-            or overwriting data_filtered and df attributes with just the
-            aggregation results.
-        update_regression_cols : bool, default True
-            By default updates the regression_cols dictionary attribute to map
-            the regression variable to the aggregation column. The
-            regression_cols attribute is not updated if inplace is False.
-        inplace : bool, default True
-            True writes over dataframe in df and data_filtered attribute.
-            False returns an aggregated dataframe.
-        inv_sum_vs_power : bool, default False
-            When true, method attempts to identify a column containing the sum
-            of inverter power and move it to the same group of columns as the
-            meter data.  If False, the inverter summation column is left in the
-            group of inverter columns.
-
-            Note: When set to true this option will cause issues with methods
-            that expect a single column of data identified by regression_cols
-            power.
 
         Returns
         -------
-        DataFrame
-            If inplace is False, then returns a pandas DataFrame.
-
-        Todo
-        ----
-        Re-apply filters
-            Explore re-applying filters after aggregation, if filters have
-            been run before using agg_sensors.
+        None
+            Acts in place on the data, data_filtered, and regression_cols attributes.
+            
+        Notes
+        -----
+        This method is intended to be used before any filtering methods are applied.
+        Filtering steps applied when this method is used will be lost.
         """
         if not len(self.summary) == 0:
             warnings.warn('The data_filtered attribute has been overwritten '
                           'and previously applied filtering steps have been '
                           'lost.  It is recommended to use agg_sensors '
-                          'before any filtering methods. In the future the '
-                          'agg_sensors method could possibly re-apply '
-                          'filters, if there is interest in this '
-                          'functionality.')
-
+                          'before any filtering methods.')
         # reset summary data
         self.summary_ix = []
         self.summary = []
@@ -2064,68 +2039,34 @@ class CapData(object):
                        self.regression_cols['w_vel']: 'mean'}
 
         dfs_to_concat = []
-        for trans_key, agg_funcs in agg_map.items():
-            df = self.view(trans_key, filtered_data=False)
-            df = df.agg(agg_funcs, axis=1)
-            if not isinstance(agg_funcs, list):
-                df = pd.DataFrame(df)
-                if isinstance(agg_funcs, str):
-                    df = pd.DataFrame(df)
-                    col_name = trans_key + agg_funcs + '-agg'
-                    df.rename(columns={df.columns[0]: col_name}, inplace=True)
-                else:
-                    col_name = trans_key + agg_funcs.__name__ + '-agg'
-                    df.rename(columns={df.columns[0]: col_name}, inplace=True)
-                self.column_groups[trans_key].append(col_name)
+        for group_id, agg_func in agg_map.items():
+            columns_to_aggregate = self.view(group_id, filtered_data=False)
+            if columns_to_aggregate.shape[1] == 1:
+                continue
+            agg_result = columns_to_aggregate.agg(agg_func, axis=1).to_frame()
+            if isinstance(agg_func, str):
+                col_name = group_id + '_' + agg_func + '_agg'
             else:
-                df.rename(columns=(lambda x: trans_key + x + '-agg'),
-                          inplace=True)
-                self.column_groups[trans_key].extend(list(df.columns))
-            dfs_to_concat.append(df)
+                col_name = group_id + '_' + agg_func.__name__ + '_agg'
+            agg_result.rename(columns={agg_result.columns[0]: col_name}, inplace=True)
+            dfs_to_concat.append(agg_result)
 
-        if keep:
-            dfs_to_concat.append(self.data)
+        dfs_to_concat.append(self.data)
+        # write over data and data_filtered attributes
+        self.data = pd.concat(dfs_to_concat, axis=1)
+        self.data_filtered = self.data.copy()
 
-        if inplace:
-            if update_regression_cols:
-                for reg_var, trans_group in self.regression_cols.items():
-                    if trans_group in agg_map.keys():
-                        if isinstance(agg_map[trans_group], list):
-                            if len(agg_map[trans_group]) > 1:
-                                warnings.warn('Multiple aggregation functions '
-                                              'specified for regression '
-                                              'variable.  Reset '
-                                              'regression_cols manually.')
-                                break
-                        try:
-                            agg_col = trans_group + agg_map[trans_group] + '-agg'  # noqa: E501
-                        except TypeError:
-                            agg_col = trans_group + col_name + '-agg'
-                        self.regression_cols[reg_var] = agg_col
-            self.data = pd.concat(dfs_to_concat, axis=1)
-            self.data_filtered = self.data.copy()
-            inv_sum_in_cols = [True for col
-                               in self.data.columns if '-inv-sum-agg' in col]
-            if inv_sum_in_cols and inv_sum_vs_power:
-                for key in self.trans_keys:
-                    if 'inv' in key:
-                        inv_key = key
-                for col_name in self.column_groups[inv_key]:
-                    if '-inv-sum-agg' in col_name:
-                        inv_sum_col = col_name
-                mtr_cols = [col for col
-                            in self.trans_keys
-                            if 'mtr' in col or 'real_pwr' in col]
-                if len(mtr_cols) > 1:
-                    warnings.warn('Multiple meter cols unclear what trans\
-                                   group to place inv sum in.')
-                else:
-                    inv_cols = self.column_groups[inv_key]
-                    inv_cols.remove(inv_sum_col)
-                    self.column_groups[inv_key] = inv_cols
-                    self.column_groups[mtr_cols[0]].append(inv_sum_col)
-        else:
-            return pd.concat(dfs_to_concat, axis=1)
+        # update regression_cols attribute 
+        for reg_var, trans_group in self.regression_cols.items():
+            if self.rview(reg_var).shape[1] == 1:
+                continue
+            if trans_group in agg_map.keys():
+                try:
+                    agg_col = trans_group + '_' + agg_map[trans_group] + '_agg'  # noqa: E501
+                except TypeError:
+                    agg_col = trans_group + '_' + col_name + '_agg'
+                print(agg_col)
+                self.regression_cols[reg_var] = agg_col
 
     @update_summary
     def filter_irr(self, low, high, ref_val=None, col_name=None, inplace=True):

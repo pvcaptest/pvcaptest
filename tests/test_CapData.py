@@ -943,128 +943,95 @@ class TestGetRegCols():
         assert meas.data['irr-poa-pyranmean-agg'].iloc[100] == df['poa'].iloc[100]
 
 
-class TestAggSensors(unittest.TestCase):
-    def setUp(self):
-        self.das = load_data(
-            path='./tests/data/example_meas_data_aeheaders.csv',
-            group_columns='./tests/data/ae_column_groups.yml',
-        )
-        self.das.set_regression_cols(
-            power='-mtr-', poa='irr-poa-', t_amb='temp-amb-', w_vel='wind--'
-        )
+class TestAggSensors():
+    def test_agg_map_none(self, meas):
+        """ Test default behaviour when no agg_map is passed. """
+        meas.agg_sensors()
+        # data and data_filtered should have same number of columns
+        assert meas.data_filtered.shape[1] == meas.data.shape[1]
+        # Rows should be the same in both dataframes
+        assert meas.data_filtered.shape[0] == meas.data.shape[0]
+        # Data after aggregation should not have sum of power columns because there
+        # is only one power column, so it is not aggregated.
+        assert '-mtr-_sum_agg' not in meas.data.columns
+        assert '-mtr-_sum_agg' not in meas.data_filtered.columns
 
-    def test_agg_map_none(self):
-        self.das.agg_sensors()
-        self.assertEqual(self.das.data_filtered.shape[1], self.das.data.shape[1],
-                         'df and data_filtered should have same number of rows.')
-        self.assertEqual(self.das.data_filtered.shape[0], self.das.data.shape[0],
-                         'Agg method inadverdently changed number of rows.')
-        self.assertIn('-mtr-sum-agg', self.das.data_filtered.columns,
-                      'Sum of power trans group not in aggregated df.')
-        self.assertIn('irr-poa-mean-agg', self.das.data_filtered.columns,
-                      'Mean of poa trans group not in aggregated df.')
-        self.assertIn('temp-amb-mean-agg', self.das.data_filtered.columns,
-                      'Mean of amb temp trans group not in aggregated df.')
-        self.assertIn('wind--mean-agg', self.das.data_filtered.columns,
-                      'Mean of wind trans group not in aggregated df.')
+        # Check for poa aggregation column
+        assert 'irr-poa-pyran_mean_agg' in meas.data_filtered.columns
+        # Check for amb temp aggregation column
+        assert 'temp-amb-_mean_agg' in meas.data_filtered.columns
+        # Check for wind aggregation column
+        assert 'wind--_mean_agg' in meas.data_filtered.columns
 
-    def test_agg_map_none_inplace_false(self):
-        df_flt_copy = self.das.data_filtered.copy()
-        df = self.das.agg_sensors(inplace=False)
-        self.assertEqual(df.shape[1], self.das.data.shape[1] + 4,
-                         'Returned df does not include 4 additional cols.')
-        self.assertEqual(df.shape[0], self.das.data.shape[0],
-                         'Agg method inadverdently changed number of rows.')
-        self.assertIn('-mtr-sum-agg', df.columns,
-                      'Sum of power trans group not in aggregated df.')
-        self.assertIn('irr-poa-mean-agg', df.columns,
-                      'Mean of poa trans group not in aggregated df.')
-        self.assertIn('temp-amb-mean-agg', df.columns,
-                      'Mean of amb temp trans group not in aggregated df.')
-        self.assertIn('wind--mean-agg', df.columns,
-                      'Mean of wind trans group not in aggregated df.')
-        self.assertTrue(df_flt_copy.equals(self.das.data_filtered),
-                        'Method with inplace false changed data_filtered attribute.')
+    def test_agg_map_non_str_func(self, meas):
+        meas.agg_sensors(agg_map={'irr-poa-pyran': np.mean})
+        # data and data_filtered should have same number of columns
+        assert meas.data_filtered.shape[1] == meas.data.shape[1]
+        # Rows should be the same in both dataframes
+        assert meas.data_filtered.shape[0] == meas.data.shape[0]
+        # Check for poa aggregation column
+        assert 'irr-poa-pyran_mean_agg' in meas.data_filtered.columns
 
-    def test_agg_map_none_keep_false(self):
-        self.das.agg_sensors(keep=False)
-        self.assertEqual(self.das.data_filtered.shape[1], 4,
-                         'Returned dataframe does not have 4 columns.')
-        self.assertEqual(self.das.data_filtered.shape[0], self.das.data.shape[0],
-                         'Agg method inadverdently changed number of rows.')
-        self.assertIn('-mtr-sum-agg', self.das.data_filtered.columns,
-                      'Sum of power trans group not in aggregated df.')
-        self.assertIn('irr-poa-mean-agg', self.das.data_filtered.columns,
-                      'Mean of poa trans group not in aggregated df.')
-        self.assertIn('temp-amb-mean-agg', self.das.data_filtered.columns,
-                      'Mean of amb temp trans group not in aggregated df.')
-        self.assertIn('wind--mean-agg', self.das.data_filtered.columns,
-                      'Mean of wind trans group not in aggregated df.')
+    def test_agg_map_update_regression_cols(self, meas):
+        meas.agg_sensors()
+        # Regression column for power should not be updated because there is only
+        # one power column.
+        assert meas.regression_cols['power'] == '-mtr-'
+        # Regression columns for poa, amb temp, and wind should be updated to
+        # the aggregated columns from the column group ids.
+        assert meas.regression_cols['poa'] == 'irr-poa-pyran_mean_agg'
+        assert meas.regression_cols['t_amb'] == 'temp-amb-_mean_agg'
+        assert meas.regression_cols['w_vel'] == 'wind--_mean_agg'
 
-    def test_agg_map_non_str_func(self):
-        self.das.agg_sensors(agg_map={'irr-poa-': np.mean})
-        self.assertEqual(self.das.data_filtered.shape[1], self.das.data.shape[1],
-                         'df and data_filtered should have same number of rows.')
-        self.assertEqual(self.das.data_filtered.shape[0], self.das.data.shape[0],
-                         'Agg method inadverdently changed number of rows.')
-        self.assertIn('irr-poa-mean-agg', self.das.data_filtered.columns,
-                      'Mean of poa trans group not in aggregated df.')
+    def test_reset_summary(self, meas):
+        meas.agg_sensors()
+        # Summary should be empty after aggregation
+        assert len(meas.summary) == 0
+        # Summary index should be empty after aggregation
+        assert len(meas.summary_ix) == 0
 
-    def test_agg_map_mix_funcs(self):
-        self.das.agg_sensors(agg_map={'irr-poa-': [np.mean, 'sum']})
-        self.assertEqual(self.das.data_filtered.shape[1], self.das.data.shape[1],
-                         'df and data_filtered should have same number of rows.')
-        self.assertEqual(self.das.data_filtered.shape[0], self.das.data.shape[0],
-                         'Agg method inadverdently changed number of rows.')
-        self.assertIn('irr-poa-mean-agg', self.das.data_filtered.columns,
-                      'Mean of poa trans group not in aggregated df.')
-        self.assertIn('irr-poa-sum-agg', self.das.data_filtered.columns,
-                      'Sum of poa trans group not in aggregated df.')
+    def test_reset_agg_method(self, meas):
+        orig_df = meas.data.copy()
+        orig_trans = meas.column_groups.copy()
+        orig_reg_trans = meas.regression_cols.copy()
 
-    def test_agg_map_update_regression_cols(self):
-        self.das.agg_sensors()
-        self.assertEqual(self.das.regression_cols['power'], '-mtr-sum-agg',
-                         'Power regression_cols not updated to agg column.')
-        self.assertEqual(self.das.regression_cols['poa'], 'irr-poa-mean-agg',
-                         'POA regression_cols not updated to agg column.')
-        self.assertEqual(self.das.regression_cols['t_amb'], 'temp-amb-mean-agg',
-                         'Amb temp regression_cols not updated to agg column.')
-        self.assertEqual(self.das.regression_cols['w_vel'], 'wind--mean-agg',
-                         'Wind velocity regression_cols not updated to agg column.')
+        meas.agg_sensors()
+        meas.filter_irr(200, 500)
+        meas.reset_agg()
 
-    def test_reset_summary(self):
-        self.das.agg_sensors()
-        self.assertEqual(len(self.das.summary), 0,
-                         'Summary data not reset.')
-        self.assertEqual(len(self.das.summary_ix), 0,
-                         'Summary index not reset.')
+        # Dataframe should be the same as before aggregation
+        assert meas.data.equals(orig_df)
+        # Columns should be the same as before aggregation
+        assert all(meas.data_filtered.columns == orig_df.columns)
+        # Reset should not affect filtering
+        assert meas.data_filtered.shape[0] < orig_df.shape[0]
 
-    def test_reset_agg_method(self):
-        orig_df = self.das.data.copy()
-        orig_trans = self.das.column_groups.copy()
-        orig_reg_trans = self.das.regression_cols.copy()
-
-        self.das.agg_sensors()
-        self.das.filter_irr(200, 500)
-        self.das.reset_agg()
-
-        self.assertTrue(self.das.data.equals(orig_df),
-                        'df attribute does not match pre-agg df after reset.')
-        self.assertTrue(all(self.das.data_filtered.columns == orig_df.columns),
-                        'Filtered dataframe does not have same columns as'
-                        'original dataframe after resetting agg.')
-        self.assertLess(self.das.data_filtered.shape[0], orig_df.shape[0],
-                        'Filtering overwritten by reset agg method.')
-
-    def test_warn_if_filters_already_run(self):
+    def test_warn_if_filters_already_run(self, meas):
         """
         Warn if method is writing over filtering already applied to data_filtered.
         """
-        poa_key = self.das.regression_cols['poa']
-        self.das.column_groups[poa_key] = [self.das.column_groups[poa_key][0]]
-        self.das.filter_irr(200, 800)
-        with self.assertWarns(UserWarning):
-            self.das.agg_sensors()
+        poa_key = meas.regression_cols['poa']
+        meas.column_groups[poa_key] = [meas.column_groups[poa_key][0]]
+        meas.filter_irr(200, 800)
+        with pytest.warns(UserWarning):
+            meas.agg_sensors()
+            warnings.warn(
+                'The data_filtered attribute has been overwritten '
+                'and previously applied filtering steps have been '
+                'lost.  It is recommended to use agg_sensors '
+                'before any filtering methods.',
+                UserWarning
+            )
+
+    def test_regression_columns_not_in_column_groups(self, meas):
+        """Sould be able to aggregate columns if the regression columns includes
+        a column that is not in the column_groups attribute.
+        """
+        meas.data['irr_poa_total'] = meas['met1_poa_pyranometer']
+        meas.regression_cols['poa'] = 'irr_poa_total'
+        meas.agg_sensors(agg_map={'temp-amb-': 'mean'})
+        assert meas.regression_cols['t_amb'] == 'temp-amb-_mean_agg'
+
 
 
 class TestFilterSensors(unittest.TestCase):
