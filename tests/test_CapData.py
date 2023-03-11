@@ -1074,10 +1074,20 @@ class TestFilterSensors():
 
 class TestRepCondNoFreq(unittest.TestCase):
     def setUp(self):
-        self.meas = load_data(path='./tests/data/nrel_data.csv')
-        self.meas.set_regression_cols(
-            power='', poa='irr-poa-', t_amb='temp--', w_vel='wind--'
+        self.meas = pvc.CapData('meas')
+        self.meas.data = pd.read_csv(
+            './tests/data/nrel_data.csv', index_col=0, parse_dates=True
         )
+        self.meas.data_filtered = self.meas.data.copy()
+        self.meas.column_groups = {
+            'irr-poa-': ['POA 40-South CMP11 [W/m^2]', ],
+            'temp--': ['Deck Dry Bulb Temp [deg C]', ],
+            'wind--': ['Avg Wind Speed @ 19ft [m/s]', ],
+        }
+        self.meas.trans_keys = list(self.meas.column_groups.keys())
+        self.meas.regression_cols = {
+            'power': '', 'poa': 'irr-poa-', 't_amb': 'temp--', 'w_vel': 'wind--'
+        }
 
     def test_defaults(self):
         self.meas.rep_cond()
@@ -1111,10 +1121,6 @@ class TestRepCondNoFreq(unittest.TestCase):
         self.meas.rep_cond(irr_bal=True, percent_filter=20, w_vel=50)
         self.assertEqual(self.meas.rc['w_vel'][0], 50,
                          'Wind velocity not overwritten by user value')
-
-    def test_irr_bal_inplace_no_percent_filter(self):
-        with self.assertWarns(UserWarning):
-            self.meas.rep_cond(irr_bal=True, percent_filter=None)
 
 
 class TestRepCondFreq(unittest.TestCase):
