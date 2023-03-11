@@ -1034,48 +1034,42 @@ class TestAggSensors():
 
 
 
-class TestFilterSensors(unittest.TestCase):
-    def setUp(self):
-        self.das = load_data(
-            path='./tests/data/example_meas_data.csv'
+class TestFilterSensors():
+    def test_perc_diff_none(self, meas):
+        rows_before_flt = meas.data_filtered.shape[0]
+        meas.filter_sensors(perc_diff=None, inplace=True)
+        # Check that data_filtered is still a dataframe
+        assert isinstance(meas.data_filtered, pd.core.frame.DataFrame)
+        # Check that rows were removed
+        assert meas.data_filtered.shape[0] < rows_before_flt
+
+    def test_perc_diff(self, meas):
+        rows_before_flt = meas.data_filtered.shape[0]
+        meas.filter_sensors(
+            perc_diff={'irr-poa-ref_cell': 0.05, 'temp-amb-': 0.1},
+            inplace=True
         )
-        self.das.set_regression_cols(
-            power='-mtr-', poa='irr-poa-ref_cell', t_amb='temp-amb-', w_vel='wind--'
+        # Check that data_filtered is still a dataframe
+        assert isinstance(meas.data_filtered, pd.core.frame.DataFrame)
+        # Check that rows were removed
+        assert (meas.data_filtered.shape[0] < rows_before_flt)
+
+    def test_after_agg_sensors(self, meas):
+        rows_before_flt = meas.data_filtered.shape[0]
+        meas.agg_sensors(agg_map={
+            '-inv-': 'sum',
+            'irr-poa-ref_cell': 'mean',
+            'wind--': 'mean',
+            'temp-amb-': 'mean'
+        })
+        meas.filter_sensors(
+            perc_diff={'irr-poa-ref_cell': 0.05, 'temp-amb-': 0.1},
+            inplace=True,
         )
-
-    def test_perc_diff_none(self):
-        rows_before_flt = self.das.data_filtered.shape[0]
-        self.das.filter_sensors(perc_diff=None, inplace=True)
-        self.assertIsInstance(self.das.data_filtered, pd.core.frame.DataFrame,
-                              'Did not dave a dataframe to data_filtered.')
-        self.assertLess(self.das.data_filtered.shape[0], rows_before_flt,
-                        'No rows removed.')
-
-    def test_perc_diff(self):
-        rows_before_flt = self.das.data_filtered.shape[0]
-        self.das.filter_sensors(perc_diff={'irr-poa-ref_cell': 0.05,
-                                           'temp-amb-': 0.1},
-                                inplace=True)
-        self.assertIsInstance(self.das.data_filtered, pd.core.frame.DataFrame,
-                              'Did not dave a dataframe to data_filtered.')
-        self.assertLess(self.das.data_filtered.shape[0], rows_before_flt,
-                        'No rows removed.')
-
-    def test_after_agg_sensors(self):
-        rows_before_flt = self.das.data_filtered.shape[0]
-        self.das.agg_sensors(agg_map={'-inv-': 'sum',
-                                      'irr-poa-ref_cell': 'mean',
-                                      'wind--': 'mean',
-                                      'temp-amb-': 'mean'})
-        self.das.filter_sensors(perc_diff={'irr-poa-ref_cell': 0.05,
-                                           'temp-amb-': 0.1},
-                                inplace=True)
-        self.assertIsInstance(self.das.data_filtered, pd.core.frame.DataFrame,
-                              'Did not dave a dataframe to data_filtered.')
-        self.assertLess(self.das.data_filtered.shape[0], rows_before_flt,
-                        'No rows removed.')
-        self.assertIn('-inv-sum-agg', self.das.data_filtered.columns,
-                      'filter_sensors did not retain aggregation columns.')
+        assert isinstance(meas.data_filtered, pd.core.frame.DataFrame)
+        assert meas.data_filtered.shape[0] < rows_before_flt
+        # Filter_sensors should retain the aggregated columns
+        assert '-inv-_sum_agg' in meas.data_filtered.columns
 
 
 class TestRepCondNoFreq(unittest.TestCase):
