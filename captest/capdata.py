@@ -2844,12 +2844,17 @@ class CapData(object):
             if irr_bal:
                 freq = list(df_grpd.groups.keys())[0].freq
                 ix = pd.DatetimeIndex(list(df_grpd.groups.keys()), freq=freq)
-                low, high = perc_bounds(percent_filter)
                 poa_RC = []
                 temp_RC = []
                 wind_RC = []
                 for name, month in df_grpd:
-                    results = irr_rc_balanced(month, low, high, irr_col='poa')
+                    self.rc_tool = ReportingIrradiance(
+                        month,
+                        'poa',
+                        percent_band=percent_filter,
+                        **rc_kwargs,
+                    )
+                    results = self.rc_tool.get_rep_irr()
                     poa_RC.append(results[0])
                     flt_df = results[1]
                     temp_RC.append(flt_df['t_amb'].mean())
