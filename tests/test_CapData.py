@@ -1181,29 +1181,27 @@ class TestRepCondFreq():
         assert pvsyst.rc.shape[0] == 4
 
 
-class TestPredictCapacities(unittest.TestCase):
-    def setUp(self):
-        self.pvsyst = load_pvsyst(path='./tests/data/pvsyst_example_HourlyRes_2.CSV')
-        self.pvsyst.set_regression_cols(
-            power='real_pwr--', poa='irr-poa-', t_amb='temp-amb-', w_vel='wind--'
-        )
-        self.pvsyst.filter_irr(200, 800)
-        self.pvsyst.tolerance = '+/- 5'
+@pytest.fixture
+def pvsyst_irr_filter(pvsyst):
+    pvsyst.filter_irr(200, 800)
+    pvsyst.tolerance = '+/- 5'
+    return pvsyst
 
-    def test_monthly(self):
-        self.pvsyst.rep_cond(freq='MS')
-        pred_caps = self.pvsyst.predict_capacities(irr_filter=True, percent_filter=20)
+class TestPredictCapacities():
+    def test_monthly(self, pvsyst_irr_filter):
+        pvsyst_irr_filter.rep_cond(freq='MS')
+        pred_caps = pvsyst_irr_filter.predict_capacities(irr_filter=True, percent_filter=20)
         july_grpby = pred_caps.loc['1990-07-01', 'PredCap']
 
-        self.assertIsInstance(pred_caps, pd.core.frame.DataFrame,
-                              'Returned object is not a Dataframe.')
-        self.assertEqual(pred_caps.shape[0], 12,
-                         'Predicted capacities does not have 12 rows.')
+        # Check that the returned object is a dataframe
+        assert isinstance(pred_caps, pd.core.frame.DataFrame)
+        # Check that the returned dataframe has 12 rows
+        assert pred_caps.shape[0] == 12
 
-        self.pvsyst.data_filtered = self.pvsyst.data_filtered.loc['7/1/90':'7/31/90', :]
-        self.pvsyst.rep_cond()
-        self.pvsyst.filter_irr(0.8, 1.2, ref_val=self.pvsyst.rc['poa'][0])
-        df = self.pvsyst.rview(['power', 'poa', 't_amb', 'w_vel'],
+        pvsyst_irr_filter.data_filtered = pvsyst_irr_filter.data_filtered.loc['7/1/90':'7/31/90', :]
+        pvsyst_irr_filter.rep_cond()
+        pvsyst_irr_filter.filter_irr(0.8, 1.2, ref_val=pvsyst_irr_filter.rc['poa'][0])
+        df = pvsyst_irr_filter.rview(['power', 'poa', 't_amb', 'w_vel'],
                                filtered_data=True)
         rename = {df.columns[0]: 'power',
                   df.columns[1]: 'poa',
@@ -1211,43 +1209,26 @@ class TestPredictCapacities(unittest.TestCase):
                   df.columns[3]: 'w_vel'}
         df = df.rename(columns=rename)
         reg = pvc.fit_model(df)
-        july_manual = reg.predict(self.pvsyst.rc)[0]
-        self.assertAlmostEqual(
-            july_manual,
-            july_grpby,
-            places=5,
-            msg=('Manual prediction for July {} is not equal'
-                 'to the predict_capacites groupby'
-                 'prediction {}'.format(july_manual, july_grpby))
-        )
+        july_manual = reg.predict(pvsyst_irr_filter.rc)[0]
+        assert pytest.approx(july_manual, july_grpby, abs=1e-5)
 
-    def test_no_irr_filter(self):
-        self.pvsyst.rep_cond(freq='M')
-        pred_caps = self.pvsyst.predict_capacities(irr_filter=False)
-        self.assertIsInstance(pred_caps, pd.core.frame.DataFrame,
-                              'Returned object is not a Dataframe.')
-        self.assertEqual(pred_caps.shape[0], 12,
-                         'Predicted capacities does not have 12 rows.')
+    def test_no_irr_filter(self, pvsyst_irr_filter):
+        pvsyst_irr_filter.rep_cond(freq='M')
+        pred_caps = pvsyst_irr_filter.predict_capacities(irr_filter=False)
+        assert isinstance(pred_caps, pd.core.frame.DataFrame)
+        assert pred_caps.shape[0] == 12
 
-    def test_rc_from_irrBal(self):
-        self.pvsyst.rep_cond(freq='M', irr_bal=True, percent_filter=20)
-        pred_caps = self.pvsyst.predict_capacities(irr_filter=False)
-        self.assertIsInstance(pred_caps, pd.core.frame.DataFrame,
-                              'Returned object is {} not a\
-                               Dataframe.'.format(type(pred_caps)))
-        self.assertEqual(pred_caps.shape[0], 12,
-                         'Predicted capacities does not have 12 rows.')
+    def test_rc_from_irrBal(self, pvsyst_irr_filter):
+        pvsyst_irr_filter.rep_cond(freq='M', irr_bal=True, percent_filter=20)
+        pred_caps = pvsyst_irr_filter.predict_capacities(irr_filter=False)
+        assert isinstance(pred_caps, pd.core.frame.DataFrame)
+        assert pred_caps.shape[0] == 12
 
-    def test_seasonal_freq(self):
-        self.pvsyst.rep_cond(freq='BQ-NOV')
-        pred_caps = self.pvsyst.predict_capacities(irr_filter=True, percent_filter=20)
-        self.assertIsInstance(pred_caps, pd.core.frame.DataFrame,
-                              'Returned object is {} not a\
-                               Dataframe.'.format(type(pred_caps)))
-        self.assertEqual(pred_caps.shape[0], 4,
-                         'Predicted capacities has {} rows instead of 4\
-                          rows.'.format(pred_caps.shape[0]))
-
+    def test_seasonal_freq(self, pvsyst_irr_filter):
+        pvsyst_irr_filter.rep_cond(freq='BQ-NOV')
+        pred_caps = pvsyst_irr_filter.predict_capacities(irr_filter=True, percent_filter=20)
+        assert isinstance(pred_caps, pd.core.frame.DataFrame)
+        assert pred_caps.shape[0] == 4
 
 class TestFilterIrr(unittest.TestCase):
     def setUp(self):
