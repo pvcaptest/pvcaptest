@@ -1173,7 +1173,7 @@ class TestRepCondFreq():
         # Rep conditions dataframe should have 12 rows
         assert pvsyst.rc.shape[0] == 12
 
-    def test_seas_no_irr_bal(pvsyst):
+    def test_seas_no_irr_bal(self, pvsyst):
         pvsyst.rep_cond(freq='BQ-NOV', irr_bal=False)
         # Check that the rc attribute is a dataframe
         assert isinstance(pvsyst.rc, pd.core.frame.DataFrame)
