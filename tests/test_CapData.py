@@ -1072,55 +1072,50 @@ class TestFilterSensors():
         assert '-inv-_sum_agg' in meas.data_filtered.columns
 
 
-class TestRepCondNoFreq(unittest.TestCase):
-    def setUp(self):
-        self.meas = pvc.CapData('meas')
-        self.meas.data = pd.read_csv(
-            './tests/data/nrel_data.csv', index_col=0, parse_dates=True
-        )
-        self.meas.data_filtered = self.meas.data.copy()
-        self.meas.column_groups = {
-            'irr-poa-': ['POA 40-South CMP11 [W/m^2]', ],
-            'temp--': ['Deck Dry Bulb Temp [deg C]', ],
-            'wind--': ['Avg Wind Speed @ 19ft [m/s]', ],
-        }
-        self.meas.trans_keys = list(self.meas.column_groups.keys())
-        self.meas.regression_cols = {
-            'power': '', 'poa': 'irr-poa-', 't_amb': 'temp--', 'w_vel': 'wind--'
-        }
+@pytest.fixture
+def nrel():
+    nrel = pvc.CapData('nrel')
+    nrel.data = pd.read_csv(
+        './tests/data/nrel_data.csv', index_col=0, parse_dates=True
+    )
+    nrel.data_filtered = nrel.data.copy()
+    nrel.column_groups = {
+        'irr-poa-': ['POA 40-South CMP11 [W/m^2]', ],
+        'temp--': ['Deck Dry Bulb Temp [deg C]', ],
+        'wind--': ['Avg Wind Speed @ 19ft [m/s]', ],
+    }
+    nrel.trans_keys = list(nrel.column_groups.keys())
+    nrel.regression_cols = {
+        'power': '', 'poa': 'irr-poa-', 't_amb': 'temp--', 'w_vel': 'wind--'
+    }
+    return nrel
 
-    def test_defaults(self):
-        self.meas.rep_cond()
-        self.assertIsInstance(self.meas.rc, pd.core.frame.DataFrame,
-                              'No dataframe stored in the rc attribute.')
 
-    def test_defaults_wvel(self):
-        self.meas.rep_cond(w_vel=50)
-        self.assertEqual(self.meas.rc['w_vel'][0], 50,
-                         'Wind velocity not overwritten by user value')
+class TestRepCondNoFreq():
+    def test_defaults(self, nrel):
+        nrel.rep_cond()
+        assert isinstance(nrel.rc, pd.core.frame.DataFrame)
 
-    def test_defaults_not_inplace(self):
-        df = self.meas.rep_cond(inplace=False)
-        self.assertIsNone(self.meas.rc,
-                          'Method result stored instead of returned.')
-        self.assertIsInstance(df, pd.core.frame.DataFrame,
-                              'No dataframe returned from method.')
+    def test_defaults_wvel(self, nrel):
+        nrel.rep_cond(w_vel=50)
+        assert nrel.rc['w_vel'][0] == 50
 
-    def test_irr_bal_inplace(self):
-        self.meas.filter_irr(0.1, 2000)
-        meas2 = self.meas.copy()
+    def test_defaults_not_inplace(self, nrel):
+        df = nrel.rep_cond(inplace=False)
+        assert nrel.rc is None
+        assert isinstance(df, pd.core.frame.DataFrame)
+
+    def test_irr_bal_inplace(self, nrel):
+        nrel.filter_irr(0.1, 2000)
+        meas2 = nrel.copy()
         meas2.rep_cond()
-        self.meas.rep_cond(irr_bal=True, percent_filter=20)
-        self.assertIsInstance(self.meas.rc, pd.core.frame.DataFrame,
-                              'No dataframe stored in the rc attribute.')
-        self.assertNotEqual(self.meas.rc['poa'][0], meas2.rc['poa'][0],
-                            'Irr_bal function returned same result\
-                             as w/o irr_bal')
+        nrel.rep_cond(irr_bal=True, percent_filter=20)
+        assert isinstance(nrel.rc, pd.core.frame.DataFrame)
+        assert nrel.rc['poa'][0] != meas2.rc['poa'][0]
 
-    def test_irr_bal_inplace_wvel(self):
-        self.meas.rep_cond(irr_bal=True, percent_filter=20, w_vel=50)
-        self.assertEqual(self.meas.rc['w_vel'][0], 50,
-                         'Wind velocity not overwritten by user value')
+    def test_irr_bal_inplace_wvel(self, nrel):
+        nrel.rep_cond(irr_bal=True, percent_filter=20, w_vel=50)
+        assert nrel.rc['w_vel'][0] == 50
 
 
 @pytest.fixture
