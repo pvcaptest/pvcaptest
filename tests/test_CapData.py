@@ -1123,60 +1123,62 @@ class TestRepCondNoFreq(unittest.TestCase):
                          'Wind velocity not overwritten by user value')
 
 
-class TestRepCondFreq(unittest.TestCase):
-    def setUp(self):
-        # self.pvsyst = load_pvsyst(path='./tests/data/pvsyst_example_HourlyRes_2.CSV')
-        # load pvsyst csv file
-        df = pd.read_csv(
-            './tests/data/pvsyst_example_HourlyRes_2.CSV',
-            skiprows=9,
-            encoding='latin1',
-        ).iloc[1:, :]
-        df['Timestamp'] = pd.to_datetime(df['date'])
-        df = df.set_index('Timestamp', drop=True)
-        df = df.drop(columns=['date']).astype(np.float64)
-        df.rename(columns={'T Amb': 'T_Amb'}, inplace=True)
-        # set pvsyst DataFrame to CapData data attribute
-        self.pvsyst = pvc.CapData('pvsyst')
-        self.pvsyst.data = df
-        self.pvsyst.data_filtered = self.pvsyst.data.copy()
-        self.pvsyst.column_groups = {
-            'irr-poa-': ['GlobInc'],
-            'shade--': ['FShdBm'],
-            'index--': ['index'],
-            'wind--': ['WindVel'],
-            '-inv-': ['EOutInv'],
-            'pvsyt_losses--': ['IL Pmax', 'IL Pmin', 'IL Vmax', 'IL Vmin'],
-            'temp-amb-': ['T_Amb'],
-            'irr-ghi-': ['GlobHor'],
-            'temp-mod-': ['TArray'],
-            'real_pwr--': ['E_Grid'],
-        }
-        self.pvsyst.regression_cols = {
-            'power': 'real_pwr--', 'poa': 'irr-poa-', 't_amb': 'temp-amb-', 'w_vel': 'wind--'
-        }
-        self.pvsyst.trans_keys = self.pvsyst.column_groups.keys()
+@pytest.fixture
+def pvsyst():
+    # load pvsyst csv file
+    df = pd.read_csv(
+        './tests/data/pvsyst_example_HourlyRes_2.CSV',
+        skiprows=9,
+        encoding='latin1',
+    ).iloc[1:, :]
+    df['Timestamp'] = pd.to_datetime(df['date'])
+    df = df.set_index('Timestamp', drop=True)
+    df = df.drop(columns=['date']).astype(np.float64)
+    df.rename(columns={'T Amb': 'T_Amb'}, inplace=True)
+    # set pvsyst DataFrame to CapData data attribute
+    pvsyst = pvc.CapData('pvsyst')
+    pvsyst.data = df
+    pvsyst.data_filtered = pvsyst.data.copy()
+    pvsyst.column_groups = {
+        'irr-poa-': ['GlobInc'],
+        'shade--': ['FShdBm'],
+        'index--': ['index'],
+        'wind--': ['WindVel'],
+        '-inv-': ['EOutInv'],
+        'pvsyt_losses--': ['IL Pmax', 'IL Pmin', 'IL Vmax', 'IL Vmin'],
+        'temp-amb-': ['T_Amb'],
+        'irr-ghi-': ['GlobHor'],
+        'temp-mod-': ['TArray'],
+        'real_pwr--': ['E_Grid'],
+    }
+    pvsyst.regression_cols = {
+        'power': 'real_pwr--', 'poa': 'irr-poa-', 't_amb': 'temp-amb-', 'w_vel': 'wind--'
+    }
+    pvsyst.trans_keys = pvsyst.column_groups.keys()
+    return pvsyst
+    
 
-    def test_monthly_no_irr_bal(self):
-        self.pvsyst.rep_cond(freq='M')
-        self.assertIsInstance(self.pvsyst.rc, pd.core.frame.DataFrame,
-                              'No dataframe stored in the rc attribute.')
-        self.assertEqual(self.pvsyst.rc.shape[0], 12,
-                         'Rep conditions dataframe does not have 12 rows.')
+class TestRepCondFreq():
+    def test_monthly_no_irr_bal(self, pvsyst):
+        pvsyst.rep_cond(freq='M')
+        # Check that the rc attribute is a dataframe
+        assert isinstance(pvsyst.rc, pd.core.frame.DataFrame)
+        # Rep conditions dataframe should have 12 rows
+        assert pvsyst.rc.shape[0] == 12
 
-    def test_monthly_irr_bal(self):
-        self.pvsyst.rep_cond(freq='M', irr_bal=True, percent_filter=20)
-        self.assertIsInstance(self.pvsyst.rc, pd.core.frame.DataFrame,
-                              'No dataframe stored in the rc attribute.')
-        self.assertEqual(self.pvsyst.rc.shape[0], 12,
-                         'Rep conditions dataframe does not have 12 rows.')
+    def test_monthly_irr_bal(self, pvsyst):
+        pvsyst.rep_cond(freq='M', irr_bal=True, percent_filter=20)
+        # Check that the rc attribute is a dataframe
+        assert isinstance(pvsyst.rc, pd.core.frame.DataFrame)
+        # Rep conditions dataframe should have 12 rows
+        assert pvsyst.rc.shape[0] == 12
 
-    def test_seas_no_irr_bal(self):
-        self.pvsyst.rep_cond(freq='BQ-NOV', irr_bal=False)
-        self.assertIsInstance(self.pvsyst.rc, pd.core.frame.DataFrame,
-                              'No dataframe stored in the rc attribute.')
-        self.assertEqual(self.pvsyst.rc.shape[0], 4,
-                         'Rep conditions dataframe does not have 4 rows.')
+    def test_seas_no_irr_bal(pvsyst):
+        pvsyst.rep_cond(freq='BQ-NOV', irr_bal=False)
+        # Check that the rc attribute is a dataframe
+        assert isinstance(pvsyst.rc, pd.core.frame.DataFrame)
+        # Rep conditions dataframe should have 4 rows
+        assert pvsyst.rc.shape[0] == 4
 
 
 class TestPredictCapacities(unittest.TestCase):
