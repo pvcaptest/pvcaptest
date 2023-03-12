@@ -1225,78 +1225,68 @@ class TestPredictCapacities():
         assert isinstance(pred_caps, pd.core.frame.DataFrame)
         assert pred_caps.shape[0] == 4
 
-class TestFilterIrr(unittest.TestCase):
-    def setUp(self):
-        self.meas = load_data(
-            path='./tests/data/nrel_data.csv',
+class TestFilterIrr():
+    def test_get_poa_col(self, nrel):
+        col = nrel._CapData__get_poa_col()
+        assert col == 'POA 40-South CMP11 [W/m^2]'
+
+    def test_get_poa_col_multcols(self, nrel):
+        nrel.data['POA second column'] = nrel.rview('poa').values
+        nrel.column_groups['irr-poa-'].append('POA second column')
+        with pytest.warns(
+            UserWarning,
+            match='[0-9]+ columns of irradiance data. Use col_name to specify a single column.'
+        ):
+            col = nrel._CapData__get_poa_col()
+            warnings.warn(
+                '2 columns of irradiance data. Use col_name to specify a single column.',
+                UserWarning
+            )
+
+    def test_lowhigh_nocol(self, nrel):
+        pts_before = nrel.data_filtered.shape[0]
+        nrel.filter_irr(500, 600, ref_val=None, col_name=None, inplace=True)
+        assert nrel.data_filtered.shape[0] < pts_before
+
+    def test_lowhigh_colname(self, nrel):
+        pts_before = nrel.data_filtered.shape[0]
+        nrel.data['POA second column'] = nrel.rview('poa').values
+        nrel.column_groups['irr-poa-'].append('POA second column')
+        nrel.data_filtered = nrel.data.copy()
+        nrel.filter_irr(
+            500, 600, ref_val=None, col_name='POA second column', inplace=True
         )
-        self.meas.set_regression_cols(
-            power='', poa='irr-poa-', t_amb='temp--', w_vel='wind--'
-        )
+        assert nrel.data_filtered.shape[0] < pts_before
 
-    def test_get_poa_col(self):
-        col = self.meas._CapData__get_poa_col()
-        self.assertEqual(col, 'POA 40-South CMP11 [W/m^2]',
-                         'POA column not returned')
-
-    def test_get_poa_col_multcols(self):
-        self.meas.data['POA second column'] = self.meas.rview('poa').values
-        self.meas.column_groups['irr-poa-'].append('POA second column')
-        with self.assertWarns(UserWarning):
-            col = self.meas._CapData__get_poa_col()
-
-    def test_lowhigh_nocol(self):
-        pts_before = self.meas.data_filtered.shape[0]
-        self.meas.filter_irr(500, 600, ref_val=None, col_name=None,
+    def test_refval_nocol(self, nrel):
+        pts_before = nrel.data_filtered.shape[0]
+        nrel.filter_irr(0.8, 1.2, ref_val=500, col_name=None,
                              inplace=True)
-        self.assertLess(self.meas.data_filtered.shape[0], pts_before,
-                        'Filter did not remove points.')
+        assert nrel.data_filtered.shape[0] < pts_before
 
-    def test_lowhigh_colname(self):
-        pts_before = self.meas.data_filtered.shape[0]
-        self.meas.data['POA second column'] = self.meas.rview('poa').values
-        self.meas.column_groups['irr-poa-'].append('POA second column')
-        self.meas.data_filtered = self.meas.data.copy()
-        self.meas.filter_irr(500, 600, ref_val=None,
+    def test_refval_withcol(self, nrel):
+        pts_before = nrel.data_filtered.shape[0]
+        nrel.data['POA second column'] = nrel.rview('poa').values
+        nrel.column_groups['irr-poa-'].append('POA second column')
+        nrel.data_filtered = nrel.data.copy()
+        nrel.filter_irr(0.8, 1.2, ref_val=500,
                              col_name='POA second column', inplace=True)
-        self.assertLess(self.meas.data_filtered.shape[0], pts_before,
-                        'Filter did not remove points.')
+        assert nrel.data_filtered.shape[0] < pts_before
 
-    def test_refval_nocol(self):
-        pts_before = self.meas.data_filtered.shape[0]
-        self.meas.filter_irr(0.8, 1.2, ref_val=500, col_name=None,
+    def test_refval_use_attribute(self, nrel):
+        nrel.rc = pd.DataFrame({'poa':500, 'w_vel':1, 't_amb':20}, index=[0])
+        pts_before = nrel.data_filtered.shape[0]
+        nrel.filter_irr(0.8, 1.2, ref_val='self_val', col_name=None,
                              inplace=True)
-        self.assertLess(self.meas.data_filtered.shape[0], pts_before,
-                        'Filter did not remove points.')
+        assert nrel.data_filtered.shape[0] < pts_before
 
-    def test_refval_withcol(self):
-        pts_before = self.meas.data_filtered.shape[0]
-        self.meas.data['POA second column'] = self.meas.rview('poa').values
-        self.meas.column_groups['irr-poa-'].append('POA second column')
-        self.meas.data_filtered = self.meas.data.copy()
-        self.meas.filter_irr(0.8, 1.2, ref_val=500,
-                             col_name='POA second column', inplace=True)
-        self.assertLess(self.meas.data_filtered.shape[0], pts_before,
-                        'Filter did not remove points.')
-
-    def test_refval_use_attribute(self):
-        self.meas.rc = pd.DataFrame({'poa':500, 'w_vel':1, 't_amb':20}, index=[0])
-        pts_before = self.meas.data_filtered.shape[0]
-        self.meas.filter_irr(0.8, 1.2, ref_val='self_val', col_name=None,
-                             inplace=True)
-        self.assertLess(self.meas.data_filtered.shape[0], pts_before,
-                        'Filter did not remove points.')
-
-    def test_refval_withcol_notinplace(self):
-        pts_before = self.meas.data_filtered.shape[0]
-        df = self.meas.filter_irr(500, 600, ref_val=None, col_name=None,
+    def test_refval_withcol_notinplace(self, nrel):
+        pts_before = nrel.data_filtered.shape[0]
+        df = nrel.filter_irr(500, 600, ref_val=None, col_name=None,
                                   inplace=False)
-        self.assertEqual(self.meas.data_filtered.shape[0], pts_before,
-                         'Filter removed points from data_filtered.')
-        self.assertIsInstance(df, pd.core.frame.DataFrame,
-                              'Did not return DataFrame object.')
-        self.assertLess(df.shape[0], pts_before,
-                        'Filter did not remove points from returned DataFrame.')
+        assert nrel.data_filtered.shape[0] == pts_before
+        assert isinstance(df, pd.core.frame.DataFrame)
+        assert df.shape[0] < pts_before
 
 
 class TestGetSummary(unittest.TestCase):
