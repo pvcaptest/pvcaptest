@@ -886,8 +886,9 @@ def get_tz_index(time_source, loc):
     """
     if isinstance(time_source, pd.core.indexes.datetimes.DatetimeIndex):
         if time_source.tz is None:
-            time_source = time_source.tz_localize(loc['tz'], ambiguous='infer',
-                                                  nonexistent='NaT')
+            time_source = time_source.tz_localize(
+                loc['tz'], ambiguous='infer', nonexistent='NaT'
+            )
             return time_source
         else:
             if pytz.timezone(loc['tz']) != time_source.tz:
@@ -897,8 +898,9 @@ def get_tz_index(time_source, loc):
             return time_source
     elif isinstance(time_source, pd.core.frame.DataFrame):
         if time_source.index.tz is None:
-            return time_source.index.tz_localize(loc['tz'], ambiguous='infer',
-                                                 nonexistent='NaT')
+            return time_source.index.tz_localize(
+                loc['tz'], ambiguous='infer', nonexistent='NaT'
+            )
         else:
             if pytz.timezone(loc['tz']) != time_source.index.tz:
                 warnings.warn('Passed a DataFrame with a timezone that '
@@ -985,7 +987,13 @@ def csky(time_source, loc=None, sys=None, concat=True, output='both'):
 
     if concat:
         if isinstance(time_source, pd.core.frame.DataFrame):
-            df_with_csky = pd.concat([time_source, csky_df], axis=1)
+            try:
+                df_with_csky = pd.concat([time_source, csky_df], axis=1)
+            except pd.errors.InvalidIndexError:
+                # Drop NaT that occur for March DST shift in US data
+                df_with_csky = pd.concat(
+                    [time_source, csky_df.loc[csky_df.index.dropna(), :]], axis=1
+                )
             return df_with_csky
         else:
             warnings.warn('time_source is not a dataframe; only clear sky data\
