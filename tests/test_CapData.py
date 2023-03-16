@@ -1468,26 +1468,17 @@ class TestFilterDays():
         assert pvsyst.data_filtered.shape[0] == 8760
         assert df.shape[0] == 24
 
-class TestFilterPF(unittest.TestCase):
-    def setUp(self):
-        self.meas = load_data(
-            path='./tests/data/nrel_data.csv',
-        )
-        self.meas.set_regression_cols(
-            power='', poa='irr-poa-', t_amb='temp--', w_vel='wind--'
-        )
-
-    def test_pf(self):
-        print(self.meas.column_groups)
+class TestFilterPF():
+    def test_pf(self, nrel):
         pf = np.ones(5)
         pf = np.append(pf, np.ones(5) * -1)
         pf = np.append(pf, np.arange(0, 1, 0.1))
-        self.meas.data['pf'] = np.tile(pf, 576)
-        self.meas.data_filtered = self.meas.data.copy()
-        self.meas.column_groups['pf--'] = ['pf']
-        self.meas.filter_pf(1)
-        self.assertEqual(self.meas.data_filtered.shape[0], 5760,
-                         'Incorrect number of points removed.')
+        nrel.data['pf'] = np.tile(pf, 576)
+        nrel.data_filtered = nrel.data.copy()
+        nrel.column_groups['pf--'] = ['pf']
+        nrel.trans_keys = list(nrel.column_groups.keys())
+        nrel.filter_pf(1)
+        assert nrel.data_filtered.shape[0] == 5760
 
 
 class TestFilterOutliersAndPower(unittest.TestCase):
