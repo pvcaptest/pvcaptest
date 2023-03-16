@@ -1351,84 +1351,82 @@ class TestGetSummary():
 
 
 
-class TestFilterTime(unittest.TestCase):
-    def setUp(self):
-        self.pvsyst = load_pvsyst(
-            path='./tests/data/pvsyst_example_HourlyRes_2.CSV',
+class TestFilterTime():
+    def test_start_end(self, pvsyst):
+        pvsyst.filter_time(start='2/1/90', end='2/15/90')
+        assert (
+            pvsyst.data_filtered.index[0]
+            == pd.Timestamp(year=1990, month=2, day=1, hour=0)
         )
-        self.pvsyst.set_regression_cols(
-            power='real_pwr--', poa='irr-poa-', t_amb='temp-amb-', w_vel='wind--'
+        assert (
+            pvsyst.data_filtered.index[-1]
+            == pd.Timestamp(year=1990, month=2, day=15, hour=00)
         )
 
-    def test_start_end(self):
-        self.pvsyst.filter_time(start='2/1/90', end='2/15/90')
-        self.assertEqual(self.pvsyst.data_filtered.index[0],
-                         pd.Timestamp(year=1990, month=2, day=1, hour=0),
-                         'First timestamp should be 2/1/1990')
-        self.assertEqual(self.pvsyst.data_filtered.index[-1],
-                         pd.Timestamp(year=1990, month=2, day=15, hour=00),
-                         'Last timestamp should be 2/15/1990 00:00')
+    def test_start_end_drop_is_true(self, pvsyst):
+        pvsyst.filter_time(start='2/1/90', end='2/15/90', drop=True)
+        assert (
+            pvsyst.data_filtered.index[0]
+            == pd.Timestamp(year=1990, month=1, day=1, hour=0)
+        )
+        assert (
+            pvsyst.data_filtered.index[-1]
+            == pd.Timestamp(year=1990, month=12, day=31, hour=23)
+        )
+        assert (
+            pvsyst.data_filtered.shape[0]
+            == (8760 - 14 * 24) - 1
+        )
 
-    def test_start_end_drop_is_true(self):
-        self.pvsyst.filter_time(start='2/1/90', end='2/15/90', drop=True)
-        self.assertEqual(self.pvsyst.data_filtered.index[0],
-                         pd.Timestamp(year=1990, month=1, day=1, hour=0),
-                         'First timestamp should be 1/1/1990')
-        self.assertEqual(self.pvsyst.data_filtered.index[-1],
-                         pd.Timestamp(year=1990, month=12, day=31, hour=23),
-                         'Last timestamp should be 12/31/1990 23:00')
-        self.assertEqual(self.pvsyst.data_filtered.shape[0],
-                         (8760 - 14 * 24) - 1,
-                         'Filtered data should have 14 days removed')
+    def test_start_days(self, pvsyst):
+        pvsyst.filter_time(start='2/1/90', days=15)
+        assert (
+            pvsyst.data_filtered.index[0]
+            == pd.Timestamp(year=1990, month=2, day=1, hour=0)
+        )
+        assert (
+            pvsyst.data_filtered.index[-1]
+            == pd.Timestamp(year=1990, month=2, day=16, hour=00)
+        )
 
-    def test_start_days(self):
-        self.pvsyst.filter_time(start='2/1/90', days=15)
-        self.assertEqual(self.pvsyst.data_filtered.index[0],
-                         pd.Timestamp(year=1990, month=2, day=1, hour=0),
-                         'First timestamp should be 2/1/1990')
-        self.assertEqual(self.pvsyst.data_filtered.index[-1],
-                         pd.Timestamp(year=1990, month=2, day=16, hour=00),
-                         'Last timestamp should be 2/15/1990 00:00')
+    def test_end_days(self, pvsyst):
+        pvsyst.filter_time(end='2/16/90', days=15)
+        assert (
+            pvsyst.data_filtered.index[0]
+            == pd.Timestamp(year=1990, month=2, day=1, hour=0)
+        )
+        assert (
+            pvsyst.data_filtered.index[-1]
+            == pd.Timestamp(year=1990, month=2, day=16, hour=00)
+        )
 
-    def test_end_days(self):
-        self.pvsyst.filter_time(end='2/16/90', days=15)
-        self.assertEqual(self.pvsyst.data_filtered.index[0],
-                         pd.Timestamp(year=1990, month=2, day=1, hour=0),
-                         'First timestamp should be 2/1/1990')
-        self.assertEqual(self.pvsyst.data_filtered.index[-1],
-                         pd.Timestamp(year=1990, month=2, day=16, hour=00),
-                         'Last timestamp should be 2/15/1990 00:00')
+    def test_test_date(self, pvsyst):
+        pvsyst.filter_time(test_date='2/16/90', days=30)
+        assert (
+            pvsyst.data_filtered.index[0]
+            == pd.Timestamp(year=1990, month=2, day=1, hour=0)
+        )
+        assert (
+            pvsyst.data_filtered.index[-1]
+            == pd.Timestamp(year=1990, month=3, day=3, hour=00)
+        )
 
-    def test_test_date(self):
-        self.pvsyst.filter_time(test_date='2/16/90', days=30)
-        self.assertEqual(self.pvsyst.data_filtered.index[0],
-                         pd.Timestamp(year=1990, month=2, day=1, hour=0),
-                         'First timestamp should be 2/1/1990')
-        self.assertEqual(self.pvsyst.data_filtered.index[-1],
-                         pd.Timestamp(year=1990, month=3, day=3, hour=00),
-                         'Last timestamp should be 3/2/1990 00:00')
+    def test_start_end_not_inplace(self, pvsyst):
+        df = pvsyst.filter_time(start='2/1/90', end='2/15/90', inplace=False)
+        assert df.index[0] == pd.Timestamp(year=1990, month=2, day=1, hour=0)
+        assert df.index[-1] == pd.Timestamp(year=1990, month=2, day=15, hour=00)
 
-    def test_start_end_not_inplace(self):
-        df = self.pvsyst.filter_time(start='2/1/90', end='2/15/90',
-                                     inplace=False)
-        self.assertEqual(df.index[0],
-                         pd.Timestamp(year=1990, month=2, day=1, hour=0),
-                         'First timestamp should be 2/1/1990')
-        self.assertEqual(df.index[-1],
-                         pd.Timestamp(year=1990, month=2, day=15, hour=00),
-                         'Last timestamp should be 2/15/1990 00:00')
+    def test_start_no_days(self, pvsyst):
+        with pytest.warns(UserWarning):
+            pvsyst.filter_time(start='2/1/90')
 
-    def test_start_no_days(self):
-        with self.assertWarns(UserWarning):
-            self.pvsyst.filter_time(start='2/1/90')
+    def test_end_no_days(self, pvsyst):
+        with pytest.warns(UserWarning):
+            pvsyst.filter_time(end='2/1/90')
 
-    def test_end_no_days(self):
-        with self.assertWarns(UserWarning):
-            self.pvsyst.filter_time(end='2/1/90')
-
-    def test_test_date_no_days(self):
-        with self.assertWarns(UserWarning):
-            self.pvsyst.filter_time(test_date='2/1/90')
+    def test_test_date_no_days(self, pvsyst):
+        with pytest.warns(UserWarning):
+            pvsyst.filter_time(test_date='2/1/90')
 
 
 class TestFilterDays(unittest.TestCase):
