@@ -1341,25 +1341,13 @@ class TestFilterIrr():
         assert df.shape[0] < pts_before
 
 
-class TestGetSummary(unittest.TestCase):
-    def setUp(self):
-        self.meas = load_data('./tests/data/nrel_data.csv')
-        self.meas.set_regression_cols(
-            power='', poa='irr-poa-', t_amb='temp--', w_vel='wind--'
-        )
-
-    def test_col_names(self):
-        self.meas.filter_irr(200, 500)
-        smry = self.meas.get_summary()
-        self.assertEqual(smry.columns[0], 'pts_after_filter',
-                         'First column of summary data is not labeled '
-                         'pts_after_filter.')
-        self.assertEqual(smry.columns[1], 'pts_removed',
-                         'First column of summary data is not labeled '
-                         'pts_removed.')
-        self.assertEqual(smry.columns[2], 'filter_arguments',
-                         'First column of summary data is not labeled '
-                         'filter_arguments.')
+class TestGetSummary():
+    def test_col_names(self, nrel):
+        nrel.filter_irr(200, 500)
+        smry = nrel.get_summary()
+        assert smry.columns[0] == 'pts_after_filter'
+        assert smry.columns[1] == 'pts_removed'
+        assert smry.columns[2] == 'filter_arguments'
 
 
 
