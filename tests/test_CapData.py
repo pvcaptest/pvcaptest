@@ -1481,49 +1481,36 @@ class TestFilterPF():
         assert nrel.data_filtered.shape[0] == 5760
 
 
-class TestFilterOutliersAndPower(unittest.TestCase):
-    def setUp(self):
-        self.das = load_data(
-            path='./tests/data/example_meas_data_aeheaders.csv',
-            group_columns='./tests/data/ae_column_groups.yml',
-        )
-        self.das.set_regression_cols(
-            power='-mtr-', poa='irr-poa-', t_amb='temp-amb-', w_vel='wind--'
-        )
+class TestFilterOutliersAndPower():
+    def test_not_aggregated(self, meas):
+        with pytest.warns(UserWarning):
+            meas.filter_outliers()
 
-    def test_not_aggregated(self):
-        with self.assertWarns(UserWarning):
-            self.das.filter_outliers()
+    def test_filter_power_defaults(self, meas):
+        meas.filter_power(5_000_000, percent=None, columns=None, inplace=True)
+        assert meas.data_filtered.shape[0] == 1289
 
-    def test_filter_power_defaults(self):
-        self.das.filter_power(5_000_000, percent=None, columns=None,
-                              inplace=True)
-        self.assertEqual(self.das.data_filtered.shape[0], 1289)
+    def test_filter_power_percent(self, meas):
+        meas.filter_power(6_000_000, percent=0.05, columns=None, inplace=True)
+        assert meas.data_filtered.shape[0] == 1388
 
-    def test_filter_power_percent(self):
-        self.das.filter_power(6_000_000, percent=0.05, columns=None,
-                              inplace=True)
-        self.assertEqual(self.das.data_filtered.shape[0], 1388)
-
-    def test_filter_power_a_column(self):
-        print(self.das.data.columns)
-        self.das.filter_power(
+    def test_filter_power_a_column(self, meas):
+        print(meas.data.columns)
+        meas.filter_power(
             5_000_000,
             percent=None,
-            columns='Example Project_Elkor Production Meter_Elkor Production Meter, KW_kW',
+            columns='meter_power',
             inplace=True
         )
-        self.assertEqual(self.das.data_filtered.shape[0], 1289)
+        assert meas.data_filtered.shape[0] == 1289
 
-    def test_filter_power_column_group(self):
-        self.das.filter_power(500_000, percent=None, columns='-inv-',
-                              inplace=True)
-        self.assertEqual(self.das.data_filtered.shape[0], 1138)
+    def test_filter_power_column_group(self, meas):
+        meas.filter_power(500_000, percent=None, columns='-inv-', inplace=True)
+        assert meas.data_filtered.shape[0] == 1138
 
-    def test_filter_power_columns_not_str(self):
-        with self.assertWarns(UserWarning):
-            self.das.filter_power(500_000, percent=None, columns=1,
-                                  inplace=True)
+    def test_filter_power_columns_not_str(self, meas):
+        with pytest.warns(UserWarning):
+            meas.filter_power(500_000, percent=None, columns=1, inplace=True)
 
 
 class Test_Csky_Filter(unittest.TestCase):
