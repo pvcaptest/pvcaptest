@@ -1132,6 +1132,7 @@ def nrel():
     )
     nrel.data_filtered = nrel.data.copy()
     nrel.column_groups = {
+        'irr-ghi-': ['Global CMP22 (vent/cor) [W/m^2]', ],
         'irr-poa-': ['POA 40-South CMP11 [W/m^2]', ],
         'temp--': ['Deck Dry Bulb Temp [deg C]', ],
         'wind--': ['Avg Wind Speed @ 19ft [m/s]', ],
@@ -1513,85 +1514,87 @@ class TestFilterOutliersAndPower():
             meas.filter_power(500_000, percent=None, columns=1, inplace=True)
 
 
-class Test_Csky_Filter(unittest.TestCase):
+@pytest.fixture
+def nrel_clear_sky(nrel):
+    """ Modeled clear sky data was created using the pvlib fixed tilt clear sky
+    models with the following parameters:
+         loc = {
+            'latitude': 39.742,
+            'longitude': -105.18,
+            'altitude': 1828.8,
+            'tz': 'Etc/GMT+7'
+        }
+        sys = {'surface_tilt': 40, 'surface_azimuth': 180, 'albedo': 0.2}
+    """
+    clear_sky = pd.read_csv(
+        './tests/data/nrel_data_modelled_csky.csv', index_col=0, parse_dates=True
+    )
+    nrel.data = pd.concat([nrel.data, clear_sky], axis=1)
+    nrel.data_filtered = nrel.data.copy()
+    nrel.column_groups['irr-poa-clear_sky'] = ['poa_mod_csky']
+    nrel.column_groups['irr-ghi-clear_sky'] = ['ghi_mod_csky']
+    nrel.trans_keys = list(nrel.column_groups.keys())
+    return nrel
+
+
+class TestCskyFilter():
     """
     Tests for filter_clearsky method.
     """
-    def setUp(self):
-        loc = {'latitude': 39.742, 'longitude': -105.18,
-               'altitude': 1828.8, 'tz': 'Etc/GMT+7'}
-        sys = {'surface_tilt': 40, 'surface_azimuth': 180,
-               'albedo': 0.2}
-        self.meas = load_data(
-            path='./tests/data/nrel_data.csv',
-            site={'sys': sys, 'loc': loc},
+    def test_default(self, nrel_clear_sky):
+        nrel_clear_sky.filter_clearsky()
+
+        assert nrel_clear_sky.data_filtered.shape[0] < nrel_clear_sky.data.shape[0]
+        assert nrel_clear_sky.data_filtered.shape[1] == nrel_clear_sky.data.shape[1]
+        for i, col in enumerate(nrel_clear_sky.data_filtered.columns):
+            assert col == nrel_clear_sky.data.columns[i]
+
+    def test_default_drop_clear_sky(self, nrel_clear_sky):
+        nrel_clear_sky.filter_clearsky()
+        clear_ix = nrel_clear_sky.data_filtered.index
+        nrel_clear_sky.reset_filter()
+        nrel_clear_sky.filter_clearsky(keep_clear=False)
+        cloudy_ix = nrel_clear_sky.data_filtered.index
+        assert nrel_clear_sky.data.index.difference(clear_ix).equals(cloudy_ix)
+
+    def test_two_ghi_cols(self, nrel_clear_sky):
+        nrel_clear_sky.data['ws 2 ghi W/m^2'] = nrel_clear_sky.view('irr-ghi-') * 1.05
+        nrel_clear_sky.data_filtered = nrel_clear_sky.data.copy()
+        nrel_clear_sky.column_groups['irr-ghi-'].append('ws 2 ghi W/m^2')
+        with pytest.warns(UserWarning):
+            nrel_clear_sky.filter_clearsky()
+
+    def test_mult_ghi_categories(self, nrel_clear_sky):
+        nrel_clear_sky.data['irrad ghi pyranometer W/m^2'] = (
+            nrel_clear_sky.data.loc[:, 'Global CMP22 (vent/cor) [W/m^2]']
+            * 1.05
         )
+        nrel_clear_sky.column_groups['irr-ghi-pyran'] = ['irrad ghi pyranometer W/m^2']
+        nrel_clear_sky.trans_keys = list(nrel_clear_sky.column_groups.keys())
+        with pytest.warns(UserWarning):
+            nrel_clear_sky.filter_clearsky()
 
-    def test_default(self):
-        self.meas.filter_clearsky()
+    def test_no_clear_ghi(self, nrel_clear_sky):
+        nrel_clear_sky.drop_cols('ghi_mod_csky')
+        with pytest.warns(UserWarning):
+            nrel_clear_sky.filter_clearsky()
 
-        self.assertLess(self.meas.data_filtered.shape[0],
-                        self.meas.data.shape[0],
-                        'Filtered dataframe should have less rows.')
-        self.assertEqual(self.meas.data_filtered.shape[1],
-                         self.meas.data.shape[1],
-                         'Filtered dataframe should have equal number of cols.')
-        for i, col in enumerate(self.meas.data_filtered.columns):
-            self.assertEqual(col, self.meas.data.columns[i],
-                             'Filter changed column {} to '
-                             '{}'.format(self.meas.data.columns[i], col))
+    def test_specify_ghi_col(self, nrel_clear_sky):
+        nrel_clear_sky.data['ws 2 ghi W/m^2'] = nrel_clear_sky.view('irr-ghi-') * 1.05
+        nrel_clear_sky.data_filtered = nrel_clear_sky.data.copy()
+        nrel_clear_sky.column_groups['irr-ghi-'].append('ws 2 ghi W/m^2')
+        nrel_clear_sky.trans_keys = list(nrel_clear_sky.column_groups.keys())
 
-    def test_default_drop_clear_sky(self):
-        self.meas.filter_clearsky()
-        clear_ix = self.meas.data_filtered.index
-        self.meas.reset_filter()
-        self.meas.filter_clearsky(keep_clear=False)
-        cloudy_ix = self.meas.data_filtered.index
-        assert (self.meas.data.index.difference(clear_ix).equals(cloudy_ix))
+        nrel_clear_sky.filter_clearsky(ghi_col='ws 2 ghi W/m^2')
 
-    def test_two_ghi_cols(self):
-        self.meas.data['ws 2 ghi W/m^2'] = self.meas.view('irr-ghi-') * 1.05
-        self.meas.data_filtered = self.meas.data.copy()
-        self.meas.column_groups['irr-ghi-'].append('ws 2 ghi W/m^2')
+        assert nrel_clear_sky.data_filtered.shape[0] < nrel_clear_sky.data.shape[0]
+        assert nrel_clear_sky.data_filtered.shape[1] == nrel_clear_sky.data.shape[1]
+        for i, col in enumerate(nrel_clear_sky.data_filtered.columns):
+            assert col == nrel_clear_sky.data.columns[i]
 
-        with self.assertWarns(UserWarning):
-            self.meas.filter_clearsky()
-
-    def test_mult_ghi_categories(self):
-        cn = 'irrad ghi pyranometer W/m^2'
-        self.meas.data[cn] = self.meas.view('irr-ghi-') * 1.05
-        self.meas.column_groups['irr-ghi-pyran'] = ['irrad ghi pyranometer W/m^2']
-
-        with self.assertWarns(UserWarning):
-            self.meas.filter_clearsky()
-
-    def test_no_clear_ghi(self):
-        self.meas.drop_cols('ghi_mod_csky')
-
-        with self.assertWarns(UserWarning):
-            self.meas.filter_clearsky()
-
-    def test_specify_ghi_col(self):
-        self.meas.data['ws 2 ghi W/m^2'] = self.meas.view('irr-ghi-') * 1.05
-        self.meas.data_filtered = self.meas.data.copy()
-        self.meas.column_groups['irr-ghi-'].append('ws 2 ghi W/m^2')
-
-        self.meas.filter_clearsky(ghi_col='ws 2 ghi W/m^2')
-
-        self.assertLess(self.meas.data_filtered.shape[0],
-                        self.meas.data.shape[0],
-                        'Filtered dataframe should have less rows.')
-        self.assertEqual(self.meas.data_filtered.shape[1],
-                         self.meas.data.shape[1],
-                         'Filtered dataframe should have equal number of cols.')
-        for i, col in enumerate(self.meas.data_filtered.columns):
-            self.assertEqual(col, self.meas.data.columns[i],
-                             'Filter changed column {} to '
-                             '{}'.format(self.meas.data.columns[i], col))
-
-    def test_no_clear_sky(self):
-        with self.assertWarns(UserWarning):
-            self.meas.filter_clearsky(window_length=2)
+    def test_no_clear_sky(self, nrel_clear_sky):
+        with pytest.warns(UserWarning):
+            nrel_clear_sky.filter_clearsky(window_length=2)
 
 
 class TestFilterMissing():
