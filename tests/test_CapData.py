@@ -1852,24 +1852,19 @@ class TestCapTestCpResultsMultCoeff(unittest.TestCase):
 class TestGetFilteringTable:
     """Check the DataFrame summary showing which filter removed which intervals."""
 
-    def test_get_filtering_table(self):
-        self.meas = load_data('./tests/data/nrel_data.csv')
-        self.meas.set_regression_cols(
-            power='', poa='irr-poa-', t_amb='temp--', w_vel='wind--'
-        )
-        self.meas.filter_irr(200, 900)
-        flt0_kept_ix = self.meas.data_filtered.index
-        flt0_removed_ix = self.meas.data.index.difference(flt0_kept_ix)
-        self.meas.filter_irr(400, 800)
-        flt1_kept_ix = self.meas.data_filtered.index
+    def test_get_filtering_table(self, nrel):
+        nrel.filter_irr(200, 900)
+        flt0_kept_ix = nrel.data_filtered.index
+        flt0_removed_ix = nrel.data.index.difference(flt0_kept_ix)
+        nrel.filter_irr(400, 800)
+        flt1_kept_ix = nrel.data_filtered.index
         flt1_removed_ix = flt0_kept_ix.difference(flt1_kept_ix)
-        self.meas.filter_irr(500, 600)
-        flt2_kept_ix = self.meas.data_filtered.index
+        nrel.filter_irr(500, 600)
+        flt2_kept_ix = nrel.data_filtered.index
         flt2_removed_ix = flt1_kept_ix.difference(flt2_kept_ix)
-        flt_table = self.meas.get_filtering_table()
-        print(flt_table)
+        flt_table = nrel.get_filtering_table()
         assert isinstance(flt_table, pd.DataFrame)
-        assert flt_table.shape == (self.meas.data.shape[0], 4)
+        assert flt_table.shape == (nrel.data.shape[0], 4)
         table_flt0_column = flt_table.iloc[:, 0]
         table_flt0_removed = table_flt0_column[table_flt0_column == 1].index
         assert table_flt0_removed.equals(flt0_removed_ix)
@@ -1881,7 +1876,7 @@ class TestGetFilteringTable:
         assert table_flt2_removed.equals(flt2_removed_ix)
         table_flt_all_column = flt_table.iloc[:, 3]
         table_flt_all_removed = table_flt_all_column[~table_flt_all_column].index
-        out = pd.concat([flt_table, self.meas.rview('poa')], axis=1)
+        out = pd.concat([flt_table, nrel.rview('poa')], axis=1)
         assert table_flt_all_removed.equals(
             flt0_removed_ix.union(flt1_removed_ix).union(flt2_removed_ix)
         )
