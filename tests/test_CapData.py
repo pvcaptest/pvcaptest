@@ -708,7 +708,6 @@ class TestGetTimezoneIndex():
         df = pd.DataFrame(index=ix_dst)
         print(df.loc['11/4/18 01:00'].index)
         tz_ix = pvc.get_tz_index(df, location_and_system['location'])
-        assert 0
         assert(isinstance(tz_ix, pd.core.indexes.datetimes.DatetimeIndex))
         assert(tz_ix.tz == pytz.timezone(location_and_system['location']['tz']))
 
