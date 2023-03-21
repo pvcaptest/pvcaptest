@@ -23,6 +23,21 @@ from .context import (
 )
 
 
+class TestLoadDataColumnGrouping():
+    def test_is_json(self):
+        """Test loading a json column groups file."""
+        das = load_data(
+            # path='./tests/data/example_meas_data.csv',
+            # group_columns='./tests/data/column_groups.json',
+            path='./tests/data/example_measured_data.csv',
+            group_columns='./tests/data/example_measured_data_column_groups.json',
+        )
+        column_groups = cg.ColumnGroups(
+            util.read_json('./tests/data/example_measured_data_column_groups.json')
+        )
+        print(das.column_groups)
+        assert das.column_groups == column_groups
+
 class TestFlattenMultiIndex:
     def test_flatten_multi_index_2levels(self):
         m_ix = pd.MultiIndex.from_tuples(
