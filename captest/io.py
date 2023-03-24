@@ -60,9 +60,19 @@ def load_pvsyst(
     encodings = ["utf-8", "latin1", "iso-8859-1", "cp1252"]
     for encoding in encodings:
         try:
-            pvraw = pd.read_csv(
+            # there is a pandas bug prior to pandas v1.3.0 that causes the blank
+            # line between the headers and data to be skipped
+            # after v.1.3.0, the blank line will be loaded
+            # loading headers and data separately and then combining them to avoid
+            # issues with pandas versions before and after the fix
+            pvraw_headers = pd.read_csv(
                 dirName, skiprows=10, encoding=encoding, header=[0, 1], **kwargs
-            )
+            ).columns
+            pvraw_data = pd.read_csv(
+                dirName, skiprows=12, encoding=encoding, header=None, **kwargs
+            ).dropna(axis=0, how="all")
+            pvraw = pvraw_data.copy()
+            pvraw.columns = pvraw_headers
         except UnicodeDecodeError:
             continue
         else:
@@ -73,7 +83,11 @@ def load_pvsyst(
     try:
         dt_index = pd.to_datetime(dates, format="%m/%d/%y %H:%M")
     except ValueError:
-        dt_index = pd.to_datetime(dates)
+        warnings.warn(
+            'Dates are not in month/day/year format. '
+            'Trying day/month/year format.'
+        )
+        dt_index = pd.to_datetime(dates, format="%d/%m/%y %H:%M")
     pvraw.index = dt_index
     pvraw.drop("date", axis=1, inplace=True)
     pvraw = pvraw.rename(columns={"T Amb": "T_Amb"}).rename(columns={"TAmb": "T_Amb"})
