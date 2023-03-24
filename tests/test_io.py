@@ -180,6 +180,33 @@ class TestLoadPVsyst:
             "w_vel": "WindVel",
         }
 
+    def test_date_day_month_year(self):
+        """Test converting date column to a datetime when the date format is
+        day/month/year.
+        """
+        pvsyst = load_pvsyst("./tests/data/pvsyst_example_day_month_year.csv")
+        pvsyst.data.to_csv("./tests/data/loaded_data.csv")
+        assert isinstance(pvsyst, pvc.CapData)
+        assert 8760 == pvsyst.data.shape[0]
+        assert isinstance(pvsyst.data.index, pd.DatetimeIndex)
+        assert isinstance(pvsyst.data.columns, pd.Index)
+        assert pvsyst.data.loc["1/1/90 12:00", "E_Grid"] == 5_469_083
+        assert pvsyst.regression_cols == {
+            "power": "E_Grid",
+            "poa": "GlobInc",
+            "t_amb": "T_Amb",
+            "w_vel": "WindVel",
+        }
+
+    def test_date_day_month_year_warning(self):
+        with pytest.warns(UserWarning):
+            pvsyst = load_pvsyst("./tests/data/pvsyst_example_day_month_year.csv")
+            warnings.warn(
+                'Dates are not in month/day/year format. '
+                'Trying day/month/year format.',
+                UserWarning
+            )
+
     def test_scale_egrid(self):
         pvsyst = load_pvsyst(
             "./tests/data/pvsyst_example_HourlyRes_2.CSV", egrid_unit_adj_factor=1_000
