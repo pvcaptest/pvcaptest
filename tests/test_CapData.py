@@ -498,77 +498,59 @@ class TestIrrRcBalanced():
         assert f.exists()
 
 
-class Test_CapData_methods_sim(unittest.TestCase):
+class TestCapDataMethodsSim():
     """Test for top level irr_rc_balanced function."""
+    def test_copy(self, pvsyst):
+        pvsyst.set_regression_cols(
+            power='real_pwr--', poa='irr-ghi-', t_amb='temp-amb-', w_vel='wind--'
+        )
+        print(pvsyst.trans_keys)
+        pvsyst_copy = pvsyst.copy()
+        assert pvsyst_copy.data.equals(pvsyst.data)
+        assert pvsyst_copy.column_groups == pvsyst.column_groups
+        assert pvsyst_copy.trans_keys == pvsyst.trans_keys
+        assert pvsyst_copy.regression_cols == pvsyst.regression_cols
 
-    def setUp(self):
-        self.pvsyst = load_pvsyst(path='./tests/data/pvsyst_output_8760.csv')
-        # self.jun = self.pvsyst.data.loc['06/1990']
-        # self.jun_cpy = self.jun.copy()
-        # self.low = 0.5
-        # self.high = 1.5
-        # (self.irr_RC, self.jun_flt) = pvc.irr_rc_balanced(self.jun, self.low,
-        #                                                  self.high)
-        # self.jun_filter_irr = self.jun_flt['GlobInc']
-
-    def test_copy(self):
-        self.pvsyst.set_regression_cols(power='real_pwr--', poa='irr-ghi-',
-                                        t_amb='temp-amb-', w_vel='wind--')
-        pvsyst_copy = self.pvsyst.copy()
-        df_equality = pvsyst_copy.data.equals(self.pvsyst.data)
-
-        self.assertTrue(df_equality,
-                        'Dataframe of copy not equal to original')
-        self.assertEqual(pvsyst_copy.column_groups, self.pvsyst.column_groups,
-                         'Column groups dict of copy is not equal to original')
-        self.assertEqual(pvsyst_copy.trans_keys, self.pvsyst.trans_keys,
-                         'Column groups keys are not equal to original.')
-        self.assertEqual(pvsyst_copy.regression_cols, self.pvsyst.regression_cols,
-                         'Regression trans dict copy is not equal to orig.')
-
-    def test_irr_rc_balanced(self):
-        jun = self.pvsyst.data.loc['06/1990']
+    def test_irr_rc_balanced(self, pvsyst):
+        jun = pvsyst.data.loc['06/1990']
         jun_cpy = jun.copy()
         low = 0.5
         high = 1.5
         (irr_RC, jun_flt) = pvc.irr_rc_balanced(jun, low, high)
         jun_filter_irr = jun_flt['GlobInc']
-        self.assertTrue(all(jun_flt.columns == jun.columns),
+        assert True(all(jun_flt.columns == jun.columns),
                         'Columns of input df missing in filtered ouput df.')
-        self.assertGreater(jun_flt.shape[0], 0,
+        assert Greater(jun_flt.shape[0], 0,
                            'Returned df has no rows')
-        self.assertLess(jun_flt.shape[0], jun.shape[0],
+        assert Less(jun_flt.shape[0], jun.shape[0],
                         'No rows removed from filtered df.')
-        self.assertTrue(jun.equals(jun_cpy),
+        assert True(jun.equals(jun_cpy),
                         'Input dataframe modified by function.')
-        self.assertGreater(irr_RC, jun[jun['GlobInc'] > 0]['GlobInc'].min(),
+        assert Greater(irr_RC, jun[jun['GlobInc'] > 0]['GlobInc'].min(),
                            'Reporting irr not greater than min irr in input data')
-        self.assertLess(irr_RC, jun['GlobInc'].max(),
+        assert Less(irr_RC, jun['GlobInc'].max(),
                         'Reporting irr no less than max irr in input data')
 
         pts_below_irr = jun_filter_irr[jun_filter_irr.between(0, irr_RC)].shape[0]
         perc_below = pts_below_irr / jun_filter_irr.shape[0]
-        self.assertLess(perc_below, 0.6,
+        assert Less(perc_below, 0.6,
                         'More than 60 percent of points below reporting irr')
-        self.assertGreaterEqual(perc_below, 0.5,
+        assert GreaterEqual(perc_below, 0.5,
                                 'Less than 50 percent of points below rep irr')
 
         pts_above_irr = jun_filter_irr[jun_filter_irr.between(irr_RC, 1500)].shape[0]
         perc_above = pts_above_irr / jun_filter_irr.shape[0]
-        self.assertGreater(perc_above, 0.4,
+        assert Greater(perc_above, 0.4,
                            'Less than 40 percent of points above reporting irr')
-        self.assertLessEqual(perc_above, 0.5,
+        assert LessEqual(perc_above, 0.5,
                              'More than 50 percent of points above reportin irr')
 
-    def test_filter_pvsyst_default(self):
-        self.pvsyst.filter_pvsyst()
-        self.assertEqual(self.pvsyst.data_filtered.shape[0], 8670,
-                         'Data should contain 8670 points after removing any\
-                          of IL Pmin, IL Pmax, IL Vmin, IL Vmax that are\
-                          greater than zero.')
+    def test_filter_pvsyst_default(self, pvsyst):
+        pvsyst.filter_pvsyst()
+        assert pvsyst.data_filtered.shape[0] == 8670
 
-    def test_filter_pvsyst_default_newer_pvsyst_var_names(self):
-        self.pvsyst.data_filtered.rename(
+    def test_filter_pvsyst_default_newer_pvsyst_var_names(self, pvsyst):
+        pvsyst.data_filtered.rename(
             columns={
                 'IL Pmin':'IL_Pmin',
                 'IL Vmin':'IL_Vmin',
@@ -576,57 +558,56 @@ class Test_CapData_methods_sim(unittest.TestCase):
                 'IL Vmax':'IL_Vmax',
             }, inplace=True
         )
-        assert self.pvsyst.data_filtered.shape[0] == 8760
-        print(self.pvsyst.data_filtered.columns)
-        self.pvsyst.filter_pvsyst()
-        self.assertEqual(self.pvsyst.data_filtered.shape[0], 8670,
-                         'Data should contain 8670 points after removing any\
-                          of IL Pmin, IL Pmax, IL Vmin, IL Vmax that are\
-                          greater than zero.')
+        assert pvsyst.data_filtered.shape[0] == 8760
+        pvsyst.filter_pvsyst()
+        assert pvsyst.data_filtered.shape[0] == 8670
 
-    def test_filter_pvsyst_not_inplace(self):
-        df = self.pvsyst.filter_pvsyst(inplace=False)
-        self.assertIsInstance(df, pd.core.frame.DataFrame,
-                              'Did not return DataFrame object.')
-        self.assertEqual(df.shape[0], 8670,
-                         'Data should contain 8670 points after removing any\
-                          of IL Pmin, IL Pmax, IL Vmin, IL Vmax that are\
-                          greater than zero.')
+    def test_filter_pvsyst_not_inplace(self, pvsyst):
+        df = pvsyst.filter_pvsyst(inplace=False)
+        assert isinstance(df, pd.core.frame.DataFrame)
+        assert df.shape[0] == 8670
 
-    def test_filter_pvsyst_missing_column(self):
-        self.pvsyst.drop_cols('IL Pmin')
-        self.pvsyst.filter_pvsyst()
+    def test_filter_pvsyst_missing_column(self, pvsyst):
+        pvsyst.data.drop(columns='IL Pmin', inplace=True)
+        pvsyst.data_filtered.drop(columns='IL Pmin', inplace=True)
+        with pytest.warns(UserWarning):
+            pvsyst.filter_pvsyst()
+            warnings.warn(
+                'IL_Pmin or IL Pmin is not a column in the data.',
+                UserWarning
+            )
 
-    def test_filter_pvsyst_missing_all_columns(self):
-        self.pvsyst.drop_cols(['IL Pmin', 'IL Vmin', 'IL Pmax', 'IL Vmax'])
-        self.pvsyst.filter_pvsyst()
+    def test_filter_pvsyst_missing_all_columns(self, pvsyst):
+        pvsyst.data.drop(
+            columns=['IL Pmin', 'IL Vmin', 'IL Pmax', 'IL Vmax'],
+            inplace=True
+        )
+        pvsyst.data_filtered.drop(
+            columns=['IL Pmin', 'IL Vmin', 'IL Pmax', 'IL Vmax'],
+            inplace=True
+        )
+        with pytest.warns(UserWarning):
+            pvsyst.filter_pvsyst()
 
-    def test_filter_shade_default(self):
-        self.pvsyst.filter_shade()
-        self.assertEqual(self.pvsyst.data_filtered.shape[0], 8645,
-                         'Data should contain 8645 time periods\
-                          without shade.')
+    def test_filter_shade_default(self, pvsyst):
+        pvsyst.filter_shade()
+        assert pvsyst.data_filtered.shape[0] == 8645
 
-    def test_filter_shade_default_not_inplace(self):
-        df = self.pvsyst.filter_shade(inplace=False)
-        self.assertIsInstance(df, pd.core.frame.DataFrame,
-                              'Did not return DataFrame object.')
-        self.assertEqual(df.shape[0], 8645,
-                         'Returned dataframe should contain 8645 time periods\
-                          without shade.')
+    def test_filter_shade_default_not_inplace(self, pvsyst):
+        df = pvsyst.filter_shade(inplace=False)
+        assert isinstance(df, pd.core.frame.DataFrame)
+        assert df.shape[0] == 8645
 
-    def test_filter_shade_query(self):
+    def test_filter_shade_query(self, pvsyst):
         # create PVsyst ShdLoss type values for testing query string
-        self.pvsyst.data.loc[self.pvsyst.data['FShdBm'] == 1.0, 'ShdLoss'] = 0
-        is_shaded = self.pvsyst.data['ShdLoss'].isna()
-        shdloss_values = 1 / self.pvsyst.data.loc[is_shaded, 'FShdBm'] * 100
-        self.pvsyst.data.loc[is_shaded, 'ShdLoss'] = shdloss_values
-        self.pvsyst.data_filtered = self.pvsyst.data.copy()
+        pvsyst.data.loc[pvsyst.data['FShdBm'] == 1.0, 'ShdLoss'] = 0
+        is_shaded = pvsyst.data['ShdLoss'].isna()
+        shdloss_values = 1 / pvsyst.data.loc[is_shaded, 'FShdBm'] * 100
+        pvsyst.data.loc[is_shaded, 'ShdLoss'] = shdloss_values
+        pvsyst.data_filtered = pvsyst.data.copy()
 
-        self.pvsyst.filter_shade(query_str='ShdLoss<=125')
-        self.assertEqual(self.pvsyst.data_filtered.shape[0], 8671,
-                         'Filtered data should contain have 8671 periods with\
-                          shade losses less than 125.')
+        pvsyst.filter_shade(query_str='ShdLoss<=125')
+        assert pvsyst.data_filtered.shape[0] == 8671
 
 
 class Test_pvlib_loc_sys(unittest.TestCase):
@@ -1186,7 +1167,7 @@ def pvsyst():
     pvsyst.regression_cols = {
         'power': 'real_pwr--', 'poa': 'irr-poa-', 't_amb': 'temp-amb-', 'w_vel': 'wind--'
     }
-    pvsyst.trans_keys = pvsyst.column_groups.keys()
+    pvsyst.trans_keys = list(pvsyst.column_groups.keys())
     return pvsyst
     
 
