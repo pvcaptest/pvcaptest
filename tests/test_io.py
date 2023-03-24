@@ -159,7 +159,7 @@ class TestFileReader:
         assert isinstance(loaded_data.index, pd.DatetimeIndex)
 
     def test_load_das(self):
-        das = io.file_reader("./tests/data/example_meas_data.csv")
+        das = io.file_reader("./tests/data/example_measured_data.csv")
         assert 1440 == das.shape[0]
         assert isinstance(das.index, pd.DatetimeIndex)
         assert isinstance(das.columns, pd.Index)
