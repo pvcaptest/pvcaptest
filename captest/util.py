@@ -1,6 +1,23 @@
+import json
+import yaml
 import numpy as np
 import pandas as pd
 from scipy import stats
+
+
+def read_json(path):
+    with open(path) as f:
+        json_data = json.load(f)
+    return json_data
+
+
+def read_yaml(path):
+    with open(path, "r") as stream:
+        try:
+            data = yaml.safe_load(stream)
+        except yaml.YAMLError as exc:
+            print(exc)
+    return data
 
 
 def get_common_timestep(data, units='m', string_output=True):
@@ -77,6 +94,5 @@ def reindex_datetime(data, report=False, add_index_col=True):
         print('Frequency determined to be ' + freq_str + ' minutes.')
         print('{:,} intervals added to index.'.format(missing_intervals))
         print('')
-        return df, missing_intervals, freq_str
 
-    return df
+    return df, missing_intervals, freq_str

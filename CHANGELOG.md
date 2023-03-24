@@ -4,6 +4,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+[0.11.0]: https://github.com/pvcaptest/pvcaptest/compare/v0.10.0...v0.11.0
+## [0.11.0] - 2022-09-xx
+### Added
+- Added columngroups module with a ColumnGroups class that extends python
+dictionaries to include each column group as an attribute and __repr__ is
+formatted for easy reading.
+- Implemented __getitem__ for the CapData class. Allows easier access than and will eventually replace the functionality of the `view` method.
+- Added `read_json` function to util module.
+
+### Changed
+- Moved group_columns method, series_type, and type definitions from the capdata module to the columngroups module and changed group_columns from a CapData method to a function that returns a ColumnGroups instance.
+- Removed the value checking functionality of the group_columns function. Data quality is outside the scope of the pvcaptest project.
+- Changed `load_data`, `load_das`, and `load_pvsyst` to functions from CapData methods and moved them to the new io module.
+- `load_data` changed to reflect removal of value checking.
+- 'load_data` group_columns kwarg changed from a boolean on / off to accept either a function that groups accepts a DataFrame and returns an instance of ColumnGroups or a path to a file that contains a column grouping that can be read into a dictionary.
+
+
 [0.10.0]: https://github.com/pvcaptest/pvcaptest/compare/v0.9.0...v0.10.0
 ## [0.10.0] - 2021-07-25
 ### Added
