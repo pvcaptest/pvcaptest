@@ -515,6 +515,19 @@ class TestLoadDataFunction:
         assert isinstance(cd.data, pd.DataFrame)
         assert cd.data.shape == (2900, 3)
 
+    def test_adds_csky_when_passesed_site(self, meas, location_and_system):
+        site = {
+            'sys': location_and_system['system'],
+            'loc': location_and_system['location'],
+        }
+        cd = load_data(
+            path='./tests/data/example_measured_data.csv',
+            site=site,
+        )
+        assert 'ghi_mod_csky' in cd.data.columns
+        assert 'poa_mod_csky' in cd.data.columns
+        assert 'poa_mod_csky' in cd.data_filtered.columns
+
 
 class TestLoadDataMethods(unittest.TestCase):
     """Test for load data methods without setup."""
