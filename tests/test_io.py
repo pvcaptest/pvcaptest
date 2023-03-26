@@ -27,15 +27,34 @@ class TestLoadDataColumnGrouping():
     def test_is_json(self):
         """Test loading a json column groups file."""
         das = load_data(
-            # path='./tests/data/example_meas_data.csv',
-            # group_columns='./tests/data/column_groups.json',
             path='./tests/data/example_measured_data.csv',
             group_columns='./tests/data/example_measured_data_column_groups.json',
         )
         column_groups = cg.ColumnGroups(
             util.read_json('./tests/data/example_measured_data_column_groups.json')
         )
-        print(das.column_groups)
+        assert das.column_groups == column_groups
+
+    def test_is_yaml(self):
+        """Test loading a yaml column groups file with 'yaml' extension."""
+        das = load_data(
+            path='./tests/data/example_measured_data.csv',
+            group_columns='./tests/data/example_measured_data_column_groups.yaml',
+        )
+        column_groups = cg.ColumnGroups(
+            util.read_yaml('./tests/data/example_measured_data_column_groups.yaml')
+        )
+        assert das.column_groups == column_groups
+
+    def test_is_yml(self):
+        """Test loading a yaml column groups file with 'yml' extension."""
+        das = load_data(
+            path='./tests/data/example_measured_data.csv',
+            group_columns='./tests/data/example_measured_data_column_groups.yml',
+        )
+        column_groups = cg.ColumnGroups(
+            util.read_yaml('./tests/data/example_measured_data_column_groups.yml')
+        )
         assert das.column_groups == column_groups
 
 class TestFlattenMultiIndex:

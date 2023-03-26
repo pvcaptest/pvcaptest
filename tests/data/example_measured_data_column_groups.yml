@@ -1,0 +1,30 @@
+irr-ghi-pyran:
+  - "met1_ghi_pyranometer"
+  - "met2_ghi_pyranometer"
+irr-poa-ref_cell":
+  - "met1_poa_refcell"
+  - "met2_poa_refcell"
+-mtr-:
+  - "meter_power"
+wind--:
+  - "met1_windspeed"
+  - "met2_windspeed"
+temp-mod-:
+  - "met1_mod_temp1"
+  - "met1_mod_temp2"
+  - "met2_mod_temp1"
+  - "met2_mod_temp2"
+temp-amb-":
+  - "met1_amb_temp"
+  - "met2_amb_temp"
+-inv-":
+  - "inv1_power"
+  - "inv3_power"
+  - "inv4_power"
+  - "inv5_power"
+  - "inv6_power"
+  - "inv7_power"
+  - "inv8_power"
+irr-poa-pyran":
+  - "met1_poa_pyranometer"
+  - "met2_poa_pyranometer"
