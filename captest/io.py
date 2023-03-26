@@ -294,7 +294,10 @@ class DataLoader:
         and call the `load` method.
 
         A single file or multiple files can be loaded. Multiple files will be joined together
-        and may include files with different column headings.
+        and may include files with different column headings. When multiple files with
+        matching column headings are loaded, the individual files will be reindexed and
+        then joined. Missing time intervals within the individual files will be filled,
+        but missing time intervals between the individual files will not be filled.
 
         Parameters
         ----------

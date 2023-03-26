@@ -422,10 +422,81 @@ class TestDataLoader:
         ).to_csv(csv_path)
         dl = DataLoader(csv_path)
         dl.load()
+        print(dl.data)
         assert isinstance(dl.data, pd.DataFrame)
-    
-    # def test_load_csvs_in_directory_no_files_to_load_set(self, tmp_path):
-    # """Test load method path to files is set but files_to_load is not."""
+        assert dl.data.shape == (20, 2)
+
+    def test_load_all_files_in_directory(self, tmp_path):
+        """
+        Test load method when `path` attribute is a directory and specific files
+        to load are not specified.
+        """
+        for i in range(1, 4, 1):
+            csv_path = tmp_path / ("file_" + str(i) + ".csv")
+            pd.DataFrame(
+                {
+                    "met1_poa1": np.arange(0, 20),
+                    "met1_poa2": np.arange(20, 40),
+                },
+                index=pd.date_range(start="8/" + str(i) + "/22", periods=20, freq="1min"),
+            ).to_csv(csv_path)
+        dl = DataLoader(tmp_path)
+        dl.load()
+        # print(dl.data.info())
+        # print(dl.data)
+        assert isinstance(dl.data, pd.DataFrame)
+        assert dl.data.shape == (60, 3)
+
+    def test_load_specific_files(self, tmp_path):
+        """
+        Test load method when `path` attribute is a directory and specific files
+        to load are specified.
+        """
+        file_paths = []
+        for i in range(1, 4, 1):
+            csv_path = tmp_path / ("file_" + str(i) + ".csv")
+            file_paths.append(csv_path)
+            pd.DataFrame(
+                {
+                    "met1_poa1": np.arange(0, 20),
+                    "met1_poa2": np.arange(20, 40),
+                },
+                index=pd.date_range(start="8/" + str(i) + "/22", periods=20, freq="1min"),
+            ).to_csv(csv_path)
+        dl = DataLoader(tmp_path)
+        dl.files_to_load = [file_paths[0], file_paths[2]]
+        dl.load()
+        assert isinstance(dl.data, pd.DataFrame)
+        assert dl.data.shape == (40, 3)
+        assert dl.loaded_files['file_1'].index.equals(pd.date_range(
+            start="8/1/22", periods=20, freq="1min"
+        ))
+        assert dl.loaded_files['file_3'].index.equals(pd.date_range(
+            start="8/3/22", periods=20, freq="1min"
+        ))
+
+class TestLoadDataFunction:
+    """
+    Test the top level `load_data` function.
+    """
+    def test_load_all_files_in_directory(self, tmp_path):
+        """
+        Test loading all files in a directory which after combining have missing
+        indices. By default the index is replaced with one with no missing times.
+        """
+        for i in range(1, 4, 1):
+            csv_path = tmp_path / ("file_" + str(i) + ".csv")
+            pd.DataFrame(
+                {
+                    "met1_poa1": np.arange(0, 20),
+                    "met1_poa2": np.arange(20, 40),
+                },
+                index=pd.date_range(start="8/" + str(i) + "/22", periods=20, freq="1min"),
+            ).to_csv(csv_path)
+        cd = load_data(tmp_path, drop_duplicates=False)
+        assert isinstance(cd.data, pd.DataFrame)
+        assert cd.data.shape == (2900, 3)
+
 
 class TestLoadDataMethods(unittest.TestCase):
     """Test for load data methods without setup."""
