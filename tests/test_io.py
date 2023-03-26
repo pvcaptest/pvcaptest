@@ -399,8 +399,8 @@ class TestDataLoader:
         dl.common_freq = "60min"
         data = dl._join_files()
         assert data.shape == (48, 4)
-        assert data["1/2/22"][["a", "b"]].isna().sum().sum() == 48
-        assert data["1/1/22"][["c", "d"]].isna().sum().sum() == 48
+        assert data.loc["1/2/22"][["a", "b"]].isna().sum().sum() == 48
+        assert data.loc["1/1/22"][["c", "d"]].isna().sum().sum() == 48
         assert data.index.is_monotonic_increasing
         assert data.dtypes["a"] == "float64"
         assert data.dtypes["b"] == "float64"
@@ -426,8 +426,8 @@ class TestDataLoader:
         assert data.shape == (48, 3)
         assert data.index[0] == pd.to_datetime("1/1/22")
         assert data.index[-1] == pd.to_datetime("1/2/22 23:00")
-        assert all(data["1/1/22"]["c"].isna())
-        assert all(data["1/2/22"]["a"].isna())
+        assert all(data.loc["1/1/22"]["c"].isna())
+        assert all(data.loc["1/2/22"]["a"].isna())
         assert data.index.is_monotonic_increasing
 
     def test_load_single_file(self, tmp_path):
