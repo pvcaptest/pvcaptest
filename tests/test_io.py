@@ -204,7 +204,6 @@ class TestLoadPVsyst:
         day/month/year.
         """
         pvsyst = load_pvsyst("./tests/data/pvsyst_example_day_month_year.csv")
-        pvsyst.data.to_csv("./tests/data/loaded_data.csv")
         assert isinstance(pvsyst, pvc.CapData)
         assert 8760 == pvsyst.data.shape[0]
         assert isinstance(pvsyst.data.index, pd.DatetimeIndex)
