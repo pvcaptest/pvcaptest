@@ -21,7 +21,7 @@ def meas():
     ))
     meas.trans_keys = copy.deepcopy(meas.column_groups.keys())
     meas.set_regression_cols(
-        power='-mtr-', poa='irr-poa-pyran', t_amb='temp-amb-', w_vel='wind--'
+        power='meter_power', poa='irr_poa_pyran', t_amb='temp_amb', w_vel='wind'
     )
     return meas
 

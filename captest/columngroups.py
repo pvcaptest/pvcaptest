@@ -118,7 +118,7 @@ def group_columns(data):
 
     col_indices = []
     for typ, sub_typ, irr_typ in zip(col_types, sub_types, irr_types):
-        col_indices.append('-'.join([typ, sub_typ, irr_typ]))
+        col_indices.append('_'.join([typ, sub_typ, irr_typ]))
 
     names = []
     for new_name, old_name in zip(col_indices, data.columns.tolist()):
