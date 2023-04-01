@@ -445,6 +445,15 @@ class TestCapDataSeriesTypes(unittest.TestCase):
                       'Returned object is not empty string.')
 
 
+class TestLoc():
+    """Test the indexing functionality of the CapData loc method."""
+    def test_single_label_column_group_key(self, meas):
+        """Test that column_groups key returns the columns of Capdata.data that
+        are the values of the key."""
+        out = meas.loc['irr_poa_pyran']
+        assert out.equals(meas.data[['met1_poa_pyranometer', 'met2_poa_pyranometer']])
+
+
 class TestIrrRcBalanced():
     """Test the functionality of the irr_rc_balanced function"""
     def test_check_csv_output_exists(self, meas, tmp_path):

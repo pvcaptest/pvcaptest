@@ -1375,6 +1375,7 @@ class CapData(object):
         self.pre_agg_cols = None
         self.pre_agg_trans = None
         self.pre_agg_reg_trans = None
+        self.loc = LocIndexer(self)
 
     def __getitem__(self, label):
         if isinstance(label, str):
@@ -1398,8 +1399,6 @@ class CapData(object):
                 elif l in self.data.columns:
                     cols_to_return.append(l)
             return self.data[cols_to_return]
-
-
 
     def set_regression_cols(self, power='', poa='', t_amb='', w_vel=''):
         """
@@ -3196,6 +3195,40 @@ class CapData(object):
             Number of points required to remain after filtering for a complete test.
         """
         self.test_complete = self.data_filtered.shape[0] >= pts_required
+
+
+class LocIndexer(object):
+    """
+    Class to implement __getitem__ for indexing the CapData.data dataframe.
+
+    Allows passing a column_groups key, a list of column_groups keys, or a column or
+    list of columns of the CapData.data dataframe.
+    """
+    def __init__(self, _capdata):
+        self._capdata = _capdata
+
+    def __getitem__(self, label):
+        if isinstance(label, str):
+            if label in self._capdata.column_groups.keys():
+                return self._capdata.data[self._capdata.column_groups[label]]
+            elif label in self._capdata.regression_cols.keys():
+                return self._capdata.data[self._capdata.column_groups[self._capdata.regression_cols[label]]]
+            elif label in self._capdata.data.columns:
+                return self._capdata.data[label]
+        elif isinstance(label, list):
+            cols_to_return = []
+            for l in label:
+                if l in self._capdata.column_groups.keys():
+                    cols_to_return.extend(self._capdata.column_groups[l])
+                elif l in self._capdata.regression_cols.keys():
+                    col_or_grp = self._capdata.regression_cols[l]
+                    if col_or_grp in self._capdata.column_groups.keys():
+                        cols_to_return.extend(self._capdata.column_groups[col_or_grp])
+                    elif col_or_grp in self._capdata.data.columns:
+                        cols_to_return.append(col_or_grp)
+                elif l in self._capdata.data.columns:
+                    cols_to_return.append(l)
+            return self._capdata.data[cols_to_return]
 
 if __name__ == "__main__":
     import doctest
