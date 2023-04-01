@@ -1110,7 +1110,7 @@ class TestAggSensors():
         """Sould be able to aggregate columns if the regression columns includes
         a column that is not in the column_groups attribute.
         """
-        meas.data['irr_poa_total'] = meas['met1_poa_pyranometer']
+        meas.data['irr_poa_total'] = meas.data.loc[:, 'met1_poa_pyranometer']
         meas.regression_cols['poa'] = 'irr_poa_total'
         meas.agg_sensors(agg_map={'temp_amb': 'mean'})
         assert meas.regression_cols['t_amb'] == 'temp_amb_mean_agg'
