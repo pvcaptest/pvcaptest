@@ -445,13 +445,113 @@ class TestCapDataSeriesTypes(unittest.TestCase):
                       'Returned object is not empty string.')
 
 
-class TestLoc():
+class TestIndexCapdata():
     """Test the indexing functionality of the CapData loc method."""
     def test_single_label_column_group_key(self, meas):
         """Test that column_groups key returns the columns of Capdata.data that
         are the values of the key."""
+        out = pvc.index_capdata(meas, 'irr_poa_pyran', filtered=True)
+        assert out.equals(meas.data[['met1_poa_pyranometer', 'met2_poa_pyranometer']])
+
+    def test_single_label_regression_columns_key(self, meas):
+        """Test that regression_columns key returns the columns of Capdata.data that
+        are the values of the key."""
+        out = pvc.index_capdata(meas, 'poa', filtered=True)
+        assert out.equals(meas.data[['met1_poa_pyranometer', 'met2_poa_pyranometer']])
+
+    def test_single_label_data_column_label(self, meas):
+        """Test that a column label returns the columns of Capdata.data that
+        are the values of the key. Passes label through to DataFrame.loc."""
+        out = pvc.index_capdata(meas, 'met1_poa_pyranometer', filtered=True)
+        assert out.equals(meas.data.loc[:, 'met1_poa_pyranometer'])
+
+    def test_list_of_labels_column_group_keys(self, meas):
+        """
+        Test that a list of column_groups key returns the columns of Capdata.data that
+        are the union of the values of the keys.
+        """
+        out = pvc.index_capdata(meas, ['irr_poa_pyran', 'temp_amb'], filtered=True)
+        assert out.equals(meas.data[[
+            'met1_poa_pyranometer',
+            'met2_poa_pyranometer',
+            'met1_amb_temp',
+            'met2_amb_temp',
+        ]])
+
+    def test_list_of_labels_regression_columns_keys(self, meas):
+        """
+        Test that a list of regression_columns key returns the columns of Capdata.data that
+        are the union of the values of the keys.
+        """
+        out = pvc.index_capdata(meas, ['poa', 't_amb'], filtered=True)
+        assert out.equals(meas.data[[
+            'met1_poa_pyranometer',
+            'met2_poa_pyranometer',
+            'met1_amb_temp',
+            'met2_amb_temp',
+        ]])
+
+    def test_list_of_labels_data_column_labels(self, meas):
+        """
+        Test that a list of column labels returns the columns of Capdata.data.
+        Passes labels through to DataFrame.loc.
+        """
+        out = pvc.index_capdata(
+            meas, ['met1_poa_pyranometer', 'met2_amb_temp'], filtered=True
+        )
+        assert out.equals(meas.data.loc[:, ['met1_poa_pyranometer', 'met2_amb_temp']])
+
+    def test_list_of_labels_mixed(self, meas):
+        """
+        Test that a list containing a column_group, regression_columns key, and
+        column labels returns the columns of Capdata.data that are the union of the
+        values of the keys and the labels.
+        """
+        out = pvc.index_capdata(
+            meas, ['irr_poa_pyran', 't_amb', 'met1_windspeed'], filtered=True
+        )
+        assert out.equals(meas.data[[
+            'met1_poa_pyranometer',
+            'met2_poa_pyranometer',
+            'met1_amb_temp',
+            'met2_amb_temp',
+            'met1_windspeed',
+        ]])
+
+    def test_list_of_labels_mixed_regression_column_maps_to_column_label(self, meas):
+        """
+        Test a list containing a regression_column key that maps directly to a column
+        label rather than a column_group key is added to the columns returned.
+        """
+        meas.regression_cols['poa'] = 'met1_poa_pyranometer'
+        out = pvc.index_capdata(
+            meas, ['irr_poa_ref_cell', 'poa', 'met1_windspeed'], filtered=True
+        )
+        assert out.equals(meas.data[[
+            'met1_poa_refcell',
+            'met2_poa_refcell',
+            'met1_poa_pyranometer',
+            'met1_windspeed',
+        ]])
+
+
+class TestLocAndFloc():
+    def test_single_label_column_group_key_loc(self, meas):
+        """Test that column_groups key returns the columns of Capdata.data that
+        are the values of the key."""
+        meas.data_filtered = meas.data.iloc[0:10].copy()
         out = meas.loc['irr_poa_pyran']
         assert out.equals(meas.data[['met1_poa_pyranometer', 'met2_poa_pyranometer']])
+        assert out.shape[0] == meas.data.shape[0]
+
+    def test_single_label_column_group_key_floc(self, meas):
+        """Test that column_groups key returns the columns of Capdata.data that
+        are the values of the key."""
+        meas.data_filtered = (meas.data.iloc[0:10, :]).copy()
+        out = meas.floc['irr_poa_pyran']
+        assert out.equals(meas.data_filtered[['met1_poa_pyranometer', 'met2_poa_pyranometer']])
+        assert out.shape[0] == meas.data_filtered.shape[0]
+
 
 
 class TestIrrRcBalanced():
