@@ -38,44 +38,10 @@ pytest tests/test_CapData.py::TestCapDataEmpty::test_capdata_empty
 
 To create a test coverage report (html output) with pytest:
 pytest --cov-report html --cov=captest tests/
+
+pytest fixtures meas, location_and_system, nrel, pvsyst, pvsyst_irr_filter, and
+nrel_clear_sky are in the ./tests/conftest.py file.
 """
-
-@pytest.fixture
-def meas():
-    """Create an instance of CapData with example data loaded."""
-    meas = pvc.CapData('meas')
-    meas.data = pd.read_csv(
-        './tests/data/example_measured_data.csv',
-        index_col=0,
-        parse_dates=True,
-        )
-    meas.data_filtered = meas.data.copy(deep=True)
-    meas.column_groups = cg.ColumnGroups(util.read_json(
-        './tests/data/example_measured_data_column_groups.json'
-    ))
-    meas.trans_keys = copy.deepcopy(meas.column_groups.keys())
-    meas.set_regression_cols(
-        power='-mtr-', poa='irr-poa-pyran', t_amb='temp-amb-', w_vel='wind--'
-    )
-    return meas
-
-@pytest.fixture
-def location_and_system():
-    """Create a dictionary with a nested dictionary for location and system."""
-    loc_sys = {
-        'location': {
-            'latitude': 30.274583,
-            'longitude': -97.740352,
-            'altitude': 500,
-            'tz': 'America/Chicago',
-        },
-        'system': {
-            'surface_tilt': 20,
-            'surface_azimuth': 180,
-            'albedo': 0.2,
-        }
-    }
-    return loc_sys
 
 class TestUpdateSummary:
     """Test the update_summary wrapper and functions used within."""
@@ -257,8 +223,8 @@ class TestTopLevelFuncs(unittest.TestCase):
 
     def test_filter_grps(self):
         pvsyst = load_pvsyst(path='./tests/data/pvsyst_example_HourlyRes_2.CSV')
-        pvsyst.set_regression_cols(power='real_pwr--', poa='irr-poa-',
-                                   t_amb='temp-amb-', w_vel='wind--')
+        pvsyst.set_regression_cols(
+            power='real_pwr__', poa='irr_poa_', t_amb='temp_amb_', w_vel='wind__')
         pvsyst.filter_irr(200, 800)
         pvsyst.rep_cond(freq='MS')
         grps = pvsyst.data_filtered.groupby(pd.Grouper(freq='MS', label='left'))
@@ -502,7 +468,7 @@ class TestCapDataMethodsSim():
     """Test for top level irr_rc_balanced function."""
     def test_copy(self, pvsyst):
         pvsyst.set_regression_cols(
-            power='real_pwr--', poa='irr-ghi-', t_amb='temp-amb-', w_vel='wind--'
+            power='real_pwr--', poa='irr-ghi-', t_amb='temp_amb', w_vel='wind--'
         )
         print(pvsyst.trans_keys)
         pvsyst_copy = pvsyst.copy()
@@ -926,19 +892,10 @@ class TestGetRegCols():
         df = meas.get_reg_cols()
         assert len(df.columns) == 4
         assert df.columns.to_list() == cols
-        assert meas.data['-mtr-sum-agg'].iloc[100] == df['power'].iloc[100]
-        assert meas.data['irr-poa-pyranmean-agg'].iloc[100] == df['poa'].iloc[100]
-        assert meas.data['temp-amb-mean-agg'].iloc[100] == df['t_amb'].iloc[100]
-        assert meas.data['wind--mean-agg'].iloc[100] == df['w_vel'].iloc[100]
-
-    def test_poa_power(self, meas):
-        meas.agg_sensors()
-        cols = ['poa', 'power']
-        df = meas.get_reg_cols(reg_vars=cols)
-        assert len(df.columns) == 2
-        assert df.columns.to_list() == cols
-        assert meas.data['-mtr-sum-agg'].iloc[100] == df['power'].iloc[100]
-        assert meas.data['irr-poa-pyranmean-agg'].iloc[100] == df['poa'].iloc[100]
+        print(meas.data.columns)
+        assert meas.data['irr_poa_pyran_mean_agg'].iloc[100] == df['poa'].iloc[100]
+        assert meas.data['temp_amb_mean_agg'].iloc[100] == df['t_amb'].iloc[100]
+        assert meas.data['wind_mean_agg'].iloc[100] == df['w_vel'].iloc[100]
 
     def test_agg_sensors_mix(self, meas):
         """
@@ -946,10 +903,10 @@ class TestGetRegCols():
         and column names.
         """
         meas.agg_sensors(agg_map={
-            '-inv-': 'sum',
-            'irr-poa-pyran': 'mean',
-            'temp-amb-': 'mean',
-            'wind--': 'mean',
+            'power_inv': 'sum',
+            'irr_poa_pyran': 'mean',
+            'temp_amb': 'mean',
+            'wind': 'mean',
         })
         cols = ['poa', 'power']
         df = meas.get_reg_cols(reg_vars=cols)
@@ -957,7 +914,7 @@ class TestGetRegCols():
         assert len(df.columns) == 2
         assert df.columns.to_list() == cols
         assert meas.data[mtr_col].iloc[100] == df['power'].iloc[100]
-        assert meas.data['irr-poa-pyranmean-agg'].iloc[100] == df['poa'].iloc[100]
+        assert meas.data['irr_poa_pyran_mean_agg'].iloc[100] == df['poa'].iloc[100]
 
 
 class TestAggSensors():
@@ -970,35 +927,35 @@ class TestAggSensors():
         assert meas.data_filtered.shape[0] == meas.data.shape[0]
         # Data after aggregation should not have sum of power columns because there
         # is only one power column, so it is not aggregated.
-        assert '-mtr-_sum_agg' not in meas.data.columns
-        assert '-mtr-_sum_agg' not in meas.data_filtered.columns
+        assert 'power_sum_agg' not in meas.data.columns
+        assert 'power_sum_agg' not in meas.data_filtered.columns
 
         # Check for poa aggregation column
-        assert 'irr-poa-pyran_mean_agg' in meas.data_filtered.columns
+        assert 'irr_poa_pyran_mean_agg' in meas.data_filtered.columns
         # Check for amb temp aggregation column
-        assert 'temp-amb-_mean_agg' in meas.data_filtered.columns
+        assert 'temp_amb_mean_agg' in meas.data_filtered.columns
         # Check for wind aggregation column
-        assert 'wind--_mean_agg' in meas.data_filtered.columns
+        assert 'wind_mean_agg' in meas.data_filtered.columns
 
     def test_agg_map_non_str_func(self, meas):
-        meas.agg_sensors(agg_map={'irr-poa-pyran': np.mean})
+        meas.agg_sensors(agg_map={'irr_poa_pyran': np.mean})
         # data and data_filtered should have same number of columns
         assert meas.data_filtered.shape[1] == meas.data.shape[1]
         # Rows should be the same in both dataframes
         assert meas.data_filtered.shape[0] == meas.data.shape[0]
         # Check for poa aggregation column
-        assert 'irr-poa-pyran_mean_agg' in meas.data_filtered.columns
+        assert 'irr_poa_pyran_mean_agg' in meas.data_filtered.columns
 
     def test_agg_map_update_regression_cols(self, meas):
         meas.agg_sensors()
         # Regression column for power should not be updated because there is only
         # one power column.
-        assert meas.regression_cols['power'] == '-mtr-'
+        assert meas.regression_cols['power'] == 'meter_power'
         # Regression columns for poa, amb temp, and wind should be updated to
         # the aggregated columns from the column group ids.
-        assert meas.regression_cols['poa'] == 'irr-poa-pyran_mean_agg'
-        assert meas.regression_cols['t_amb'] == 'temp-amb-_mean_agg'
-        assert meas.regression_cols['w_vel'] == 'wind--_mean_agg'
+        assert meas.regression_cols['poa'] == 'irr_poa_pyran_mean_agg'
+        assert meas.regression_cols['t_amb'] == 'temp_amb_mean_agg'
+        assert meas.regression_cols['w_vel'] == 'wind_mean_agg'
 
     def test_reset_summary(self, meas):
         meas.agg_sensors()
@@ -1046,8 +1003,8 @@ class TestAggSensors():
         """
         meas.data['irr_poa_total'] = meas['met1_poa_pyranometer']
         meas.regression_cols['poa'] = 'irr_poa_total'
-        meas.agg_sensors(agg_map={'temp-amb-': 'mean'})
-        assert meas.regression_cols['t_amb'] == 'temp-amb-_mean_agg'
+        meas.agg_sensors(agg_map={'temp_amb': 'mean'})
+        assert meas.regression_cols['t_amb'] == 'temp_amb_mean_agg'
 
 
 
@@ -1063,7 +1020,7 @@ class TestFilterSensors():
     def test_perc_diff(self, meas):
         rows_before_flt = meas.data_filtered.shape[0]
         meas.filter_sensors(
-            perc_diff={'irr-poa-ref_cell': 0.05, 'temp-amb-': 0.1},
+            perc_diff={'irr_poa_ref_cell': 0.05, 'temp_amb': 0.1},
             inplace=True
         )
         # Check that data_filtered is still a dataframe
@@ -1074,39 +1031,19 @@ class TestFilterSensors():
     def test_after_agg_sensors(self, meas):
         rows_before_flt = meas.data_filtered.shape[0]
         meas.agg_sensors(agg_map={
-            '-inv-': 'sum',
-            'irr-poa-ref_cell': 'mean',
-            'wind--': 'mean',
-            'temp-amb-': 'mean'
+            'power_inv': 'sum',
+            'irr_poa_ref_cell': 'mean',
+            'wind': 'mean',
+            'temp_amb': 'mean'
         })
         meas.filter_sensors(
-            perc_diff={'irr-poa-ref_cell': 0.05, 'temp-amb-': 0.1},
+            perc_diff={'irr_poa_ref_cell': 0.05, 'temp_amb': 0.1},
             inplace=True,
         )
         assert isinstance(meas.data_filtered, pd.core.frame.DataFrame)
         assert meas.data_filtered.shape[0] < rows_before_flt
         # Filter_sensors should retain the aggregated columns
-        assert '-inv-_sum_agg' in meas.data_filtered.columns
-
-
-@pytest.fixture
-def nrel():
-    nrel = pvc.CapData('nrel')
-    nrel.data = pd.read_csv(
-        './tests/data/nrel_data.csv', index_col=0, parse_dates=True
-    )
-    nrel.data_filtered = nrel.data.copy()
-    nrel.column_groups = {
-        'irr-ghi-': ['Global CMP22 (vent/cor) [W/m^2]', ],
-        'irr-poa-': ['POA 40-South CMP11 [W/m^2]', ],
-        'temp--': ['Deck Dry Bulb Temp [deg C]', ],
-        'wind--': ['Avg Wind Speed @ 19ft [m/s]', ],
-    }
-    nrel.trans_keys = list(nrel.column_groups.keys())
-    nrel.regression_cols = {
-        'power': '', 'poa': 'irr-poa-', 't_amb': 'temp--', 'w_vel': 'wind--'
-    }
-    return nrel
+        assert 'power_inv_sum_agg' in meas.data_filtered.columns
 
 
 class TestRepCondNoFreq():
@@ -1136,41 +1073,6 @@ class TestRepCondNoFreq():
         assert nrel.rc['w_vel'][0] == 50
 
 
-@pytest.fixture
-def pvsyst():
-    # load pvsyst csv file
-    df = pd.read_csv(
-        './tests/data/pvsyst_example_HourlyRes_2.CSV',
-        skiprows=9,
-        encoding='latin1',
-    ).iloc[1:, :]
-    df['Timestamp'] = pd.to_datetime(df['date'])
-    df = df.set_index('Timestamp', drop=True)
-    df = df.drop(columns=['date']).astype(np.float64)
-    df.rename(columns={'T Amb': 'T_Amb'}, inplace=True)
-    # set pvsyst DataFrame to CapData data attribute
-    pvsyst = pvc.CapData('pvsyst')
-    pvsyst.data = df
-    pvsyst.data_filtered = pvsyst.data.copy()
-    pvsyst.column_groups = {
-        'irr-poa-': ['GlobInc'],
-        'shade--': ['FShdBm'],
-        'index--': ['index'],
-        'wind--': ['WindVel'],
-        '-inv-': ['EOutInv'],
-        'pvsyt_losses--': ['IL Pmax', 'IL Pmin', 'IL Vmax', 'IL Vmin'],
-        'temp-amb-': ['T_Amb'],
-        'irr-ghi-': ['GlobHor'],
-        'temp-mod-': ['TArray'],
-        'real_pwr--': ['E_Grid'],
-    }
-    pvsyst.regression_cols = {
-        'power': 'real_pwr--', 'poa': 'irr-poa-', 't_amb': 'temp-amb-', 'w_vel': 'wind--'
-    }
-    pvsyst.trans_keys = list(pvsyst.column_groups.keys())
-    return pvsyst
-    
-
 class TestRepCondFreq():
     def test_monthly_no_irr_bal(self, pvsyst):
         pvsyst.rep_cond(freq='M')
@@ -1193,12 +1095,6 @@ class TestRepCondFreq():
         # Rep conditions dataframe should have 4 rows
         assert pvsyst.rc.shape[0] == 4
 
-
-@pytest.fixture
-def pvsyst_irr_filter(pvsyst):
-    pvsyst.filter_irr(200, 800)
-    pvsyst.tolerance = '+/- 5'
-    return pvsyst
 
 class TestPredictCapacities():
     def test_monthly(self, pvsyst_irr_filter):
@@ -1471,35 +1367,12 @@ class TestFilterOutliersAndPower():
         assert meas.data_filtered.shape[0] == 1289
 
     def test_filter_power_column_group(self, meas):
-        meas.filter_power(500_000, percent=None, columns='-inv-', inplace=True)
+        meas.filter_power(500_000, percent=None, columns='power_inv', inplace=True)
         assert meas.data_filtered.shape[0] == 1138
 
     def test_filter_power_columns_not_str(self, meas):
         with pytest.warns(UserWarning):
             meas.filter_power(500_000, percent=None, columns=1, inplace=True)
-
-
-@pytest.fixture
-def nrel_clear_sky(nrel):
-    """ Modeled clear sky data was created using the pvlib fixed tilt clear sky
-    models with the following parameters:
-         loc = {
-            'latitude': 39.742,
-            'longitude': -105.18,
-            'altitude': 1828.8,
-            'tz': 'Etc/GMT+7'
-        }
-        sys = {'surface_tilt': 40, 'surface_azimuth': 180, 'albedo': 0.2}
-    """
-    clear_sky = pd.read_csv(
-        './tests/data/nrel_data_modelled_csky.csv', index_col=0, parse_dates=True
-    )
-    nrel.data = pd.concat([nrel.data, clear_sky], axis=1)
-    nrel.data_filtered = nrel.data.copy()
-    nrel.column_groups['irr-poa-clear_sky'] = ['poa_mod_csky']
-    nrel.column_groups['irr-ghi-clear_sky'] = ['ghi_mod_csky']
-    nrel.trans_keys = list(nrel.column_groups.keys())
-    return nrel
 
 
 class TestCskyFilter():
@@ -1917,6 +1790,24 @@ class TestPointsSummary():
 
         assert results_str == captured.out
 
+
+class TestSetPlotsAttributes():
+    """Test assigning colors to each column using the keys of the column_grouping."""
+    def test_real_power_group_colors(self, meas):
+        """
+        Test that the color assigned to the column(s) in the `data` attributute is
+        one of the colors in the `plot_colors_brewer` dictionary with the real_pwr key.
+        """
+        meas.set_plot_attributes()
+        assert meas.col_colors['meter_power'] == '#2b8cbe'
+        assert meas.col_colors['met1_poa_refcell'] == '#e31a1c'
+        assert meas.col_colors['met2_poa_refcell'] == '#fd8d3c'
+        assert meas.col_colors['met2_poa_refcell'] == '#fd8d3c'
+        assert meas.col_colors['met1_ghi_pyranometer'] == '#91003f'
+        assert meas.col_colors['met1_amb_temp'] == '#238443'
+        assert meas.col_colors['met1_mod_temp1'] == '#88419d'
+        assert meas.col_colors['met1_windspeed'] == '#238b45'
+        assert meas.col_colors['inv1_power'] == '#d60000'
 
 if __name__ == '__main__':
     unittest.main()

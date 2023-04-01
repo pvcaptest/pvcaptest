@@ -23,20 +23,40 @@ from .context import (
 )
 
 
-class TestLoadDataColumnGrouping():
+class TestLoadDataColumnGrouping:
     def test_is_json(self):
         """Test loading a json column groups file."""
         das = load_data(
-            # path='./tests/data/example_meas_data.csv',
-            # group_columns='./tests/data/column_groups.json',
-            path='./tests/data/example_measured_data.csv',
-            group_columns='./tests/data/example_measured_data_column_groups.json',
+            path="./tests/data/example_measured_data.csv",
+            group_columns="./tests/data/example_measured_data_column_groups.json",
         )
         column_groups = cg.ColumnGroups(
-            util.read_json('./tests/data/example_measured_data_column_groups.json')
+            util.read_json("./tests/data/example_measured_data_column_groups.json")
         )
-        print(das.column_groups)
         assert das.column_groups == column_groups
+
+    def test_is_yaml(self):
+        """Test loading a yaml column groups file with 'yaml' extension."""
+        das = load_data(
+            path="./tests/data/example_measured_data.csv",
+            group_columns="./tests/data/example_measured_data_column_groups.yaml",
+        )
+        column_groups = cg.ColumnGroups(
+            util.read_yaml("./tests/data/example_measured_data_column_groups.yaml")
+        )
+        assert das.column_groups == column_groups
+
+    def test_is_yml(self):
+        """Test loading a yaml column groups file with 'yml' extension."""
+        das = load_data(
+            path="./tests/data/example_measured_data.csv",
+            group_columns="./tests/data/example_measured_data_column_groups.yml",
+        )
+        column_groups = cg.ColumnGroups(
+            util.read_yaml("./tests/data/example_measured_data_column_groups.yml")
+        )
+        assert das.column_groups == column_groups
+
 
 class TestFlattenMultiIndex:
     def test_flatten_multi_index_2levels(self):
@@ -185,7 +205,6 @@ class TestLoadPVsyst:
         day/month/year.
         """
         pvsyst = load_pvsyst("./tests/data/pvsyst_example_day_month_year.csv")
-        pvsyst.data.to_csv("./tests/data/loaded_data.csv")
         assert isinstance(pvsyst, pvc.CapData)
         assert 8760 == pvsyst.data.shape[0]
         assert isinstance(pvsyst.data.index, pd.DatetimeIndex)
@@ -202,9 +221,9 @@ class TestLoadPVsyst:
         with pytest.warns(UserWarning):
             pvsyst = load_pvsyst("./tests/data/pvsyst_example_day_month_year.csv")
             warnings.warn(
-                'Dates are not in month/day/year format. '
-                'Trying day/month/year format.',
-                UserWarning
+                "Dates are not in month/day/year format. "
+                "Trying day/month/year format.",
+                UserWarning,
             )
 
     def test_scale_egrid(self):
@@ -274,7 +293,7 @@ class TestDataLoader:
             dl.set_files_to_load()
             warnings.warn(
                 "No files with csv extension were found in the directory: ./data/",
-                UserWarning
+                UserWarning,
             )
 
     def test_reindex_loaded_files(self):
@@ -317,8 +336,8 @@ class TestDataLoader:
         print(data.info())
         assert data.shape == (48, 2)
         assert data.index.is_monotonic_increasing
-        assert data.dtypes['a'] == 'float64'
-        assert data.dtypes['b'] == 'int'
+        assert data.dtypes["a"] == "float64"
+        assert data.dtypes["b"] == "int"
 
     def test_join_files_same_headers_same_index_warning(self):
         day1 = pd.DataFrame(
@@ -358,10 +377,10 @@ class TestDataLoader:
         data = dl._join_files()
         assert data.shape == (24, 4)
         assert data.isna().sum().sum() == 0
-        assert data.dtypes['a'] == 'int'
-        assert data.dtypes['b'] == 'int'
-        assert data.dtypes['c'] == 'float64'
-        assert data.dtypes['d'] == 'float64'
+        assert data.dtypes["a"] == "int"
+        assert data.dtypes["b"] == "int"
+        assert data.dtypes["c"] == "float64"
+        assert data.dtypes["d"] == "float64"
 
     def test_join_files_different_headers_and_days(self):
         day1 = pd.DataFrame(
@@ -380,13 +399,13 @@ class TestDataLoader:
         dl.common_freq = "60min"
         data = dl._join_files()
         assert data.shape == (48, 4)
-        assert data["1/2/22"][["a", "b"]].isna().sum().sum() == 48
-        assert data["1/1/22"][["c", "d"]].isna().sum().sum() == 48
+        assert data.loc["1/2/22"][["a", "b"]].isna().sum().sum() == 48
+        assert data.loc["1/1/22"][["c", "d"]].isna().sum().sum() == 48
         assert data.index.is_monotonic_increasing
-        assert data.dtypes['a'] == 'float64'
-        assert data.dtypes['b'] == 'float64'
-        assert data.dtypes['c'] == 'float64'
-        assert data.dtypes['d'] == 'float64'
+        assert data.dtypes["a"] == "float64"
+        assert data.dtypes["b"] == "float64"
+        assert data.dtypes["c"] == "float64"
+        assert data.dtypes["d"] == "float64"
 
     def test_join_files_overlapping_headers(self):
         day1 = pd.DataFrame(
@@ -407,8 +426,8 @@ class TestDataLoader:
         assert data.shape == (48, 3)
         assert data.index[0] == pd.to_datetime("1/1/22")
         assert data.index[-1] == pd.to_datetime("1/2/22 23:00")
-        assert all(data["1/1/22"]["c"].isna())
-        assert all(data["1/2/22"]["a"].isna())
+        assert all(data.loc["1/1/22"]["c"].isna())
+        assert all(data.loc["1/2/22"]["a"].isna())
         assert data.index.is_monotonic_increasing
 
     def test_load_single_file(self, tmp_path):
@@ -422,10 +441,102 @@ class TestDataLoader:
         ).to_csv(csv_path)
         dl = DataLoader(csv_path)
         dl.load()
+        print(dl.data)
         assert isinstance(dl.data, pd.DataFrame)
-    
-    # def test_load_csvs_in_directory_no_files_to_load_set(self, tmp_path):
-    # """Test load method path to files is set but files_to_load is not."""
+        assert dl.data.shape == (20, 2)
+
+    def test_load_all_files_in_directory(self, tmp_path):
+        """
+        Test load method when `path` attribute is a directory and specific files
+        to load are not specified.
+        """
+        for i in range(1, 4, 1):
+            csv_path = tmp_path / ("file_" + str(i) + ".csv")
+            pd.DataFrame(
+                {
+                    "met1_poa1": np.arange(0, 20),
+                    "met1_poa2": np.arange(20, 40),
+                },
+                index=pd.date_range(
+                    start="8/" + str(i) + "/22", periods=20, freq="1min"
+                ),
+            ).to_csv(csv_path)
+        dl = DataLoader(tmp_path)
+        dl.load()
+        # print(dl.data.info())
+        # print(dl.data)
+        assert isinstance(dl.data, pd.DataFrame)
+        assert dl.data.shape == (60, 3)
+
+    def test_load_specific_files(self, tmp_path):
+        """
+        Test load method when `path` attribute is a directory and specific files
+        to load are specified.
+        """
+        file_paths = []
+        for i in range(1, 4, 1):
+            csv_path = tmp_path / ("file_" + str(i) + ".csv")
+            file_paths.append(csv_path)
+            pd.DataFrame(
+                {
+                    "met1_poa1": np.arange(0, 20),
+                    "met1_poa2": np.arange(20, 40),
+                },
+                index=pd.date_range(
+                    start="8/" + str(i) + "/22", periods=20, freq="1min"
+                ),
+            ).to_csv(csv_path)
+        dl = DataLoader(tmp_path)
+        dl.files_to_load = [file_paths[0], file_paths[2]]
+        dl.load()
+        assert isinstance(dl.data, pd.DataFrame)
+        assert dl.data.shape == (40, 3)
+        assert dl.loaded_files["file_1"].index.equals(
+            pd.date_range(start="8/1/22", periods=20, freq="1min")
+        )
+        assert dl.loaded_files["file_3"].index.equals(
+            pd.date_range(start="8/3/22", periods=20, freq="1min")
+        )
+
+
+class TestLoadDataFunction:
+    """
+    Test the top level `load_data` function.
+    """
+
+    def test_load_all_files_in_directory(self, tmp_path):
+        """
+        Test loading all files in a directory which after combining have missing
+        indices. By default the index is replaced with one with no missing times.
+        """
+        for i in range(1, 4, 1):
+            csv_path = tmp_path / ("file_" + str(i) + ".csv")
+            pd.DataFrame(
+                {
+                    "met1_poa1": np.arange(0, 20),
+                    "met1_poa2": np.arange(20, 40),
+                },
+                index=pd.date_range(
+                    start="8/" + str(i) + "/22", periods=20, freq="1min"
+                ),
+            ).to_csv(csv_path)
+        cd = load_data(tmp_path, drop_duplicates=False)
+        assert isinstance(cd.data, pd.DataFrame)
+        assert cd.data.shape == (2900, 3)
+
+    def test_adds_csky_when_passesed_site(self, meas, location_and_system):
+        site = {
+            "sys": location_and_system["system"],
+            "loc": location_and_system["location"],
+        }
+        cd = load_data(
+            path="./tests/data/example_measured_data.csv",
+            site=site,
+        )
+        assert "ghi_mod_csky" in cd.data.columns
+        assert "poa_mod_csky" in cd.data.columns
+        assert "poa_mod_csky" in cd.data_filtered.columns
+
 
 class TestLoadDataMethods(unittest.TestCase):
     """Test for load data methods without setup."""
@@ -465,35 +576,3 @@ class TestLoadDataMethods(unittest.TestCase):
             all(das_2.data.columns == col_names2),
             "Column names are not expected value for ae_site2",
         )
-
-
-test_files = [
-    "test1.csv",
-    "test2.csv",
-    "test3.CSV",
-    "test4.txt",
-    "pvsyst.csv",
-    "pvsyst_data.csv",
-]
-
-
-# class TestCapDataLoadMethods(unittest.TestCase):
-#     """Tests for load_data method."""
-#
-#     def setUp(self):
-#         os.mkdir("test_csvs")
-#         for fname in test_files:
-#             with open("test_csvs/" + fname, "a") as f:
-#                 f.write("Date, val\n11/21/2017, 1")
-#
-#         self.capdata = load_data(path="test_csvs/")
-#
-#     def tearDown(self):
-#         for fname in test_files:
-#             os.remove("test_csvs/" + fname)
-#         os.rmdir("test_csvs")
-#
-#     def test_read_csvs(self):
-#         self.assertEqual(
-#             self.capdata.data.shape[0], 3, "imported a non csv or pvsyst file"
-#         )

@@ -35,6 +35,7 @@ import sklearn.covariance as sk_cv
 # anaconda distribution defaults
 # visualization library imports
 import matplotlib.pyplot as plt
+import colorcet as cc
 from bokeh.io import show
 from bokeh.plotting import figure
 from bokeh.palettes import Category10
@@ -70,10 +71,10 @@ else:
 from captest import util
 
 plot_colors_brewer = {'real_pwr': ['#2b8cbe', '#7bccc4', '#bae4bc', '#f0f9e8'],
-                      'irr-poa': ['#e31a1c', '#fd8d3c', '#fecc5c', '#ffffb2'],
-                      'irr-ghi': ['#91003f', '#e7298a', '#c994c7', '#e7e1ef'],
-                      'temp-amb': ['#238443', '#78c679', '#c2e699', '#ffffcc'],
-                      'temp-mod': ['#88419d', '#8c96c6', '#b3cde3', '#edf8fb'],
+                      'irr_poa': ['#e31a1c', '#fd8d3c', '#fecc5c', '#ffffb2'],
+                      'irr_ghi': ['#91003f', '#e7298a', '#c994c7', '#e7e1ef'],
+                      'temp_amb': ['#238443', '#78c679', '#c2e699', '#ffffcc'],
+                      'temp_mod': ['#88419d', '#8c96c6', '#b3cde3', '#edf8fb'],
                       'wind': ['#238b45', '#66c2a4', '#b2e2e2', '#edf8fb']}
 
 met_keys = ['poa', 't_amb', 'w_vel', 'power']
@@ -1453,28 +1454,36 @@ class CapData(object):
 
     def set_plot_attributes(self):
         """Set column colors used in plot method."""
-        dframe = self.data
+        # dframe = self.data
 
-        for key in self.trans_keys:
-            df = pd.DataFrame(dframe[self.column_groups[key]])
-            cols = df.columns.tolist()
-            for i, col in enumerate(cols):
-                abbrev_col_name = key + str(i)
-                self.trans_abrev[abbrev_col_name] = col
+        group_id_regex = {
+            'real_pwr': re.compile(r'real_pwr|pwr|meter_power|active_pwr|active_power', re.IGNORECASE),
+            'irr_poa': re.compile(r'poa|irr_poa|poa_irr', re.IGNORECASE),
+            'irr_ghi': re.compile(r'ghi|irr_ghi|ghi_irr', re.IGNORECASE),
+            'temp_amb': re.compile(r'amb|temp.*amb', re.IGNORECASE),
+            'temp_mod': re.compile(r'bom|temp.*bom|module.*temp.*|temp.*mod.*', re.IGNORECASE),
+            'wind': re.compile(r'wind|w_vel|wspd|wind__', re.IGNORECASE),
+        }
 
-                col_key0 = key.split('-')[0]
-                col_key1 = key.split('-')[1]
-                if col_key0 in ('irr', 'temp'):
-                    col_key = col_key0 + '-' + col_key1
-                else:
-                    col_key = col_key0
-
+        for group_id, cols_in_group in self.column_groups.items():
+            print('=' * 20)
+            print(group_id)
+            col_key = None
+            for plot_colors_group_key, regex in group_id_regex.items():
+                print(plot_colors_group_key)
+                print('-' * 20)
+                print(regex.match(group_id))
+                if regex.match(group_id):
+                    print('setting col_key')
+                    col_key = plot_colors_group_key
+                    break
+            for i, col in enumerate(cols_in_group):
                 try:
                     j = i % 4
                     self.col_colors[col] = plot_colors_brewer[col_key][j]
                 except KeyError:
-                    j = i % 10
-                    self.col_colors[col] = Category10[10][j]
+                    j = i % 256
+                    self.col_colors[col] = cc.glasbey_dark[j]
 
     def drop_cols(self, columns):
         """
