@@ -306,7 +306,7 @@ class DataLoader:
             the `file_reader` attribute to a function that will read that type of file.
         """
         if self.path.is_file():
-            data = self.file_reader(self.path)
+            self.data = self.file_reader(self.path)
         elif self.path.is_dir():
             if self.files_to_load is not None:
                 self.loaded_files = {
@@ -324,7 +324,9 @@ class DataLoader:
             ) = self._reindex_loaded_files()
             data = self._join_files()
             data.index.name = "Timestamp"
-        self.data = data
+            self.data = data
+        else:
+            warnings.warn("No directory or file found at {}".format(self.path))
 
     def sort_data(self):
         self.data.sort_index(inplace=True)

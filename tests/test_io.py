@@ -498,6 +498,35 @@ class TestDataLoader:
             pd.date_range(start="8/3/22", periods=20, freq="1min")
         )
 
+    def test_load_specific_file_doesnt_exist(self, tmp_path):
+        """
+        Test load method when `path` attribute is pointing to a file that doesn't exist.
+        """
+        csv_path = tmp_path / "file_1.csv"
+        dl = DataLoader(csv_path)
+        with pytest.warns(
+            UserWarning,
+            match='No directory or file found at .*'
+        ) as record:
+            dl.load()
+        for warning in record:
+            print(warning.message)
+        assert len(record) == 1
+
+    def test_load_all_files_in_directory_doesnt_exist(self):
+        """
+        Test load method when `path` attribute is a directory that doesn't exist.
+        """
+        dl = DataLoader('./not_a_directory')
+        with pytest.warns(
+            UserWarning,
+            match='No directory or file found at .*'
+        ) as record:
+            dl.load()
+        for warning in record:
+            print(warning.message)
+        assert len(record) == 1
+
 
 class TestLoadDataFunction:
     """
