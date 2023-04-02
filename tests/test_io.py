@@ -504,16 +504,28 @@ class TestDataLoader:
         """
         csv_path = tmp_path / "file_1.csv"
         dl = DataLoader(csv_path)
-        with pytest.warns(UserWarning):
+        with pytest.warns(
+            UserWarning,
+            match='No directory or file found at .*'
+        ) as record:
             dl.load()
+        for warning in record:
+            print(warning.message)
+        assert len(record) == 1
 
     def test_load_all_files_in_directory_doesnt_exist(self):
         """
         Test load method when `path` attribute is a directory that doesn't exist.
         """
         dl = DataLoader('./not_a_directory')
-        with pytest.warns(UserWarning):
+        with pytest.warns(
+            UserWarning,
+            match='No directory or file found at .*'
+        ) as record:
             dl.load()
+        for warning in record:
+            print(warning.message)
+        assert len(record) == 1
 
 
 class TestLoadDataFunction:

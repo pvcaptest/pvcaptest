@@ -307,9 +307,7 @@ class DataLoader:
         """
         if self.path.is_file():
             self.data = self.file_reader(self.path)
-        else:
-            warnings.warn("No file found at {}".format(self.path))
-        if self.path.is_dir():
+        elif self.path.is_dir():
             if self.files_to_load is not None:
                 self.loaded_files = {
                     file.stem: self.file_reader(file) for file in self.files_to_load
@@ -328,7 +326,7 @@ class DataLoader:
             data.index.name = "Timestamp"
             self.data = data
         else:
-            warnings.warn("No directory found at {}".format(self.path))
+            warnings.warn("No directory or file found at {}".format(self.path))
 
     def sort_data(self):
         self.data.sort_index(inplace=True)
