@@ -1294,6 +1294,62 @@ def overlay_scatters(measured, expected, expected_label='PVsyst'):
     return overlay
 
 
+def index_capdata(capdata, label, filtered=True):
+    if filtered:
+        data = capdata.data_filtered
+    else:
+        data = capdata.data
+    if isinstance(label, str):
+        if label in capdata.column_groups.keys():
+            return data[capdata.column_groups[label]]
+        elif label in capdata.regression_cols.keys():
+            return data[capdata.column_groups[capdata.regression_cols[label]]]
+        elif label in data.columns:
+            return data.loc[:, label]
+    elif isinstance(label, list):
+        cols_to_return = []
+        for l in label:
+            if l in capdata.column_groups.keys():
+                cols_to_return.extend(capdata.column_groups[l])
+            elif l in capdata.regression_cols.keys():
+                col_or_grp = capdata.regression_cols[l]
+                if col_or_grp in capdata.column_groups.keys():
+                    cols_to_return.extend(capdata.column_groups[col_or_grp])
+                elif col_or_grp in data.columns:
+                    cols_to_return.append(col_or_grp)
+            elif l in data.columns:
+                cols_to_return.append(l)
+        return data[cols_to_return]
+
+
+class LocIndexer(object):
+    """
+    Class to implement __getitem__ for indexing the CapData.data dataframe.
+
+    Allows passing a column_groups key, a list of column_groups keys, or a column or
+    list of columns of the CapData.data dataframe.
+    """
+    def __init__(self, _capdata):
+        self._capdata = _capdata
+
+    def __getitem__(self, label):
+        return index_capdata(self._capdata, label, filtered=False)
+
+
+class FilteredLocIndexer(object):
+    """
+    Class to implement __getitem__ for indexing the CapData.data_filtered dataframe.
+
+    Allows passing a column_groups key, a list of column_groups keys, or a column or
+    list of columns of the CapData.data_filtered dataframe.
+    """
+    def __init__(self, _capdata):
+        self._capdata = _capdata
+
+    def __getitem__(self, label):
+        return index_capdata(self._capdata, label, filtered=True)
+
+
 class CapData(object):
     """
     Class to store capacity test data and translation of column names.
@@ -1375,31 +1431,8 @@ class CapData(object):
         self.pre_agg_cols = None
         self.pre_agg_trans = None
         self.pre_agg_reg_trans = None
-
-    def __getitem__(self, label):
-        if isinstance(label, str):
-            if label in self.column_groups.keys():
-                return self.data[self.column_groups[label]]
-            elif label in self.regression_cols.keys():
-                return self.data[self.column_groups[self.regression_cols[label]]]
-            elif label in self.data.columns:
-                return self.data[label]
-        elif isinstance(label, list):
-            cols_to_return = []
-            for l in label:
-                if l in self.column_groups.keys():
-                    cols_to_return.extend(self.column_groups[l])
-                elif l in self.regression_cols.keys():
-                    col_or_grp = self.regression_cols[l]
-                    if col_or_grp in self.column_groups.keys():
-                        cols_to_return.extend(self.column_groups[col_or_grp])
-                    elif col_or_grp in self.data.columns:
-                        cols_to_return.append(col_or_grp)
-                elif l in self.data.columns:
-                    cols_to_return.append(l)
-            return self.data[cols_to_return]
-
-
+        self.loc = LocIndexer(self)
+        self.floc = FilteredLocIndexer(self)
 
     def set_regression_cols(self, power='', poa='', t_amb='', w_vel=''):
         """
@@ -2667,7 +2700,6 @@ class CapData(object):
         ix = df_reg_vars.dropna().index
         self.data_filtered = self.data_filtered.loc[ix, :]
 
-
     def filter_op_state(self, op_state, mult_inv=None, inplace=True):
         """
         NOT CURRENTLY IMPLEMENTED - Filter on inverter operation state.
@@ -3085,14 +3117,6 @@ class CapData(object):
         sy = pred.se_obs[0] / pred_cap
         return (by ** 2 + sy ** 2) ** (1 / 2) * k
 
-
-
-
-
-
-
-
-
     def get_filtering_table(self):
         """
         Returns DataFrame showing which filter removed each filtered time interval.
@@ -3118,7 +3142,6 @@ class CapData(object):
             lambda x: all(x == 0), axis=1
         )
         return filtering_data
-
 
     def print_points_summary(self, hrs_req=12.5):
         """
