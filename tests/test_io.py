@@ -22,8 +22,38 @@ from .context import (
     DataLoader,
 )
 
+class TestLoadExcelColumnGroups():
+    """
+    Tests function that loads an excel file into a column group dictionary.
+    """
+    def test_load_excel_column_groups(self):
+        """
+        Tests that the function loads the excel file into a dictionary.
+        """
+        # Load the excel file into a dictionary
+        column_groups = io.load_excel_column_groups(
+            "./tests/data/example_measured_data_column_groups.xlsx"
+        )
+        assert isinstance(column_groups, dict)
+        assert column_groups['irr-ghi-pyran'] == [
+            'met1_ghi_pyranometer', 'met2_ghi_pyranometer'
+        ]
+        assert column_groups['-mtr-'] == ['meter_power']
+
 
 class TestLoadDataColumnGrouping:
+    def test_is_excel(self):
+        """Test loading an excel column groups file."""
+        das = load_data(
+            path="./tests/data/example_measured_data.csv",
+            group_columns="./tests/data/example_measured_data_column_groups.xlsx",
+        )
+        column_groups = cg.ColumnGroups(
+            util.read_yaml("./tests/data/example_measured_data_column_groups.yaml")
+        )
+        print(das.column_groups.data)
+        assert das.column_groups == column_groups
+
     def test_is_json(self):
         """Test loading a json column groups file."""
         das = load_data(
@@ -605,3 +635,4 @@ class TestLoadDataMethods(unittest.TestCase):
             all(das_2.data.columns == col_names2),
             "Column names are not expected value for ae_site2",
         )
+

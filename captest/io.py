@@ -19,6 +19,26 @@ from captest import util
 def flatten_multi_index(columns):
     return ["_".join(col_name) for col_name in columns.to_list()]
 
+def load_excel_column_groups(path):
+    """
+    Load column groups from an excel file.
+
+    Parameters
+    ----------
+    path : str
+        Path to file to import.
+    sheet_name : str, default 0
+        Sheet name to load.
+    **kwargs
+        Use to pass additional kwargs to pandas read_excel.
+
+    Returns
+    -------
+    dict
+        Dictionary of column groups.
+    """
+    df = pd.read_excel(path, header=None).fillna(method="ffill")
+    return df.groupby(0)[1].apply(list).to_dict()
 
 def load_pvsyst(
     path,
@@ -424,6 +444,8 @@ def load_data(
             cd.column_groups = cg.ColumnGroups(util.read_json(group_columns))
         elif (p.suffix == ".yml") or (p.suffix == ".yaml"):
             cd.column_groups = cg.ColumnGroups(util.read_yaml(group_columns))
+        elif (p.suffix == '.xlsx') or (p.suffix == '.xls'):
+            cd.column_groups = cg.ColumnGroups(load_excel_column_groups(group_columns))
     if site is not None:
         cd.data = csky(cd.data, loc=site['loc'], sys=site['sys'])
         cd.data_filtered = cd.data.copy()
