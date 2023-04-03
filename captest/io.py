@@ -19,6 +19,34 @@ from captest import util
 def flatten_multi_index(columns):
     return ["_".join(col_name) for col_name in columns.to_list()]
 
+def load_excel_column_groups(path):
+    """
+    Load column groups from an excel file.
+
+    The excel file should have two columns with no heder. The first column contains
+    the group names and the second column contain the the column names of the data.
+    The first column may have blanks rathe than repeating the group name for each
+    column in the group.
+
+    For example:
+    group1, col1
+          , col2
+          , col3
+    group2, col4
+          , col5
+
+    Parameters
+    ----------
+    path : str
+        Path to file to import.
+
+    Returns
+    -------
+    dict
+        Dictionary mapping column group names to lists of column names.
+    """
+    df = pd.read_excel(path, header=None).fillna(method="ffill")
+    return df.groupby(0)[1].apply(list).to_dict()
 
 def load_pvsyst(
     path,
@@ -370,7 +398,11 @@ def load_data(
         a DataFrame and return a dictionary with keys that are ids and valeus that are
         lists of column names. Will be set to the `group_columns` attribute of the
         CapData.DataLoader object.
-        Provide a string to load column grouping from a json file.
+        Provide a string to load column grouping from a json, yaml, or excel file. The
+        json or yaml file should parse to a dictionary and the excel file should have
+        two columns with the first column containing the group ids and the second column
+        the column names. The first column may have missing values. See function
+        `load_excel_column_groups` for more details.
     file_reader : function, default io.file_reader
         Function to use to load an individual file. By default will use the built in
         `file_reader` function to try to load csv files. If passing a function to read
@@ -424,6 +456,8 @@ def load_data(
             cd.column_groups = cg.ColumnGroups(util.read_json(group_columns))
         elif (p.suffix == ".yml") or (p.suffix == ".yaml"):
             cd.column_groups = cg.ColumnGroups(util.read_yaml(group_columns))
+        elif (p.suffix == '.xlsx') or (p.suffix == '.xls'):
+            cd.column_groups = cg.ColumnGroups(load_excel_column_groups(group_columns))
     if site is not None:
         cd.data = csky(cd.data, loc=site['loc'], sys=site['sys'])
         cd.data_filtered = cd.data.copy()
