@@ -16,6 +16,7 @@ import pvlib
 from .context import capdata as pvc
 from .context import util
 from .context import columngroups as cg
+from .context import io
 from .context import(
     load_pvsyst,
     load_data,
@@ -1917,6 +1918,54 @@ class TestSetPlotsAttributes():
         assert meas.col_colors['met1_mod_temp1'] == '#88419d'
         assert meas.col_colors['met1_windspeed'] == '#238b45'
         assert meas.col_colors['inv1_power'] == '#d60000'
+
+
+class TestDataColumnsToExcel():
+    """
+    Test the `data_columns_to_excel` method of the `CapData` class.
+    """
+    def test_data_columns_to_excel_path_is_dir(self, meas):
+        """
+        Test that the `data_columns_to_excel` method of the `CapData` class
+        saves an excel file with a blank first column and the second column is the
+        column names of the `data` attribute.
+        """
+        meas.data_loader = io.DataLoader('./tests/data/')
+        meas.data_columns_to_excel(sort_by_reversed_names=True)
+        xlsx_file = meas.data_loader.path / 'column_groups.xlsx'
+        assert xlsx_file.is_file()
+        df = pd.read_excel(xlsx_file, header=None)
+        assert df.iloc[0, 1] == 'met1_mod_temp1'
+        os.remove(xlsx_file)
+
+    def test_data_columns_to_excel_path_is_file(self, meas):
+        """
+        Test that the `data_columns_to_excel` method of the `CapData` class
+        saves an excel file with a blank first column and the second column is the
+        column names of the `data` attribute.
+        """
+        meas.data_loader = io.DataLoader('./tests/data/example_measured_data.csv')
+        meas.data_columns_to_excel(sort_by_reversed_names=True)
+        xlsx_file = meas.data_loader.path.parent / 'column_groups.xlsx'
+        assert xlsx_file.is_file()
+        df = pd.read_excel(xlsx_file, header=None)
+        assert df.iloc[0, 1] == 'met1_mod_temp1'
+        os.remove(xlsx_file)
+
+    def test_data_columns_to_excel_not_reverse_sorted(self, meas):
+        """
+        Test that the `data_columns_to_excel` method of the `CapData` class
+        saves an excel file with a blank first column and the second column is the
+        column names of the `data` attribute.
+        """
+        meas.data_loader = io.DataLoader('./tests/data/')
+        meas.data_columns_to_excel(sort_by_reversed_names=False)
+        xlsx_file = meas.data_loader.path / 'column_groups.xlsx'
+        assert xlsx_file.is_file()
+        df = pd.read_excel(xlsx_file, header=None)
+        assert df.iloc[0, 1] == 'inv1_power'
+        os.remove(xlsx_file)
+
 
 if __name__ == '__main__':
     unittest.main()

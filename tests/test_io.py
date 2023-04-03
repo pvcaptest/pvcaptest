@@ -583,7 +583,7 @@ class TestLoadDataFunction:
         assert isinstance(cd.data, pd.DataFrame)
         assert cd.data.shape == (2900, 3)
 
-    def test_adds_csky_when_passesed_site(self, meas, location_and_system):
+    def test_adds_csky_when_passesed_site(self, location_and_system):
         site = {
             "sys": location_and_system["system"],
             "loc": location_and_system["location"],
@@ -595,6 +595,18 @@ class TestLoadDataFunction:
         assert "ghi_mod_csky" in cd.data.columns
         assert "poa_mod_csky" in cd.data.columns
         assert "poa_mod_csky" in cd.data_filtered.columns
+
+    def test_export_column_group_template(self, meas):
+        """
+        Test that the column_groups_template kwarg results in an xlsx file saved
+        at CapData.data_loader.path.
+        """
+        cd = load_data(
+            path="./tests/data/example_measured_data.csv",
+            column_groups_template=True,
+        )
+        assert (cd.data_loader.path.parent / 'column_groups.xlsx').exists()
+        os.remove(cd.data_loader.path.parent / 'column_groups.xlsx')
 
 
 class TestLoadDataMethods(unittest.TestCase):
