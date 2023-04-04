@@ -378,6 +378,7 @@ def load_data(
     drop_duplicates=True,
     reindex=True,
     site=None,
+    column_groups_template=False,
     **kwargs,
 ):
     """
@@ -426,6 +427,9 @@ def load_data(
         two irradiance columns. The site data dictionary should be
         {sys: {system data}, loc: {location data}}. See the capdata.csky documentation
         for the format of the system data and location data.
+    column_groups_template : bool, default False
+        If True, will call `CapData.data_columns_to_excel` to save a file to use to
+        manually create column groupings at `path`.
     **kwargs
         Passed to `DataLoader.load` Options include: sort, drop_duplicates, reindex,
         extension. See `DataLoader` for complete documentation.
@@ -465,6 +469,8 @@ def load_data(
         cd.column_groups['irr-ghi-clear_sky'] = ['ghi_mod_csky']
     cd.trans_keys = list(cd.column_groups.keys())
     cd.set_plot_attributes()
+    if column_groups_template:
+        cd.data_columns_to_excel()
     return cd
 
 
