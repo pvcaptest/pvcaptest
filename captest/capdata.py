@@ -2118,6 +2118,41 @@ class CapData(object):
                 print(agg_col)
                 self.regression_cols[reg_var] = agg_col
 
+    def data_columns_to_excel(self, sort_by_reversed_names=True):
+        """
+        Write the columns of data to an excel file as a template for a column grouping.
+
+        Parameters
+        ----------
+        sort_by_inverted_names : bool, default False
+            If true sort column names after reversing them.
+
+        Returns
+        -------
+        None
+            Writes to excel file at self.data_loader.path / 'column_groups.xlsx'.
+        """
+        df = self.data.columns.to_frame().reset_index(drop=True)
+        df['a'] = ""
+        df = df[['a', 0]]
+        # print(df)
+        df.sort_values(by=0, inplace=True, ascending=True)
+        if sort_by_reversed_names:
+            df['reversed'] = df[0].str[::-1]
+            df.sort_values(by='reversed', inplace=True, ascending=True)
+            df = df[['a', 0]]
+        if self.data_loader.path.is_dir():
+            df.to_excel(
+                self.data_loader.path / 'column_groups.xlsx', index=False, header=False
+            )
+        elif self.data_loader.path.is_file():
+            print(self.data_loader.path.parent)
+            df.to_excel(
+                self.data_loader.path.parent / 'column_groups.xlsx',
+                index=False,
+                header=False,
+            )
+
     @update_summary
     def filter_irr(self, low, high, ref_val=None, col_name=None, inplace=True):
         """
