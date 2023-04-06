@@ -1,12 +1,4 @@
 import collections
-# from collections import UserDict
-
-"""
-Todo
-- Create a function to create an instance from excel file
-- Create a function to create an instance from yaml
-- Create a function to create an instance from DataFrame columns?
-"""
 
 class ColumnGroups(collections.UserDict):
     def __setitem__(self, key, value):
