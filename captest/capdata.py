@@ -1499,15 +1499,9 @@ class CapData(object):
         }
 
         for group_id, cols_in_group in self.column_groups.items():
-            print('=' * 20)
-            print(group_id)
             col_key = None
             for plot_colors_group_key, regex in group_id_regex.items():
-                print(plot_colors_group_key)
-                print('-' * 20)
-                print(regex.match(group_id))
                 if regex.match(group_id):
-                    print('setting col_key')
                     col_key = plot_colors_group_key
                     break
             for i, col in enumerate(cols_in_group):
