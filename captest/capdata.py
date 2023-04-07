@@ -55,6 +55,16 @@ else:
     warnings.warn('Some plotting functions will not work without the '
                   'holoviews package.')
 
+pn_spec = importlib.util.find_spec('panel')
+if hv_spec is not None:
+    import panel as pn
+    pn.extension()
+else:
+    warnings.warn(
+        'The ReportingIrradiance.dashboard method will not work without '
+        'the panel package.'
+    )
+
 # pvlib imports
 pvlib_spec = importlib.util.find_spec('pvlib')
 if pvlib_spec is not None:
@@ -504,9 +514,6 @@ class ReportingIrradiance(param.Parameterized):
     poa_flt = param.DataFrame(precedence=-1)
     total_pts = param.Number(precedence=-1)
     rc_irr_60th_perc = param.Number(precedence=-1)
-    # low = param.Magnitude(default=0.8, doc='Low')
-    # high = param.Number(default=1.2, doc='High percent band to filter around')
-    # percent_band = param.Magnitude(0.2, softbounds=(0.2, 0.5), step=0.02)
     percent_band = param.Integer(20, softbounds=(2, 50), step=1)
     min_percent_below = param.Integer(
         default=40,
@@ -534,18 +541,9 @@ class ReportingIrradiance(param.Parameterized):
         self.irr_col = irr_col
         self.rc_irr_60th_perc = np.percentile(self.df[self.irr_col], 60)
 
-    def get_rep_irr(self, save_plot=False, save_csv=False):
+    def get_rep_irr(self):
         """
         Calculates the reporting irradiance.
-
-        Parameters
-        ----------
-        save_plot : bool or str, default False
-            Pass True or a filepath to save a plot of the possible reporting
-            conditions when calculating the reporting irradiance.
-        save_csv : bool or str, default False
-            Pass True or a filepath to save a csv of the possible reporting
-            conditions when calculating the reporting irradiance.
 
         Returns
         -------
@@ -579,9 +577,16 @@ class ReportingIrradiance(param.Parameterized):
 
         if self.max_ref_irradiance is None:
             self.max_ref_irradiance = int(poa_flt.index[-1] / high)
-
         if self.min_ref_irradiance is None:
             self.min_ref_irradiance = int(poa_flt.index[0] / low)
+        if self.min_ref_irradiance > self.max_ref_irradiance:
+            warnings.warn(
+                'The minimum reference irradiance ({:.2f}) is greater than the maximum '
+                'reference irradiance ({:.2f}). Setting the minimum to 400 and the '
+                'maximum to 1000.'.format(self.min_ref_irradiance, self.max_ref_irradiance)
+            )
+            self.min_ref_irradiance = 400
+            self.max_ref_irradiance = 1000
 
         # determine ref irradiance by finding 50/50 irradiance in upper group of data
         poa_flt['valid'] = (
@@ -590,6 +595,16 @@ class ReportingIrradiance(param.Parameterized):
             poa_flt.index.to_series().between(
                 self.min_ref_irradiance, self.max_ref_irradiance)
         )
+        if poa_flt['valid'].sum() == 0:
+            self.poa_flt = poa_flt
+            self.irr_rc = np.NaN
+            warnings.warn(
+                'No valid reference irradiance found. Try reviewing the min and max '
+                'reference irradiance values and the min and max percent below and '
+                'above values. The dashboard method will show these values with '
+                'related plots and allow you to adjust them.'
+            )
+            return None
         poa_flt['perc_below_minus_50_abs'] = (poa_flt['perc_below'] - 50).abs()
         valid_df = poa_flt[poa_flt['valid']].copy()
         valid_df.sort_values('perc_below_minus_50_abs', inplace=True)
@@ -605,6 +620,7 @@ class ReportingIrradiance(param.Parameterized):
             possible_points.sort_values(ascending=False, inplace=True)
             irr_RC = possible_points.index[0]
         else:
+            poa_flt.to_csv('/home/ben/python/pvcaptest_bt-/untracked_bin/irr_rc_balance_poa_flt.csv')
             irr_RC = valid_df.index[0]
         flt_df = filter_irr(self.df, self.irr_col, low, high, ref_val=irr_RC)
         self.irr_rc = irr_RC
@@ -641,11 +657,12 @@ class ReportingIrradiance(param.Parameterized):
         self.get_rep_irr()
         below_count_scatter = self.poa_flt['below_count'].hvplot(kind='scatter')
         above_count_scatter = self.poa_flt['above_count'].hvplot(kind='scatter')
-        count_ellipse = hv.Ellipse(
-            self.irr_rc,
-            self.poa_flt.loc[self.irr_rc, 'below_count'],
-            (20, 50)
-        )
+        if self.irr_rc is not np.NaN:
+            count_ellipse = hv.Ellipse(
+                self.irr_rc,
+                self.poa_flt.loc[self.irr_rc, 'below_count'],
+                (20, 50)
+            )
         perc_below_scatter = (
             self.poa_flt['perc_below'].hvplot(kind='scatter') *\
             hv.HLine(self.min_percent_below) *\
@@ -653,20 +670,22 @@ class ReportingIrradiance(param.Parameterized):
             hv.VLine(self.min_ref_irradiance) *\
             hv.VLine(self.max_ref_irradiance)
         )
-        perc_ellipse = hv.Ellipse(
-            self.irr_rc,
-            self.poa_flt.loc[self.irr_rc, 'perc_below'],
-            (20, 10)
-        )
+        if self.irr_rc is not np.NaN:
+            perc_ellipse = hv.Ellipse(
+                self.irr_rc,
+                self.poa_flt.loc[self.irr_rc, 'perc_below'],
+                (20, 10)
+            )
         total_points_scatter = (
             self.poa_flt['total_pts'].hvplot(kind='scatter') *\
             hv.HLine(self.points_required)
         )
-        total_points_ellipse = hv.Ellipse(
-            self.irr_rc,
-            self.poa_flt.loc[self.irr_rc, 'total_pts'],
-            (20, 50)
-        )
+        if self.irr_rc is not np.NaN:
+            total_points_ellipse = hv.Ellipse(
+                self.irr_rc,
+                self.poa_flt.loc[self.irr_rc, 'total_pts'],
+                (20, 50)
+            )
 
         ylim_bottom = self.poa_flt['total_pts'].min() - 20
         if self.total_pts < self.points_required:
@@ -674,21 +693,37 @@ class ReportingIrradiance(param.Parameterized):
         else:
             ylim_top = self.total_pts + 50
         vl = hv.VLine(self.rc_irr_60th_perc).opts(line_color='gray')
-        rep_cond_plot = (
-            below_count_scatter * above_count_scatter * count_ellipse * vl +\
-            (perc_below_scatter * perc_ellipse).opts(ylim=(0, 100)) +\
-            (total_points_scatter * total_points_ellipse).opts(
-                ylim=(ylim_bottom, ylim_top ))
-        ).opts(
-            opts.HLine(line_width=1),
-            opts.VLine(line_width=1),
-            opts.Layout(
-                title='Reporting Irradiance: {:0.2f}, Total Points {}'.format(
-                    self.irr_rc,
-                    self.total_pts)),
-        ).cols(1)
+        if self.irr_rc is not np.NaN:
+            rep_cond_plot = (
+                below_count_scatter * above_count_scatter * count_ellipse * vl +\
+                (perc_below_scatter * perc_ellipse).opts(ylim=(0, 100)) +\
+                (total_points_scatter * total_points_ellipse).opts(
+                    ylim=(ylim_bottom, ylim_top ))
+            ).opts(
+                opts.HLine(line_width=1),
+                opts.VLine(line_width=1),
+                opts.Layout(
+                    title='Reporting Irradiance: {:0.2f}, Total Points {}'.format(
+                        self.irr_rc,
+                        self.total_pts)),
+            ).cols(1)
+        else:
+            rep_cond_plot = (
+                below_count_scatter * above_count_scatter * vl +\
+                perc_below_scatter.opts(ylim=(0, 100)) +\
+                total_points_scatter.opts(
+                    ylim=(ylim_bottom, ylim_top ))
+            ).opts(
+                opts.HLine(line_width=1),
+                opts.VLine(line_width=1),
+                opts.Layout(
+                    title='Reporting Irradiance: None identified, Total Points {}'.format(
+                        self.total_pts)),
+            ).cols(1)
         return rep_cond_plot
-        # save plot to path passed
+
+    def dashboard(self):
+        return pn.Row(self.param, self.plot)
 
 
 def fit_model(df, fml='power ~ poa + I(poa * poa) + I(poa * t_amb) + I(poa * w_vel) - 1'):  # noqa E501
