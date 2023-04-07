@@ -248,13 +248,11 @@ class TestLoadPVsyst:
         }
 
     def test_date_day_month_year_warning(self):
-        with pytest.warns(UserWarning):
+        with pytest.warns(UserWarning, match=(
+            "Dates are not in month/day/year format. "
+            "Trying day/month/year format."
+        )):
             pvsyst = load_pvsyst("./tests/data/pvsyst_example_day_month_year.csv")
-            warnings.warn(
-                "Dates are not in month/day/year format. "
-                "Trying day/month/year format.",
-                UserWarning,
-            )
 
     def test_scale_egrid(self):
         pvsyst = load_pvsyst(
@@ -321,10 +319,6 @@ class TestDataLoader:
             match="No files with .* extension were found in the directory: .*",
         ):
             dl.set_files_to_load()
-            warnings.warn(
-                "No files with csv extension were found in the directory: ./data/",
-                UserWarning,
-            )
 
     def test_reindex_loaded_files(self):
         day1 = pd.DataFrame(
@@ -386,7 +380,6 @@ class TestDataLoader:
         dl.common_freq = "60min"
         with pytest.warns(UserWarning):
             data = dl._join_files()
-            warnings.warn("Some columns contain overlapping indices.", UserWarning)
         assert data.shape == (48, 2)
 
     def test_join_files_different_headers(self):

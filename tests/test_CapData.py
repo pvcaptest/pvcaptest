@@ -682,12 +682,10 @@ class TestCapDataMethodsSim():
     def test_filter_pvsyst_missing_column(self, pvsyst):
         pvsyst.data.drop(columns='IL Pmin', inplace=True)
         pvsyst.data_filtered.drop(columns='IL Pmin', inplace=True)
-        with pytest.warns(UserWarning):
+        with pytest.warns(
+            UserWarning, match='IL_Pmin or IL Pmin is not a column in the data.'
+        ):
             pvsyst.filter_pvsyst()
-            warnings.warn(
-                'IL_Pmin or IL Pmin is not a column in the data.',
-                UserWarning
-            )
 
     def test_filter_pvsyst_missing_all_columns(self, pvsyst):
         pvsyst.data.drop(
@@ -826,13 +824,11 @@ class TestGetTimezoneIndex():
         df = pd.DataFrame(index=pd.date_range(
             start='11/3/2018', periods=864, freq='5min', tz='America/New_York'
         ))  # tz is New York
-        with pytest.warns(UserWarning):
+        with pytest.warns(UserWarning, match=(
+                'Passed a DataFrame with a timezone that does not match '
+                'the timezone in the loc dict. Using the timezone of the DataFrame.'
+        )):
             tz_ix = pvc.get_tz_index(df, location_and_system['location']) # tz is Chicago
-            warnings.warn(
-                'Passed a DatetimeIndex with a timezone that does not match\
-                the timezone in the loc dict. Using the timezone of the DatetimeIndex.',
-                UserWarning
-            )
 
     def test_get_tz_index_ix_tz(self, location_and_system):
         """Test that get_tz_index function returns a datetime index
@@ -852,11 +848,12 @@ class TestGetTimezoneIndex():
         ix = pd.date_range(start='1/1/2019', periods=8760, freq='H',
                                    tz='America/New_York')
 
-        with pytest.warns(UserWarning):
+        with pytest.warns(UserWarning, match=(
+            'Passed a DatetimeIndex with a timezone that '
+            'does not match the timezone in the loc dict. '
+            'Using the timezone of the DatetimeIndex.'
+        )):
             tz_ix = pvc.get_tz_index(ix, location_and_system['location'])
-            warnings.warn('Passed a DatetimeIndex with a timezone that '
-                          'does not match the timezone in the loc dict. '
-                          'Using the timezone of the DatetimeIndex.', UserWarning)
 
     def test_get_tz_index_ix(self, location_and_system):
         """Test that get_tz_index function returns a datetime index\
@@ -1133,15 +1130,13 @@ class TestAggSensors():
         poa_key = meas.regression_cols['poa']
         meas.column_groups[poa_key] = [meas.column_groups[poa_key][0]]
         meas.filter_irr(200, 800)
-        with pytest.warns(UserWarning):
+        with pytest.warns(UserWarning, match=(
+            'The data_filtered attribute has been overwritten '
+            'and previously applied filtering steps have been '
+            'lost.  It is recommended to use agg_sensors '
+            'before any filtering methods.'
+        )):
             meas.agg_sensors()
-            warnings.warn(
-                'The data_filtered attribute has been overwritten '
-                'and previously applied filtering steps have been '
-                'lost.  It is recommended to use agg_sensors '
-                'before any filtering methods.',
-                UserWarning
-            )
 
     def test_regression_columns_not_in_column_groups(self, meas):
         """Sould be able to aggregate columns if the regression columns includes
@@ -1293,15 +1288,10 @@ class TestFilterIrr():
     def test_get_poa_col_multcols(self, nrel):
         nrel.data['POA second column'] = nrel.rview('poa').values
         nrel.column_groups['irr-poa-'].append('POA second column')
-        with pytest.warns(
-            UserWarning,
-            match='[0-9]+ columns of irradiance data. Use col_name to specify a single column.'
-        ):
+        with pytest.warns(UserWarning, match=(
+            '[0-9]+ columns of irradiance data. Use col_name to specify a single column.'
+        )):
             col = nrel._CapData__get_poa_col()
-            warnings.warn(
-                '2 columns of irradiance data. Use col_name to specify a single column.',
-                UserWarning
-            )
 
     def test_lowhigh_nocol(self, nrel):
         pts_before = nrel.data_filtered.shape[0]
