@@ -29,7 +29,7 @@ setup(
                       'scikit-learn>=0.19',
                       'bokeh>=1',
                       ],
-    extras_require={'viz': ['holoviews>=1.11, panel'],
+    extras_require={'viz': ['holoviews>=1.11', 'panel'],
                     'csky': ['pvlib>=0.9.0', ],
                     'all': ['holoviews>=1.11', 'pvlib>0.7.0', 'panel']
                     },
