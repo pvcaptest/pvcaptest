@@ -1,7 +1,6 @@
 from captest import (
     capdata,
     util,
-    test_util,
     prtest,
     columngroups,
     io,
