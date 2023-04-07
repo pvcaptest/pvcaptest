@@ -534,18 +534,9 @@ class ReportingIrradiance(param.Parameterized):
         self.irr_col = irr_col
         self.rc_irr_60th_perc = np.percentile(self.df[self.irr_col], 60)
 
-    def get_rep_irr(self, save_plot=False, save_csv=False):
+    def get_rep_irr(self):
         """
         Calculates the reporting irradiance.
-
-        Parameters
-        ----------
-        save_plot : bool or str, default False
-            Pass True or a filepath to save a plot of the possible reporting
-            conditions when calculating the reporting irradiance.
-        save_csv : bool or str, default False
-            Pass True or a filepath to save a csv of the possible reporting
-            conditions when calculating the reporting irradiance.
 
         Returns
         -------
