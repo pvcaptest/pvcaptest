@@ -1,5 +1,6 @@
 bokeh
 holoviews
+panel
 matplotlib
 pandas
 statsmodels
@@ -10,5 +11,4 @@ sphinx==2.2.0
 sphinx_rtd_theme
 recommonmark
 pvlib
-tables
 captest

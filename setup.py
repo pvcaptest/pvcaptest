@@ -29,12 +29,9 @@ setup(
                       'scikit-learn>=0.19',
                       'bokeh>=1',
                       ],
-    extras_require={'viz': ['holoviews>=1.11'],
-                    'csky': ['pvlib>=0.7.0',
-                             'tables'],
-                    'all': ['holoviews>=1.11',
-                            'pvlib>0.7.0',
-                            'tables']
+    extras_require={'viz': ['holoviews>=1.11, panel'],
+                    'csky': ['pvlib>=0.9.0', ],
+                    'all': ['holoviews>=1.11', 'pvlib>0.7.0', 'panel']
                     },
     author_email='benjaming.taylor@gmail.com',
     description=('Framework and methods to facilitate photovoltaic '
