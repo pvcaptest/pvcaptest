@@ -560,7 +560,6 @@ class TestIrrRcBalanced():
     def test_check_csv_output_exists(self, meas, tmp_path):
         """Check that function outputs a csv file when given a file path."""
         f = tmp_path / 'output.csv'
-        # f = Path('~/python/pvcaptest_bt-/tests/irr_balance_output.csv')
         print(meas.column_groups)
         meas.agg_sensors(agg_map={'irr_poa_pyran': 'mean'})
         print(meas.regression_cols['poa'])
@@ -572,6 +571,77 @@ class TestIrrRcBalanced():
         results = rep_irr.get_rep_irr()
         rep_irr.save_csv(output_csv_path=f)
         assert f.exists()
+
+    def test_irr_rc_balanced(self, pvsyst):
+        jun = pvsyst.data.loc['06/1990']
+        jun_cpy = jun.copy()
+        jun = jun.loc[jun['GlobInc'] > 400, :]
+        print(jun)
+
+        rc_tool = pvc.ReportingIrradiance(jun, 'GlobInc', percent_band=50)
+        rc_tool.min_ref_irradiance = 600
+        rc_tool.max_ref_irradiance = 800
+        (irr_RC, jun_flt) = rc_tool.get_rep_irr()
+        print(irr_RC)
+        print(jun_flt)
+        print(rc_tool.poa_flt)
+        rc_tool.poa_flt.to_csv('/home/ben/python/pvcaptest_bt-/untracked_bin/irr_rc_balance_poa_flt.csv')
+        jun_filter_irr = jun_flt['GlobInc']
+        assert all(jun_flt.columns == jun.columns)
+        assert jun_flt.shape[0] > 0
+        assert jun_flt.shape[0] < jun_cpy.shape[0]
+        assert irr_RC > jun[jun['GlobInc'] > 0]['GlobInc'].min()
+        assert irr_RC < jun['GlobInc'].max()
+
+        pts_below_irr = jun_filter_irr[jun_filter_irr.between(0, irr_RC)].shape[0]
+        perc_below = pts_below_irr / jun_filter_irr.shape[0]
+        assert perc_below < 0.6
+        # Less than 50 percent of points below rep irr
+        assert round(perc_below, 1) <= 0.5
+
+        pts_above_irr = jun_filter_irr[jun_filter_irr.between(irr_RC, 1500)].shape[0]
+        perc_above = pts_above_irr / jun_filter_irr.shape[0]
+        # Less than 40 percent of points above reporting irr
+        assert perc_above > 0.4
+        # More than 50 percent of points above reportin irr
+        assert perc_above <= 0.5
+
+    def test_irr_rc_balanced_warns_if_min_greather_than_max(self, pvsyst):
+        """
+        Check that the function warns if the minimum reference irradiance is
+        greater than the maximum referene irradiance.
+
+        With this dataset and the defaults for the min and max reference irradiance
+        the minimum irradiance (800) will be higher than the maximum irradiance (722).        
+        """
+        jun = pvsyst.data.loc['06/1990']
+        jun = jun.loc[jun['GlobInc'] > 400, :]
+        rc_tool = pvc.ReportingIrradiance(jun, 'GlobInc', percent_band=50)
+        with pytest.warns(UserWarning):
+            rc_tool.get_rep_irr()
+        assert isinstance(rc_tool.poa_flt, pd.DataFrame)
+        assert rc_tool.min_ref_irradiance == 400
+        assert rc_tool.max_ref_irradiance == 1000
+
+    def test_irr_rc_balanced_warns_if_no_ref_irr_found(self, pvsyst):
+        """
+        Check that the function warns if it cannot determine a reference irradiance.
+        Also check that the function still stores the filtered data to use in the
+        plot and dashboard methods for user troubleshooting.
+
+        With this dataset and the defaults for the min and max reference irradiance
+        the minimum irradiance (800) will be higher than the maximum irradiance (722).        
+        """
+        jun = pvsyst.data.loc['06/1990']
+        jun = jun.loc[jun['GlobInc'] > 400, :]
+        jun.loc[(jun['GlobInc'] > 600) & (jun['GlobInc'] < 700), 'GlobInc'] = np.nan
+        rc_tool = pvc.ReportingIrradiance(jun, 'GlobInc', percent_band=50)
+        rc_tool.min_ref_irradiance = 605
+        rc_tool.max_ref_irradiance = 695
+        with pytest.warns(UserWarning):
+            rc_tool.get_rep_irr()
+        assert isinstance(rc_tool.poa_flt, pd.DataFrame)
+        assert np.isnan(rc_tool.irr_rc)
 
 
 class TestCapDataMethodsSim():
@@ -586,40 +656,6 @@ class TestCapDataMethodsSim():
         assert pvsyst_copy.column_groups == pvsyst.column_groups
         assert pvsyst_copy.trans_keys == pvsyst.trans_keys
         assert pvsyst_copy.regression_cols == pvsyst.regression_cols
-
-    def test_irr_rc_balanced(self, pvsyst):
-        jun = pvsyst.data.loc['06/1990']
-        jun_cpy = jun.copy()
-        low = 0.5
-        high = 1.5
-        (irr_RC, jun_flt) = pvc.irr_rc_balanced(jun, low, high)
-        jun_filter_irr = jun_flt['GlobInc']
-        assert True(all(jun_flt.columns == jun.columns),
-                        'Columns of input df missing in filtered ouput df.')
-        assert Greater(jun_flt.shape[0], 0,
-                           'Returned df has no rows')
-        assert Less(jun_flt.shape[0], jun.shape[0],
-                        'No rows removed from filtered df.')
-        assert True(jun.equals(jun_cpy),
-                        'Input dataframe modified by function.')
-        assert Greater(irr_RC, jun[jun['GlobInc'] > 0]['GlobInc'].min(),
-                           'Reporting irr not greater than min irr in input data')
-        assert Less(irr_RC, jun['GlobInc'].max(),
-                        'Reporting irr no less than max irr in input data')
-
-        pts_below_irr = jun_filter_irr[jun_filter_irr.between(0, irr_RC)].shape[0]
-        perc_below = pts_below_irr / jun_filter_irr.shape[0]
-        assert Less(perc_below, 0.6,
-                        'More than 60 percent of points below reporting irr')
-        assert GreaterEqual(perc_below, 0.5,
-                                'Less than 50 percent of points below rep irr')
-
-        pts_above_irr = jun_filter_irr[jun_filter_irr.between(irr_RC, 1500)].shape[0]
-        perc_above = pts_above_irr / jun_filter_irr.shape[0]
-        assert Greater(perc_above, 0.4,
-                           'Less than 40 percent of points above reporting irr')
-        assert LessEqual(perc_above, 0.5,
-                             'More than 50 percent of points above reportin irr')
 
     def test_filter_pvsyst_default(self, pvsyst):
         pvsyst.filter_pvsyst()
