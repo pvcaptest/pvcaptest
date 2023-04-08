@@ -43,7 +43,6 @@ from bokeh.layouts import gridplot
 from bokeh.models import Legend, HoverTool, ColumnDataSource
 
 import param
-import hvplot.pandas
 
 # visualization library imports
 hv_spec = importlib.util.find_spec('holoviews')
@@ -655,8 +654,14 @@ class ReportingIrradiance(param.Parameterized):
     @param.depends('percent_band', 'min_percent_below', 'max_percent_above', 'min_ref_irradiance', 'points_required', 'max_ref_irradiance')
     def plot(self):
         self.get_rep_irr()
-        below_count_scatter = self.poa_flt['below_count'].hvplot(kind='scatter')
-        above_count_scatter = self.poa_flt['above_count'].hvplot(kind='scatter')
+        below_count_scatter = hv.Scatter(
+            self.poa_flt['below_count'].reset_index(), ['poa'], ['below_count'],
+            label='Count pts below',
+        )
+        above_count_scatter = hv.Scatter(
+            self.poa_flt['above_count'].reset_index(), ['poa'], ['above_count'],
+            label='Count pts above',
+        )
         if self.irr_rc is not np.NaN:
             count_ellipse = hv.Ellipse(
                 self.irr_rc,
@@ -664,10 +669,12 @@ class ReportingIrradiance(param.Parameterized):
                 (20, 50)
             )
         perc_below_scatter = (
-            self.poa_flt['perc_below'].hvplot(kind='scatter') *\
-            hv.HLine(self.min_percent_below) *\
-            hv.HLine(self.max_percent_above) *\
-            hv.VLine(self.min_ref_irradiance) *\
+            hv.Scatter(
+                self.poa_flt['perc_below'].reset_index(), ['poa'], ['perc_below']
+            ) *
+            hv.HLine(self.min_percent_below) *
+            hv.HLine(self.max_percent_above) *
+            hv.VLine(self.min_ref_irradiance) *
             hv.VLine(self.max_ref_irradiance)
         )
         if self.irr_rc is not np.NaN:
@@ -677,7 +684,9 @@ class ReportingIrradiance(param.Parameterized):
                 (20, 10)
             )
         total_points_scatter = (
-            self.poa_flt['total_pts'].hvplot(kind='scatter') *\
+            hv.Scatter(
+                self.poa_flt['total_pts'].reset_index(), ['poa'], ['total_pts']
+            ) *
             hv.HLine(self.points_required)
         )
         if self.irr_rc is not np.NaN:
@@ -695,13 +704,17 @@ class ReportingIrradiance(param.Parameterized):
         vl = hv.VLine(self.rc_irr_60th_perc).opts(line_color='gray')
         if self.irr_rc is not np.NaN:
             rep_cond_plot = (
-                below_count_scatter * above_count_scatter * count_ellipse * vl +\
-                (perc_below_scatter * perc_ellipse).opts(ylim=(0, 100)) +\
+                (below_count_scatter * above_count_scatter * count_ellipse * vl).opts(ylabel='count points') +
+                (perc_below_scatter * perc_ellipse).opts(ylim=(0, 100)) +
                 (total_points_scatter * total_points_ellipse).opts(
-                    ylim=(ylim_bottom, ylim_top ))
+                    ylim=(ylim_bottom, ylim_top))
             ).opts(
                 opts.HLine(line_width=1),
                 opts.VLine(line_width=1),
+                opts.Scatter(
+                     size=4, show_legend=True, legend_position='right', tools=['hover']
+                ),
+               opts.Overlay(width=700),
                 opts.Layout(
                     title='Reporting Irradiance: {:0.2f}, Total Points {}'.format(
                         self.irr_rc,
@@ -709,13 +722,17 @@ class ReportingIrradiance(param.Parameterized):
             ).cols(1)
         else:
             rep_cond_plot = (
-                below_count_scatter * above_count_scatter * vl +\
-                perc_below_scatter.opts(ylim=(0, 100)) +\
+                (below_count_scatter * above_count_scatter * vl).opts(ylabel='count points') +
+                perc_below_scatter.opts(ylim=(0, 100)) +
                 total_points_scatter.opts(
-                    ylim=(ylim_bottom, ylim_top ))
+                    ylim=(ylim_bottom, ylim_top))
             ).opts(
                 opts.HLine(line_width=1),
                 opts.VLine(line_width=1),
+                opts.Scatter(
+                    size=4, show_legend=True, legend_position='right', tools=['hover']
+                ),
+                opts.Overlay(width=700),
                 opts.Layout(
                     title='Reporting Irradiance: None identified, Total Points {}'.format(
                         self.total_pts)),
