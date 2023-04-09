@@ -28,6 +28,7 @@ setup(
                       'statsmodels>=0.8',
                       'scikit-learn>=0.19',
                       'bokeh>=1',
+                      'colorcet',
                       ],
     extras_require={'viz': ['holoviews>=1.11', 'panel'],
                     'csky': ['pvlib>=0.9.0', ],

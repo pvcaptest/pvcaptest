@@ -1,12 +1,13 @@
 # To create a conda environment using this file:
-# conda env create -f captest_env.yml
-name: captest09
+# conda env create -f environment.yml
+name: pvcaptest
 channels:
 - defaults
 - conda-forge
-- pyviz
 dependencies:
-- holoviz
+- holoviews
+- panel
+- colorcet
 - matplotlib
 - numpy
 - pandas>=1*

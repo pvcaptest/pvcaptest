@@ -1,5 +1,6 @@
 bokeh
 holoviews
+colorcet
 panel
 matplotlib
 pandas
