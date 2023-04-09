@@ -50,6 +50,7 @@ if hv_spec is not None:
     import holoviews as hv
     from holoviews.plotting.links import DataLink
     from holoviews import opts
+    hv.extension('bokeh')
 else:
     warnings.warn('Some plotting functions will not work without the '
                   'holoviews package.')
