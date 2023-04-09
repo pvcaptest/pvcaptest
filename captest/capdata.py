@@ -55,7 +55,7 @@ else:
                   'holoviews package.')
 
 pn_spec = importlib.util.find_spec('panel')
-if hv_spec is not None:
+if pn_spec  is not None:
     import panel as pn
     pn.extension()
 else:
