@@ -2,6 +2,7 @@ bokeh
 holoviews
 colorcet
 panel
+param
 matplotlib
 pandas
 statsmodels

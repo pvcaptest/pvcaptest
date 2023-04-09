@@ -29,6 +29,7 @@ setup(
                       'scikit-learn>=0.19',
                       'bokeh>=1',
                       'colorcet',
+                      'param',
                       ],
     extras_require={'viz': ['holoviews>=1.11', 'panel'],
                     'csky': ['pvlib>=0.9.0', ],
