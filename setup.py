@@ -33,7 +33,8 @@ setup(
                       ],
     extras_require={'viz': ['holoviews>=1.11', 'panel'],
                     'csky': ['pvlib>=0.9.0', ],
-                    'all': ['holoviews>=1.11', 'pvlib>0.7.0', 'panel']
+                    'xlsx': ['openpyxl', ],
+                    'all': ['holoviews>=1.11', 'pvlib>0.7.0', 'panel', 'openpyxl',],
                     },
     author_email='benjaming.taylor@gmail.com',
     description=('Framework and methods to facilitate photovoltaic '

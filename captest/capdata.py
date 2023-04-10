@@ -65,6 +65,13 @@ else:
         'the panel package.'
     )
 
+xlsx_spec = importlib.util.find_spec('openpyxl')
+if xlsx_spec is None:
+    warnings.warn(
+        'Specifying a column grouping in an excel file will not work without '
+        'the openpyxl package.'
+    )
+
 # pvlib imports
 pvlib_spec = importlib.util.find_spec('pvlib')
 if pvlib_spec is not None:
