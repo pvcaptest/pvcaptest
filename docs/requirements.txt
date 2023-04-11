@@ -1,5 +1,5 @@
 bokeh
-holoviews
+holoviews>=1.14.8
 colorcet
 panel
 param
@@ -12,5 +12,6 @@ nbsphinx
 sphinx==2.2.0
 sphinx_rtd_theme
 recommonmark
-pvlib
+pvlib>=0.9.0
 captest
+openpyxl
