@@ -13,6 +13,27 @@ def read(*filenames, **kwargs):
 
 long_description = read('README.rst')
 
+INSTALL_REQUIRES=[
+    'pandas>=1',
+    'numpy>=1.13.0',
+    'python-dateutil>=2.5',
+    'matplotlib>=2',
+    'statsmodels>=0.8',
+    'scikit-learn>=0.19',
+    'bokeh>=1',
+    'colorcet',
+    'param',
+]
+
+EXTRAS_REQUIRE={
+    'viz': ['holoviews>=1.14.8', 'panel'],
+    'csky': ['pvlib>=0.9.0', ],
+    'xlsx': ['openpyxl', ],
+    'all': ['holoviews>=1.14.8', 'pvlib>0.9.0', 'panel', 'openpyxl', ],
+    'test': ['coveralls', 'pytest', 'pytest-cov', 'pytest-mock', 'pytest-timeout', ],
+}
+EXTRAS_REQUIRE['all'] = sorted(set(sum(EXTRAS_REQUIRE.values(), [])))
+
 setup(
     name='captest',
     version=versioneer.get_version(),
@@ -21,24 +42,8 @@ setup(
     license='MIT',
     author='Ben Taylor',
     python_requires='>=3.7',
-    install_requires=['pandas>=1',
-                      'numpy>=1.13.0',
-                      'python-dateutil>=2.5',
-                      'matplotlib>=2',
-                      'statsmodels>=0.8',
-                      'scikit-learn>=0.19',
-                      'bokeh>=1',
-                      'colorcet',
-                      'param',
-                      ],
-    extras_require={'viz': ['holoviews>=1.14.8', 'panel'],
-                    'csky': ['pvlib>=0.9.0', ],
-                    'xlsx': ['openpyxl', ],
-                    'all': ['holoviews>=1.14.8', 'pvlib>0.9.0', 'panel', 'openpyxl', ],
-                    'test': ['coveralls', 'pytest', 'pytest-cov', 'pytest-mock', 'pytest-timeout', ]
-                    },
-    extras_require['all'] = sorted(set(sum(extras_require.values(), [])))
-
+    install_requires=INSTALL_REQUIRES,
+    extras_require=EXTRAS_REQUIRE,
     author_email='benjaming.taylor@gmail.com',
     description=('Framework and methods to facilitate photovoltaic '
     'facility capacity testing following ASTM E2848.'),
