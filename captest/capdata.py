@@ -627,7 +627,6 @@ class ReportingIrradiance(param.Parameterized):
             possible_points.sort_values(ascending=False, inplace=True)
             irr_RC = possible_points.index[0]
         else:
-            poa_flt.to_csv('/home/ben/python/pvcaptest_bt-/untracked_bin/irr_rc_balance_poa_flt.csv')
             irr_RC = valid_df.index[0]
         flt_df = filter_irr(self.df, self.irr_col, low, high, ref_val=irr_RC)
         self.irr_rc = irr_RC
