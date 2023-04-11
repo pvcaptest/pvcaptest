@@ -31,10 +31,11 @@ setup(
                       'colorcet',
                       'param',
                       ],
-    extras_require={'viz': ['holoviews>=1.11', 'panel'],
+    extras_require={'viz': ['holoviews>=1.14.8', 'panel'],
                     'csky': ['pvlib>=0.9.0', ],
                     'xlsx': ['openpyxl', ],
-                    'all': ['holoviews>=1.11', 'pvlib>0.7.0', 'panel', 'openpyxl',],
+                    'all': ['holoviews>=1.14.8', 'pvlib>0.9.0', 'panel', 'openpyxl', ],
+                    'test': ['coveralls', 'pytest', 'pytest-cov', 'pytest-mock', 'pytest-timeout', ]
                     },
     author_email='benjaming.taylor@gmail.com',
     description=('Framework and methods to facilitate photovoltaic '

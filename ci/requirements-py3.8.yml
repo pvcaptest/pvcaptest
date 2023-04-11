@@ -1,0 +1,28 @@
+name: test_env
+channels:
+- defaults
+- conda-forge
+dependencies:
+- python=3.8
+- python-dateutil
+- statsmodels
+- scikit-learn
+- scipy
+- pvlib-python
+- holoviews
+- pandas>=1*
+- numpy
+- pip
+- matplotlib
+# testing
+- coveralls
+- pytest
+- pytest-cov
+- pytest-mock
+- pytest-timeout
+# holoviz packages
+- panel
+- param
+- colorcet
+# excel
+- openpyxl
