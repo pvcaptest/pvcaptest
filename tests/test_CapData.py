@@ -585,7 +585,6 @@ class TestIrrRcBalanced():
         print(irr_RC)
         print(jun_flt)
         print(rc_tool.poa_flt)
-        rc_tool.poa_flt.to_csv('/home/ben/python/pvcaptest_bt-/untracked_bin/irr_rc_balance_poa_flt.csv')
         jun_filter_irr = jun_flt['GlobInc']
         assert all(jun_flt.columns == jun.columns)
         assert jun_flt.shape[0] > 0
