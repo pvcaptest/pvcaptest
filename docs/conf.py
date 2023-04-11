@@ -48,6 +48,10 @@ templates_path = ['_templates']
 # This pattern also affects html_static_path and html_extra_path.
 exclude_patterns = ['_build', 'Thumbs.db', '.DS_Store', '**.ipynb_checkpoints']
 
+# Environment variables to be passed to the kernel
+# Need this to import captest in examples without installing it in requirements
+os.environ['PYTHONPATH'] = os.path.abspath('../')
+
 # This is processed by Jinja2 and inserted before each notebook
 nbsphinx_prolog = r"""
 {% set docname = env.doc2path(env.docname, base='docs') %}
