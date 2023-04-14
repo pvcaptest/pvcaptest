@@ -284,8 +284,11 @@ class TestDataLoader:
         assert dl.path == Path("./data/data_for_yyyy-mm-dd.csv")
 
     def test_set_files_to_load(self, tmp_path):
-        """Test that file paths for given extension are stored to list."""
-        for fname in ["a.csv", "b.csv", "c.csv"]:
+        """
+        Test that file paths for given extension are stored to list.
+        Also, check sorting of filenames.
+        """
+        for fname in ["b.csv", "a.csv", "c.csv"]:
             with open(tmp_path / fname, "w") as f:
                 pass
         dl = DataLoader(tmp_path)
@@ -294,6 +297,22 @@ class TestDataLoader:
             tmp_path / "a.csv",
             tmp_path / "b.csv",
             tmp_path / "c.csv",
+        ]
+
+    def test_set_files_to_load_date_filenames(self, tmp_path):
+        """
+        Test that file paths for given extension are stored to list.
+        Also, check sorting of filenames.
+        """
+        for fname in ["2023-04-02.csv", "2023-04-01.csv", "2023-04-03.csv"]:
+            with open(tmp_path / fname, "w") as f:
+                pass
+        dl = DataLoader(tmp_path)
+        dl.set_files_to_load()
+        assert dl.files_to_load == [
+            tmp_path / "2023-04-01.csv",
+            tmp_path / "2023-04-02.csv",
+            tmp_path / "2023-04-03.csv",
         ]
 
     def test_set_files_to_load_not_all_csv(self, tmp_path):

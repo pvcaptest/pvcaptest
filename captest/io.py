@@ -229,6 +229,7 @@ class DataLoader:
         Set `files_to_load` attribute to a list of filepaths.
         """
         self.files_to_load = [file for file in self.path.glob("*." + extension)]
+        self.files_to_load.sort()
         if len(self.files_to_load) == 0:
             return warnings.warn(
                 "No files with .{} extension were found in the directory: {}".format(
