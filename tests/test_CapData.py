@@ -1259,7 +1259,7 @@ class TestPredictCapacities():
         df = df.rename(columns=rename)
         reg = pvc.fit_model(df)
         july_manual = reg.predict(pvsyst_irr_filter.rc)[0]
-        assert pytest.approx(july_manual, july_grpby, abs=1e-5)
+        assert july_manual == pytest.approx(july_grpby)
 
     def test_no_irr_filter(self, pvsyst_irr_filter):
         pvsyst_irr_filter.rep_cond(freq='M')
