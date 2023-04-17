@@ -2448,7 +2448,7 @@ class CapData(object):
         """
         ix_all_days = None
         for day in days:
-            ix_day = self.data_filtered[day].index
+            ix_day = self.data_filtered.loc[day].index
             if ix_all_days is None:
                 ix_all_days = ix_day
             else:
