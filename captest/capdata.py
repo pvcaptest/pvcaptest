@@ -1179,7 +1179,7 @@ def captest_results(sim, das, nameplate, tolerance, check_pvalues=False,
 
     if check_pvalues:
         for cd in [sim_int, das_int]:
-            for key, val in cd.regression_results.pvalues.iteritems():
+            for key, val in cd.regression_results.pvalues.items():
                 if val > pval:
                     cd.regression_results.params[key] = 0
 
