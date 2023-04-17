@@ -190,7 +190,10 @@ class TestFileReader:
         ).to_csv(test_csv)
         test_csv.seek(0)
         df_str = test_csv.getvalue()
-        df_with_blank_row = df_str[0:20] + ",,\n" + df_str[20:]
+        if os.name == 'nt':
+            df_with_blank_row = df_str[0:20] + ",,\r\n" + df_str[20:]
+        else:
+            df_with_blank_row = df_str[0:20] + ",,\n" + df_str[20:]
         with open(csv_path, "w") as f:
             f.write(df_with_blank_row)
         loaded_data = io.file_reader(csv_path)
@@ -419,8 +422,8 @@ class TestDataLoader:
         data = dl._join_files()
         assert data.shape == (24, 4)
         assert data.isna().sum().sum() == 0
-        assert data.dtypes["a"] == "int"
-        assert data.dtypes["b"] == "int"
+        assert data.dtypes["a"] == "int64"
+        assert data.dtypes["b"] == "int64"
         assert data.dtypes["c"] == "float64"
         assert data.dtypes["d"] == "float64"
 
