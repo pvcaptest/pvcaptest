@@ -191,13 +191,14 @@ class TestFileReader:
         test_csv.seek(0)
         df_str = test_csv.getvalue()
         if os.name == 'nt':
-            df_with_blank_row = df_str[0:20] + ",,\r\n" + df_str[20:]
+            df_with_blank_row = df_str[0:21] + ",,\r\n" + df_str[21:]
+            with open(csv_path, "w", newline='') as f:
+                f.write(df_with_blank_row)
         else:
             df_with_blank_row = df_str[0:20] + ",,\n" + df_str[20:]
-        with open(csv_path, "w") as f:
-            f.write(df_with_blank_row)
+            with open(csv_path, "w") as f:
+                f.write(df_with_blank_row)
         loaded_data = io.file_reader(csv_path)
-        print(loaded_data)
         assert isinstance(loaded_data, pd.DataFrame)
         assert loaded_data.columns[0] == "met1_poa"
         assert isinstance(loaded_data.index, pd.DatetimeIndex)
