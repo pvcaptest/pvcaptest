@@ -29,7 +29,6 @@ EXTRAS_REQUIRE={
     'viz': ['holoviews>=1.14.8', 'panel'],
     'csky': ['pvlib>=0.9.0', ],
     'xlsx': ['openpyxl', ],
-    'all': ['holoviews>=1.14.8', 'pvlib>0.9.0', 'panel', 'openpyxl', ],
     'test': ['coveralls', 'pytest', 'pytest-cov', 'pytest-mock', 'pytest-timeout', ],
 }
 EXTRAS_REQUIRE['all'] = sorted(set(sum(EXTRAS_REQUIRE.values(), [])))
