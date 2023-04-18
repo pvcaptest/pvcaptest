@@ -475,7 +475,7 @@ def filter_irr(df, irr_col, low, high, ref_val=None):
     return df.loc[indx, :]
 
 
-def filter_grps(grps, rcs, irr_col, low, high, **kwargs):
+def filter_grps(grps, rcs, irr_col, low, high, freq, **kwargs):
     """
     Apply irradiance filter around passsed reporting irradiances to groupby.
 
@@ -489,6 +489,14 @@ def filter_grps(grps, rcs, irr_col, low, high, **kwargs):
     rcs : pandas DataFrame
         Dataframe of reporting conditions.  Use the rep_cond method to generate
         a dataframe for this argument.
+    irr_col : str
+        String that is the name of the column with the irradiance data.
+    low : float
+        Minimum value as fraction e.g. 0.8. 
+    high : float
+        Max value as fraction e.g. 1.2.
+    freq : str
+        Frequency to groupby e.g. 'MS' for month start.
     **kwargs
         Passed to pandas Grouper to control label and closed side of intervals.
         See pandas Grouper doucmentation for details. Default is left labeled
@@ -499,7 +507,6 @@ def filter_grps(grps, rcs, irr_col, low, high, **kwargs):
     pandas groupby
     """
     flt_dfs = []
-    freq = list(grps.groups.keys())[0].freq
     for grp_name, grp_df in grps:
         ref_val = rcs.loc[grp_name, 'poa']
         grp_df_flt = filter_irr(grp_df, irr_col, low, high, ref_val=ref_val)
@@ -792,11 +799,11 @@ def predict(regs, rcs):
     -------
     Pandas series of predicted values.
     """
-    pred_cap = pd.Series()
+    pred_cap = list()
     for i, mod in enumerate(regs):
         RC_df = pd.DataFrame(rcs.iloc[i, :]).T
-        pred_cap = pred_cap.append(mod.predict(RC_df))
-    return pred_cap
+        pred_cap.append(mod.predict(RC_df).values[0])
+    return pd.Series(pred_cap)
 
 
 def pred_summary(grps, rcs, allowance, **kwargs):
@@ -1172,7 +1179,7 @@ def captest_results(sim, das, nameplate, tolerance, check_pvalues=False,
 
     if check_pvalues:
         for cd in [sim_int, das_int]:
-            for key, val in cd.regression_results.pvalues.iteritems():
+            for key, val in cd.regression_results.pvalues.items():
                 if val > pval:
                     cd.regression_results.params[key] = 0
 
@@ -2441,7 +2448,7 @@ class CapData(object):
         """
         ix_all_days = None
         for day in days:
-            ix_day = self.data_filtered[day].index
+            ix_day = self.data_filtered.loc[day].index
             if ix_all_days is None:
                 ix_all_days = ix_day
             else:
@@ -2920,7 +2927,7 @@ class CapData(object):
             Can pass a string function ('mean') to calculate each reporting
             condition the same way.
         freq: str
-            String pandas offset alias to specify aggregattion frequency
+            String pandas offset alias to specify aggregation frequency
             for reporting condition calculation. Ex '60D' for 60 Days or
             'MS' for months start.
         w_vel: int
@@ -2979,7 +2986,6 @@ class CapData(object):
             df_grpd = df.groupby(pd.Grouper(freq=freq, **grouper_kwargs))
 
             if irr_bal:
-                freq = list(df_grpd.groups.keys())[0].freq
                 ix = pd.DatetimeIndex(list(df_grpd.groups.keys()), freq=freq)
                 poa_RC = []
                 temp_RC = []
@@ -3052,11 +3058,10 @@ class CapData(object):
         grps = df.groupby(by=pd.Grouper(freq=freq, **kwargs))
 
         if irr_filter:
-            grps = filter_grps(grps, self.rc, 'poa', low, high)
+            grps = filter_grps(grps, self.rc, 'poa', low, high, freq)
 
         error = float(self.tolerance.split(sep=' ')[1]) / 100
-        results = pred_summary(grps, self.rc, error,
-                               fml=self.regression_formula)
+        results = pred_summary(grps, self.rc, error, fml=self.regression_formula)
 
         return results
 

@@ -184,29 +184,38 @@ class TestTopLevelFuncs(unittest.TestCase):
         self.assertEqual(col_set_length, col_length,
                          'There is a duplicate column name in the results df.')
 
-        pt_qty_exp = [341, 330, 392, 390, 403, 406,
-                           456, 386, 390, 346, 331, 341]
-        gaur_cap_exp = [3089550.4039329495, 3103610.4635679387,
-                        3107035.251399103, 3090681.1145782764,
-                        3058186.270209293, 3059784.2309170915,
-                        3088294.50827525, 3087081.0026879036,
-                        3075251.990424683, 3093287.331878834,
-                        3097089.7852036236, 3084318.093294242]
+        pt_qty_exp = [341, 330, 392, 390, 403, 406, 456, 386, 390, 346, 331, 341]
+        gaur_cap_exp = [
+            3089550.4039329495,
+            3103610.4635679387,
+            3107035.251399103,
+            3090681.1145782764,
+            3058186.270209293,
+            3059784.2309170915,
+            3088294.50827525,
+            3087081.0026879036,
+            3075251.990424683,
+            3093287.331878834,
+            3097089.7852036236,
+            3084318.093294242,
+        ]
         for i, mnth in enumerate(results.index):
-            self.assertLess(results.loc[mnth, 'guaranteedCap'],
-                            results.loc[mnth, 'PredCap'],
-                            'Gauranteed capacity is greater than predicted in'
-                            'month {}'.format(mnth))
-            self.assertGreater(results.loc[mnth, 'guaranteedCap'], 0,
-                               'Gauranteed capacity is less than 0 in'
-                               'month {}'.format(mnth))
-            self.assertAlmostEqual(results.loc[mnth, 'guaranteedCap'],
-                                   gaur_cap_exp[i], 7,
-                                   'Gauranted capacity not equal to expected'
-                                   'value in {}'.format(mnth))
-            self.assertEqual(results.loc[mnth, 'pt_qty'], pt_qty_exp[i],
-                               'Point quantity not equal to expected values in'
-                               '{}'.format(mnth))
+            self.assertLess(
+                results.loc[mnth, 'guaranteedCap'],
+                results.loc[mnth, 'PredCap'],
+                'Gauranteed cap is greater than predicted in month {}'.format(mnth)
+            )
+            self.assertGreater(
+                results.loc[mnth, 'guaranteedCap'], 0,
+                'Gauranteed capacity is less than 0 in month {}'.format(mnth)
+            )
+            self.assertAlmostEqual(
+                results.loc[mnth, 'guaranteedCap'], gaur_cap_exp[i], 7,
+                'Gauranted capacity not equal to expected value in {}'.format(mnth))
+            self.assertEqual(
+                results.loc[mnth, 'pt_qty'], pt_qty_exp[i],
+                'Point quantity not equal to expected values in {}'.format(mnth)
+            )
 
     def test_perc_bounds_perc(self):
         bounds = pvc.perc_bounds(20)
@@ -231,7 +240,7 @@ class TestTopLevelFuncs(unittest.TestCase):
         grps = pvsyst.data_filtered.groupby(pd.Grouper(freq='MS', label='left'))
         poa_col = pvsyst.column_groups[pvsyst.regression_cols['poa']][0]
 
-        grps_flt = pvc.filter_grps(grps, pvsyst.rc, poa_col, 0.8, 1.2)
+        grps_flt = pvc.filter_grps(grps, pvsyst.rc, poa_col, 0.8, 1.2, 'MS')
 
         self.assertIsInstance(grps_flt,
                               pd.core.groupby.generic.DataFrameGroupBy,
@@ -1259,7 +1268,7 @@ class TestPredictCapacities():
         df = df.rename(columns=rename)
         reg = pvc.fit_model(df)
         july_manual = reg.predict(pvsyst_irr_filter.rc)[0]
-        assert pytest.approx(july_manual, july_grpby, abs=1e-5)
+        assert july_manual == pytest.approx(july_grpby)
 
     def test_no_irr_filter(self, pvsyst_irr_filter):
         pvsyst_irr_filter.rep_cond(freq='M')
