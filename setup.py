@@ -26,11 +26,23 @@ INSTALL_REQUIRES=[
 ]
 
 EXTRAS_REQUIRE={
-    'viz': ['holoviews>=1.14.8', 'panel'],
-    'csky': ['pvlib>=0.9.0', ],
-    'xlsx': ['openpyxl', ],
-    'test': ['coveralls', 'pytest', 'pytest-cov', 'pytest-mock', 'pytest-timeout', ],
+    'optional': ['holoviews>=1.14.8', 'panel', 'pvlib>=0.9.0', 'openpyxl', ],
 }
+EXTRAS_REQUIRE['test'] = EXTRAS_REQUIRE['optional'] + [
+    'coveralls',
+    'pytest',
+    'pytest-cov',
+    'pytest-mock',
+    'pytest-timeout',
+]
+EXTRAS_REQUIRE['docs'] = EXTRAS_REQUIRE['optional'] + [
+    'docutils',
+    'nbsphinx',
+    'notebook',
+    'recommonmark',
+    'sphinx',
+    'sphinx_rtd_theme',
+]
 EXTRAS_REQUIRE['all'] = sorted(set(sum(EXTRAS_REQUIRE.values(), [])))
 
 setup(
