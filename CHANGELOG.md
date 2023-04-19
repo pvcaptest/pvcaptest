@@ -4,8 +4,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+[0.11.1]: https://github.com/pvcaptest/pvcaptest/compare/v0.11.0...v0.11.1
+## [0.11.1] - 2023-04-09
+### Added
+- Added new dependencies - colorcet, param
+- Added openpyxl as an optional dependency
+- Loads bokeh as holoviews extension in captest imports so user doesn't need to
+
+### Changed
+- Removed use of hvplot, replaced with holoviews to avoid adding unnecessary dependency. PR #73.
+
+### Fixed
+- Typo in the import check of panel
+
 [0.11.0]: https://github.com/pvcaptest/pvcaptest/compare/v0.10.0...v0.11.0
-## [0.11.0] - 2023-04-07
+## [0.11.0] - 2023-04-07 [YANKED]
 ### Added
 - Added columngroups module with a ColumnGroups class that extends python
 dictionaries to include each column group as an attribute and __repr__ is
