@@ -48,3 +48,25 @@ approach is to use the conda package.
 **Note: The conda package is named pvcaptest and the pip package is
 named captest. The project is moving to consistent use of the pvcaptest
 name, but the package name on pypi will remain as captest.**
+
+Pip installation provides a ways to install optional dependencies:
+
+``pip install captest[optional]``
+
+Will install the optional dependencies: holoviews, panel, pvlib, and openpyxl. For users who want full functionality, but do not want to run the tests or build the documentation this is the recommended method.
+
+``pip install captest[test]``
+
+Will install the dependencies needed to run the tests.
+
+``pip install captest[test, build]``
+
+Will install the dependencies needed to run the tests and build the package.
+
+``pip install captest[docs]``
+
+Will install the dependencies needed to build the documentation. Note that nbsphinx requires pandoc, which pip will not install automatically. You will need to install pandoc separately. Using conda to install pandoc is recommnded per the `nbshpinx documentation <https://nbsphinx.readthedocs.io/en/0.9.1/installation.html#pandoc>`__. Pip installing pandoc will install the python wrapper, but not pandoc itself, which is written in Haskell. Using conda to install should install both the python wrapper and pandoc itself.
+
+``pip install captest[all]``
+
+Will install all of the optional dependencies.
