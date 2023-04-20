@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [Unreleased]
 ### Changed
 - Re-organized the extras for pip installation into optional, test, docs, and all. Updated the installation section of the docs to reflect change.
+- Updated installation instructions with links to pandas and conda docs for more information on environments.
+- Re-organized installation instructions.
+- Changed instructions on creating a conda env for pvcaptest to directly download the env yaml file from the repository rather than the whole repository.
 
 [0.11.1]: https://github.com/pvcaptest/pvcaptest/compare/v0.11.0...v0.11.1
 ## [0.11.1] - 2023-04-09
