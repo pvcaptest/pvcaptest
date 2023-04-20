@@ -35,6 +35,10 @@ EXTRAS_REQUIRE['test'] = EXTRAS_REQUIRE['optional'] + [
     'pytest-mock',
     'pytest-timeout',
 ]
+EXTRAS_REQUIRE['build'] = EXTRAS_REQUIRE['optional'] + [
+    'build',
+    'twine',
+]
 EXTRAS_REQUIRE['docs'] = EXTRAS_REQUIRE['optional'] + [
     'docutils',
     'nbsphinx',

@@ -59,6 +59,10 @@ Will install the optional dependencies: holoviews, panel, pvlib, and openpyxl. F
 
 Will install the dependencies needed to run the tests.
 
+``pip install captest[test, build]``
+
+Will install the dependencies needed to run the tests and build the package.
+
 ``pip install captest[docs]``
 
 Will install the dependencies needed to build the documentation. Note that nbsphinx requires pandoc, which pip will not install automatically. You will need to install pandoc separately. Using conda to install pandoc is recommnded per the `nbshpinx documentation <https://nbsphinx.readthedocs.io/en/0.9.1/installation.html#pandoc>`__. Pip installing pandoc will install the python wrapper, but not pandoc itself, which is written in Haskell. Using conda to install should install both the python wrapper and pandoc itself.
