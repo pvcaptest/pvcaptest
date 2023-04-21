@@ -377,7 +377,8 @@ def perf_ratio_temp_corr_nrel(
 
 
 class PrResults(param.Parameterized):
-    """Results from a PR calculation.
+    """
+    Results from a PR calculation.
     """
 
     dc_nameplate = param.Number(

@@ -12,11 +12,11 @@ import pandas as pd
 
 from captest.io import file_reader
 
-from .context import capdata as pvc
-from .context import util
-from .context import columngroups as cg
-from .context import io
-from .context import (
+from captest import capdata as pvc
+from captest import util
+from captest import columngroups as cg
+from captest import io
+from captest import (
     load_pvsyst,
     load_data,
     DataLoader,

@@ -2,9 +2,9 @@ import pytest
 import copy
 import numpy as np
 import pandas as pd
-from .context import capdata as pvc
-from .context import util
-from .context import columngroups as cg
+from captest import capdata as pvc
+from captest import util
+from captest import columngroups as cg
 
 @pytest.fixture
 def meas():
