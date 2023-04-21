@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Adds CI testing across python 3.7 to 3.11 on OSX, Linux, and Windows using Github actions.
 
 ### Changed
+- Re-organized project root directory to place captest package under a src directory, see PR #83.
 - Re-organized the extras for pip installation into optional, test, docs, and all. Updated the installation section of the docs to reflect change.
 - Updated installation instructions with links to pandas and conda docs for more information on environments.
 - Re-organized installation instructions.
