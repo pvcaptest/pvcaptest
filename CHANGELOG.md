@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Re-organized installation instructions.
 - Changed instructions on creating a conda env for pvcaptest to directly download the env yaml file from the repository rather than the whole repository.
 - Clean up RTD configuration, particularly added project directory to PYTHONPATH in the docs build environment, so the docs build against checked out version instead of installed version from conda.
+- Updates to documentation to add new modules, remove history section of releases, and remove references to Travis CI.
 
 ### Fixed
 - Cleaned up issues in tests found after re-implementing CI on other platforms.
