@@ -4,5 +4,8 @@ captest
 .. toctree::
    :maxdepth: 4
 
-   captest
+   capdata
+   columngroups
+   io
+   prtest
    util
