@@ -63,7 +63,8 @@ setup(
     description=('Framework and methods to facilitate photovoltaic '
     'facility capacity testing following ASTM E2848.'),
     long_description=long_description,
-    packages=['captest'],
+    packages=find_packages(where="src"),
+    package_dir={"": "src"},
     include_package_data=True,
     platforms='any',
     classifiers=['Programming Language :: Python :: 3',

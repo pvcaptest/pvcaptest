@@ -13,13 +13,12 @@ import warnings
 
 import pvlib
 
-from .context import capdata as pvc
-from .context import util
-from .context import columngroups as cg
-from .context import io
-from .context import(
+from captest import capdata as pvc
+from captest import util
+from captest import columngroups as cg
+from captest import io
+from captest import(
     load_pvsyst,
-    load_data,
 )
 
 data = np.arange(0, 1300, 54.167)

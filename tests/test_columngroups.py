@@ -6,7 +6,7 @@ import pytz
 import numpy as np
 import pandas as pd
 
-from .context import columngroups as cg
+from captest import columngroups as cg
 
 col_groups = {
     'irr_poa':[

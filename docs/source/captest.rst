@@ -13,7 +13,7 @@ captest.capdata module
    :show-inheritance:
 
 captest.columngroups module
------------------
+---------------------------
 
 .. automodule:: captest.columngroups
    :members:
@@ -29,7 +29,7 @@ captest.io module
    :show-inheritance:
 
 captest.prtest module
------------------
+---------------------
 
 .. automodule:: captest.prtest
    :members:
@@ -37,7 +37,7 @@ captest.prtest module
    :show-inheritance:
 
 captest.util module
------------------
+-------------------
 
 .. automodule:: captest.util
    :members:

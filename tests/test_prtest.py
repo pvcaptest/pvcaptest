@@ -6,7 +6,7 @@ import pytz
 import numpy as np
 import pandas as pd
 
-from .context import prtest as pr
+from captest import prtest as pr
 
 """
 Run tests using pytest use the following from project root.
