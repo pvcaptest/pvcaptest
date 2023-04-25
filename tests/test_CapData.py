@@ -1154,6 +1154,17 @@ class TestAggSensors():
         meas.agg_sensors(agg_map={'temp_amb': 'mean'})
         assert meas.regression_cols['t_amb'] == 'temp_amb_mean_agg'
 
+    def test_pre_agg_regression_dict_exists(self, meas):
+        meas.agg_sensors()
+        assert isinstance(meas.pre_agg_reg_trans, dict)
+
+    def test_pre_agg_column_groups_exists(self, meas):
+        meas.agg_sensors()
+        assert isinstance(meas.pre_agg_trans, cg.ColumnGroups)
+
+    def test_pre_agg_columns_exists(self, meas):
+        meas.agg_sensors()
+        assert isinstance(meas.pre_agg_cols, pd.Index)
 
 
 class TestFilterSensors():
