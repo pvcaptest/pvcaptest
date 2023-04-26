@@ -650,6 +650,23 @@ class TestIrrRcBalanced():
         assert isinstance(rc_tool.poa_flt, pd.DataFrame)
         assert np.isnan(rc_tool.irr_rc)
 
+class TestCapDataCopy():
+    def test_copy_of_pre_agg_attributes(self, meas):
+        pre_agg_cols = copy.copy(meas.data.columns)
+        pre_agg_col_groups = copy.deepcopy(meas.column_groups)
+        pre_agg_reg_columns = copy.deepcopy(meas.regression_cols)
+        meas.agg_sensors(agg_map={
+            'irr_poa_pyran': 'mean',
+            'temp_amb': 'mean',
+            'wind': 'mean',
+        })
+        meas_copy = meas.copy()
+        assert meas_copy.pre_agg_cols.equals(pre_agg_cols)
+        assert meas_copy.pre_agg_trans == pre_agg_col_groups
+        assert meas_copy.pre_agg_reg_trans == pre_agg_reg_columns
+        assert meas_copy.pre_agg_cols.equals(meas.pre_agg_cols)
+        assert meas_copy.pre_agg_trans == meas.pre_agg_trans
+        assert meas_copy.pre_agg_reg_trans == meas.pre_agg_reg_trans
 
 class TestCapDataMethodsSim():
     """Test for top level irr_rc_balanced function."""
@@ -1154,6 +1171,17 @@ class TestAggSensors():
         meas.agg_sensors(agg_map={'temp_amb': 'mean'})
         assert meas.regression_cols['t_amb'] == 'temp_amb_mean_agg'
 
+    def test_pre_agg_regression_dict_exists(self, meas):
+        meas.agg_sensors()
+        assert isinstance(meas.pre_agg_reg_trans, dict)
+
+    def test_pre_agg_column_groups_exists(self, meas):
+        meas.agg_sensors()
+        assert isinstance(meas.pre_agg_trans, cg.ColumnGroups)
+
+    def test_pre_agg_columns_exists(self, meas):
+        meas.agg_sensors()
+        assert isinstance(meas.pre_agg_cols, pd.Index)
 
 
 class TestFilterSensors():

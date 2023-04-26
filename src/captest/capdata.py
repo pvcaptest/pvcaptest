@@ -1543,6 +1543,9 @@ class CapData(object):
         cd_c.rc = copy.copy(self.rc)
         cd_c.regression_results = copy.deepcopy(self.regression_results)
         cd_c.regression_formula = copy.copy(self.regression_formula)
+        cd_c.pre_agg_cols = copy.copy(self.pre_agg_cols)
+        cd_c.pre_agg_trans = copy.deepcopy(self.pre_agg_trans)
+        cd_c.pre_agg_reg_trans = copy.deepcopy(self.pre_agg_reg_trans)
         return cd_c
 
     def empty(self):
