@@ -28,9 +28,10 @@ Contents
 ========
 
 .. toctree::
-   :maxdepth: 2
+   :maxdepth: 1
 
    installation
+   user_guide/index
    examples
    changelog
    release
