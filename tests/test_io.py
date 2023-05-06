@@ -218,6 +218,21 @@ class TestFileReader:
         assert isinstance(das.index, pd.DatetimeIndex)
         assert isinstance(das.columns, pd.Index)
 
+    def test_first_col_is_int_index(self, tmp_path):
+        """
+        Test loading a csv with an integer index in the first column.
+        """
+        csv_path = tmp_path / "first_col_ints_data.csv"
+        pd.DataFrame(
+            {
+                "datetime": pd.date_range(start="8/1/22", periods=20, freq="1min"),
+                "met1_poa1": np.arange(0, 20),
+                "met1_poa2": np.arange(20, 40),
+            },
+        ).to_csv(csv_path)
+        loaded_data = io.file_reader(csv_path)
+        assert isinstance(loaded_data, pd.DataFrame)
+
 
 class TestLoadPVsyst:
     def test_load_pvsyst(self):

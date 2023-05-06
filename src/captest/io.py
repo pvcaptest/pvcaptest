@@ -178,6 +178,16 @@ def file_reader(path, **kwargs):
         else:
             break
     data_file.dropna(how="all", axis=0, inplace=True)
+    if data_file.index.equals(pd.Index(np.arange(len(data_file.index)))):
+        data_file = pd.read_csv(
+            path,
+            encoding=encoding,
+            index_col=1,
+            parse_dates=True,
+            skip_blank_lines=True,
+            low_memory=False,
+            **kwargs,
+        )
     if not isinstance(data_file.index[0], pd.Timestamp):
         for i, _indice in enumerate(data_file.index):
             try:
@@ -199,7 +209,6 @@ def file_reader(path, **kwargs):
             low_memory=False,
             **kwargs,
         )
-
     data_file = data_file.apply(pd.to_numeric)
     if isinstance(data_file.columns, pd.MultiIndex):
         data_file.columns = flatten_multi_index(data_file.columns)
