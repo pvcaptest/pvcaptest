@@ -5,7 +5,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 [Unreleased]
-
+### Added
+- Added a user guide section to the documentation with an overview and bifacial tests section.
 
 [0.11.2]: https://github.com/pvcaptest/pvcaptest/compare/v0.11.1...v0.11.2
 ## [0.11.2] - 2023-04-20
