@@ -172,5 +172,22 @@ By default a summary showing the results of the regression is printed, similar t
 
 Results
 -------
+After loading, filtering and regressing measured and simulated data in two separate instances of :py:class:`~captest.capdata.CapData`, the results can be compared using the :py:func:`~captest.capdata.captest_results_check_pvalues`. This will provide a summary of the predicted power using the regression coefficients of each :py:class:`~captest.capdata.CapData` instance and the reporting conditions.
+
+The results function will check and warn for potential issues:
+
+- The regression equations in the two :py:class:`~captest.capdata.CapData` instances are different.
+- Both :py:class:`~captest.capdata.CapData` instances have reporting conditions.
+
+See the `Example Capacity Test`_, for example usage of the results function.
+
+.. _Example Capacity Test: ../examples/complete_capacity_test.html
+
+
+The results from that example display as follows:
+
+.. image:: ../_images/results.png
+
+By default the results will be calculated twice. The second calculation will set the regression coefficient for any term where the p-value is greater than 0.05 to zero before calculating the predicted power. These high p-values are highlighted in yellow as shown in the above example for the wind speed regression term of the simulated data.
 
 
