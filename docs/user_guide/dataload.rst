@@ -29,6 +29,10 @@ Generally, the first step to conducting a capacity test is to load data from the
 
 :py:func:`~captest.io.load_data` does a few things in addition to loading the data that are required for functionality of many of the CapData methods like :py:meth:`~captest.capdata.CapData.agg_sensors`, :py:attr:`~captest.capdata.CapData.loc` and :py:attr:`~captest.capdata.CapData.floc`, and the plotting methods and to clean up minor issues in the raw data:
 
+.. note::
+
+    :py:attr:`loc` and :py:attr:`floc` can be used to access data, see `Accessing Filtered and Unfiltered Data`_.
+
 - Sorts the data by the datetime index.
 - Drops any rows where all values in the row are duplicates of the any other row.
 - Reindexes the data so there are no missing time intervals.
@@ -134,6 +138,10 @@ where ``irr_poa_mean_agg``, ``temp_amb_mean_agg``, and ``wind_amb_mean_agg`` are
 
 Accessing Filtered and Unfiltered Data
 --------------------------------------
+The callables :py:attr:`loc` and :py:attr:`floc` can be used to access columns of data from the :py:attr:`data` and :py:attr:`data_filtered` DataFrames, respectively. 
+
+Any column heading of the :py:attr:`data` DataFrame, group id from :py:attr:`column_groups`, or regression term from :py:attr:`regression_cols` can be passed to :py:attr:`loc` or :py:attr:`floc`. Or, a list with any combination of these identifiers can be passed. 
+
 
 Filtering
 ---------
