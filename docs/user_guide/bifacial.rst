@@ -1,8 +1,8 @@
 
 .. _bifacial:
 
-Capacity Tests for Bifacial Projects
-====================================
+Bifacial Tests
+==============
 
 This section discusses how pvcaptest can be used to conduct a capacity test for a project with bifacial modules.
 
