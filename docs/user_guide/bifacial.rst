@@ -8,7 +8,7 @@ This section discusses how pvcaptest can be used to conduct a capacity test for 
 
 NREL Modified Bifacial Capacity Test
 ------------------------------------
-Pvcaptest can be used to conduct a bifacial capacity test following the `NREL Suggested Modifications for Bifacial Capacity Testing <https://www.nrel.gov/docs/fy19osti/72399.pdf>`_. 
+Pvcaptest can be used to conduct a bifacial capacity test following the `NREL Suggested Modifications for Bifacial Capacity Testing <https://www.nrel.gov/docs/fy20osti/73982.pdf>`_. 
 
 The suggested approach uses the standard ASTM regression equation:
 
