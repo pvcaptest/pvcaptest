@@ -6,7 +6,7 @@ The core functionality of pvcaptest is provided by the :py:class:`~captest.capda
 
 Conducting a capacity tests with pvcaptest involves the following steps:
 
-1. Load data from the plant DAS / SCADA system (:py:func:`~captest.io.load_data`) or from a PVsyst file (:py:func:`~captest.load_pvsyst`), returning an instance of :py:class:`~captest.capdata.CapData`.
+1. Load data from the plant DAS / SCADA system (:py:func:`~captest.io.load_data`) or from a PVsyst file (:py:func:`~captest.io.load_pvsyst`), returning an instance of :py:class:`~captest.capdata.CapData`.
 2. Review / modify the :py:attr:`~captest.capdata.CapData.column_groups` attribute as needed.
 3. Use the :py:meth:`~captest.capdata.CapData.set_regression_cols` method to set the columns or group of columns to be used in the regression.
 4. When there are multiple sensors for a given measurement, use :py:meth:`~captest.capdata.CapData.agg_sensors` to aggregate the data from the sensors.
