@@ -12,6 +12,7 @@
 #
 import os
 import sys
+from datetime import datetime
 import recommonmark
 from recommonmark.transform import AutoStructify
 
@@ -20,7 +21,7 @@ sys.path.insert(0, os.path.abspath('../'))
 # -- Project information -----------------------------------------------------
 
 project = 'pvcaptest'
-copyright = '2021, Ben Taylor'
+copyright = f"{datetime.now().year}" + ", Ben Taylor"
 author = 'Ben Taylor'
 
 
