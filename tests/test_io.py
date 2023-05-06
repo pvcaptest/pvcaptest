@@ -212,6 +212,15 @@ class TestFileReader:
         )
         assert isinstance(loaded_data.index, pd.DatetimeIndex)
 
+    def test_ae_headers_override_header_arg(self):
+        """Four rows of headers, no blank rows, header in first column on third row."""
+        loaded_data = io.file_reader("./tests/data/example_meas_data_aeheaders.csv", header=3)
+        assert isinstance(loaded_data, pd.DataFrame)
+        assert loaded_data.columns[0] == (
+            "W/m^2"
+        )
+        assert isinstance(loaded_data.index, pd.DatetimeIndex)
+
     def test_load_das(self):
         das = io.file_reader("./tests/data/example_measured_data.csv")
         assert 1440 == das.shape[0]
@@ -233,6 +242,22 @@ class TestFileReader:
         loaded_data = io.file_reader(csv_path)
         assert isinstance(loaded_data, pd.DataFrame)
 
+    def test_pass_index_col_kwarg(self, tmp_path):
+        """
+        Test loading a csv with an integer index in the first column.
+        """
+        csv_path = tmp_path / "first_two_cols_ints_data.csv"
+        pd.DataFrame(
+            {
+                "dup_index": np.arange(0, 20),
+                "datetime": pd.date_range(start="8/1/22", periods=20, freq="1min"),
+                "met1_poa1": np.arange(0, 20),
+                "met1_poa2": np.arange(20, 40),
+            },
+        ).to_csv(csv_path)
+        loaded_data = io.file_reader(csv_path, index_col=2)
+        assert isinstance(loaded_data, pd.DataFrame)
+        assert isinstance(loaded_data.index, pd.DatetimeIndex)
 
 class TestLoadPVsyst:
     def test_load_pvsyst(self):
@@ -638,6 +663,20 @@ class TestLoadDataFunction:
         )
         assert (cd.data_loader.path.parent / 'column_groups.xlsx').exists()
         os.remove(cd.data_loader.path.parent / 'column_groups.xlsx')
+
+    def test_kwargs_pass_to_read_csv(self, tmp_path):
+        csv_path = tmp_path / "first_two_cols_ints_data.csv"
+        pd.DataFrame(
+            {
+                "dup_index": np.arange(0, 20),
+                "datetime": pd.date_range(start="8/1/22", periods=20, freq="1min"),
+                "met1_poa1": np.arange(0, 20),
+                "met1_poa2": np.arange(20, 40),
+            },
+        ).to_csv(csv_path)
+        cd = load_data(tmp_path, index_col=2)
+        assert isinstance(cd.data, pd.DataFrame)
+        assert isinstance(cd.data.index, pd.DatetimeIndex)
 
 
 class TestLoadDataMethods(unittest.TestCase):

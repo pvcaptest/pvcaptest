@@ -161,16 +161,20 @@ def file_reader(path, **kwargs):
     -------
     pandas DataFrame
     """
+    default_kwargs = {
+        'index_col': 0,
+        'parse_dates': True,
+        'skip_blank_lines': True,
+        'low_memory': False,
+    }
+    for key, value in default_kwargs.items():
+        kwargs.setdefault(key, value)
     encodings = ["utf-8", "latin1", "iso-8859-1", "cp1252"]
     for encoding in encodings:
+        kwargs['encoding'] = encoding
         try:
             data_file = pd.read_csv(
                 path,
-                encoding=encoding,
-                index_col=0,
-                parse_dates=True,
-                skip_blank_lines=True,
-                low_memory=False,
                 **kwargs,
             )
         except UnicodeDecodeError:
@@ -179,13 +183,9 @@ def file_reader(path, **kwargs):
             break
     data_file.dropna(how="all", axis=0, inplace=True)
     if data_file.index.equals(pd.Index(np.arange(len(data_file.index)))):
+        kwargs['index_col'] = 1
         data_file = pd.read_csv(
             path,
-            encoding=encoding,
-            index_col=1,
-            parse_dates=True,
-            skip_blank_lines=True,
-            low_memory=False,
             **kwargs,
         )
     if not isinstance(data_file.index[0], pd.Timestamp):
@@ -199,14 +199,9 @@ def file_reader(path, **kwargs):
             except ValueError:
                 continue
         header = list(np.arange(header_end))
+        kwargs.setdefault('header', header)
         data_file = pd.read_csv(
             path,
-            encoding=encoding,
-            header=header,
-            index_col=0,
-            parse_dates=True,
-            skip_blank_lines=True,
-            low_memory=False,
             **kwargs,
         )
     data_file = data_file.apply(pd.to_numeric)
