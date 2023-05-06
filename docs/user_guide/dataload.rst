@@ -138,7 +138,7 @@ where ``irr_poa_mean_agg``, ``temp_amb_mean_agg``, and ``wind_amb_mean_agg`` are
 
 Accessing Filtered and Unfiltered Data
 --------------------------------------
-The callables :py:attr:`loc` and :py:attr:`floc` can be used to access columns of data from the :py:attr:`data` and :py:attr:`data_filtered` DataFrames, respectively. 
+The methods :py:attr:`loc` and :py:attr:`floc` can be used to access columns of data from the :py:attr:`data` and :py:attr:`data_filtered` DataFrames, respectively.
 
 Any column heading of the :py:attr:`data` DataFrame, group id from :py:attr:`column_groups`, or regression term from :py:attr:`regression_cols` can be passed to :py:attr:`loc` or :py:attr:`floc`. Or, a list with any combination of these identifiers can be passed. 
 
