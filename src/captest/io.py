@@ -323,27 +323,41 @@ class DataLoader:
         """
         Load file(s) of timeseries data from SCADA / DAS systems.
 
-        This is a convience function to generate an instance of DataLoader
-        and call the `load` method.
+        Set `path` to the path to a file to load a single file. Set `path` to the path
+        to a directory of files to load all the files in the directory ending in "csv".
+        Or, set `files_to_load` to a list of specific files to load.
 
-        A single file or multiple files can be loaded. Multiple files will be joined together
-        and may include files with different column headings. When multiple files with
-        matching column headings are loaded, the individual files will be reindexed and
-        then joined. Missing time intervals within the individual files will be filled,
+        Multiple files will be joined together and may include files with different
+        column headings. When multiple files with matching column headings are loaded,
+        the individual files will be reindexed and then joined.
+
+        Missing time intervals within the individual files will be filled,
         but missing time intervals between the individual files will not be filled.
+
+        When loading multiple files they will be stored in `loaded_files`, a dictionary,
+        mapping the file names to a dataframe for each file.
 
         Parameters
         ----------
         extension : str, default "csv"
             Change the extension to allow loading different filetypes. Must also set
             the `file_reader` attribute to a function that will read that type of file.
+            Do not include a period ".".
+        **kwargs
+            Are passed through to the file_reader callable, which by default will pass
+            them on to pandas.read_csv.
+
+        Returns
+        -------
+        None
+            Resulting DataFrame of data is stored to the `data` attribute.
         """
         if self.path.is_file():
-            self.data = self.file_reader(self.path)
+            self.data = self.file_reader(self.path, **kwargs)
         elif self.path.is_dir():
             if self.files_to_load is not None:
                 self.loaded_files = {
-                    file.stem: self.file_reader(file) for file in self.files_to_load
+                    file.stem: self.file_reader(file, **kwargs) for file in self.files_to_load
                 }
             else:
                 self.set_files_to_load(extension=extension)
@@ -436,8 +450,8 @@ def load_data(
         If True, will call `CapData.data_columns_to_excel` to save a file to use to
         manually create column groupings at `path`.
     **kwargs
-        Passed to `DataLoader.load` Options include: sort, drop_duplicates, reindex,
-        extension. See `DataLoader` for complete documentation.
+        Passed to `DataLoader.load`, which passes them to the `file_reader` function.
+        The default `file_reader` function passes them to pandas.read_csv.
     """
     dl = DataLoader(
         path=path,
