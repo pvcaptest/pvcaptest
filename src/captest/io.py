@@ -19,6 +19,7 @@ from captest import util
 def flatten_multi_index(columns):
     return ["_".join(col_name) for col_name in columns.to_list()]
 
+
 def load_excel_column_groups(path):
     """
     Load column groups from an excel file.
@@ -47,6 +48,7 @@ def load_excel_column_groups(path):
     """
     df = pd.read_excel(path, header=None).fillna(method="ffill")
     return df.groupby(0)[1].apply(list).to_dict()
+
 
 def load_pvsyst(
     path,
@@ -139,15 +141,13 @@ def load_pvsyst(
     return cd
 
 
-
-
 def file_reader(path, **kwargs):
     """
     Read measured solar data from a csv file.
 
     Utilizes pandas read_csv to import measure solar data from a csv file.
-    Attempts a few diferent encodings, trys to determine the header end
-    by looking for a date in the first column, and concantenates column
+    Attempts a few different encodings, tries to determine the header end
+    by looking for a date in the first column, and concatenates column
     headings to a single string.
 
     Parameters
@@ -403,7 +403,7 @@ def load_data(
     """
     Load file(s) of timeseries data from SCADA / DAS systems.
 
-    This is a convience function to generate an instance of DataLoader
+    This is a convenience function to generate an instance of DataLoader
     and call the `load` method.
 
     A single file or multiple files can be loaded. Multiple files will be joined together
@@ -415,7 +415,7 @@ def load_data(
         Path to either a single file to load or a directory of files to load.
     group_columns : function or str, default columngroups.group_columns
         Function to use to group the columns of the loaded data. Function should accept
-        a DataFrame and return a dictionary with keys that are ids and valeus that are
+        a DataFrame and return a dictionary with keys that are ids and values that are
         lists of column names. Will be set to the `group_columns` attribute of the
         CapData.DataLoader object.
         Provide a string to load column grouping from a json, yaml, or excel file. The
@@ -432,9 +432,9 @@ def load_data(
     sort : bool, default True
         By default sorts the data by the datetime index from old to new.
     drop_duplicates : bool, default True
-        By default drops rows of the joined data where all the columns are duplicats
+        By default drops rows of the joined data where all the columns are duplicates
         of another row. Keeps the first instance of the duplicated values. This is
-        helpful if individual datafiles have overlaping rows with the same data.
+        helpful if individual data files have overlapping rows with the same data.
     reindex : bool, default True
         By default will create a new index for the data using the earliest datetime,
         latest datetime, and the most frequent time interval ensuring there are no
