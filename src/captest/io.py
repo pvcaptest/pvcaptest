@@ -19,6 +19,7 @@ from captest import util
 def flatten_multi_index(columns):
     return ["_".join(col_name) for col_name in columns.to_list()]
 
+
 def load_excel_column_groups(path):
     """
     Load column groups from an excel file.
@@ -47,6 +48,7 @@ def load_excel_column_groups(path):
     """
     df = pd.read_excel(path, header=None).fillna(method="ffill")
     return df.groupby(0)[1].apply(list).to_dict()
+
 
 def load_pvsyst(
     path,
@@ -139,15 +141,13 @@ def load_pvsyst(
     return cd
 
 
-
-
 def file_reader(path, **kwargs):
     """
     Read measured solar data from a csv file.
 
     Utilizes pandas read_csv to import measure solar data from a csv file.
-    Attempts a few diferent encodings, trys to determine the header end
-    by looking for a date in the first column, and concantenates column
+    Attempts a few different encodings, tries to determine the header end
+    by looking for a date in the first column, and concatenates column
     headings to a single string.
 
     Parameters
@@ -161,16 +161,20 @@ def file_reader(path, **kwargs):
     -------
     pandas DataFrame
     """
+    default_kwargs = {
+        'index_col': 0,
+        'parse_dates': True,
+        'skip_blank_lines': True,
+        'low_memory': False,
+    }
+    for key, value in default_kwargs.items():
+        kwargs.setdefault(key, value)
     encodings = ["utf-8", "latin1", "iso-8859-1", "cp1252"]
     for encoding in encodings:
+        kwargs['encoding'] = encoding
         try:
             data_file = pd.read_csv(
                 path,
-                encoding=encoding,
-                index_col=0,
-                parse_dates=True,
-                skip_blank_lines=True,
-                low_memory=False,
                 **kwargs,
             )
         except UnicodeDecodeError:
@@ -178,6 +182,12 @@ def file_reader(path, **kwargs):
         else:
             break
     data_file.dropna(how="all", axis=0, inplace=True)
+    if data_file.index.equals(pd.Index(np.arange(len(data_file.index)))):
+        kwargs['index_col'] = 1
+        data_file = pd.read_csv(
+            path,
+            **kwargs,
+        )
     if not isinstance(data_file.index[0], pd.Timestamp):
         for i, _indice in enumerate(data_file.index):
             try:
@@ -189,17 +199,11 @@ def file_reader(path, **kwargs):
             except ValueError:
                 continue
         header = list(np.arange(header_end))
+        kwargs.setdefault('header', header)
         data_file = pd.read_csv(
             path,
-            encoding=encoding,
-            header=header,
-            index_col=0,
-            parse_dates=True,
-            skip_blank_lines=True,
-            low_memory=False,
             **kwargs,
         )
-
     data_file = data_file.apply(pd.to_numeric)
     if isinstance(data_file.columns, pd.MultiIndex):
         data_file.columns = flatten_multi_index(data_file.columns)
@@ -319,27 +323,41 @@ class DataLoader:
         """
         Load file(s) of timeseries data from SCADA / DAS systems.
 
-        This is a convience function to generate an instance of DataLoader
-        and call the `load` method.
+        Set `path` to the path to a file to load a single file. Set `path` to the path
+        to a directory of files to load all the files in the directory ending in "csv".
+        Or, set `files_to_load` to a list of specific files to load.
 
-        A single file or multiple files can be loaded. Multiple files will be joined together
-        and may include files with different column headings. When multiple files with
-        matching column headings are loaded, the individual files will be reindexed and
-        then joined. Missing time intervals within the individual files will be filled,
+        Multiple files will be joined together and may include files with different
+        column headings. When multiple files with matching column headings are loaded,
+        the individual files will be reindexed and then joined.
+
+        Missing time intervals within the individual files will be filled,
         but missing time intervals between the individual files will not be filled.
+
+        When loading multiple files they will be stored in `loaded_files`, a dictionary,
+        mapping the file names to a dataframe for each file.
 
         Parameters
         ----------
         extension : str, default "csv"
             Change the extension to allow loading different filetypes. Must also set
             the `file_reader` attribute to a function that will read that type of file.
+            Do not include a period ".".
+        **kwargs
+            Are passed through to the file_reader callable, which by default will pass
+            them on to pandas.read_csv.
+
+        Returns
+        -------
+        None
+            Resulting DataFrame of data is stored to the `data` attribute.
         """
         if self.path.is_file():
-            self.data = self.file_reader(self.path)
+            self.data = self.file_reader(self.path, **kwargs)
         elif self.path.is_dir():
             if self.files_to_load is not None:
                 self.loaded_files = {
-                    file.stem: self.file_reader(file) for file in self.files_to_load
+                    file.stem: self.file_reader(file, **kwargs) for file in self.files_to_load
                 }
             else:
                 self.set_files_to_load(extension=extension)
@@ -385,7 +403,7 @@ def load_data(
     """
     Load file(s) of timeseries data from SCADA / DAS systems.
 
-    This is a convience function to generate an instance of DataLoader
+    This is a convenience function to generate an instance of DataLoader
     and call the `load` method.
 
     A single file or multiple files can be loaded. Multiple files will be joined together
@@ -397,7 +415,7 @@ def load_data(
         Path to either a single file to load or a directory of files to load.
     group_columns : function or str, default columngroups.group_columns
         Function to use to group the columns of the loaded data. Function should accept
-        a DataFrame and return a dictionary with keys that are ids and valeus that are
+        a DataFrame and return a dictionary with keys that are ids and values that are
         lists of column names. Will be set to the `group_columns` attribute of the
         CapData.DataLoader object.
         Provide a string to load column grouping from a json, yaml, or excel file. The
@@ -414,9 +432,9 @@ def load_data(
     sort : bool, default True
         By default sorts the data by the datetime index from old to new.
     drop_duplicates : bool, default True
-        By default drops rows of the joined data where all the columns are duplicats
+        By default drops rows of the joined data where all the columns are duplicates
         of another row. Keeps the first instance of the duplicated values. This is
-        helpful if individual datafiles have overlaping rows with the same data.
+        helpful if individual data files have overlapping rows with the same data.
     reindex : bool, default True
         By default will create a new index for the data using the earliest datetime,
         latest datetime, and the most frequent time interval ensuring there are no
@@ -432,8 +450,8 @@ def load_data(
         If True, will call `CapData.data_columns_to_excel` to save a file to use to
         manually create column groupings at `path`.
     **kwargs
-        Passed to `DataLoader.load` Options include: sort, drop_duplicates, reindex,
-        extension. See `DataLoader` for complete documentation.
+        Passed to `DataLoader.load`, which passes them to the `file_reader` function.
+        The default `file_reader` function passes them to pandas.read_csv.
     """
     dl = DataLoader(
         path=path,
