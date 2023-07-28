@@ -778,16 +778,28 @@ class Test_pvlib_loc_sys(unittest.TestCase):
                               pvlib.pvsystem.PVSystem,
                               'Did not return instance of\
                                pvlib PVSystem')
+        self.assertIsInstance(fx_sys.arrays[0].mount,
+                              pvlib.pvsystem.FixedMount,
+                              'Did not return instance of\
+                               pvlib FixedMount')
 
         self.assertIsInstance(trck_sys1,
-                              pvlib.tracking.SingleAxisTracker,
+                              pvlib.pvsystem.PVSystem,
                               'Did not return instance of\
-                               pvlib SingleAxisTracker')
+                               pvlib PVSystem')
+        self.assertIsInstance(trck_sys1.arrays[0].mount,
+                              pvlib.pvsystem.SingleAxisTrackerMount,
+                              'Did not return instance of\
+                               pvlib SingleAxisTrackerMount')
 
         self.assertIsInstance(trck_sys2,
-                              pvlib.tracking.SingleAxisTracker,
+                              pvlib.pvsystem.PVSystem,
                               'Did not return instance of\
-                               pvlib SingleAxisTracker')
+                               pvlib PVSystem')
+        self.assertIsInstance(trck_sys2.arrays[0].mount,
+                              pvlib.pvsystem.SingleAxisTrackerMount,
+                              'Did not return instance of\
+                               pvlib SingleAxisTrackerMount')
 
 
 # possible assertions for method returning ghi
