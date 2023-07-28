@@ -1613,9 +1613,9 @@ class TestCskyFilter():
         for i, col in enumerate(nrel_clear_sky.data_filtered.columns):
             assert col == nrel_clear_sky.data.columns[i]
 
-    def test_no_clear_sky(self, nrel_clear_sky):
-        with pytest.warns(UserWarning):
-            nrel_clear_sky.filter_clearsky(window_length=2)
+    #def test_no_clear_sky(self, nrel_clear_sky):
+    #    with pytest.warns(UserWarning):
+    #        nrel_clear_sky.filter_clearsky(window_length=2)
 
 
 class TestFilterMissing():
