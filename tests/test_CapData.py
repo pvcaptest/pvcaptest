@@ -772,7 +772,7 @@ class Test_pvlib_loc_sys(unittest.TestCase):
 
         fx_sys = pvc.pvlib_system(fixed_sys)
         trck_sys1 = pvc.pvlib_system(tracker_sys1)
-        trck_sys2 = pvc.pvlib_system(tracker_sys1)
+        trck_sys2 = pvc.pvlib_system(tracker_sys2)
 
         self.assertIsInstance(fx_sys,
                               pvlib.pvsystem.PVSystem,
