@@ -8,7 +8,7 @@ Test Method for Reporting Photovoltaic Non-Concentrator System Performance.
 The pvcaptest package provides methods for loading, visualizing, filtering, regressing capacity
 testing data, and summarizing test results. 
 
-You can download the `presentation <https://pvpmc.sandia.gov/download/7353/>`_
+You can download the `presentation <https://pvpmc.sandia.gov/download/4610/>`_
 introducing pvcaptest at the PVPMC modeling workshop from May, 2019.
 
 Please see the :ref:`installation` page for installation help.
