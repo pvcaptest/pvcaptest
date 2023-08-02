@@ -319,7 +319,7 @@ class DataLoader:
         data = data.apply(pd.to_numeric, errors="coerce")
         return data
 
-    def load(self, extension="csv", **kwargs):
+    def load(self, extension="csv", verbose=True, **kwargs):
         """
         Load file(s) of timeseries data from SCADA / DAS systems.
 
@@ -355,15 +355,18 @@ class DataLoader:
         if self.path.is_file():
             self.data = self.file_reader(self.path, **kwargs)
         elif self.path.is_dir():
-            if self.files_to_load is not None:
-                self.loaded_files = {
-                    file.stem: self.file_reader(file, **kwargs) for file in self.files_to_load
-                }
-            else:
+            if self.files_to_load is None:
                 self.set_files_to_load(extension=extension)
-                self.loaded_files = {
-                    file.stem: self.file_reader(file, **kwargs) for file in self.files_to_load
-                }
+            self.loaded_files = dict()
+            for file in self.files_to_load:
+                # try:
+                if verbose:
+                    print('Trying to load {}'.format(file))
+                self.loaded_files[file.stem] = self.file_reader(file, **kwargs)
+                if verbose:
+                    print('Loaded {}'.format(file))
+                # except ValueError:
+                #     print('{} failed to load'.format(file))
             (
                 self.loaded_files,
                 self.common_freq,
@@ -398,6 +401,7 @@ def load_data(
     reindex=True,
     site=None,
     column_groups_template=False,
+    verbose=False,
     **kwargs,
 ):
     """
@@ -449,6 +453,8 @@ def load_data(
     column_groups_template : bool, default False
         If True, will call `CapData.data_columns_to_excel` to save a file to use to
         manually create column groupings at `path`.
+    verbose : bool, default False
+        Set to True to print status of file loading.
     **kwargs
         Passed to `DataLoader.load`, which passes them to the `file_reader` function.
         The default `file_reader` function passes them to pandas.read_csv.
@@ -457,37 +463,47 @@ def load_data(
         path=path,
         file_reader=file_reader,
     )
-    dl.load(**kwargs)
+    try:
+        dl.load(verbose=verbose, **kwargs)
 
-    if sort:
-        dl.sort_data()
-    if drop_duplicates:
-        dl.drop_duplicate_rows()
-    if reindex:
-        dl.reindex()
+        if sort:
+            dl.sort_data()
+        if drop_duplicates:
+            dl.drop_duplicate_rows()
+        if reindex:
+            dl.reindex()
 
-    cd = CapData(name)
-    cd.data = dl.data.copy()
-    cd.data_filtered = cd.data.copy()
-    cd.data_loader = dl
-    # group columns
-    if callable(group_columns):
-        cd.column_groups = group_columns(cd.data)
-    elif isinstance(group_columns, str):
-        p = Path(group_columns)
-        if p.suffix == ".json":
-            cd.column_groups = cg.ColumnGroups(util.read_json(group_columns))
-        elif (p.suffix == ".yml") or (p.suffix == ".yaml"):
-            cd.column_groups = cg.ColumnGroups(util.read_yaml(group_columns))
-        elif (p.suffix == '.xlsx') or (p.suffix == '.xls'):
-            cd.column_groups = cg.ColumnGroups(load_excel_column_groups(group_columns))
-    if site is not None:
-        cd.data = csky(cd.data, loc=site['loc'], sys=site['sys'])
+        cd = CapData(name)
+        cd.data = dl.data.copy()
         cd.data_filtered = cd.data.copy()
-        cd.column_groups['irr-poa-clear_sky'] = ['poa_mod_csky']
-        cd.column_groups['irr-ghi-clear_sky'] = ['ghi_mod_csky']
-    cd.trans_keys = list(cd.column_groups.keys())
-    cd.set_plot_attributes()
-    if column_groups_template:
-        cd.data_columns_to_excel()
-    return cd
+        cd.data_loader = dl
+        # group columns
+        if callable(group_columns):
+            cd.column_groups = group_columns(cd.data)
+        elif isinstance(group_columns, str):
+            p = Path(group_columns)
+            if p.suffix == ".json":
+                cd.column_groups = cg.ColumnGroups(util.read_json(group_columns))
+            elif (p.suffix == ".yml") or (p.suffix == ".yaml"):
+                cd.column_groups = cg.ColumnGroups(util.read_yaml(group_columns))
+            elif (p.suffix == '.xlsx') or (p.suffix == '.xls'):
+                cd.column_groups = cg.ColumnGroups(load_excel_column_groups(group_columns))
+        if site is not None:
+            cd.data = csky(cd.data, loc=site['loc'], sys=site['sys'])
+            cd.data_filtered = cd.data.copy()
+            cd.column_groups['irr-poa-clear_sky'] = ['poa_mod_csky']
+            cd.column_groups['irr-ghi-clear_sky'] = ['ghi_mod_csky']
+        cd.trans_keys = list(cd.column_groups.keys())
+        cd.set_plot_attributes()
+        if column_groups_template:
+            cd.data_columns_to_excel()
+        return cd
+    except Exception as err:
+        warnings.warn(
+            '{} \n'
+            'Data loading failed. Returned value should be a tuple containing the'
+            'DataLoader and the error. Examining the attributes of the DataLoader'
+            'object may help identify the issue.'.format(err)
+        )
+        # return (dl, err)
+        raise
