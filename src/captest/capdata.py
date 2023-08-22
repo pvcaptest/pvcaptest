@@ -3316,6 +3316,19 @@ class CapData(object):
         """
         self.test_complete = self.data_filtered.shape[0] >= pts_required
 
+    def column_groups_to_excel(self, save_to='./column_groups.xlsx'):
+        """Export the column groups attribute to an excel file.
+
+        Parameters
+        ----------
+        save_to : str
+            File path to save column groups to. Should include .xlsx.
+        """
+        pd.DataFrame.from_dict(
+                self.column_groups.data, orient='index'
+        ).stack().to_frame().droplevel(1).to_excel(save_to, header=False)
+
+
 if __name__ == "__main__":
     import doctest
     import pandas as pd  # noqa F811
