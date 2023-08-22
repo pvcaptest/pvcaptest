@@ -479,7 +479,7 @@ def load_data(
         cd.data_loader = dl
         # group columns
         if callable(group_columns):
-            cd.column_groups = group_columns(cd.data)
+            cd.column_groups = cg.ColumnGroups(group_columns(cd.data))
         elif isinstance(group_columns, str):
             p = Path(group_columns)
             if p.suffix == ".json":
