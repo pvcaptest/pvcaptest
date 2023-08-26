@@ -204,7 +204,6 @@ def file_reader(path, **kwargs):
             path,
             **kwargs,
         )
-    data_file = data_file.apply(pd.to_numeric)
     if isinstance(data_file.columns, pd.MultiIndex):
         data_file.columns = flatten_multi_index(data_file.columns)
     data_file = data_file.rename(columns=(lambda x: x.strip()))
@@ -222,6 +221,7 @@ class DataLoader:
     sys: Optional[dict] = field(default=None)
     file_reader: object = file_reader
     files_to_load: Optional[list] = field(default=None)
+    failed_to_load: Optional[list] = field(default=None)
 
     def __setattr__(self, key, value):
         if key == "path":
@@ -319,7 +319,7 @@ class DataLoader:
         data = data.apply(pd.to_numeric, errors="coerce")
         return data
 
-    def load(self, extension="csv", verbose=True, **kwargs):
+    def load(self, extension="csv", verbose=True, print_errors=False, **kwargs):
         """
         Load file(s) of timeseries data from SCADA / DAS systems.
 
@@ -358,15 +358,28 @@ class DataLoader:
             if self.files_to_load is None:
                 self.set_files_to_load(extension=extension)
             self.loaded_files = dict()
+            failed_to_load_count = 0
             for file in self.files_to_load:
-                # try:
-                if verbose:
-                    print('Trying to load {}'.format(file))
-                self.loaded_files[file.stem] = self.file_reader(file, **kwargs)
-                if verbose:
-                    print('Loaded {}'.format(file))
-                # except ValueError:
-                #     print('{} failed to load'.format(file))
+                try:
+                    if verbose:
+                        print('trying to load {}'.format(file))
+                    self.loaded_files[file.stem] = self.file_reader(file, **kwargs)
+                    if verbose:
+                        print('    loaded      {}'.format(file))
+                except Exception as err:
+                    if self.failed_to_load is None:
+                        self.failed_to_load = []
+                    self.failed_to_load.append(file)
+                    print('  **FAILED to load {}'.format(file))
+                    print(
+                        '  To review full stack traceback run \n'
+                        '  meas.data_loader.file_reader(meas.data_loader'
+                        '.failed_to_load[{}])'.format(failed_to_load_count)
+                    )
+                    if print_errors:
+                        print(err)
+                    failed_to_load_count += 1
+                    continue
             (
                 self.loaded_files,
                 self.common_freq,
@@ -463,47 +476,37 @@ def load_data(
         path=path,
         file_reader=file_reader,
     )
-    try:
-        dl.load(verbose=verbose, **kwargs)
+    dl.load(verbose=verbose, **kwargs)
 
-        if sort:
-            dl.sort_data()
-        if drop_duplicates:
-            dl.drop_duplicate_rows()
-        if reindex:
-            dl.reindex()
+    if sort:
+        dl.sort_data()
+    if drop_duplicates:
+        dl.drop_duplicate_rows()
+    if reindex:
+        dl.reindex()
 
-        cd = CapData(name)
-        cd.data = dl.data.copy()
+    cd = CapData(name)
+    cd.data = dl.data.copy()
+    cd.data_filtered = cd.data.copy()
+    cd.data_loader = dl
+    # group columns
+    if callable(group_columns):
+        cd.column_groups = cg.ColumnGroups(group_columns(cd.data))
+    elif isinstance(group_columns, str):
+        p = Path(group_columns)
+        if p.suffix == ".json":
+            cd.column_groups = cg.ColumnGroups(util.read_json(group_columns))
+        elif (p.suffix == ".yml") or (p.suffix == ".yaml"):
+            cd.column_groups = cg.ColumnGroups(util.read_yaml(group_columns))
+        elif (p.suffix == '.xlsx') or (p.suffix == '.xls'):
+            cd.column_groups = cg.ColumnGroups(load_excel_column_groups(group_columns))
+    if site is not None:
+        cd.data = csky(cd.data, loc=site['loc'], sys=site['sys'])
         cd.data_filtered = cd.data.copy()
-        cd.data_loader = dl
-        # group columns
-        if callable(group_columns):
-            cd.column_groups = cg.ColumnGroups(group_columns(cd.data))
-        elif isinstance(group_columns, str):
-            p = Path(group_columns)
-            if p.suffix == ".json":
-                cd.column_groups = cg.ColumnGroups(util.read_json(group_columns))
-            elif (p.suffix == ".yml") or (p.suffix == ".yaml"):
-                cd.column_groups = cg.ColumnGroups(util.read_yaml(group_columns))
-            elif (p.suffix == '.xlsx') or (p.suffix == '.xls'):
-                cd.column_groups = cg.ColumnGroups(load_excel_column_groups(group_columns))
-        if site is not None:
-            cd.data = csky(cd.data, loc=site['loc'], sys=site['sys'])
-            cd.data_filtered = cd.data.copy()
-            cd.column_groups['irr-poa-clear_sky'] = ['poa_mod_csky']
-            cd.column_groups['irr-ghi-clear_sky'] = ['ghi_mod_csky']
-        cd.trans_keys = list(cd.column_groups.keys())
-        cd.set_plot_attributes()
-        if column_groups_template:
-            cd.data_columns_to_excel()
-        return cd
-    except Exception as err:
-        warnings.warn(
-            '{} \n'
-            'Data loading failed. Returned value should be a tuple containing the'
-            'DataLoader and the error. Examining the attributes of the DataLoader'
-            'object may help identify the issue.'.format(err)
-        )
-        # return (dl, err)
-        raise
+        cd.column_groups['irr-poa-clear_sky'] = ['poa_mod_csky']
+        cd.column_groups['irr-ghi-clear_sky'] = ['ghi_mod_csky']
+    cd.trans_keys = list(cd.column_groups.keys())
+    cd.set_plot_attributes()
+    if column_groups_template:
+        cd.data_columns_to_excel()
+    return cd
