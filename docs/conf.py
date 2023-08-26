@@ -69,6 +69,10 @@ nbsphinx_prolog = r"""
         {{ env.config.release }}/{{ docname }}
 """
 
+intersphinx_mapping = {
+    'pvlib': ('https://pvlib-python.readthedocs.io/en/stable/', None),
+}
+
 # -- Get version information and date from Git ----------------------------
 
 try:

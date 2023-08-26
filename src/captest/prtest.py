@@ -44,7 +44,7 @@ def get_common_timestep(data, units="m", string_output=True):
         "m": "minutes",
         "s": "seconds",
     }
-    common_timestep = stats.mode(np.diff(data.index.values))[0][0]
+    common_timestep = data.index.to_series().diff().mode().values[0]
     common_timestep_tdelta = common_timestep.astype("timedelta64[m]")
     freq = common_timestep_tdelta / np.timedelta64(1, units)
     if string_output:

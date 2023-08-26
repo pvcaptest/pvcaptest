@@ -76,8 +76,9 @@ if xlsx_spec is None:
 pvlib_spec = importlib.util.find_spec('pvlib')
 if pvlib_spec is not None:
     from pvlib.location import Location
-    from pvlib.pvsystem import PVSystem
-    from pvlib.tracking import SingleAxisTracker
+    from pvlib.pvsystem import (
+        PVSystem, Array, FixedMount, SingleAxisTrackerMount
+    )
     from pvlib.pvsystem import retrieve_sam
     from pvlib.modelchain import ModelChain
     from pvlib.clearsky import detect_clearsky
@@ -881,17 +882,18 @@ def pvlib_location(loc):
 
 def pvlib_system(sys):
     """
-    Create a pvlib PVSystem or SingleAxisTracker object.
+    Create a pvlib :py:class:`~pvlib.pvsystem.PVSystem` object.
 
-    A SingleAxisTracker object is created if any of the keyword arguments for
-    initiating a SingleAxisTracker object are found in the keys of the passed
-    dictionary.
+    The :py:class:`~pvlib.pvsystem.PVSystem` will have either a
+    :py:class:`~pvlib.pvsystem.FixedMount` or a
+    :py:class:`~pvlib.pvsystem.SingleAxisTrackerMount` depending on
+    the keys of the passed dictionary.
 
     Parameters
     ----------
     sys : dict
-        Dictionary of keywords required to create a pvlib SingleAxisTracker
-        or PVSystem.
+        Dictionary of keywords required to create a pvlib
+        ``SingleAxisTrackerMount`` or ``FixedMount``, plus ``albedo``.
 
         Example dictionaries:
 
@@ -904,27 +906,25 @@ def pvlib_system(sys):
                        'gcr': 0.2, 'albedo': 0.2}
 
         Refer to pvlib documentation for details.
-        https://pvlib-python.readthedocs.io/en/latest/generated/pvlib.pvsystem.PVSystem.html
-        https://pvlib-python.readthedocs.io/en/latest/generated/pvlib.tracking.SingleAxisTracker.html
 
     Returns
     -------
-    pvlib PVSystem or SingleAxisTracker object.
+    pvlib PVSystem object.
     """
     sandia_modules = retrieve_sam('SandiaMod')
     cec_inverters = retrieve_sam('cecinverter')
     sandia_module = sandia_modules.iloc[:, 0]
     cec_inverter = cec_inverters.iloc[:, 0]
 
+    albedo = sys.pop('albedo', None)
     trck_kwords = ['axis_tilt', 'axis_azimuth', 'max_angle', 'backtrack', 'gcr']  # noqa: E501
     if any(kword in sys.keys() for kword in trck_kwords):
-        system = SingleAxisTracker(**sys,
-                                   module_parameters=sandia_module,
-                                   inverter_parameters=cec_inverter)
+        mount = SingleAxisTrackerMount(**sys)
     else:
-        system = PVSystem(**sys,
-                          module_parameters=sandia_module,
-                          inverter_parameters=cec_inverter)
+        mount = FixedMount(**sys)
+    array = Array(mount, albedo=albedo, module_parameters=sandia_module,
+                  temperature_model_parameters={'u_c': 29.0, 'u_v': 0.0})
+    system = PVSystem(arrays=[array], inverter_parameters=cec_inverter)
 
     return system
 
@@ -1002,8 +1002,9 @@ def csky(time_source, loc=None, sys=None, concat=True, output='both'):
         pytz.timezone objects will be converted to strings.
         ints and floats must be in hours from UTC.
     sys : dict
-        Dictionary of keywords required to create a pvlib SingleAxisTracker
-        or PVSystem.
+        Dictionary of keywords required to create a pvlib
+        :py:class:`~pvlib.pvsystem.SingleAxisTrackerMount` or
+        :py:class:`~pvlib.pvsystem.FixedMount`.
 
         Example dictionaries:
 
@@ -1016,8 +1017,6 @@ def csky(time_source, loc=None, sys=None, concat=True, output='both'):
                        'gcr': 0.2, 'albedo': 0.2}
 
         Refer to pvlib documentation for details.
-        https://pvlib-python.readthedocs.io/en/latest/generated/pvlib.pvsystem.PVSystem.html
-        https://pvlib-python.readthedocs.io/en/latest/generated/pvlib.tracking.SingleAxisTracker.html
     concat : bool, default True
         If concat is True then returns columns as defined by return argument
         added to passed dataframe, otherwise returns just clear sky data.
@@ -1038,14 +1037,17 @@ def csky(time_source, loc=None, sys=None, concat=True, output='both'):
             'poa_ground_diffuse']
 
     if output == 'both':
-        csky_df = pd.DataFrame({'poa_mod_csky': mc.total_irrad['poa_global'],
-                                'ghi_mod_csky': ghi['ghi']})
+        csky_df = pd.DataFrame({
+            'poa_mod_csky': mc.results.total_irrad['poa_global'],
+            'ghi_mod_csky': ghi['ghi']
+        })
     if output == 'poa_all':
-        csky_df = mc.total_irrad[cols]
+        csky_df = mc.results.total_irrad[cols]
     if output == 'ghi_all':
         csky_df = ghi[['ghi', 'dni', 'dhi']]
     if output == 'all':
-        csky_df = pd.concat([mc.total_irrad[cols], ghi[['ghi', 'dni', 'dhi']]],
+        csky_df = pd.concat([mc.results.total_irrad[cols],
+                             ghi[['ghi', 'dni', 'dhi']]],
                             axis=1)
 
     ix_no_tz = csky_df.index.tz_localize(None, ambiguous='infer',
