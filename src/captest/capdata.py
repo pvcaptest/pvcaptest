@@ -1805,9 +1805,9 @@ class CapData(object):
         else:
             return(poa_vs_kw)
 
-    def plot(self, marker='line', ncols=2, width=400, height=350,
+    def plot(self, marker='line', ncols=1, width=1500, height=250,
              legends=False, merge_grps=['irr', 'temp'], subset=None,
-             filtered=False, use_abrev_name=True, **kwargs):
+             filtered=False, use_abrev_name=False, **kwargs):
         """
         Create a plot for each group of sensors in self.column_groups.
 
