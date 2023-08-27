@@ -1,4 +1,5 @@
 import os
+import csv
 import shutil
 from io import StringIO
 import collections
@@ -258,6 +259,7 @@ class TestFileReader:
         loaded_data = io.file_reader(csv_path, index_col=2)
         assert isinstance(loaded_data, pd.DataFrame)
         assert isinstance(loaded_data.index, pd.DatetimeIndex)
+
 
 class TestLoadPVsyst:
     def test_load_pvsyst(self):
@@ -553,6 +555,46 @@ class TestDataLoader:
         # print(dl.data)
         assert isinstance(dl.data, pd.DataFrame)
         assert dl.data.shape == (60, 3)
+
+    def test_load_all_files_in_directory_one_fails_to_load(self, tmp_path, capsys):
+        """
+        Test load method when `path` attribute is a directory and specific files
+        to load are not specified.
+        """
+        for i in range(1, 4, 1):
+            csv_path = tmp_path / ("file_" + str(i) + ".csv")
+            pd.DataFrame(
+                {
+                    "met1_poa1": np.arange(0, 20),
+                    "met1_poa2": np.arange(20, 40),
+                },
+                index=pd.date_range(
+                    start="8/" + str(i) + "/22", periods=20, freq="1min"
+                ),
+            ).to_csv(csv_path)
+        f1_rows = []
+        with open(tmp_path / 'file_1.csv', newline='') as csvfile:
+            reader = csv.reader(csvfile)
+            for row in reader:
+                f1_rows.append(row)
+        with open(tmp_path / 'file_1.csv', 'w', newline='') as csvfileout:
+            writer = csv.writer(csvfileout)
+            for i, r in enumerate(f1_rows):
+                if i == 5:
+                    r.append("x")
+                    writer.writerow(r)
+                else:
+                    writer.writerow(r)
+        print(tmp_path)
+        dl = DataLoader(tmp_path)
+        dl.load(print_errors=True)
+        captured = capsys.readouterr()
+        assert isinstance(dl.data, pd.DataFrame)
+        assert len(dl.failed_to_load) == 1
+        assert dl.failed_to_load[0] == tmp_path / 'file_1.csv'
+        assert 'Error tokenizing data' in captured.out
+        assert 'trying to load' in captured.out
+        assert '**FAILED to load' in captured.out
 
     def test_load_specific_files(self, tmp_path):
         """

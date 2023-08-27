@@ -204,7 +204,6 @@ def file_reader(path, **kwargs):
             path,
             **kwargs,
         )
-    data_file = data_file.apply(pd.to_numeric)
     if isinstance(data_file.columns, pd.MultiIndex):
         data_file.columns = flatten_multi_index(data_file.columns)
     data_file = data_file.rename(columns=(lambda x: x.strip()))
@@ -222,6 +221,7 @@ class DataLoader:
     sys: Optional[dict] = field(default=None)
     file_reader: object = file_reader
     files_to_load: Optional[list] = field(default=None)
+    failed_to_load: Optional[list] = field(default=None)
 
     def __setattr__(self, key, value):
         if key == "path":
@@ -319,7 +319,7 @@ class DataLoader:
         data = data.apply(pd.to_numeric, errors="coerce")
         return data
 
-    def load(self, extension="csv", **kwargs):
+    def load(self, extension="csv", verbose=True, print_errors=False, **kwargs):
         """
         Load file(s) of timeseries data from SCADA / DAS systems.
 
@@ -355,15 +355,31 @@ class DataLoader:
         if self.path.is_file():
             self.data = self.file_reader(self.path, **kwargs)
         elif self.path.is_dir():
-            if self.files_to_load is not None:
-                self.loaded_files = {
-                    file.stem: self.file_reader(file, **kwargs) for file in self.files_to_load
-                }
-            else:
+            if self.files_to_load is None:
                 self.set_files_to_load(extension=extension)
-                self.loaded_files = {
-                    file.stem: self.file_reader(file, **kwargs) for file in self.files_to_load
-                }
+            self.loaded_files = dict()
+            failed_to_load_count = 0
+            for file in self.files_to_load:
+                try:
+                    if verbose:
+                        print('trying to load {}'.format(file))
+                    self.loaded_files[file.stem] = self.file_reader(file, **kwargs)
+                    if verbose:
+                        print('    loaded      {}'.format(file))
+                except Exception as err:
+                    if self.failed_to_load is None:
+                        self.failed_to_load = []
+                    self.failed_to_load.append(file)
+                    print('  **FAILED to load {}'.format(file))
+                    print(
+                        '  To review full stack traceback run \n'
+                        '  meas.data_loader.file_reader(meas.data_loader'
+                        '.failed_to_load[{}])'.format(failed_to_load_count)
+                    )
+                    if print_errors:
+                        print(err)
+                    failed_to_load_count += 1
+                    continue
             (
                 self.loaded_files,
                 self.common_freq,
@@ -398,6 +414,7 @@ def load_data(
     reindex=True,
     site=None,
     column_groups_template=False,
+    verbose=False,
     **kwargs,
 ):
     """
@@ -449,6 +466,8 @@ def load_data(
     column_groups_template : bool, default False
         If True, will call `CapData.data_columns_to_excel` to save a file to use to
         manually create column groupings at `path`.
+    verbose : bool, default False
+        Set to True to print status of file loading.
     **kwargs
         Passed to `DataLoader.load`, which passes them to the `file_reader` function.
         The default `file_reader` function passes them to pandas.read_csv.
@@ -457,7 +476,7 @@ def load_data(
         path=path,
         file_reader=file_reader,
     )
-    dl.load(**kwargs)
+    dl.load(verbose=verbose, **kwargs)
 
     if sort:
         dl.sort_data()
@@ -472,7 +491,7 @@ def load_data(
     cd.data_loader = dl
     # group columns
     if callable(group_columns):
-        cd.column_groups = group_columns(cd.data)
+        cd.column_groups = cg.ColumnGroups(group_columns(cd.data))
     elif isinstance(group_columns, str):
         p = Path(group_columns)
         if p.suffix == ".json":
