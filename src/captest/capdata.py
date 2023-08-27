@@ -1898,12 +1898,12 @@ class CapData(object):
             cols = df.columns.tolist()
 
             if x_axis is None:
-                p = figure(title=key, plot_width=width, plot_height=height,
+                p = figure(title=key, width=width, height=height,
                            x_axis_type='datetime', tools=tools)
                 p.tools.append(hover)
                 x_axis = p.x_range
             if j > 0:
-                p = figure(title=key, plot_width=width, plot_height=height,
+                p = figure(title=key, width=width, height=height,
                            x_axis_type='datetime', x_range=x_axis, tools=tools)
                 p.tools.append(hover)
             legend_items = []

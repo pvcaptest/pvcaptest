@@ -20,7 +20,7 @@ INSTALL_REQUIRES=[
     'matplotlib>=2',
     'statsmodels>=0.8',
     'scikit-learn>=0.19',
-    'bokeh>=1',
+    'bokeh>=3',
     'colorcet',
     'param',
 ]
@@ -56,7 +56,7 @@ setup(
     url='http://github.com/bt-/pvcaptest',
     license='MIT',
     author='Ben Taylor',
-    python_requires='>=3.7',
+    python_requires='>=3.8',
     install_requires=INSTALL_REQUIRES,
     extras_require=EXTRAS_REQUIRE,
     author_email='benjaming.taylor@gmail.com',
