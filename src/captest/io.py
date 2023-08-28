@@ -343,6 +343,13 @@ class DataLoader:
             Change the extension to allow loading different filetypes. Must also set
             the `file_reader` attribute to a function that will read that type of file.
             Do not include a period ".".
+        verbose : bool, default True
+            By default prints path of each file attempted to load and then confirmation
+            it was loaded or states it failed to load. Is only relevant if `path` is
+            set to a directory not a file. Set to False to not print out any file
+            loading status.
+        print_errors : bool, default False
+            Set to true to print error if file fails to load.
         **kwargs
             Are passed through to the file_reader callable, which by default will pass
             them on to pandas.read_csv.
