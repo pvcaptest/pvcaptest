@@ -12,7 +12,7 @@ dependencies:
 - matplotlib
 - numpy
 - pandas>=1*
-- python>=3.7*
+- python>=3.8*
 - python-dateutil
 - statsmodels
 - scikit-learn
