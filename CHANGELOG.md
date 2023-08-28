@@ -9,7 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added a user guide section to the documentation with an overview and bifacial tests section.
 
 ### Changed
-- Updates to make captest compatible with pvlib 0.10 and scipy 1.11
+- Updates to make pvcaptest compatible with pvlib 0.10 and scipy 1.11
+- Update to make pvcaptest compatible with bokeh v3.0.0, change `plot_width` and `plot_height` to `width` and `height`
+- Make bokeh v3 minimum version
+- Drop support for python 3.7
 
 [0.11.2]: https://github.com/pvcaptest/pvcaptest/compare/v0.11.1...v0.11.2
 ## [0.11.2] - 2023-04-20

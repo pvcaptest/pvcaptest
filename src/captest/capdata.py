@@ -1805,9 +1805,9 @@ class CapData(object):
         else:
             return(poa_vs_kw)
 
-    def plot(self, marker='line', ncols=2, width=400, height=350,
+    def plot(self, marker='line', ncols=1, width=1500, height=250,
              legends=False, merge_grps=['irr', 'temp'], subset=None,
-             filtered=False, use_abrev_name=True, **kwargs):
+             filtered=False, use_abrev_name=False, **kwargs):
         """
         Create a plot for each group of sensors in self.column_groups.
 
@@ -1898,12 +1898,12 @@ class CapData(object):
             cols = df.columns.tolist()
 
             if x_axis is None:
-                p = figure(title=key, plot_width=width, plot_height=height,
+                p = figure(title=key, width=width, height=height,
                            x_axis_type='datetime', tools=tools)
                 p.tools.append(hover)
                 x_axis = p.x_range
             if j > 0:
-                p = figure(title=key, plot_width=width, plot_height=height,
+                p = figure(title=key, width=width, height=height,
                            x_axis_type='datetime', x_range=x_axis, tools=tools)
                 p.tools.append(hover)
             legend_items = []
