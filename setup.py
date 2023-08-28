@@ -40,12 +40,12 @@ EXTRAS_REQUIRE['build'] = EXTRAS_REQUIRE['optional'] + [
     'twine',
 ]
 EXTRAS_REQUIRE['docs'] = EXTRAS_REQUIRE['optional'] + [
-    'docutils',
-    'nbsphinx',
+    'docutils==0.18.1',
+    'nbsphinx==0.9.1',
     'notebook',
-    'recommonmark',
-    'sphinx',
-    'sphinx_rtd_theme',
+    'recommonmark==0.7.1',
+    'sphinx==6.1.3',
+    'sphinx_rtd_theme==1.2.0',
 ]
 EXTRAS_REQUIRE['all'] = sorted(set(sum(EXTRAS_REQUIRE.values(), [])))
 
