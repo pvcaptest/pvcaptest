@@ -20,7 +20,7 @@ INSTALL_REQUIRES=[
     'matplotlib>=2',
     'statsmodels>=0.8',
     'scikit-learn>=0.19',
-    'bokeh>=3',
+    'bokeh>=3.0.0',
     'colorcet',
     'param',
 ]
