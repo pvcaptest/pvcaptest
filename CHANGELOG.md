@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - DataLoader load method has new kwarg print_errors
 - DataLoader load method stores list of paths of files that fail to load in failed_to_load attribute
 - CapData method to save column_groups dictionary to excel
+- Github action to build and publish to PyPI on tags like v* pushed from master
 
 ### Changed
 - Updates to make pvcaptest compatible with pvlib 0.10 and scipy 1.11
