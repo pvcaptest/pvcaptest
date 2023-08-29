@@ -60,10 +60,11 @@ setup(
     install_requires=INSTALL_REQUIRES,
     extras_require=EXTRAS_REQUIRE,
     author_email='benjaming.taylor@gmail.com',
-    description=('Framework and methods to facilitate photovoltaic '
-    'facility capacity testing following ASTM E2848.'),
+    description=(
+        'Framework and methods to facilitate photovoltaic '
+        'facility capacity testing following ASTM E2848.'),
     long_description=long_description,
-    long_description_content_type = 'text/rst'
+    long_description_content_type='text/rst',
     packages=find_packages(where="src"),
     package_dir={"": "src"},
     include_package_data=True,
