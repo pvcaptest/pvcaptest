@@ -40,12 +40,12 @@ EXTRAS_REQUIRE['build'] = EXTRAS_REQUIRE['optional'] + [
     'twine',
 ]
 EXTRAS_REQUIRE['docs'] = EXTRAS_REQUIRE['optional'] + [
-    'docutils',
-    'nbsphinx',
+    'docutils==0.18.1',
+    'nbsphinx==0.9.1',
     'notebook',
-    'recommonmark',
-    'sphinx',
-    'sphinx_rtd_theme',
+    'recommonmark==0.7.1',
+    'sphinx==6.1.3',
+    'sphinx_rtd_theme==1.2.0',
 ]
 EXTRAS_REQUIRE['all'] = sorted(set(sum(EXTRAS_REQUIRE.values(), [])))
 
@@ -60,9 +60,11 @@ setup(
     install_requires=INSTALL_REQUIRES,
     extras_require=EXTRAS_REQUIRE,
     author_email='benjaming.taylor@gmail.com',
-    description=('Framework and methods to facilitate photovoltaic '
-    'facility capacity testing following ASTM E2848.'),
+    description=(
+        'Framework and methods to facilitate photovoltaic '
+        'facility capacity testing following ASTM E2848.'),
     long_description=long_description,
+    long_description_content_type='text/rst',
     packages=find_packages(where="src"),
     package_dir={"": "src"},
     include_package_data=True,

@@ -5,14 +5,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 [Unreleased]
+
+
+[0.12.0]: https://github.com/pvcaptest/pvcaptest/compare/v0.11.2...v0.12.0
+## [0.12.0] - 2023-08-27
 ### Added
 - Added a user guide section to the documentation with an overview and bifacial tests section.
+- Added verbose kwarg to the DataLoader load method, which prints which files have been loaded
+- DataLoader load method has new kwarg print_errors
+- DataLoader load method stores list of paths of files that fail to load in failed_to_load attribute
+- CapData method to save column_groups dictionary to excel
+- Github action to build and publish to PyPI on tags like v* pushed from master
 
 ### Changed
 - Updates to make pvcaptest compatible with pvlib 0.10 and scipy 1.11
 - Update to make pvcaptest compatible with bokeh v3.0.0, change `plot_width` and `plot_height` to `width` and `height`
 - Make bokeh v3 minimum version
 - Drop support for python 3.7
+- Drop to_numeric from io.file_reader
+- CapData.column_groups is instance of ColumnGroups now when group_columns is a callable
+- Changed defaults for the CapData plot method to single column
 
 [0.11.2]: https://github.com/pvcaptest/pvcaptest/compare/v0.11.1...v0.11.2
 ## [0.11.2] - 2023-04-20
