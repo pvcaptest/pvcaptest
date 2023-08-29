@@ -63,6 +63,7 @@ setup(
     description=('Framework and methods to facilitate photovoltaic '
     'facility capacity testing following ASTM E2848.'),
     long_description=long_description,
+    long_description_content_type = 'text/rst'
     packages=find_packages(where="src"),
     package_dir={"": "src"},
     include_package_data=True,
