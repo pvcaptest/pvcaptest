@@ -60,6 +60,9 @@ def load_pvsyst(
     """
     Load data from a PVsyst energy production model.
 
+    Will load day first or month first dates. Expects files that use a comma as a
+    separator rather than a semicolon.
+
     Parameters
     ----------
     path : str
@@ -72,7 +75,8 @@ def load_pvsyst(
         By default sets power to E_Grid, poa to GlobInc, t_amb to T Amb, and w_vel to
         WindVel. Set to False to not set regression columns on load.
     **kwargs
-        Use to pass additional kwargs to pandas read_csv.
+        Use to pass additional kwargs to pandas read_csv. Pass sep=';' to load files
+        that use semicolons instead of commas as the separator.
 
     Returns
     -------
@@ -109,8 +113,33 @@ def load_pvsyst(
             break
 
     pvraw.columns = pvraw.columns.droplevel(1)
-    dates = pvraw.loc[:, "date"]
     try:
+        dates = pvraw.loc[:, "date"]
+    except KeyError:
+        warnings.warn(
+            "No 'date' column found in the PVsyst data. This may be due to "
+            "the separator being a semicolon ';' rather than a comma ','. "
+            "If this is the case, try passing sep=';' when calling load_pvsyst. "
+            "Otherwise the date column may actually be missing. Exception:"
+        )
+        raise
+    # PVsyst creates dates like '01/01/90 00:00' i.e. January 1st, 1990.
+    # Opening the PVsyst output in excel will likely result in the dates modified to
+    # 1/1/1990 0:00. The strftime format specified won't load the excel modified dates
+    # so these are caught by checking for consistent length and reformatted
+    if not all(dates.str.len() == 14):
+        date_parts = dates.str.split(' ').str[0].str.split('/')
+        time_parts = dates.str.split(' ').str[1].str.split(':')
+        dates = (
+            date_parts.str[0].str.zfill(2) + '/' +
+            date_parts.str[1].str.zfill(2) + '/' +
+            '90 ' +
+            time_parts.str[0].str.zfill(2) + ':' +
+            time_parts.str[1]
+        )
+    try:
+        # mm/dd/yy hh:mm, lower case y gives
+        # Year without century as a zero-padded decimal number. e.g. 00, 01, …, 99
         dt_index = pd.to_datetime(dates, format="%m/%d/%y %H:%M")
     except ValueError:
         warnings.warn(
