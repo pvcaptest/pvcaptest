@@ -263,7 +263,54 @@ class TestFileReader:
 
 class TestLoadPVsyst:
     def test_load_pvsyst(self):
+        """Test loading pvsyst output with mm/dd/yy; Hour dates."""
         pvsyst = load_pvsyst("./tests/data/pvsyst_example_HourlyRes_2.CSV")
+        assert isinstance(pvsyst, pvc.CapData)
+        assert 8760 == pvsyst.data.shape[0]
+        assert isinstance(pvsyst.data.index, pd.DatetimeIndex)
+        assert isinstance(pvsyst.data.columns, pd.Index)
+        assert pvsyst.data.loc["1/1/90 12:00", "E_Grid"] == 5_469_083
+        assert pvsyst.regression_cols == {
+            "power": "E_Grid",
+            "poa": "GlobInc",
+            "t_amb": "T_Amb",
+            "w_vel": "WindVel",
+        }
+
+    def test_load_pvsyst_semicolon_sep(self):
+        """Test loading pvsyst output with mm/dd/yy; Hour dates."""
+        pvsyst = load_pvsyst(
+                "./tests/data/pvsyst_example_HourlyRes_2_semicolon.csv", sep=";")
+        assert isinstance(pvsyst, pvc.CapData)
+        assert 8760 == pvsyst.data.shape[0]
+        assert isinstance(pvsyst.data.index, pd.DatetimeIndex)
+        assert isinstance(pvsyst.data.columns, pd.Index)
+        assert pvsyst.data.loc["1/1/90 12:00", "E_Grid"] == 5_469_083
+        assert pvsyst.regression_cols == {
+            "power": "E_Grid",
+            "poa": "GlobInc",
+            "t_amb": "T_Amb",
+            "w_vel": "WindVel",
+        }
+
+    def test_semicolon_sep_warning(self):
+        """Test trying to load a semicolon csv file fails with a warning."""
+        with pytest.raises(KeyError):
+            with pytest.warns(UserWarning, match=(
+                "No 'date' column found in the PVsyst data. This may be due to "
+                "the separator being a semicolon ';' rather than a comma ','. "
+                "If this is the case, try passing sep=';' when calling load_pvsyst. "
+                "Otherwise the date column may actually be missing. Exception:"
+            )):
+                pvsyst = load_pvsyst(
+                    "./tests/data/pvsyst_example_HourlyRes_2_semicolon.csv")
+
+    def test_load_pvsyst_after_excel_open(self):
+        """Test loading pvsyst output with m/d/yyyy h:mm dates. 
+
+        Date format is default if csv is opened and saved in excel.
+        """
+        pvsyst = load_pvsyst("./tests/data/pvsyst_example_HourlyRes_2_xls_dates.csv")
         assert isinstance(pvsyst, pvc.CapData)
         assert 8760 == pvsyst.data.shape[0]
         assert isinstance(pvsyst.data.index, pd.DatetimeIndex)
@@ -292,6 +339,34 @@ class TestLoadPVsyst:
             "t_amb": "T_Amb",
             "w_vel": "WindVel",
         }
+
+    def test_date_day_month_year_after_excel_open(self):
+        """Test loading day first pvsyst output after saving in excel.
+        """
+        pvsyst = load_pvsyst(
+                "./tests/data/pvsyst_example_day_month_year_xls_dates.csv"
+        )
+        assert isinstance(pvsyst, pvc.CapData)
+        assert 8760 == pvsyst.data.shape[0]
+        assert isinstance(pvsyst.data.index, pd.DatetimeIndex)
+        assert isinstance(pvsyst.data.columns, pd.Index)
+        assert pvsyst.data.loc["1/1/90 12:00", "E_Grid"] == 5_469_083
+        assert pvsyst.regression_cols == {
+            "power": "E_Grid",
+            "poa": "GlobInc",
+            "t_amb": "T_Amb",
+            "w_vel": "WindVel",
+        }
+
+    def test_all_input_date_formats_loaded_to_equal_datetime_indices(self):
+        dt = load_pvsyst('./tests/data/pvsyst_example_HourlyRes_2.CSV')
+        dtx = load_pvsyst('./tests/data/pvsyst_example_HourlyRes_2_xls_dates.csv')
+        dmy = load_pvsyst('./tests/data/pvsyst_example_day_month_year.csv')
+        dmyx = load_pvsyst('./tests/data/pvsyst_example_day_month_year_xls_dates.csv')
+
+        assert dt.data.index.equals(dtx.data.index)
+        assert dt.data.index.equals(dmy.data.index)
+        assert dt.data.index.equals(dmyx.data.index)
 
     def test_date_day_month_year_warning(self):
         with pytest.warns(UserWarning, match=(
