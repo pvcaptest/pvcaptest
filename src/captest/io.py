@@ -416,12 +416,18 @@ class DataLoader:
                         print(err)
                     failed_to_load_count += 1
                     continue
-            (
-                self.loaded_files,
-                self.common_freq,
-                self.file_frequencies,
-            ) = self._reindex_loaded_files()
-            data = self._join_files()
+            if len(self.loaded_files) == 0:
+                warnings.warn(
+                    "No files were loaded. Check that file_reader is working")
+            elif len(self.loaded_files) > 1:
+                (
+                    self.loaded_files,
+                    self.common_freq,
+                    self.file_frequencies,
+                ) = self._reindex_loaded_files()
+                data = self._join_files()
+            elif len(self.loaded_files) == 1:
+                data = list(self.loaded_files.values())[0]
             data.index.name = "Timestamp"
             self.data = data
         else:
