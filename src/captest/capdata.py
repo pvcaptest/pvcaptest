@@ -423,6 +423,29 @@ def check_all_perc_diff_comb(series, perc_diff):
     return all([perc_difference(x, y) < perc_diff for x, y in c])
 
 
+def abs_diff_from_average(series, threshold):
+    """Check each value in series <= average of other values.
+
+    Parameters
+    ----------
+    series : pd.Series
+        Pandas series of values to check.
+    threshold : numeric
+        Threshold value for absolute difference from average.
+
+    Returns
+    -------
+    bool
+    """
+    if len(series) == 1:
+        warnings.warn('Series has only one value. Returning True.')
+        return True
+    abs_diffs = []
+    for i, val in enumerate(series):
+        abs_diffs.append(abs(val - series.drop(i).mean()) <= threshold)
+    return all(abs_diffs)
+
+
 def sensor_filter(df, threshold, row_filter=check_all_perc_diff_comb):
     """
     Check dataframe for rows with inconsistent values.

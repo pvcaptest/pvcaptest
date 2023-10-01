@@ -1234,6 +1234,49 @@ class TestFilterSensors():
         assert 'power_inv_sum_agg' in meas.data_filtered.columns
 
 
+class TestAbsDiffFromAverage():
+    """Test the abs_diff_from_average method of the CapData class."""
+    def test_doesnt_meet_theshold(self):
+        """Test that the method returns False when the absolute difference
+        between at least one value in the Series and the average of the other values
+        is greater than the threshold.
+        """
+        s = pd.Series([800, 805, 806, 840])
+        meets_threshold = pvc.abs_diff_from_average(s, 25)
+        assert meets_threshold is False
+
+    def test_meets_theshold(self):
+        """Test that the method returns True when the absolute difference
+        between all values in the Series and the average of the other values
+        is less than the threshold.
+        """
+        s = pd.Series([800, 805, 806, 801])
+        meets_threshold = pvc.abs_diff_from_average(s, 25)
+        assert meets_threshold is True
+
+    def test_equals_threshold(self):
+        """Test that the method returns True when the absolute difference
+        between all values in the Series and the average of the other values
+        equals the threshold.
+        """
+        s = pd.Series([800, 800, 800, 825])
+        meets_threshold = pvc.abs_diff_from_average(s, 25)
+        assert meets_threshold is True
+
+    def test_only_1_value(self):
+        """Test that the method returns True when there is only one value in the
+        Series. Check that method warns that there is only one value in the Series.
+        """
+        s = pd.Series([800])
+        meets_threshold = pvc.abs_diff_from_average(s, 25)
+        assert meets_threshold is True
+        with pytest.warns(
+            UserWarning, match=('Series has only one value. Returning True.')
+        ):
+            s = pvc.abs_diff_from_average(s, 25)
+
+
+
 class TestRepCondNoFreq():
     def test_defaults(self, nrel):
         nrel.rep_cond()
