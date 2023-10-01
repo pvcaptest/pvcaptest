@@ -423,7 +423,7 @@ def check_all_perc_diff_comb(series, perc_diff):
     return all([perc_difference(x, y) < perc_diff for x, y in c])
 
 
-def sensor_filter(df, perc_diff):
+def sensor_filter(df, threshold, row_filter=check_all_perc_diff_comb):
     """
     Check dataframe for rows with inconsistent values.
 
@@ -436,8 +436,7 @@ def sensor_filter(df, perc_diff):
         Percent difference as decimal.
     """
     if df.shape[1] >= 2:
-        bool_ser = df.apply(check_all_perc_diff_comb, perc_diff=perc_diff,
-                            axis=1)
+        bool_ser = df.apply(row_filter, perc_diff=threshold, axis=1)
         return df[bool_ser].index
     elif df.shape[1] == 1:
         return df.index
