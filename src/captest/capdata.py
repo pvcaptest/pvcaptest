@@ -459,7 +459,7 @@ def sensor_filter(df, threshold, row_filter=check_all_perc_diff_comb):
         Percent difference as decimal.
     """
     if df.shape[1] >= 2:
-        bool_ser = df.apply(row_filter, perc_diff=threshold, axis=1)
+        bool_ser = df.apply(row_filter, args=(threshold, ), axis=1)
         return df[bool_ser].index
     elif df.shape[1] == 1:
         return df.index
@@ -2673,7 +2673,8 @@ class CapData(object):
         self.data_filtered = func(self.data_filtered, *args, **kwargs)
 
     @update_summary
-    def filter_sensors(self, perc_diff=None, inplace=True):
+    def filter_sensors(
+        self, perc_diff=None, inplace=True, row_filter=check_all_perc_diff_comb):
         """
         Drop suspicious measurments by comparing values from different sensors.
 
@@ -2709,16 +2710,18 @@ class CapData(object):
             poa_trans_key = regression_cols['poa']
             perc_diff = {poa_trans_key: 0.05}
 
-        for key, perc_diff_for_key in perc_diff.items():
+        for key, threshold in perc_diff.items():
             if 'index' in locals():
                 # if index has been assigned then take intersection
                 sensors_df = df[trans[key]]
-                next_index = sensor_filter(sensors_df, perc_diff_for_key)
+                next_index = sensor_filter(
+                    sensors_df, threshold, row_filter=row_filter)
                 index = index.intersection(next_index)  # noqa: F821
             else:
                 # if index has not been assigned then assign it
                 sensors_df = df[trans[key]]
-                index = sensor_filter(sensors_df, perc_diff_for_key)
+                index = sensor_filter(
+                    sensors_df, threshold, row_filter=row_filter)
 
         df_out = self.data_filtered.loc[index, :]
 
