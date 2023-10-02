@@ -1282,8 +1282,11 @@ class TestAbsDiffFromAverage():
 
 class TestFilterSensorsWithAbsDiffFromAverage():
     "Test filter_sensors method of CapData when row_filter is abs_diff_from_average."
-    def test_undefined(self):
-        pass
+    def test_does_not_drop_rows_when_no_outliers(self, capdata_irr):
+        capdata_irr.filter_sensors(
+            perc_diff={'poa': 25}, row_filter=pvc.abs_diff_from_average)
+        assert (capdata_irr.data.max(axis=1) - capdata_irr.data.min(axis=1) < 25).all()
+        assert capdata_irr.data_filtered.shape[0] == capdata_irr.data.shape[0]
 
 
 class TestRepCondNoFreq():

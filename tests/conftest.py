@@ -123,3 +123,30 @@ def nrel_clear_sky(nrel):
     nrel.column_groups['irr-ghi-clear_sky'] = ['ghi_mod_csky']
     nrel.trans_keys = list(nrel.column_groups.keys())
     return nrel
+
+@pytest.fixture
+def capdata_irr():
+    """
+    Creates a CapData instance with dummy irradiance data"""
+    start_time = pd.Timestamp('2023-10-01 12:00')
+    end_time = start_time + pd.Timedelta(minutes=15)
+    datetime_index = pd.date_range(start_time, end_time, freq='1T')
+
+    np.random.seed(42)
+    random_values = np.random.uniform(876, 900, size=(len(datetime_index), 4))
+
+    # for i in range(1, len(random_values)):
+    #     random_values[i] = np.clip(
+    #         random_values[i] + np.random.randint(-25, 26), 850, 900)
+
+    df = pd.DataFrame(
+        random_values,
+        index=datetime_index,
+        columns=['poa1', 'poa2', 'poa3', 'poa4']
+    )
+
+    cd = pvc.CapData('cd')
+    cd.data = df
+    cd.data_filtered = df.copy()
+    cd.column_groups = {'poa': ['poa1', 'poa2', 'poa3', 'poa4']}
+    return cd
