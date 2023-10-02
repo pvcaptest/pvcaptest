@@ -1256,6 +1256,16 @@ class TestAbsDiffFromAverage():
         meets_threshold = pvc.abs_diff_from_average(s, 25)
         assert meets_threshold is True
 
+    def test_meets_theshold_with_nan(self):
+        """Test that the method returns True when the absolute difference
+        between all values in the Series and the average of the other values
+        is less than the threshold.
+        """
+        s = pd.Series(
+            [800, 805, 806, np.NAN], index=['poa1', 'poa2', 'poa3', 'poa4'])
+        meets_threshold = pvc.abs_diff_from_average(s, 25)
+        assert meets_threshold is True
+
     def test_equals_threshold(self):
         """Test that the method returns True when the absolute difference
         between all values in the Series and the average of the other values

@@ -426,6 +426,8 @@ def check_all_perc_diff_comb(series, perc_diff):
 def abs_diff_from_average(series, threshold):
     """Check each value in series <= average of other values.
 
+    Drops NaNs from series before calculating difference from average for each value.
+
     Parameters
     ----------
     series : pd.Series
@@ -437,6 +439,7 @@ def abs_diff_from_average(series, threshold):
     -------
     bool
     """
+    series = series.dropna()
     if len(series) == 1:
         warnings.warn('Series has only one value. Returning True.')
         return True
