@@ -1241,7 +1241,8 @@ class TestAbsDiffFromAverage():
         between at least one value in the Series and the average of the other values
         is greater than the threshold.
         """
-        s = pd.Series([800, 805, 806, 840])
+        s = pd.Series(
+            [800, 805, 806, 840], index=['poa1', 'poa2', 'poa3', 'poa4'])
         meets_threshold = pvc.abs_diff_from_average(s, 25)
         assert meets_threshold is False
 
@@ -1250,7 +1251,8 @@ class TestAbsDiffFromAverage():
         between all values in the Series and the average of the other values
         is less than the threshold.
         """
-        s = pd.Series([800, 805, 806, 801])
+        s = pd.Series(
+            [800, 805, 806, 801], index=['poa1', 'poa2', 'poa3', 'poa4'])
         meets_threshold = pvc.abs_diff_from_average(s, 25)
         assert meets_threshold is True
 
@@ -1259,7 +1261,8 @@ class TestAbsDiffFromAverage():
         between all values in the Series and the average of the other values
         equals the threshold.
         """
-        s = pd.Series([800, 800, 800, 825])
+        s = pd.Series(
+            [800, 800, 800, 825], index=['poa1', 'poa2', 'poa3', 'poa4'])
         meets_threshold = pvc.abs_diff_from_average(s, 25)
         assert meets_threshold is True
 
@@ -1267,7 +1270,7 @@ class TestAbsDiffFromAverage():
         """Test that the method returns True when there is only one value in the
         Series. Check that method warns that there is only one value in the Series.
         """
-        s = pd.Series([800])
+        s = pd.Series([800], index=['poa1'])
         meets_threshold = pvc.abs_diff_from_average(s, 25)
         assert meets_threshold is True
         with pytest.warns(

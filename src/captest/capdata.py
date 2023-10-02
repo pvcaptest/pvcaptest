@@ -442,7 +442,7 @@ def abs_diff_from_average(series, threshold):
         return True
     abs_diffs = []
     for i, val in enumerate(series):
-        abs_diffs.append(abs(val - series.drop(i).mean()) <= threshold)
+        abs_diffs.append(abs(val - series.drop(series.index[i]).mean()) <= threshold)
     return all(abs_diffs)
 
 
