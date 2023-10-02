@@ -1277,6 +1277,12 @@ class TestAbsDiffFromAverage():
 
 
 
+class TestFilterSensorsWithAbsDiffFromAverage():
+    "Test filter_sensors method of CapData when row_filter is abs_diff_from_average."
+    def test_undefined(self):
+        pass
+
+
 class TestRepCondNoFreq():
     def test_defaults(self, nrel):
         nrel.rep_cond()
