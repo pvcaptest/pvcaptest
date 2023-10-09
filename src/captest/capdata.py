@@ -428,6 +428,8 @@ def abs_diff_from_average(series, threshold):
 
     Drops NaNs from series before calculating difference from average for each value.
 
+    Returns True if there is only one value in the series.
+
     Parameters
     ----------
     series : pd.Series
@@ -441,7 +443,6 @@ def abs_diff_from_average(series, threshold):
     """
     series = series.dropna()
     if len(series) == 1:
-        warnings.warn('Series has only one value. Returning True.')
         return True
     abs_diffs = []
     for i, val in enumerate(series):
