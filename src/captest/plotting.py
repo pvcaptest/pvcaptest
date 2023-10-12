@@ -44,10 +44,13 @@ def plot_tag(data, tag, width=1500, height=400):
     if len(tag) == 1:
         plot = hv.Curve(data[tag])
     elif len(tag) > 1:
-        plot = hv.NdOverlay({
-            column: hv.Curve(data[column])
-            for column in tag
-        })
+        curves = {}
+        for column in tag:
+            try:
+                curves[column] = hv.Curve(data[column])
+            except KeyError:
+                continue
+        plot = hv.NdOverlay(curves)
     elif len(tag) == 0:
         plot = hv.Curve(pd.DataFrame(
             {'no_data': [np.NaN] * data.shape[0]},
