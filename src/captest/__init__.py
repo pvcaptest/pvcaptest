@@ -4,6 +4,7 @@ from captest import (
     prtest,
     columngroups,
     io,
+    plotting,
 )
 
 from captest.io import (
