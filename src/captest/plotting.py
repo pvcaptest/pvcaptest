@@ -84,3 +84,32 @@ def group_tag_overlay(data, group_tags, column_tags, width=1500, height=400):
     """
     joined_tags = [t for tag_list in group_tags for t in tag_list] + column_tags
     return plot_tag(data, joined_tags, width=width, height=height)
+
+
+def custom_plot_dboard(cd=None, cg=None, data=None):
+    """
+    Create plotting dashboard.
+
+    Parameters
+    ----------
+    cd : captest.CapData, optional
+        The captest.CapData object.
+    cg : captest.ColumnGroups, optional
+        The captest.ColumnGroups object. `data` must also be provided.
+    data : pd.DataFrame, optional
+        The data to plot. `cg` must also be provided.
+    """
+    if cd is not None:
+        data = cd.data
+        cg = cd.column_groups
+    groups = msel_from_column_groups(cg)
+    tags = msel_from_column_groups(cg, groups=False)
+    custom_plot = pn.Column(
+        pn.Row(groups, tags),
+        pn.Row(pn.bind(group_tag_overlay, data, groups, tags))
+    )
+    plotter = pn.Tabs(
+        # ('Main', group_plotter(data, loaded_column_groups, overlay=True)),
+        ('Custom', custom_plot),
+    )
+    return plotter
