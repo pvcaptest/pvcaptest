@@ -114,6 +114,8 @@ def plot_tag_groups(data, tags_to_plot):
         List of lists of strings. One plot for each inner list.
     """
     group_plots = []
+    if len(tags_to_plot) == 0:
+        tags_to_plot = [[]]
     for group in tags_to_plot:
         plot = plot_tag(data, group)
         group_plots.append(plot)
@@ -151,17 +153,17 @@ def custom_plot_dboard(cd=None, cg=None, data=None):
     # setup group plotter for 'Main' tab
     cg_layout = copy.deepcopy(cg)
     main_ms = msel_from_column_groups(cg_layout)
-    bound_update = pn.bind(
-        update_cg_layout,
-        main_ms,
-        custom_plot_name,
-        cg_layout,
-        groups,
-        tags,
-    )
-    def ucgl(event):
-        bound_update
-    update.on_click(ucgl)
+
+    def add_custom_plot_group(event):
+        column_groups_ = copy.deepcopy(main_ms.options)
+        column_groups_ = add_custom_plot(
+            custom_plot_name.value,
+            column_groups_,
+            groups.value,
+            tags.value,
+        )
+        main_ms.options = column_groups_
+    update.on_click(add_custom_plot_group)
     main_plot = pn.Column(
         pn.Row(main_ms),
         pn.Row(pn.bind(plot_tag_groups, data, main_ms))
@@ -184,25 +186,3 @@ def add_custom_plot(name, column_groups, group_tags, column_tags):
     """
     column_groups[name] = group_tag_overlay(group_tags, column_tags)
     return column_groups
-
-
-def update_cg_layout(mselect, name, column_groups, group_tags, column_tags):
-    """
-    Update the column groups layout.
-
-    Parameters
-    ----------
-    mselect : pn.widgets.MultiSelect
-        The multi-select widget.
-    name : str
-        The name of the new group.
-    column_groups : ColumnGroups
-        The column groups object.
-    group_tags : list of str
-        The tags to plot from the groups selected.
-    column_tags : list of str
-        The tags to plot from the individually selected columns.
-    """
-    column_groups_ = copy.deepcopy(column_groups)
-    column_groups_ = add_custom_plot(name, column_groups_, group_tags, column_tags)
-    mselect.options = column_groups_
