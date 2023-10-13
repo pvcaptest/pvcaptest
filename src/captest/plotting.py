@@ -1,3 +1,4 @@
+import copy
 import numpy as np
 import pandas as pd
 import panel as pn
@@ -69,7 +70,22 @@ def plot_tag(data, tag, width=1500, height=400):
     return plot
 
 
-def group_tag_overlay(data, group_tags, column_tags, width=1500, height=400):
+def group_tag_overlay(group_tags, column_tags):
+    """
+    Overlay curves of groups and individually selected columns.
+
+    Parameters
+    ----------
+    group_tags : list of str
+        The tags to plot from the groups selected.
+    column_tags : list of str
+        The tags to plot from the individually selected columns.
+    """
+    joined_tags = [t for tag_list in group_tags for t in tag_list] + column_tags
+    return joined_tags
+
+
+def plot_group_tag_overlay(data, group_tags, column_tags, width=1500, height=400):
     """
     Overlay curves of groups and individually selected columns.
 
@@ -82,8 +98,26 @@ def group_tag_overlay(data, group_tags, column_tags, width=1500, height=400):
     column_tags : list of str
         The tags to plot from the individually selected columns.
     """
-    joined_tags = [t for tag_list in group_tags for t in tag_list] + column_tags
+    joined_tags = group_tag_overlay(group_tags, column_tags)
     return plot_tag(data, joined_tags, width=width, height=height)
+
+
+def plot_tag_groups(data, tags_to_plot):
+    """
+    Plot groups of tags, one of overlayed curves per group.
+
+    Parameters
+    ----------
+    data : pd.DataFrame
+        The data to plot.
+    tags_to_plot : list
+        List of lists of strings. One plot for each inner list.
+    """
+    group_plots = []
+    for group in tags_to_plot:
+        plot = plot_tag(data, group)
+        group_plots.append(plot)
+    return hv.Layout(group_plots).cols(1)
 
 
 def custom_plot_dboard(cd=None, cg=None, data=None):
@@ -102,14 +136,73 @@ def custom_plot_dboard(cd=None, cg=None, data=None):
     if cd is not None:
         data = cd.data
         cg = cd.column_groups
+    # setup custom plot for 'Custom' tab
     groups = msel_from_column_groups(cg)
     tags = msel_from_column_groups(cg, groups=False)
+
+    custom_plot_name = pn.widgets.TextInput() 
+    update = pn.widgets.Button(name='Update')
+
     custom_plot = pn.Column(
-        pn.Row(groups, tags),
-        pn.Row(pn.bind(group_tag_overlay, data, groups, tags))
+        pn.Row(groups, tags, pn.Column(custom_plot_name, update)),
+        pn.Row(pn.bind(plot_group_tag_overlay, data, groups, tags))
     )
+
+    # setup group plotter for 'Main' tab
+    cg_layout = copy.deepcopy(cg)
+    main_ms = msel_from_column_groups(cg_layout)
+    bound_update = pn.bind(
+        update_cg_layout,
+        main_ms,
+        custom_plot_name,
+        cg_layout,
+        groups,
+        tags,
+    )
+    def ucgl(event):
+        bound_update
+    update.on_click(ucgl)
+    main_plot = pn.Column(
+        pn.Row(main_ms),
+        pn.Row(pn.bind(plot_tag_groups, data, main_ms))
+    )
+
+    # layout dashboard
     plotter = pn.Tabs(
-        # ('Main', group_plotter(data, loaded_column_groups, overlay=True)),
+        ('Main', main_plot),
         ('Custom', custom_plot),
     )
     return plotter
+
+
+def add_custom_plot(name, column_groups, group_tags, column_tags):
+    """
+    Append a new custom group to column groups for plotting.
+
+    Parameters
+    ----------
+    """
+    column_groups[name] = group_tag_overlay(group_tags, column_tags)
+    return column_groups
+
+
+def update_cg_layout(mselect, name, column_groups, group_tags, column_tags):
+    """
+    Update the column groups layout.
+
+    Parameters
+    ----------
+    mselect : pn.widgets.MultiSelect
+        The multi-select widget.
+    name : str
+        The name of the new group.
+    column_groups : ColumnGroups
+        The column groups object.
+    group_tags : list of str
+        The tags to plot from the groups selected.
+    column_tags : list of str
+        The tags to plot from the individually selected columns.
+    """
+    column_groups_ = copy.deepcopy(column_groups)
+    column_groups_ = add_custom_plot(name, column_groups_, group_tags, column_tags)
+    mselect.options = column_groups_
