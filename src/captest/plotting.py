@@ -140,7 +140,7 @@ def custom_plot_dboard(cd=None, cg=None, data=None):
         cg = cd.column_groups
     # setup custom plot for 'Custom' tab
     groups = msel_from_column_groups(cg)
-    tags = msel_from_column_groups(cg, groups=False)
+    tags = msel_from_column_groups({'all_tags': list(data.columns)}, groups=False)
 
     custom_plot_name = pn.widgets.TextInput() 
     update = pn.widgets.Button(name='Update')
