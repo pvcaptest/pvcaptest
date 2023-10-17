@@ -185,10 +185,15 @@ def custom_plot_dboard(cd=None, cg=None, data=None):
         pn.Row(pn.bind(plot_tag_groups, data, main_ms))
     )
 
+    default_tags = [
+        cg['irr_poa'],
+        cg['irr_ghi'],
+    ]
     # layout dashboard
     plotter = pn.Tabs(
-        ('Main', main_plot),
-        ('Custom', custom_plot),
+        ('Plots', plot_tag_groups(data, default_tags)),
+        ('Layout', main_plot),
+        ('Overlay', custom_plot),
     )
     return plotter
 
