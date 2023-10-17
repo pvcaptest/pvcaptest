@@ -141,12 +141,28 @@ def custom_plot_dboard(cd=None, cg=None, data=None):
     # setup custom plot for 'Custom' tab
     groups = msel_from_column_groups(cg)
     tags = msel_from_column_groups({'all_tags': list(data.columns)}, groups=False)
+    re_input = pn.widgets.TextInput(name='Input regex to filter columns list')
+
+    def update_ms(event=None):
+        if re_input.value == '':
+            re_value = '.*'
+        else:
+            re_value = re_input.value
+        options = data.filter(regex=re_value).sort_index(axis=1).columns.to_list()
+        tags.param.update(options=options)
+    re_input.param.watch(update_ms, 'value')
 
     custom_plot_name = pn.widgets.TextInput() 
     update = pn.widgets.Button(name='Update')
 
     custom_plot = pn.Column(
-        pn.Row(groups, tags, pn.Column(custom_plot_name, update)),
+        pn.Row(
+            pn.Column(
+                pn.Row(custom_plot_name, update),
+                groups,
+            ),
+            pn.WidgetBox(re_input, tags)
+        ),
         pn.Row(pn.bind(plot_group_tag_overlay, data, groups, tags))
     )
 
