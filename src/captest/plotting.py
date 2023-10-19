@@ -18,6 +18,39 @@ COMBINE = {
     'inv_sum_mtr_pwr': ['(?=.*real)(?=.*pwr)(?=.*mtr)', '(?=.*pwr)(?=.*agg)'],
 }
 
+DEFAULT_GROUPS = [
+    'inv_sum_mtr_pwr',
+    '(?=.*real)(?=.*pwr)(?=.*inv)',
+    '(?=.*real)(?=.*pwr)(?=.*mtr)',
+    'poa_ghi',
+    'poa_csky',
+    'ghi_csky',
+]
+
+
+def find_default_groups(groups, default_groups):
+    """
+    Find the default groups in the list of groups.
+
+    Parameters
+    ----------
+    groups : list of str
+        The list of groups to search for the default groups.
+    default_groups : list of str
+        List of regex strings to use to identify default groups.
+
+    Returns
+    -------
+    list of str
+        The default groups found in the list of groups.
+    """
+    found_groups = []
+    for re_str in default_groups:
+        found_grp = tags_by_regex(groups, re_str)
+        if len(found_grp) == 1:
+            found_groups.append(found_grp[0])
+    return found_groups
+
 
 def parse_combine(combine, column_groups=None, data=None, cd=None):
     """
@@ -198,7 +231,7 @@ def plot_tag_groups(data, tags_to_plot):
     return hv.Layout(group_plots).cols(1)
 
 
-def plot(cd=None, cg=None, data=None, combine=COMBINE):
+def plot(cd=None, cg=None, data=None, combine=COMBINE, default_groups=DEFAULT_GROUPS):
     """
     Create plotting dashboard.
 
@@ -247,7 +280,7 @@ def plot(cd=None, cg=None, data=None, combine=COMBINE):
     )
 
     # setup group plotter for 'Main' tab
-    cg_layout = parse_combine(combine, cg, data)
+    cg_layout = parse_combine(combine, column_groups=cg, data=data)
     main_ms = msel_from_column_groups(cg_layout)
 
     def add_custom_plot_group(event):
@@ -265,10 +298,8 @@ def plot(cd=None, cg=None, data=None, combine=COMBINE):
         pn.Row(pn.bind(plot_tag_groups, data, main_ms))
     )
 
-    default_tags = [
-        cg['irr_poa'],
-        cg['irr_ghi'],
-    ]
+    default_groups = find_default_groups(list(cg_layout.keys()), default_groups)
+    default_tags = [cg_layout.get(grp, []) for grp in default_groups]
     # layout dashboard
     plotter = pn.Tabs(
         ('Plots', plot_tag_groups(data, default_tags)),
