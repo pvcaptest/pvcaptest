@@ -1,3 +1,4 @@
+import re
 import json
 import yaml
 import numpy as np
@@ -136,3 +137,14 @@ def generate_irr_distribution(
         else:
             irr_values.append(next_val)
     return irr_values
+
+
+def tags_by_regex(tag_list, regex_str):
+    regex = re.compile(regex_str, re.IGNORECASE)
+    return [tag for tag in tag_list if regex.search(tag) is not None]
+
+
+def append_tags(sel_tags, tags, regex_str):
+    new_list = sel_tags.copy()
+    new_list.extend(tags_by_regex(tags, regex_str))
+    return new_list
