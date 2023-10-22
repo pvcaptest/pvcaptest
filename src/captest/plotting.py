@@ -15,6 +15,7 @@ COMBINE = {
     'poa_ghi': 'irr.*(poa|ghi)$',
     'poa_csky': '(?=.*poa)(?=.*irr)',
     'ghi_csky': '(?=.*ghi)(?=.*irr)',
+    'temp_amb_bom': '(?=.*temp)((?=.*amb)|(?=.*bom))',
     'inv_sum_mtr_pwr': ['(?=.*real)(?=.*pwr)(?=.*mtr)', '(?=.*pwr)(?=.*agg)'],
 }
 
@@ -25,6 +26,7 @@ DEFAULT_GROUPS = [
     'poa_ghi',
     'poa_csky',
     'ghi_csky',
+    'temp_amb_bom',
 ]
 
 
