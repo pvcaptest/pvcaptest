@@ -152,7 +152,7 @@ def msel_from_column_groups(column_groups, groups=True):
     )
 
 
-def plot_tag(data, tag, width=1500, height=400):
+def plot_tag(data, tag, width=1500, height=250):
     if len(tag) == 1:
         plot = hv.Curve(data[tag])
     elif len(tag) > 1:
@@ -172,8 +172,8 @@ def plot_tag(data, tag, width=1500, height=400):
         opts.Curve(
             line_width=1,
             width=width,
-            muted_alpha=0,
             height=height,
+            muted_alpha=0,
             tools=['hover']
         ),
         opts.NdOverlay(width=width, height=height, legend_position='right')
