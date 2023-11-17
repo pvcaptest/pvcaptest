@@ -1,6 +1,7 @@
 import copy
 import warnings
 import itertools
+from functools import partial
 import numpy as np
 import pandas as pd
 import panel as pn
@@ -233,6 +234,40 @@ def plot_tag_groups(data, tags_to_plot):
     return hv.Layout(group_plots).cols(1)
 
 
+def filter_list(text_input, ms_to_filter, names, event=None):
+    """
+    Filter a multi-select widget by a regex string.
+
+    Parameters
+    ----------
+    text_input : pn.widgets.TextInput
+        The text input widget to get the regex string from.
+    ms_to_filter : pn.widgets.MultiSelect
+        The multi-select widget to update.
+    names : list of str
+        The list of names to filter.
+    event : pn.widgets.event, optional
+        Passed by the `param.watch` method. Not used.
+
+    Returns
+    -------
+    None
+    """
+    if text_input.value == '':
+        re_value = '.*'
+    else:
+        re_value = text_input.value
+    names_ = copy.deepcopy(names)
+    if isinstance(names_, dict):
+        selected_groups = tags_by_regex(list(names_.keys()), re_value)
+        selected_groups.sort()
+        options = {k: names_[k] for k in selected_groups}
+    else:
+        options = tags_by_regex(names_, re_value)
+        options.sort()
+    ms_to_filter.param.update(options=options)
+
+
 def plot(cd=None, cg=None, data=None, combine=COMBINE, default_groups=DEFAULT_GROUPS):
     """
     Create plotting dashboard.
@@ -256,27 +291,26 @@ def plot(cd=None, cg=None, data=None, combine=COMBINE, default_groups=DEFAULT_GR
     # setup custom plot for 'Custom' tab
     groups = msel_from_column_groups(cg)
     tags = msel_from_column_groups({'all_tags': list(data.columns)}, groups=False)
-    re_input = pn.widgets.TextInput(name='Input regex to filter columns list')
+    columns_re_input = pn.widgets.TextInput(name='Input regex to filter columns list')
+    groups_re_input = pn.widgets.TextInput(name='Input regex to filter groups list')
 
-    def update_ms(event=None):
-        if re_input.value == '':
-            re_value = '.*'
-        else:
-            re_value = re_input.value
-        options = data.filter(regex=re_value).sort_index(axis=1).columns.to_list()
-        tags.param.update(options=options)
-    re_input.param.watch(update_ms, 'value')
+    columns_re_input.param.watch(
+        partial(filter_list, columns_re_input, tags, tags.options),
+        'value'
+    )
+    groups_re_input.param.watch(
+        partial(filter_list, groups_re_input, groups, groups.options),
+        'value'
+    )
 
-    custom_plot_name = pn.widgets.TextInput() 
+    custom_plot_name = pn.widgets.TextInput()
     update = pn.widgets.Button(name='Update')
 
     custom_plot = pn.Column(
+        pn.Row(custom_plot_name, update),
         pn.Row(
-            pn.Column(
-                pn.Row(custom_plot_name, update),
-                groups,
-            ),
-            pn.WidgetBox(re_input, tags)
+            pn.WidgetBox(groups_re_input, groups),
+            pn.WidgetBox(columns_re_input, tags),
         ),
         pn.Row(pn.bind(plot_group_tag_overlay, data, groups, tags))
     )
