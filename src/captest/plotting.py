@@ -133,14 +133,16 @@ def msel_from_column_groups(column_groups, groups=True):
         concatenated together.
     """
     if groups:
-        # options = list(column_groups.keys())
-        options = column_groups.data
+        keys = list(column_groups.data.keys())
+        keys.sort()
+        options = {k: column_groups.data[k] for k in keys}
         name = 'Groups'
         value = column_groups.data[list(column_groups.keys())[0]]
     else:
         options = []
         for columns in column_groups.values():
             options += columns
+        options.sort()
         name = 'Columns'
         value = [options[0]]
     return pn.widgets.MultiSelect(
