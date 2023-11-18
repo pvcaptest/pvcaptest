@@ -1,6 +1,9 @@
+from pathlib import Path
 import copy
+import json
 import warnings
 import itertools
+from functools import partial
 import numpy as np
 import pandas as pd
 import panel as pn
@@ -9,7 +12,7 @@ import holoviews as hv
 from holoviews import opts
 import colorcet as cc
 
-from .util import tags_by_regex, append_tags
+from .util import tags_by_regex, append_tags, read_json
 
 COMBINE = {
     'poa_ghi': 'irr.*(poa|ghi)$',
@@ -132,14 +135,16 @@ def msel_from_column_groups(column_groups, groups=True):
         concatenated together.
     """
     if groups:
-        # options = list(column_groups.keys())
-        options = column_groups.data
+        keys = list(column_groups.data.keys())
+        keys.sort()
+        options = {k: column_groups.data[k] for k in keys}
         name = 'Groups'
         value = column_groups.data[list(column_groups.keys())[0]]
     else:
         options = []
         for columns in column_groups.values():
             options += columns
+        options.sort()
         name = 'Columns'
         value = [options[0]]
     return pn.widgets.MultiSelect(
@@ -233,9 +238,49 @@ def plot_tag_groups(data, tags_to_plot):
     return hv.Layout(group_plots).cols(1)
 
 
+def filter_list(text_input, ms_to_filter, names, event=None):
+    """
+    Filter a multi-select widget by a regex string.
+
+    Parameters
+    ----------
+    text_input : pn.widgets.TextInput
+        The text input widget to get the regex string from.
+    ms_to_filter : pn.widgets.MultiSelect
+        The multi-select widget to update.
+    names : list of str
+        The list of names to filter.
+    event : pn.widgets.event, optional
+        Passed by the `param.watch` method. Not used.
+
+    Returns
+    -------
+    None
+    """
+    if text_input.value == '':
+        re_value = '.*'
+    else:
+        re_value = text_input.value
+    names_ = copy.deepcopy(names)
+    if isinstance(names_, dict):
+        selected_groups = tags_by_regex(list(names_.keys()), re_value)
+        selected_groups.sort()
+        options = {k: names_[k] for k in selected_groups}
+    else:
+        options = tags_by_regex(names_, re_value)
+        options.sort()
+    ms_to_filter.param.update(options=options)
+
+
 def plot(cd=None, cg=None, data=None, combine=COMBINE, default_groups=DEFAULT_GROUPS):
     """
     Create plotting dashboard.
+
+    NOTE: If a 'plot_defaults.json' file exists in the same directory as the file this
+    function is called from called, then the default groups will be read from that file
+    instead of using the `default_groups` argument. Delete or manually edit the file to
+    change the default groups. Use the `default_groups` or manually edit the file to
+    control the order of the plots.
 
     Parameters
     ----------
@@ -249,6 +294,9 @@ def plot(cd=None, cg=None, data=None, combine=COMBINE, default_groups=DEFAULT_GR
         Dictionary of group names and regex strings to use to identify groups from
         column groups and individual tags (columns) to combine into new groups. See the
         `parse_combine` function for more details.
+    default_groups : list of str, optional
+        List of regex strings to use to identify default groups to plot. See the
+        `find_default_groups` function for more details.
     """
     if cd is not None:
         data = cd.data
@@ -256,27 +304,26 @@ def plot(cd=None, cg=None, data=None, combine=COMBINE, default_groups=DEFAULT_GR
     # setup custom plot for 'Custom' tab
     groups = msel_from_column_groups(cg)
     tags = msel_from_column_groups({'all_tags': list(data.columns)}, groups=False)
-    re_input = pn.widgets.TextInput(name='Input regex to filter columns list')
+    columns_re_input = pn.widgets.TextInput(name='Input regex to filter columns list')
+    groups_re_input = pn.widgets.TextInput(name='Input regex to filter groups list')
 
-    def update_ms(event=None):
-        if re_input.value == '':
-            re_value = '.*'
-        else:
-            re_value = re_input.value
-        options = data.filter(regex=re_value).sort_index(axis=1).columns.to_list()
-        tags.param.update(options=options)
-    re_input.param.watch(update_ms, 'value')
+    columns_re_input.param.watch(
+        partial(filter_list, columns_re_input, tags, tags.options),
+        'value'
+    )
+    groups_re_input.param.watch(
+        partial(filter_list, groups_re_input, groups, groups.options),
+        'value'
+    )
 
-    custom_plot_name = pn.widgets.TextInput() 
+    custom_plot_name = pn.widgets.TextInput()
     update = pn.widgets.Button(name='Update')
 
     custom_plot = pn.Column(
+        pn.Row(custom_plot_name, update),
         pn.Row(
-            pn.Column(
-                pn.Row(custom_plot_name, update),
-                groups,
-            ),
-            pn.WidgetBox(re_input, tags)
+            pn.WidgetBox(groups_re_input, groups),
+            pn.WidgetBox(columns_re_input, tags),
         ),
         pn.Row(pn.bind(plot_group_tag_overlay, data, groups, tags))
     )
@@ -295,13 +342,24 @@ def plot(cd=None, cg=None, data=None, combine=COMBINE, default_groups=DEFAULT_GR
         )
         main_ms.options = column_groups_
     update.on_click(add_custom_plot_group)
+    plots_to_layout = pn.widgets.Button(name='Set plots to current layout')
     main_plot = pn.Column(
-        pn.Row(main_ms),
+        pn.Row(pn.WidgetBox(plots_to_layout, main_ms)),
         pn.Row(pn.bind(plot_tag_groups, data, main_ms))
     )
 
-    default_groups = find_default_groups(list(cg_layout.keys()), default_groups)
-    default_tags = [cg_layout.get(grp, []) for grp in default_groups]
+    def set_defaults(event):
+        with open('./plot_defaults.json', 'w') as file:
+            json.dump(main_ms.value, file)
+    plots_to_layout.on_click(set_defaults)
+
+    # setup default groups
+    if Path('./plot_defaults.json').exists():
+        default_tags = read_json('./plot_defaults.json')
+    else:
+        default_groups = find_default_groups(list(cg_layout.keys()), default_groups)
+        default_tags = [cg_layout.get(grp, []) for grp in default_groups]
+
     # layout dashboard
     plotter = pn.Tabs(
         ('Plots', plot_tag_groups(data, default_tags)),
