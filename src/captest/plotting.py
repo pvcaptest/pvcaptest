@@ -1,4 +1,6 @@
+from pathlib import Path
 import copy
+import json
 import warnings
 import itertools
 from functools import partial
@@ -10,7 +12,7 @@ import holoviews as hv
 from holoviews import opts
 import colorcet as cc
 
-from .util import tags_by_regex, append_tags
+from .util import tags_by_regex, append_tags, read_json
 
 COMBINE = {
     'poa_ghi': 'irr.*(poa|ghi)$',
@@ -274,6 +276,12 @@ def plot(cd=None, cg=None, data=None, combine=COMBINE, default_groups=DEFAULT_GR
     """
     Create plotting dashboard.
 
+    NOTE: If a 'plot_defaults.json' file exists in the same directory as the file this
+    function is called from called, then the default groups will be read from that file
+    instead of using the `default_groups` argument. Delete or manually edit the file to
+    change the default groups. Use the `default_groups` or manually edit the file to
+    control the order of the plots.
+
     Parameters
     ----------
     cd : captest.CapData, optional
@@ -286,6 +294,9 @@ def plot(cd=None, cg=None, data=None, combine=COMBINE, default_groups=DEFAULT_GR
         Dictionary of group names and regex strings to use to identify groups from
         column groups and individual tags (columns) to combine into new groups. See the
         `parse_combine` function for more details.
+    default_groups : list of str, optional
+        List of regex strings to use to identify default groups to plot. See the
+        `find_default_groups` function for more details.
     """
     if cd is not None:
         data = cd.data
@@ -331,13 +342,24 @@ def plot(cd=None, cg=None, data=None, combine=COMBINE, default_groups=DEFAULT_GR
         )
         main_ms.options = column_groups_
     update.on_click(add_custom_plot_group)
+    plots_to_layout = pn.widgets.Button(name='Set plots to current layout')
     main_plot = pn.Column(
-        pn.Row(main_ms),
+        pn.Row(pn.WidgetBox(plots_to_layout, main_ms)),
         pn.Row(pn.bind(plot_tag_groups, data, main_ms))
     )
 
-    default_groups = find_default_groups(list(cg_layout.keys()), default_groups)
-    default_tags = [cg_layout.get(grp, []) for grp in default_groups]
+    def set_defaults(event):
+        with open('./plot_defaults.json', 'w') as file:
+            json.dump(main_ms.value, file)
+    plots_to_layout.on_click(set_defaults)
+
+    # setup default groups
+    if Path('./plot_defaults.json').exists():
+        default_tags = read_json('./plot_defaults.json')
+    else:
+        default_groups = find_default_groups(list(cg_layout.keys()), default_groups)
+        default_tags = [cg_layout.get(grp, []) for grp in default_groups]
+
     # layout dashboard
     plotter = pn.Tabs(
         ('Plots', plot_tag_groups(data, default_tags)),
