@@ -547,8 +547,6 @@ def load_data(
         cd.data_filtered = cd.data.copy()
         cd.column_groups['irr-poa-clear_sky'] = ['poa_mod_csky']
         cd.column_groups['irr-ghi-clear_sky'] = ['ghi_mod_csky']
-    cd.trans_keys = list(cd.column_groups.keys())
-    cd.set_plot_attributes()
     if column_groups_template:
         cd.data_columns_to_excel()
     return cd
