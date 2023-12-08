@@ -1794,12 +1794,25 @@ class CapData(object):
         )
         # layout_scatter = (poa_vs_kw).opts(opt_dict)
         if timeseries:
-            poa_vs_time = hv.Curve(df, 'index', ['power', 'poa']).opts(
+            poa_vs_time = hv.Scatter(df, 'index', ['power', 'poa']).opts(
                 tools=['hover', 'lasso_select', 'box_select'],
                 height=400,
                 width=800,
             )
-            layout_timeseries = (poa_vs_kw + poa_vs_time)
+            power_col, poa_col = self.loc[['power', 'poa']].columns
+            poa_vs_time_underlay = hv.Curve(
+                self.data,
+                'Timestamp',
+                [power_col, poa_col],
+            ).opts(
+                tools=['hover', 'lasso_select', 'box_select'],
+                height=400,
+                width=800,
+                line_color='gray',
+                line_width=1,
+                line_alpha=0.4,
+            )
+            layout_timeseries = (poa_vs_kw + poa_vs_time * poa_vs_time_underlay)
             DataLink(poa_vs_kw, poa_vs_time)
             return(layout_timeseries.cols(1))
         else:
