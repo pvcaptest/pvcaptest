@@ -54,6 +54,13 @@ def find_default_groups(groups, default_groups):
         found_grp = tags_by_regex(groups, re_str)
         if len(found_grp) == 1:
             found_groups.append(found_grp[0])
+        elif len(found_grp) > 1:
+            warnings.warn(
+                f'More than one group found for regex string {re_str}. '
+                'Refine regex string to find only one group. '
+                f'Groups found: {found_grp}'
+
+            )
     return found_groups
 
 
