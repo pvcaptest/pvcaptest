@@ -308,6 +308,10 @@ def plot(cd=None, cg=None, data=None, combine=COMBINE, default_groups=DEFAULT_GR
     if cd is not None:
         data = cd.data
         cg = cd.column_groups
+    # make sure data is numeric
+    data = data.apply(pd.to_numeric, errors='coerce')
+    bool_columns = data.select_dtypes(include='bool').columns
+    data.loc[:, bool_columns] = data.loc[:, bool_columns].astype(int)
     # setup custom plot for 'Custom' tab
     groups = msel_from_column_groups(cg)
     tags = msel_from_column_groups({'all_tags': list(data.columns)}, groups=False)
