@@ -1,0 +1,12 @@
+loc:
+  altitude: 90
+  latitude: 41.2
+  longitude: -71.5
+  tz: America/New_York
+sys:
+  albedo: 0.2
+  axis_azimuth: 180
+  axis_tilt: 0
+  backtrack: true
+  gcr: 0.4
+  max_angle: 60

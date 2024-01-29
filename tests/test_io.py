@@ -795,6 +795,44 @@ class TestLoadDataFunction:
         assert isinstance(cd.data, pd.DataFrame)
         assert isinstance(cd.data.index, pd.DatetimeIndex)
 
+    def test_load_site_data_from_json_file(self):
+        """
+        Test loading site data from a json file.
+        """
+        cd = load_data(
+            path="./tests/data/example_measured_data.csv",
+            site="./tests/data/site_loc_orientation.json",
+        )
+        assert "ghi_mod_csky" in cd.data.columns
+        assert "poa_mod_csky" in cd.data.columns
+        assert "poa_mod_csky" in cd.data_filtered.columns
+        assert isinstance(cd.site, dict)
+
+    def test_load_site_data_from_yaml_file(self):
+        """
+        Test loading site data from a yaml file with 'yaml' extension.
+        """
+        cd = load_data(
+            path="./tests/data/example_measured_data.csv",
+            site="./tests/data/site_loc_orientation.yaml",
+        )
+        assert "ghi_mod_csky" in cd.data.columns
+        assert "poa_mod_csky" in cd.data.columns
+        assert "poa_mod_csky" in cd.data_filtered.columns
+        assert isinstance(cd.site, dict)
+
+    def test_load_site_data_from_yml_file(self):
+        """
+        Test loading site data from a yaml file with 'yml' extension.
+        """
+        cd = load_data(
+            path="./tests/data/example_measured_data.csv",
+            site="./tests/data/site_loc_orientation.yml",
+        )
+        assert "ghi_mod_csky" in cd.data.columns
+        assert "poa_mod_csky" in cd.data.columns
+        assert "poa_mod_csky" in cd.data_filtered.columns
+        assert isinstance(cd.site, dict)
 
 class TestLoadDataMethods(unittest.TestCase):
     """Test for load data methods without setup."""

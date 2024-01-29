@@ -500,13 +500,12 @@ def load_data(
         latest datetime, and the most frequent time interval ensuring there are no
         missing intervals.
     site : dict or str, default None
-        Pass a dictionary containing site data, which will be used to generate
-        modeled clear sky ghi and poa values. The clear sky irradiance values are
-        added to the data and the column_groups attribute is updated to include these
-        two irradiance columns. The site data dictionary should be
-        {sys: {system data}, loc: {location data}}. See the capdata.csky documentation
-        for the format of the system data and location data.
-        Pass a string to load site data from a json file.
+        Pass a dictionary or path to a json or yaml file containing site data, which
+        will be used to generate modeled clear sky ghi and poa values. The clear sky
+        irradiance values are added to the data and the column_groups attribute is
+        updated to include these two irradiance columns. The site data dictionary should
+        be {sys: {system data}, loc: {location data}}. See the capdata.csky
+        documentation for the format of the system data and location data.
     column_groups_template : bool, default False
         If True, will call `CapData.data_columns_to_excel` to save a file to use to
         manually create column groupings at `path`.
