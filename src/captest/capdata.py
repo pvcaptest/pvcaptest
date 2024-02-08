@@ -1817,6 +1817,8 @@ class CapData(object):
             legend_position='right',
             height=400,
             width=400,
+            selection_fill_color='red',
+            selection_line_color='red',
         )
         # layout_scatter = (poa_vs_kw).opts(opt_dict)
         if timeseries:
@@ -1824,6 +1826,8 @@ class CapData(object):
                 tools=['hover', 'lasso_select', 'box_select'],
                 height=400,
                 width=800,
+                selection_fill_color='red',
+                selection_line_color='red',
             )
             power_col, poa_col = self.loc[['power', 'poa']].columns
             poa_vs_time_underlay = hv.Curve(
