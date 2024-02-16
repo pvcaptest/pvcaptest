@@ -1371,7 +1371,11 @@ def index_capdata(capdata, label, filtered=True):
         if label in capdata.column_groups.keys():
             return data[capdata.column_groups[label]]
         elif label in capdata.regression_cols.keys():
-            return data[capdata.column_groups[capdata.regression_cols[label]]]
+            col_or_grp = capdata.regression_cols[label]
+            if col_or_grp in capdata.column_groups.keys():
+                return data[capdata.column_groups[col_or_grp]]
+            elif col_or_grp in data.columns:
+                return data[col_or_grp]
         elif label in data.columns:
             return data.loc[:, label]
     elif isinstance(label, list):

@@ -468,6 +468,14 @@ class TestIndexCapdata():
         out = pvc.index_capdata(meas, 'poa', filtered=True)
         assert out.equals(meas.data[['met1_poa_pyranometer', 'met2_poa_pyranometer']])
 
+    def test_single_label_regression_columns_after_agg(self, meas):
+        """Test that regression_columns key returns the columns of Capdata.data that
+        are the values of the key after agg_sensors has reset regression_columns
+        to map to the new aggregated column."""
+        meas.agg_sensors(agg_map={'irr_poa_pyran': 'mean'})
+        out = pvc.index_capdata(meas, 'poa', filtered=True)
+        assert out.equals(meas.data['irr_poa_pyran_mean_agg'])
+
     def test_single_label_data_column_label(self, meas):
         """Test that a column label returns the columns of Capdata.data that
         are the values of the key. Passes label through to DataFrame.loc."""
@@ -496,6 +504,31 @@ class TestIndexCapdata():
         assert out.equals(meas.data[[
             'met1_poa_pyranometer',
             'met2_poa_pyranometer',
+            'met1_amb_temp',
+            'met2_amb_temp',
+        ]])
+
+    def test_list_of_labels_regression_columns_keys_after_agg(self, meas):
+        """
+        Test that a list of regression_columns key returns the columns of Capdata.data that
+        are the new aggregated columns after agg_sensors has been run.
+        """
+        meas.agg_sensors(agg_map={'irr_poa_pyran': 'mean', 'temp_amb': 'mean'})
+        out = pvc.index_capdata(meas, ['poa', 't_amb'], filtered=True)
+        assert out.equals(meas.data[[
+            'irr_poa_pyran_mean_agg',
+            'temp_amb_mean_agg',
+        ]])
+
+    def test_list_of_labels_regression_columns_keys_after_partial_agg(self, meas):
+        """
+        Test that a list of regression_columns key returns the columns of Capdata.data
+        that are the union of the values of the keys and the aggregated column.
+        """
+        meas.agg_sensors(agg_map={'irr_poa_pyran': 'mean'})
+        out = pvc.index_capdata(meas, ['poa', 't_amb'], filtered=False)
+        assert out.equals(meas.data[[
+            'irr_poa_pyran_mean_agg',
             'met1_amb_temp',
             'met2_amb_temp',
         ]])
