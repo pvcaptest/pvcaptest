@@ -459,13 +459,13 @@ class TestIndexCapdata():
     def test_single_label_column_group_key(self, meas):
         """Test that column_groups key returns the columns of Capdata.data that
         are the values of the key."""
-        out = pvc.index_capdata(meas, 'irr_poa_pyran', filtered=True)
+        out = pvc.index_capdata(meas, 'irr_poa_pyran', filtered=False)
         assert out.equals(meas.data[['met1_poa_pyranometer', 'met2_poa_pyranometer']])
 
     def test_single_label_regression_columns_key(self, meas):
         """Test that regression_columns key returns the columns of Capdata.data that
         are the values of the key."""
-        out = pvc.index_capdata(meas, 'poa', filtered=True)
+        out = pvc.index_capdata(meas, 'poa', filtered=False)
         assert out.equals(meas.data[['met1_poa_pyranometer', 'met2_poa_pyranometer']])
 
     def test_single_label_regression_columns_after_agg(self, meas):
@@ -473,13 +473,13 @@ class TestIndexCapdata():
         are the values of the key after agg_sensors has reset regression_columns
         to map to the new aggregated column."""
         meas.agg_sensors(agg_map={'irr_poa_pyran': 'mean'})
-        out = pvc.index_capdata(meas, 'poa', filtered=True)
+        out = pvc.index_capdata(meas, 'poa', filtered=False)
         assert out.equals(meas.data['irr_poa_pyran_mean_agg'])
 
     def test_single_label_data_column_label(self, meas):
         """Test that a column label returns the columns of Capdata.data that
         are the values of the key. Passes label through to DataFrame.loc."""
-        out = pvc.index_capdata(meas, 'met1_poa_pyranometer', filtered=True)
+        out = pvc.index_capdata(meas, 'met1_poa_pyranometer', filtered=False)
         assert out.equals(meas.data.loc[:, 'met1_poa_pyranometer'])
 
     def test_list_of_labels_column_group_keys(self, meas):
@@ -487,7 +487,7 @@ class TestIndexCapdata():
         Test that a list of column_groups key returns the columns of Capdata.data that
         are the union of the values of the keys.
         """
-        out = pvc.index_capdata(meas, ['irr_poa_pyran', 'temp_amb'], filtered=True)
+        out = pvc.index_capdata(meas, ['irr_poa_pyran', 'temp_amb'], filtered=False)
         assert out.equals(meas.data[[
             'met1_poa_pyranometer',
             'met2_poa_pyranometer',
@@ -500,7 +500,7 @@ class TestIndexCapdata():
         Test that a list of regression_columns key returns the columns of Capdata.data that
         are the union of the values of the keys.
         """
-        out = pvc.index_capdata(meas, ['poa', 't_amb'], filtered=True)
+        out = pvc.index_capdata(meas, ['poa', 't_amb'], filtered=False)
         assert out.equals(meas.data[[
             'met1_poa_pyranometer',
             'met2_poa_pyranometer',
@@ -514,7 +514,7 @@ class TestIndexCapdata():
         are the new aggregated columns after agg_sensors has been run.
         """
         meas.agg_sensors(agg_map={'irr_poa_pyran': 'mean', 'temp_amb': 'mean'})
-        out = pvc.index_capdata(meas, ['poa', 't_amb'], filtered=True)
+        out = pvc.index_capdata(meas, ['poa', 't_amb'], filtered=False)
         assert out.equals(meas.data[[
             'irr_poa_pyran_mean_agg',
             'temp_amb_mean_agg',
@@ -539,7 +539,7 @@ class TestIndexCapdata():
         Passes labels through to DataFrame.loc.
         """
         out = pvc.index_capdata(
-            meas, ['met1_poa_pyranometer', 'met2_amb_temp'], filtered=True
+            meas, ['met1_poa_pyranometer', 'met2_amb_temp'], filtered=False
         )
         assert out.equals(meas.data.loc[:, ['met1_poa_pyranometer', 'met2_amb_temp']])
 
@@ -550,7 +550,7 @@ class TestIndexCapdata():
         values of the keys and the labels.
         """
         out = pvc.index_capdata(
-            meas, ['irr_poa_pyran', 't_amb', 'met1_windspeed'], filtered=True
+            meas, ['irr_poa_pyran', 't_amb', 'met1_windspeed'], filtered=False
         )
         assert out.equals(meas.data[[
             'met1_poa_pyranometer',
@@ -567,7 +567,7 @@ class TestIndexCapdata():
         """
         meas.regression_cols['poa'] = 'met1_poa_pyranometer'
         out = pvc.index_capdata(
-            meas, ['irr_poa_ref_cell', 'poa', 'met1_windspeed'], filtered=True
+            meas, ['irr_poa_ref_cell', 'poa', 'met1_windspeed'], filtered=False
         )
         assert out.equals(meas.data[[
             'met1_poa_refcell',
