@@ -456,59 +456,144 @@ class TestCapDataSeriesTypes(unittest.TestCase):
 
 class TestIndexCapdata():
     """Test the indexing functionality of the CapData loc method."""
+    """All below tests are for the filter=True option."""
+    def test_single_label_column_group_key_filtered(self, meas):
+        """Test that column_groups key returns the columns of Capdata.data that
+        are the values of the key from data_filtered."""
+        meas.data_filtered = meas.data.iloc[0:10, :].copy()
+        out = pvc.index_capdata(meas, 'irr_poa_pyran', filtered=True)
+        assert out.equals(meas.data_filtered[['met1_poa_pyranometer', 'met2_poa_pyranometer']])
+        assert out.shape[0] == 10
+
+    def test_list_of_labels_column_group_keys_filtered(self, meas):
+        """
+        Test that a list of column_groups key returns the columns of Capdata.data that
+        are the union of the values of the keys from data_filtered.
+        """
+        meas.data_filtered = meas.data.iloc[0:10, :].copy()
+        out = pvc.index_capdata(meas, ['irr_poa_pyran', 'temp_amb'], filtered=True)
+        assert out.equals(meas.data_filtered[[
+            'met1_poa_pyranometer',
+            'met2_poa_pyranometer',
+            'met1_amb_temp',
+            'met2_amb_temp',
+        ]])
+        assert out.shape[0] == 10
+
+    """All below tests are for the filter=False option."""
     def test_single_label_column_group_key(self, meas):
         """Test that column_groups key returns the columns of Capdata.data that
         are the values of the key."""
-        out = pvc.index_capdata(meas, 'irr_poa_pyran', filtered=True)
+        # filter data_filtered to make check of row count for filtered=False meaningful
+        meas.data_filtered = meas.data.iloc[0:10, :].copy()
+        out = pvc.index_capdata(meas, 'irr_poa_pyran', filtered=False)
         assert out.equals(meas.data[['met1_poa_pyranometer', 'met2_poa_pyranometer']])
+        assert out.shape[0] == 1440
 
     def test_single_label_regression_columns_key(self, meas):
         """Test that regression_columns key returns the columns of Capdata.data that
         are the values of the key."""
-        out = pvc.index_capdata(meas, 'poa', filtered=True)
+        # filter data_filtered to make check of row count for filtered=False meaningful
+        meas.data_filtered = meas.data.iloc[0:10, :].copy()
+        out = pvc.index_capdata(meas, 'poa', filtered=False)
         assert out.equals(meas.data[['met1_poa_pyranometer', 'met2_poa_pyranometer']])
+        assert out.shape[0] == 1440
+
+    def test_single_label_regression_columns_after_agg(self, meas):
+        """Test that regression_columns key returns the columns of Capdata.data that
+        are the values of the key after agg_sensors has reset regression_columns
+        to map to the new aggregated column."""
+        # filter data_filtered to make check of row count for filtered=False meaningful
+        meas.data_filtered = meas.data.iloc[0:10, :].copy()
+        meas.agg_sensors(agg_map={'irr_poa_pyran': 'mean'})
+        out = pvc.index_capdata(meas, 'poa', filtered=False)
+        assert out.equals(meas.data['irr_poa_pyran_mean_agg'])
+        assert out.shape[0] == 1440
 
     def test_single_label_data_column_label(self, meas):
         """Test that a column label returns the columns of Capdata.data that
         are the values of the key. Passes label through to DataFrame.loc."""
-        out = pvc.index_capdata(meas, 'met1_poa_pyranometer', filtered=True)
+        # filter data_filtered to make check of row count for filtered=False meaningful
+        meas.data_filtered = meas.data.iloc[0:10, :].copy()
+        out = pvc.index_capdata(meas, 'met1_poa_pyranometer', filtered=False)
         assert out.equals(meas.data.loc[:, 'met1_poa_pyranometer'])
+        assert out.shape[0] == 1440
 
     def test_list_of_labels_column_group_keys(self, meas):
         """
         Test that a list of column_groups key returns the columns of Capdata.data that
         are the union of the values of the keys.
         """
-        out = pvc.index_capdata(meas, ['irr_poa_pyran', 'temp_amb'], filtered=True)
+        # filter data_filtered to make check of row count for filtered=False meaningful
+        meas.data_filtered = meas.data.iloc[0:10, :].copy()
+        out = pvc.index_capdata(meas, ['irr_poa_pyran', 'temp_amb'], filtered=False)
         assert out.equals(meas.data[[
             'met1_poa_pyranometer',
             'met2_poa_pyranometer',
             'met1_amb_temp',
             'met2_amb_temp',
         ]])
+        assert out.shape[0] == 1440
 
     def test_list_of_labels_regression_columns_keys(self, meas):
         """
         Test that a list of regression_columns key returns the columns of Capdata.data that
         are the union of the values of the keys.
         """
-        out = pvc.index_capdata(meas, ['poa', 't_amb'], filtered=True)
+        # filter data_filtered to make check of row count for filtered=False meaningful
+        meas.data_filtered = meas.data.iloc[0:10, :].copy()
+        out = pvc.index_capdata(meas, ['poa', 't_amb'], filtered=False)
         assert out.equals(meas.data[[
             'met1_poa_pyranometer',
             'met2_poa_pyranometer',
             'met1_amb_temp',
             'met2_amb_temp',
         ]])
+        assert out.shape[0] == 1440
+
+    def test_list_of_labels_regression_columns_keys_after_agg(self, meas):
+        """
+        Test that a list of regression_columns key returns the columns of Capdata.data that
+        are the new aggregated columns after agg_sensors has been run.
+        """
+        # filter data_filtered to make check of row count for filtered=False meaningful
+        meas.data_filtered = meas.data.iloc[0:10, :].copy()
+        meas.agg_sensors(agg_map={'irr_poa_pyran': 'mean', 'temp_amb': 'mean'})
+        out = pvc.index_capdata(meas, ['poa', 't_amb'], filtered=False)
+        assert out.equals(meas.data[[
+            'irr_poa_pyran_mean_agg',
+            'temp_amb_mean_agg',
+        ]])
+        assert out.shape[0] == 1440
+
+    def test_list_of_labels_regression_columns_keys_after_partial_agg(self, meas):
+        """
+        Test that a list of regression_columns key returns the columns of Capdata.data
+        that are the union of the values of the keys and the aggregated column.
+        """
+        # filter data_filtered to make check of row count for filtered=False meaningful
+        meas.data_filtered = meas.data.iloc[0:10, :].copy()
+        meas.agg_sensors(agg_map={'irr_poa_pyran': 'mean'})
+        out = pvc.index_capdata(meas, ['poa', 't_amb'], filtered=False)
+        assert out.equals(meas.data[[
+            'irr_poa_pyran_mean_agg',
+            'met1_amb_temp',
+            'met2_amb_temp',
+        ]])
+        assert out.shape[0] == 1440
 
     def test_list_of_labels_data_column_labels(self, meas):
         """
         Test that a list of column labels returns the columns of Capdata.data.
         Passes labels through to DataFrame.loc.
         """
+        # filter data_filtered to make check of row count for filtered=False meaningful
+        meas.data_filtered = meas.data.iloc[0:10, :].copy()
         out = pvc.index_capdata(
-            meas, ['met1_poa_pyranometer', 'met2_amb_temp'], filtered=True
+            meas, ['met1_poa_pyranometer', 'met2_amb_temp'], filtered=False
         )
         assert out.equals(meas.data.loc[:, ['met1_poa_pyranometer', 'met2_amb_temp']])
+        assert out.shape[0] == 1440
 
     def test_list_of_labels_mixed(self, meas):
         """
@@ -516,8 +601,10 @@ class TestIndexCapdata():
         column labels returns the columns of Capdata.data that are the union of the
         values of the keys and the labels.
         """
+        # filter data_filtered to make check of row count for filtered=False meaningful
+        meas.data_filtered = meas.data.iloc[0:10, :].copy()
         out = pvc.index_capdata(
-            meas, ['irr_poa_pyran', 't_amb', 'met1_windspeed'], filtered=True
+            meas, ['irr_poa_pyran', 't_amb', 'met1_windspeed'], filtered=False
         )
         assert out.equals(meas.data[[
             'met1_poa_pyranometer',
@@ -526,15 +613,18 @@ class TestIndexCapdata():
             'met2_amb_temp',
             'met1_windspeed',
         ]])
+        assert out.shape[0] == 1440
 
     def test_list_of_labels_mixed_regression_column_maps_to_column_label(self, meas):
         """
         Test a list containing a regression_column key that maps directly to a column
         label rather than a column_group key is added to the columns returned.
         """
+        # filter data_filtered to make check of row count for filtered=False meaningful
+        meas.data_filtered = meas.data.iloc[0:10, :].copy()
         meas.regression_cols['poa'] = 'met1_poa_pyranometer'
         out = pvc.index_capdata(
-            meas, ['irr_poa_ref_cell', 'poa', 'met1_windspeed'], filtered=True
+            meas, ['irr_poa_ref_cell', 'poa', 'met1_windspeed'], filtered=False
         )
         assert out.equals(meas.data[[
             'met1_poa_refcell',
@@ -542,6 +632,7 @@ class TestIndexCapdata():
             'met1_poa_pyranometer',
             'met1_windspeed',
         ]])
+        assert out.shape[0] == 1440
 
 
 class TestLocAndFloc():
