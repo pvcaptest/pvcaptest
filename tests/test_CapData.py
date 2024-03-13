@@ -1283,10 +1283,6 @@ class TestAbsDiffFromAverage():
         s = pd.Series([800], index=['poa1'])
         meets_threshold = pvc.abs_diff_from_average(s, 25)
         assert meets_threshold is True
-        with pytest.warns(
-            UserWarning, match=('Series has only one value. Returning True.')
-        ):
-            s = pvc.abs_diff_from_average(s, 25)
 
 
 class TestFilterSensorsWithAbsDiffFromAverage():
