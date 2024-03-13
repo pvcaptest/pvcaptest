@@ -462,6 +462,7 @@ class TestIndexCapdata():
         are the values of the key from data_filtered."""
         meas.data_filtered = meas.data.iloc[0:10, :].copy()
         out = pvc.index_capdata(meas, 'irr_poa_pyran', filtered=True)
+        assert isinstance(out, pd.DataFrame)
         assert out.equals(meas.data_filtered[['met1_poa_pyranometer', 'met2_poa_pyranometer']])
         assert out.shape[0] == 10
 
@@ -472,6 +473,7 @@ class TestIndexCapdata():
         """
         meas.data_filtered = meas.data.iloc[0:10, :].copy()
         out = pvc.index_capdata(meas, ['irr_poa_pyran', 'temp_amb'], filtered=True)
+        assert isinstance(out, pd.DataFrame)
         assert out.equals(meas.data_filtered[[
             'met1_poa_pyranometer',
             'met2_poa_pyranometer',
@@ -487,6 +489,7 @@ class TestIndexCapdata():
         # filter data_filtered to make check of row count for filtered=False meaningful
         meas.data_filtered = meas.data.iloc[0:10, :].copy()
         out = pvc.index_capdata(meas, 'irr_poa_pyran', filtered=False)
+        assert isinstance(out, pd.DataFrame)
         assert out.equals(meas.data[['met1_poa_pyranometer', 'met2_poa_pyranometer']])
         assert out.shape[0] == 1440
 
@@ -496,6 +499,7 @@ class TestIndexCapdata():
         # filter data_filtered to make check of row count for filtered=False meaningful
         meas.data_filtered = meas.data.iloc[0:10, :].copy()
         out = pvc.index_capdata(meas, 'poa', filtered=False)
+        assert isinstance(out, pd.DataFrame)
         assert out.equals(meas.data[['met1_poa_pyranometer', 'met2_poa_pyranometer']])
         assert out.shape[0] == 1440
 
@@ -507,7 +511,8 @@ class TestIndexCapdata():
         meas.data_filtered = meas.data.iloc[0:10, :].copy()
         meas.agg_sensors(agg_map={'irr_poa_pyran': 'mean'})
         out = pvc.index_capdata(meas, 'poa', filtered=False)
-        assert out.equals(meas.data['irr_poa_pyran_mean_agg'])
+        assert isinstance(out, pd.DataFrame)
+        assert out.equals(meas.data['irr_poa_pyran_mean_agg'].to_frame())
         assert out.shape[0] == 1440
 
     def test_single_label_data_column_label(self, meas):
@@ -516,7 +521,8 @@ class TestIndexCapdata():
         # filter data_filtered to make check of row count for filtered=False meaningful
         meas.data_filtered = meas.data.iloc[0:10, :].copy()
         out = pvc.index_capdata(meas, 'met1_poa_pyranometer', filtered=False)
-        assert out.equals(meas.data.loc[:, 'met1_poa_pyranometer'])
+        assert isinstance(out, pd.DataFrame)
+        assert out.equals(meas.data.loc[:, 'met1_poa_pyranometer'].to_frame())
         assert out.shape[0] == 1440
 
     def test_list_of_labels_column_group_keys(self, meas):
@@ -527,6 +533,7 @@ class TestIndexCapdata():
         # filter data_filtered to make check of row count for filtered=False meaningful
         meas.data_filtered = meas.data.iloc[0:10, :].copy()
         out = pvc.index_capdata(meas, ['irr_poa_pyran', 'temp_amb'], filtered=False)
+        assert isinstance(out, pd.DataFrame)
         assert out.equals(meas.data[[
             'met1_poa_pyranometer',
             'met2_poa_pyranometer',
@@ -543,6 +550,7 @@ class TestIndexCapdata():
         # filter data_filtered to make check of row count for filtered=False meaningful
         meas.data_filtered = meas.data.iloc[0:10, :].copy()
         out = pvc.index_capdata(meas, ['poa', 't_amb'], filtered=False)
+        assert isinstance(out, pd.DataFrame)
         assert out.equals(meas.data[[
             'met1_poa_pyranometer',
             'met2_poa_pyranometer',
@@ -560,6 +568,7 @@ class TestIndexCapdata():
         meas.data_filtered = meas.data.iloc[0:10, :].copy()
         meas.agg_sensors(agg_map={'irr_poa_pyran': 'mean', 'temp_amb': 'mean'})
         out = pvc.index_capdata(meas, ['poa', 't_amb'], filtered=False)
+        assert isinstance(out, pd.DataFrame)
         assert out.equals(meas.data[[
             'irr_poa_pyran_mean_agg',
             'temp_amb_mean_agg',
@@ -575,6 +584,7 @@ class TestIndexCapdata():
         meas.data_filtered = meas.data.iloc[0:10, :].copy()
         meas.agg_sensors(agg_map={'irr_poa_pyran': 'mean'})
         out = pvc.index_capdata(meas, ['poa', 't_amb'], filtered=False)
+        assert isinstance(out, pd.DataFrame)
         assert out.equals(meas.data[[
             'irr_poa_pyran_mean_agg',
             'met1_amb_temp',
@@ -592,6 +602,7 @@ class TestIndexCapdata():
         out = pvc.index_capdata(
             meas, ['met1_poa_pyranometer', 'met2_amb_temp'], filtered=False
         )
+        assert isinstance(out, pd.DataFrame)
         assert out.equals(meas.data.loc[:, ['met1_poa_pyranometer', 'met2_amb_temp']])
         assert out.shape[0] == 1440
 
@@ -606,6 +617,7 @@ class TestIndexCapdata():
         out = pvc.index_capdata(
             meas, ['irr_poa_pyran', 't_amb', 'met1_windspeed'], filtered=False
         )
+        assert isinstance(out, pd.DataFrame)
         assert out.equals(meas.data[[
             'met1_poa_pyranometer',
             'met2_poa_pyranometer',
@@ -626,6 +638,7 @@ class TestIndexCapdata():
         out = pvc.index_capdata(
             meas, ['irr_poa_ref_cell', 'poa', 'met1_windspeed'], filtered=False
         )
+        assert isinstance(out, pd.DataFrame)
         assert out.equals(meas.data[[
             'met1_poa_refcell',
             'met2_poa_refcell',

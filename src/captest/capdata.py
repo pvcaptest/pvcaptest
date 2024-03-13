@@ -1395,15 +1395,19 @@ def index_capdata(capdata, label, filtered=True):
         data = capdata.data
     if isinstance(label, str):
         if label in capdata.column_groups.keys():
-            return data[capdata.column_groups[label]]
+            selected_data = data[capdata.column_groups[label]]
         elif label in capdata.regression_cols.keys():
             col_or_grp = capdata.regression_cols[label]
             if col_or_grp in capdata.column_groups.keys():
-                return data[capdata.column_groups[col_or_grp]]
+                selected_data = data[capdata.column_groups[col_or_grp]]
             elif col_or_grp in data.columns:
-                return data[col_or_grp]
+                selected_data = data[col_or_grp]
         elif label in data.columns:
-            return data.loc[:, label]
+            selected_data = data.loc[:, label]
+        if isinstance(selected_data, pd.Series):
+            return selected_data.to_frame()
+        else:
+            return selected_data
     elif isinstance(label, list):
         cols_to_return = []
         for l in label:
