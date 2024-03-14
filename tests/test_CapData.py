@@ -482,6 +482,39 @@ class TestIndexCapdata():
         ]])
         assert out.shape[0] == 10
 
+    def test_list_of_labels_reg_col_keys_filtered(self, meas):
+        """
+        Test that a list of regression_col keys returns the columns that
+        are the regression_col and column_groups maps to in `data_filtered`.
+        """
+        meas.data_filtered = meas.data.iloc[0:10, :].copy()
+        out = pvc.index_capdata(meas, ['poa', 't_amb'], filtered=True)
+        assert isinstance(out, pd.DataFrame)
+        assert out.equals(meas.data_filtered[[
+            'met1_poa_pyranometer',
+            'met2_poa_pyranometer',
+            'met1_amb_temp',
+            'met2_amb_temp',
+        ]])
+        assert out.shape[0] == 10
+
+    def test_list_of_labels_reg_col_keys_filtered_pvsyst(self, pvsyst_irr_filter):
+        """
+        Test that a list of regression_col keys returns the columns that
+        are the regression_col and column_groups maps to in `data_filtered`.
+        """
+        pvsyst_irr_filter.data_filtered = pvsyst_irr_filter.data.iloc[0:10, :].copy()
+        out = pvc.index_capdata(
+            pvsyst_irr_filter, ['poa', 't_amb', 'w_vel'], filtered=True
+        )
+        assert isinstance(out, pd.DataFrame)
+        assert out.equals(pvsyst_irr_filter.data_filtered[[
+            'GlobInc',
+            'T_Amb',
+            'WindVel',
+        ]])
+        assert out.shape[0] == 10
+
     def test_regcols_label_filtered(self, meas):
         """
         Test that passing the label `regcols` returns the columns of
@@ -522,7 +555,9 @@ class TestIndexCapdata():
         ]])
         assert out.shape[0] == 10
 
+    """#################################################"""
     """All below tests are for the filtered=False option."""
+    """#################################################"""
     def test_single_label_column_group_key(self, meas):
         """Test that column_groups key returns the columns of Capdata.data that
         are the values of the key."""
