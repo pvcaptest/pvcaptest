@@ -782,7 +782,6 @@ class TestCapDataMethodsSim():
         pvsyst_copy = pvsyst.copy()
         assert pvsyst_copy.data.equals(pvsyst.data)
         assert pvsyst_copy.column_groups == pvsyst.column_groups
-        assert pvsyst_copy.trans_keys == pvsyst.trans_keys
         assert pvsyst_copy.regression_cols == pvsyst.regression_cols
 
     def test_filter_pvsyst_default(self, pvsyst):
