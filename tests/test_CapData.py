@@ -1751,7 +1751,7 @@ class TestCskyFilter():
         assert nrel_clear_sky.data.index.difference(clear_ix).equals(cloudy_ix)
 
     def test_two_ghi_cols(self, nrel_clear_sky):
-        nrel_clear_sky.data['ws 2 ghi W/m^2'] = nrel_clear_sky.view('irr-ghi-') * 1.05
+        nrel_clear_sky.data['ws 2 ghi W/m^2'] = nrel_clear_sky.loc['irr-ghi-'] * 1.05
         nrel_clear_sky.data_filtered = nrel_clear_sky.data.copy()
         nrel_clear_sky.column_groups['irr-ghi-'].append('ws 2 ghi W/m^2')
         with pytest.warns(UserWarning):
@@ -1773,7 +1773,7 @@ class TestCskyFilter():
             nrel_clear_sky.filter_clearsky()
 
     def test_specify_ghi_col(self, nrel_clear_sky):
-        nrel_clear_sky.data['ws 2 ghi W/m^2'] = nrel_clear_sky.view('irr-ghi-') * 1.05
+        nrel_clear_sky.data['ws 2 ghi W/m^2'] = nrel_clear_sky.loc['irr-ghi-'] * 1.05
         nrel_clear_sky.data_filtered = nrel_clear_sky.data.copy()
         nrel_clear_sky.column_groups['irr-ghi-'].append('ws 2 ghi W/m^2')
         nrel_clear_sky.trans_keys = list(nrel_clear_sky.column_groups.keys())
