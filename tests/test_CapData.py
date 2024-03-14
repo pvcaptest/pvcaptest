@@ -1585,7 +1585,7 @@ class TestFilterIrr():
         assert col == 'POA 40-South CMP11 [W/m^2]'
 
     def test_get_poa_col_multcols(self, nrel):
-        nrel.data['POA second column'] = nrel.rview('poa').values
+        nrel.data['POA second column'] = nrel.loc['poa'].values
         nrel.column_groups['irr-poa-'].append('POA second column')
         with pytest.warns(UserWarning, match=(
             '[0-9]+ columns of irradiance data. Use col_name to specify a single column.'
@@ -1599,7 +1599,7 @@ class TestFilterIrr():
 
     def test_lowhigh_colname(self, nrel):
         pts_before = nrel.data_filtered.shape[0]
-        nrel.data['POA second column'] = nrel.rview('poa').values
+        nrel.data['POA second column'] = nrel.loc['poa'].values
         nrel.column_groups['irr-poa-'].append('POA second column')
         nrel.data_filtered = nrel.data.copy()
         nrel.filter_irr(
@@ -1615,7 +1615,7 @@ class TestFilterIrr():
 
     def test_refval_withcol(self, nrel):
         pts_before = nrel.data_filtered.shape[0]
-        nrel.data['POA second column'] = nrel.rview('poa').values
+        nrel.data['POA second column'] = nrel.loc['poa'].values
         nrel.column_groups['irr-poa-'].append('POA second column')
         nrel.data_filtered = nrel.data.copy()
         nrel.filter_irr(0.8, 1.2, ref_val=500,
@@ -1883,7 +1883,7 @@ class TestFilterMissing():
             t_amb='met2_amb_temp',
             w_vel='met1_windspeed',
         )
-        assert all(meas.rview('all', filtered_data=True).isna().sum() == 0)
+        assert all(meas.floc['regcols'].isna().sum() == 0)
         assert meas.data_filtered.shape[0] == 1440
         meas.data_filtered.loc['10/9/90 12:00', 'meter_power'] = np.NaN
         meas.data_filtered.loc['10/9/90 12:30', 'met1_poa_refcell'] = np.NaN
@@ -1900,7 +1900,7 @@ class TestFilterMissing():
             t_amb='met2_amb_temp',
             w_vel='met1_windspeed',
         )
-        assert all(meas.rview('all', filtered_data=True).isna().sum() == 0)
+        assert all(meas.floc['regcols'].isna().sum() == 0)
         assert meas.data_filtered.shape[0] == 1440
         assert meas.data_filtered.isna().sum().sum() > 0
         meas.filter_missing()
@@ -2149,7 +2149,7 @@ class TestGetFilteringTable:
         assert table_flt2_removed.equals(flt2_removed_ix)
         table_flt_all_column = flt_table.iloc[:, 3]
         table_flt_all_removed = table_flt_all_column[~table_flt_all_column].index
-        out = pd.concat([flt_table, nrel.rview('poa')], axis=1)
+        out = pd.concat([flt_table, nrel.loc['poa']], axis=1)
         assert table_flt_all_removed.equals(
             flt0_removed_ix.union(flt1_removed_ix).union(flt2_removed_ix)
         )
