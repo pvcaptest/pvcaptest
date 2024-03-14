@@ -482,7 +482,47 @@ class TestIndexCapdata():
         ]])
         assert out.shape[0] == 10
 
-    """All below tests are for the filter=False option."""
+    def test_regcols_label_filtered(self, meas):
+        """
+        Test that passing the label `regcols` returns the columns of
+        Capdata.data_filtered that are identified in `regression_cols`.
+        """
+        meas.data_filtered = meas.data.iloc[0:10, :].copy()
+        out = pvc.index_capdata(meas, 'regcols', filtered=True)
+        assert isinstance(out, pd.DataFrame)
+        assert out.equals(meas.data_filtered[[
+            'meter_power',
+            'met1_poa_pyranometer',
+            'met2_poa_pyranometer',
+            'met1_amb_temp',
+            'met2_amb_temp',
+            'met1_windspeed',
+            'met2_windspeed',
+        ]])
+        assert out.shape[0] == 10
+
+    def test_regcols_label_after_agg_cols_filtered(self, meas):
+        """
+        Test that passing the label `regcols` returns the columns of
+        Capdata.data_filtered that are identified in `regression_cols`.
+        """
+        meas.agg_sensors(agg_map={
+            'irr_poa_pyran': 'mean',
+            'temp_amb': 'mean',
+            'wind': 'mean',
+        })
+        meas.data_filtered = meas.data.iloc[0:10, :].copy()
+        out = pvc.index_capdata(meas, 'regcols', filtered=True)
+        assert isinstance(out, pd.DataFrame)
+        assert out.equals(meas.data_filtered[[
+            'meter_power',
+            'irr_poa_pyran_mean_agg',
+            'temp_amb_mean_agg',
+            'wind_mean_agg',
+        ]])
+        assert out.shape[0] == 10
+
+    """All below tests are for the filtered=False option."""
     def test_single_label_column_group_key(self, meas):
         """Test that column_groups key returns the columns of Capdata.data that
         are the values of the key."""
@@ -644,6 +684,46 @@ class TestIndexCapdata():
             'met2_poa_refcell',
             'met1_poa_pyranometer',
             'met1_windspeed',
+        ]])
+        assert out.shape[0] == 1440
+
+    def test_regcols_label(self, meas):
+        """
+        Test that passing the label `regcols` returns the columns of
+        Capdata.data that are identified in `regression_cols`.
+        """
+        meas.data_filtered = meas.data.iloc[0:10, :].copy()
+        out = pvc.index_capdata(meas, 'regcols', filtered=False)
+        assert isinstance(out, pd.DataFrame)
+        assert out.equals(meas.data[[
+            'meter_power',
+            'met1_poa_pyranometer',
+            'met2_poa_pyranometer',
+            'met1_amb_temp',
+            'met2_amb_temp',
+            'met1_windspeed',
+            'met2_windspeed',
+        ]])
+        assert out.shape[0] == 1440
+
+    def test_regcols_label_after_agg_cols(self, meas):
+        """
+        Test that passing the label `regcols` returns the columns of
+        Capdata that are identified in `regression_cols`.
+        """
+        meas.agg_sensors(agg_map={
+            'irr_poa_pyran': 'mean',
+            'temp_amb': 'mean',
+            'wind': 'mean',
+        })
+        meas.data_filtered = meas.data.iloc[0:10, :].copy()
+        out = pvc.index_capdata(meas, 'regcols', filtered=False)
+        assert isinstance(out, pd.DataFrame)
+        assert out.equals(meas.data[[
+            'meter_power',
+            'irr_poa_pyran_mean_agg',
+            'temp_amb_mean_agg',
+            'wind_mean_agg',
         ]])
         assert out.shape[0] == 1440
 

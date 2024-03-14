@@ -1389,10 +1389,38 @@ def overlay_scatters(measured, expected, expected_label='PVsyst'):
 
 
 def index_capdata(capdata, label, filtered=True):
+    """
+    Like Dataframe.loc but for CapData objects.
+
+    Pass a single label or list of labels to select the columns from the `data` or
+    `data_filtered` DataFrames. The label can be a column name, a column group key, or
+    a regression column key.
+
+    The special label `regcols` will return the columns identified in `regression_cols`.
+
+    Parameters
+    ----------
+    capdata : CapData
+        The CapData object to select from.
+    label : str or list
+        The label or list of labels to select from the `data` or `data_filtered`
+        DataFrames. The label can be a column name, a column group key, or a
+        regression column key. The special label `regcols` will return the columns
+        identified in `regression_cols`.
+    filtered : bool, default True
+        By default the method will return columns from the `data_filtered` DataFrame.
+        Set to False to return columns from the `data` DataFrame.
+
+    Returns
+    --------
+    DataFrame
+    """
     if filtered:
         data = capdata.data_filtered
     else:
         data = capdata.data
+    if label == 'regcols':
+        label = list(capdata.regression_cols.values())
     if isinstance(label, str):
         if label in capdata.column_groups.keys():
             selected_data = data[capdata.column_groups[label]]
@@ -1670,7 +1698,6 @@ class CapData(object):
 
         df.rename(columns=rename, inplace=True)
         return df
-
 
     def review_column_groups(self):
         """Print `column_groups` with nice formatting."""
