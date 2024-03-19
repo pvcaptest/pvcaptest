@@ -893,7 +893,6 @@ class TestCapDataMethodsSim():
         pvsyst.set_regression_cols(
             power='real_pwr--', poa='irr-ghi-', t_amb='temp_amb', w_vel='wind--'
         )
-        print(pvsyst.trans_keys)
         pvsyst_copy = pvsyst.copy()
         assert pvsyst_copy.data.equals(pvsyst.data)
         assert pvsyst_copy.column_groups == pvsyst.column_groups
