@@ -2881,7 +2881,7 @@ class CapData(object):
             See pandas Grouper doucmentation for details. Default is left
             labeled and left closed.
         """
-        df = self.floc[['poa', 't_amb', 'w_vel', 'power']],
+        df = self.floc[['poa', 't_amb', 'w_vel', 'power']]
         df = df.rename(columns={df.columns[0]: 'poa',
                                 df.columns[1]: 't_amb',
                                 df.columns[2]: 'w_vel',
