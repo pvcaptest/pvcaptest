@@ -2793,7 +2793,7 @@ class CapData(object):
         pandas DataFrame
             If pred=True, then returns a pandas dataframe of results.
         """
-        df = self.floc[['poa', 't_amb', 'w_vel']],
+        df = self.floc[['poa', 't_amb', 'w_vel']]
         df = df.rename(columns={df.columns[0]: 'poa',
                                 df.columns[1]: 't_amb',
                                 df.columns[2]: 'w_vel'})
