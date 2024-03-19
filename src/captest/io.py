@@ -162,7 +162,6 @@ def load_pvsyst(
         cd.data["E_Grid"] = cd.data["E_Grid"] / egrid_unit_adj_factor
     cd.data_filtered = cd.data.copy()
     cd.column_groups = cg.group_columns(cd.data)
-    cd.trans_keys = list(cd.column_groups.keys())
     if set_regression_columns:
         cd.set_regression_cols(
             power="E_Grid", poa="GlobInc", t_amb="T_Amb", w_vel="WindVel"
