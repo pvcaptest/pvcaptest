@@ -1585,8 +1585,7 @@ class TestPredictCapacities():
         pvsyst_irr_filter.data_filtered = pvsyst_irr_filter.data_filtered.loc['7/1/90':'7/31/90', :]
         pvsyst_irr_filter.rep_cond()
         pvsyst_irr_filter.filter_irr(0.8, 1.2, ref_val=pvsyst_irr_filter.rc['poa'][0])
-        df = pvsyst_irr_filter.rview(['power', 'poa', 't_amb', 'w_vel'],
-                               filtered_data=True)
+        df = pvsyst_irr_filter.floc['regcols']
         rename = {df.columns[0]: 'power',
                   df.columns[1]: 'poa',
                   df.columns[2]: 't_amb',
