@@ -2260,25 +2260,6 @@ class TestPointsSummary():
         assert results_str == captured.out
 
 
-class TestSetPlotsAttributes():
-    """Test assigning colors to each column using the keys of the column_grouping."""
-    def test_real_power_group_colors(self, meas):
-        """
-        Test that the color assigned to the column(s) in the `data` attributute is
-        one of the colors in the `plot_colors_brewer` dictionary with the real_pwr key.
-        """
-        meas.set_plot_attributes()
-        assert meas.col_colors['meter_power'] == '#2b8cbe'
-        assert meas.col_colors['met1_poa_refcell'] == '#e31a1c'
-        assert meas.col_colors['met2_poa_refcell'] == '#fd8d3c'
-        assert meas.col_colors['met2_poa_refcell'] == '#fd8d3c'
-        assert meas.col_colors['met1_ghi_pyranometer'] == '#91003f'
-        assert meas.col_colors['met1_amb_temp'] == '#238443'
-        assert meas.col_colors['met1_mod_temp1'] == '#88419d'
-        assert meas.col_colors['met1_windspeed'] == '#238b45'
-        assert meas.col_colors['inv1_power'] == '#d60000'
-
-
 class TestDataColumnsToExcel():
     """
     Test the `data_columns_to_excel` method of the `CapData` class.

@@ -1609,33 +1609,6 @@ class CapData(object):
         tests_indicating_empty = [self.data.empty, len(self.column_groups) == 0]
         return all(tests_indicating_empty)
 
-    def set_plot_attributes(self):
-        """Set column colors used in plot method."""
-        # dframe = self.data
-
-        group_id_regex = {
-            'real_pwr': re.compile(r'real_pwr|pwr|meter_power|active_pwr|active_power', re.IGNORECASE),
-            'irr_poa': re.compile(r'poa|irr_poa|poa_irr', re.IGNORECASE),
-            'irr_ghi': re.compile(r'ghi|irr_ghi|ghi_irr', re.IGNORECASE),
-            'temp_amb': re.compile(r'amb|temp.*amb', re.IGNORECASE),
-            'temp_mod': re.compile(r'bom|temp.*bom|module.*temp.*|temp.*mod.*', re.IGNORECASE),
-            'wind': re.compile(r'wind|w_vel|wspd|wind__', re.IGNORECASE),
-        }
-
-        for group_id, cols_in_group in self.column_groups.items():
-            col_key = None
-            for plot_colors_group_key, regex in group_id_regex.items():
-                if regex.match(group_id):
-                    col_key = plot_colors_group_key
-                    break
-            for i, col in enumerate(cols_in_group):
-                try:
-                    j = i % 4
-                    self.col_colors[col] = plot_colors_brewer[col_key][j]
-                except KeyError:
-                    j = i % 256
-                    self.col_colors[col] = cc.glasbey_dark[j]
-
     def drop_cols(self, columns):
         """
         Drop columns from CapData `data` and `column_groups`.
