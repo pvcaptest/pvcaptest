@@ -1482,15 +1482,15 @@ class FilteredLocIndexer(object):
 
 class CapData(object):
     """
-    Class to store capacity test data and translation of column names.
+    Class to store capacity test data and column grouping.
 
     CapData objects store a pandas dataframe of measured or simulated data
-    and a dictionary used grouping columns by type of measurement.
+    and a dictionary grouping columns by type of measurement.
 
     The `column_groups` dictionary allows maintaining the original column names
     while also grouping measurements of the same type from different
     sensors.  Many of the methods for plotting and filtering data rely on the
-    column groupings to streamline user interaction.
+    column groupings.
 
     Parameters
     ----------
@@ -1513,11 +1513,6 @@ class CapData(object):
         identified by the keys of `column_groups` are the independent variables
         of the ASTM Capacity test regression equation. Set using
         `set_regression_cols` or by directly assigning a dictionary.
-    trans_abrev : dictionary
-        Enumerated translation dict keys mapped to original column names.
-        Enumerated translation dict keys are used in plot hover tooltip.
-    col_colors : dictionary
-        Original column names mapped to a color for use in plot function.
     summary_ix : list of tuples
         Holds the row index data modified by the update_summary decorator
         function.
