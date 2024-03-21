@@ -37,7 +37,7 @@ To run a specific test:
 pytest tests/test_CapData.py::TestCapDataEmpty::test_capdata_empty
 
 To create a test coverage report (html output) with pytest:
-pytest --cov-report html --cov=captest tests/
+pytest --cov-report html --cov=src/captest tests/
 
 pytest fixtures meas, location_and_system, nrel, pvsyst, pvsyst_irr_filter, and
 nrel_clear_sky are in the ./tests/conftest.py file.
