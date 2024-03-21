@@ -10,6 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - `load_data` now checks if any individual files were loaded when loading multiple files from a directory.
+- Adds underlay curve of unfiltered power to the linked timeseries created when calling `scatter_hv` with `timeseries=True`.
+- Changes selected points on scatter plot and linked timeseries produced by `scatter_hv` to red.
 
 [0.12.0]: https://github.com/pvcaptest/pvcaptest/compare/v0.11.2...v0.12.0
 ## [0.12.0] - 2023-08-27
