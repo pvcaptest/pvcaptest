@@ -14,6 +14,9 @@ import colorcet as cc
 
 from .util import tags_by_regex, append_tags, read_json
 
+# disable error messages for panel dashboard
+pn.config.console_output = 'disable'
+
 COMBINE = {
     'poa_ghi': 'irr.*(poa|ghi)$',
     'poa_csky': '(?=.*poa)(?=.*irr)',
