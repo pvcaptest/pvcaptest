@@ -8,6 +8,7 @@ import pytz
 import numpy as np
 import pandas as pd
 import statsmodels.formula.api as smf
+import holoviews as hv
 import json
 import warnings
 
@@ -2041,6 +2042,18 @@ class TestDataColumnsToExcel():
         df = pd.read_excel(xlsx_file, header=None)
         assert df.iloc[0, 1] == 'inv1_power'
         os.remove(xlsx_file)
+
+
+class TestScatterHv():
+    """Test scatter_hv method of CapData class."""
+    def test_no_index_str_column_in_data(self, meas):
+        "Check that plot function works when there is no index column in the data."
+        meas.agg_sensors(agg_map={
+            'irr_poa_pyran': 'mean', 'temp_amb': 'mean', 'wind': 'mean'
+        })
+        assert 'index' not in meas.data.columns
+        plot = meas.scatter_hv()
+        assert isinstance(plot, hv.element.chart.Scatter)
 
 
 if __name__ == '__main__':
