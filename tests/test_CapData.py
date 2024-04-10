@@ -2055,6 +2055,18 @@ class TestScatterHv():
         plot = meas.scatter_hv()
         assert isinstance(plot, hv.element.chart.Scatter)
 
+    def test_curve_timeseries(self, meas):
+        """Test that the curve_timeseries method works. Shouldn't require `data` index
+        to have a specific name.
+        """
+        meas.agg_sensors(agg_map={
+            'irr_poa_pyran': 'mean', 'temp_amb': 'mean', 'wind': 'mean'
+        })
+        assert 'index' not in meas.data.columns
+        assert meas.data.index.name is None
+        plot = meas.scatter_hv(timeseries=True)
+        assert isinstance(plot, hv.core.layout.Layout)
+
 
 if __name__ == '__main__':
     unittest.main()

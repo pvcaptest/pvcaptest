@@ -1805,7 +1805,7 @@ class CapData(object):
             )
             power_col, poa_col = self.loc[['power', 'poa']].columns
             poa_vs_time_underlay = hv.Curve(
-                self.data,
+                self.data.rename_axis('Timestamp', axis='index'),
                 'Timestamp',
                 [power_col, poa_col],
             ).opts(
