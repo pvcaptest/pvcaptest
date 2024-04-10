@@ -1123,7 +1123,7 @@ def determine_pass_or_fail(cap_ratio, tolerance, nameplate):
         Limits for passing and failing test.
     """
     sign = tolerance.split(sep=' ')[0]
-    error = int(tolerance.split(sep=' ')[1]) / 100
+    error = float(tolerance.split(sep=' ')[1]) / 100
 
     nameplate_plus_error = nameplate * (1 + error)
     nameplate_minus_error = nameplate * (1 - error)
