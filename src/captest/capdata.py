@@ -2031,7 +2031,7 @@ class CapData(object):
         plots = []
 
         data = self.get_reg_cols(reg_vars='power', filtered_data=False)
-        data.reset_index(inplace=True)
+        data = data.rename_axis('Timestamp', axis='index').reset_index()
         plt_no_filtering  = hv.Curve(data, ['Timestamp'], ['power'], label='all')
         plt_no_filtering.opts(
             line_color='black',

@@ -2086,5 +2086,25 @@ class TestScatterFilters():
         assert isinstance(overlay, hv.core.overlay.Overlay)
 
 
+class TestTimeseriesFilters():
+    """Test the timeseries_filters method of the CapData class."""
+    def test_returns_overlay(self, meas):
+        """
+        Test that the timeseries_filters method of the CapData class returns a
+        holoviews overlay object.
+        """
+        meas.agg_sensors(agg_map={
+            'irr_poa_pyran': 'mean', 'temp_amb': 'mean', 'wind': 'mean'
+        })
+        meas.filter_irr(200, 900)
+        meas.filter_irr(400, 800)
+        # meas.data.index.name = 'Timestamp'
+        # meas.data_filtered.index.name = 'Timestamp'
+        overlay = meas.timeseries_filters()
+        assert 'index' not in meas.data.columns
+        assert 'index' not in meas.data_filtered.columns
+        assert isinstance(overlay, hv.core.overlay.Overlay)
+
+
 if __name__ == '__main__':
     unittest.main()
