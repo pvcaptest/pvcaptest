@@ -2068,5 +2068,23 @@ class TestScatterHv():
         assert isinstance(plot, hv.core.layout.Layout)
 
 
+class TestScatterFilters():
+    """Test the scatter_filters method of the CapData class."""
+    def test_returns_overlay(self, meas):
+        """
+        Test that the scatter_filters method of the CapData class returns a
+        holoviews overlay object.
+        """
+        meas.agg_sensors(agg_map={
+            'irr_poa_pyran': 'mean', 'temp_amb': 'mean', 'wind': 'mean'
+        })
+        meas.filter_irr(200, 900)
+        meas.filter_irr(400, 800)
+        overlay = meas.scatter_filters()
+        assert 'index' not in meas.data.columns
+        assert 'index' not in meas.data_filtered.columns
+        assert isinstance(overlay, hv.core.overlay.Overlay)
+
+
 if __name__ == '__main__':
     unittest.main()

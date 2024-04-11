@@ -1983,7 +1983,7 @@ class CapData(object):
         scatters = []
 
         data = self.get_reg_cols(reg_vars=['power', 'poa'], filtered_data=False)
-        data['index'] = self.data.loc[:, 'index']
+        data['index'] = self.data.index
         plt_no_filtering = hv.Scatter(data, 'poa', ['power', 'index']).relabel('all')
         scatters.append(plt_no_filtering)
 
