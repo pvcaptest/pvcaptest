@@ -40,7 +40,7 @@ from bokeh.io import show
 from bokeh.plotting import figure
 from bokeh.palettes import Category10
 from bokeh.layouts import gridplot
-from bokeh.models import Legend, HoverTool, ColumnDataSource
+from bokeh.models import Legend, HoverTool, ColumnDataSource, NumeralTickFormatter
 
 import param
 
@@ -1793,6 +1793,7 @@ class CapData(object):
             width=400,
             selection_fill_color='red',
             selection_line_color='red',
+            yformatter=NumeralTickFormatter(format='0,0'),
         )
         # layout_scatter = (poa_vs_kw).opts(opt_dict)
         if timeseries:
@@ -1815,6 +1816,7 @@ class CapData(object):
                 line_color='gray',
                 line_width=1,
                 line_alpha=0.4,
+                yformatter=NumeralTickFormatter(format='0,0'),
             )
             layout_timeseries = (poa_vs_kw + poa_vs_time * poa_vs_time_underlay)
             DataLink(poa_vs_kw, poa_vs_time)
@@ -2012,6 +2014,7 @@ class CapData(object):
                 fill_alpha=0.4,
                 line_width=0,
                 tools=['hover'],
+                yformatter=NumeralTickFormatter(format='0,0'),
             ),
             hv.opts.Overlay(
                 legend_position='right',
@@ -2067,6 +2070,7 @@ class CapData(object):
                 fill_alpha=1,
                 line_width=0,
                 tools=['hover'],
+                yformatter=NumeralTickFormatter(format='0,0'),
             ),
             hv.opts.Overlay(
                 legend_position='bottom',
