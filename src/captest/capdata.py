@@ -2031,8 +2031,8 @@ class CapData(object):
         plots = []
 
         data = self.get_reg_cols(reg_vars='power', filtered_data=False)
-        data = data.rename_axis('Timestamp', axis='index').reset_index()
-        plt_no_filtering  = hv.Curve(data, ['Timestamp'], ['power'], label='all')
+        data['Timestamp'] = data.index
+        plt_no_filtering = hv.Curve(data, ['Timestamp'], ['power'], label='all')
         plt_no_filtering.opts(
             line_color='black',
             line_width=1,
@@ -2042,9 +2042,10 @@ class CapData(object):
         plots.append(plt_no_filtering)
 
         d1 = self.rview('power').loc[self.removed[0]['index'], :]
+        d1 = data.loc[self.removed[0]['index'], :]
         plt_first_filter = hv.Scatter(
-            (d1.index, d1.iloc[:, 0]),
-            label=self.removed[0]['name'])
+            d1, ['Timestamp'], ['power'], label=self.removed[0]['name']
+        )
         plots.append(plt_first_filter)
 
         for i, filtering_step in enumerate(self.kept):
@@ -2052,8 +2053,10 @@ class CapData(object):
                 break
             else:
                 flt_legend = self.kept[i + 1]['name']
-            d_flt = self.rview('power').loc[filtering_step['index'], :]
-            plt = hv.Scatter((d_flt.index, d_flt.iloc[:, 0]), label=flt_legend)
+            d_flt = data.loc[filtering_step['index'], :]
+            plt = hv.Scatter(
+                d_flt, ['Timestamp'], ['power'], label=flt_legend
+            )
             plots.append(plt)
 
         scatter_overlay = hv.Overlay(plots)
