@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Adds underlay curve of unfiltered power to the linked timeseries created when calling `scatter_hv` with `timeseries=True`.
 - Changes selected points on scatter plot and linked timeseries produced by `scatter_hv` to red.
 - Tolerances may now be fractions eg '- 3.5'
+- The plotting methods `scatter_hv`, `scatter_filters`, and `timeseries_filters` do not require a column labeled 'index' with string datetimes in the `data` DataFrame anymore. Also, the index of the `data` DataFrame does not need to be named 'Timeseries'.
 
 [0.12.0]: https://github.com/pvcaptest/pvcaptest/compare/v0.11.2...v0.12.0
 ## [0.12.0] - 2023-08-27
