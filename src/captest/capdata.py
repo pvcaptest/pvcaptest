@@ -40,7 +40,7 @@ from bokeh.io import show
 from bokeh.plotting import figure
 from bokeh.palettes import Category10
 from bokeh.layouts import gridplot
-from bokeh.models import Legend, HoverTool, ColumnDataSource
+from bokeh.models import Legend, HoverTool, ColumnDataSource, NumeralTickFormatter
 
 import param
 
@@ -1785,39 +1785,51 @@ class CapData(object):
         vdims = ['power', 'index']
         if all_reg_columns:
             vdims.extend(list(df.columns.difference(vdims)))
+        hover = HoverTool(
+            tooltips=[
+                ('datetime', '@index{%Y-%m-%d %H:%M}'),
+                ('poa', '@poa{0,0.0}'),
+                ('power', '@power{0,0.0}'),
+            ],
+            formatters={
+                '@index': 'datetime',
+            }
+        )
         poa_vs_kw = hv.Scatter(df, 'poa', vdims).opts(
             size=5,
-            tools=['hover', 'lasso_select', 'box_select'],
+            tools=[hover, 'lasso_select', 'box_select'],
             legend_position='right',
             height=400,
             width=400,
             selection_fill_color='red',
             selection_line_color='red',
+            yformatter=NumeralTickFormatter(format='0,0'),
         )
         # layout_scatter = (poa_vs_kw).opts(opt_dict)
         if timeseries:
-            poa_vs_time = hv.Scatter(df, 'index', ['power', 'poa']).opts(
-                tools=['hover', 'lasso_select', 'box_select'],
+            power_vs_time = hv.Scatter(df, 'index', ['power', 'poa']).opts(
+                tools=[hover, 'lasso_select', 'box_select'],
                 height=400,
                 width=800,
                 selection_fill_color='red',
                 selection_line_color='red',
             )
             power_col, poa_col = self.loc[['power', 'poa']].columns
-            poa_vs_time_underlay = hv.Curve(
-                self.data,
-                'Timestamp',
+            power_vs_time_underlay = hv.Curve(
+                self.data.rename_axis('index', axis='index'),
+                'index',
                 [power_col, poa_col],
             ).opts(
-                tools=['hover', 'lasso_select', 'box_select'],
+                tools=['lasso_select', 'box_select'],
                 height=400,
                 width=800,
                 line_color='gray',
                 line_width=1,
                 line_alpha=0.4,
+                yformatter=NumeralTickFormatter(format='0,0'),
             )
-            layout_timeseries = (poa_vs_kw + poa_vs_time * poa_vs_time_underlay)
-            DataLink(poa_vs_kw, poa_vs_time)
+            layout_timeseries = (poa_vs_kw + power_vs_time * power_vs_time_underlay)
+            DataLink(poa_vs_kw, power_vs_time)
             return(layout_timeseries.cols(1))
         else:
             return(poa_vs_kw)
@@ -1983,7 +1995,7 @@ class CapData(object):
         scatters = []
 
         data = self.get_reg_cols(reg_vars=['power', 'poa'], filtered_data=False)
-        data['index'] = self.data.loc[:, 'index']
+        data['index'] = self.data.index
         plt_no_filtering = hv.Scatter(data, 'poa', ['power', 'index']).relabel('all')
         scatters.append(plt_no_filtering)
 
@@ -2003,6 +2015,16 @@ class CapData(object):
             scatters.append(plt)
 
         scatter_overlay = hv.Overlay(scatters)
+        hover = HoverTool(
+            tooltips=[
+                ('datetime', '@index{%Y-%m-%d %H:%M}'),
+                ('poa', '@poa{0,0.0}'),
+                ('power', '@power{0,0.0}'),
+            ],
+            formatters={
+                '@index': 'datetime',
+            }
+        )
         scatter_overlay.opts(
             hv.opts.Scatter(
                 size=5,
@@ -2011,7 +2033,8 @@ class CapData(object):
                 muted_fill_alpha=0,
                 fill_alpha=0.4,
                 line_width=0,
-                tools=['hover'],
+                tools=[hover],
+                yformatter=NumeralTickFormatter(format='0,0'),
             ),
             hv.opts.Overlay(
                 legend_position='right',
@@ -2031,8 +2054,8 @@ class CapData(object):
         plots = []
 
         data = self.get_reg_cols(reg_vars='power', filtered_data=False)
-        data.reset_index(inplace=True)
-        plt_no_filtering  = hv.Curve(data, ['Timestamp'], ['power'], label='all')
+        data['Timestamp'] = data.index
+        plt_no_filtering = hv.Curve(data, ['Timestamp'], ['power'], label='all')
         plt_no_filtering.opts(
             line_color='black',
             line_width=1,
@@ -2042,9 +2065,10 @@ class CapData(object):
         plots.append(plt_no_filtering)
 
         d1 = self.rview('power').loc[self.removed[0]['index'], :]
+        d1 = data.loc[self.removed[0]['index'], :]
         plt_first_filter = hv.Scatter(
-            (d1.index, d1.iloc[:, 0]),
-            label=self.removed[0]['name'])
+            d1, ['Timestamp'], ['power'], label=self.removed[0]['name']
+        )
         plots.append(plt_first_filter)
 
         for i, filtering_step in enumerate(self.kept):
@@ -2052,18 +2076,30 @@ class CapData(object):
                 break
             else:
                 flt_legend = self.kept[i + 1]['name']
-            d_flt = self.rview('power').loc[filtering_step['index'], :]
-            plt = hv.Scatter((d_flt.index, d_flt.iloc[:, 0]), label=flt_legend)
+            d_flt = data.loc[filtering_step['index'], :]
+            plt = hv.Scatter(
+                d_flt, ['Timestamp'], ['power'], label=flt_legend
+            )
             plots.append(plt)
 
         scatter_overlay = hv.Overlay(plots)
+        hover = HoverTool(
+            tooltips=[
+                ('datetime', '@Timestamp{%Y-%m-%d %H:%M}'),
+                ('power', '@power{0,0.0}'),
+            ],
+            formatters={
+                '@Timestamp': 'datetime',
+            }
+        )
         scatter_overlay.opts(
             hv.opts.Scatter(
                 size=5,
                 muted_fill_alpha=0,
                 fill_alpha=1,
                 line_width=0,
-                tools=['hover'],
+                tools=[hover],
+                yformatter=NumeralTickFormatter(format='0,0'),
             ),
             hv.opts.Overlay(
                 legend_position='bottom',

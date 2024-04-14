@@ -8,6 +8,7 @@ import pytz
 import numpy as np
 import pandas as pd
 import statsmodels.formula.api as smf
+import holoviews as hv
 import json
 import warnings
 
@@ -2041,6 +2042,68 @@ class TestDataColumnsToExcel():
         df = pd.read_excel(xlsx_file, header=None)
         assert df.iloc[0, 1] == 'inv1_power'
         os.remove(xlsx_file)
+
+
+class TestScatterHv():
+    """Test scatter_hv method of CapData class."""
+    def test_no_index_str_column_in_data(self, meas):
+        "Check that plot function works when there is no index column in the data."
+        meas.agg_sensors(agg_map={
+            'irr_poa_pyran': 'mean', 'temp_amb': 'mean', 'wind': 'mean'
+        })
+        assert 'index' not in meas.data.columns
+        plot = meas.scatter_hv()
+        assert isinstance(plot, hv.element.chart.Scatter)
+
+    def test_curve_timeseries(self, meas):
+        """Test that the curve_timeseries method works. Shouldn't require `data` index
+        to have a specific name.
+        """
+        meas.agg_sensors(agg_map={
+            'irr_poa_pyran': 'mean', 'temp_amb': 'mean', 'wind': 'mean'
+        })
+        assert 'index' not in meas.data.columns
+        assert meas.data.index.name is None
+        plot = meas.scatter_hv(timeseries=True)
+        assert isinstance(plot, hv.core.layout.Layout)
+
+
+class TestScatterFilters():
+    """Test the scatter_filters method of the CapData class."""
+    def test_returns_overlay(self, meas):
+        """
+        Test that the scatter_filters method of the CapData class returns a
+        holoviews overlay object.
+        """
+        meas.agg_sensors(agg_map={
+            'irr_poa_pyran': 'mean', 'temp_amb': 'mean', 'wind': 'mean'
+        })
+        meas.filter_irr(200, 900)
+        meas.filter_irr(400, 800)
+        overlay = meas.scatter_filters()
+        assert 'index' not in meas.data.columns
+        assert 'index' not in meas.data_filtered.columns
+        assert isinstance(overlay, hv.core.overlay.Overlay)
+
+
+class TestTimeseriesFilters():
+    """Test the timeseries_filters method of the CapData class."""
+    def test_returns_overlay(self, meas):
+        """
+        Test that the timeseries_filters method of the CapData class returns a
+        holoviews overlay object.
+        """
+        meas.agg_sensors(agg_map={
+            'irr_poa_pyran': 'mean', 'temp_amb': 'mean', 'wind': 'mean'
+        })
+        meas.filter_irr(200, 900)
+        meas.filter_irr(400, 800)
+        # meas.data.index.name = 'Timestamp'
+        # meas.data_filtered.index.name = 'Timestamp'
+        overlay = meas.timeseries_filters()
+        assert 'index' not in meas.data.columns
+        assert 'index' not in meas.data_filtered.columns
+        assert isinstance(overlay, hv.core.overlay.Overlay)
 
 
 if __name__ == '__main__':
