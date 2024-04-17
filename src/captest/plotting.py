@@ -376,7 +376,7 @@ def plot(cd=None, cg=None, data=None, combine=COMBINE, default_groups=DEFAULT_GR
 
     # layout dashboard
     plotter = pn.Tabs(
-        ('Plots', plot_tag_groups(data, default_tags)),
+        ('Groups', plot_tag_groups(data, default_tags)),
         ('Layout', main_plot),
         ('Overlay', custom_plot),
     )

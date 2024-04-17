@@ -13,6 +13,8 @@ import warnings
 
 import pvlib
 
+import panel as pn
+
 from captest import capdata as pvc
 from captest import util
 from captest import columngroups as cg
@@ -2038,6 +2040,16 @@ class TestDataColumnsToExcel():
         df = pd.read_excel(xlsx_file, header=None)
         assert df.iloc[0, 1] == 'inv1_power'
         os.remove(xlsx_file)
+
+
+class TestPlotDashboard():
+    def test_plot(self, meas):
+        """Check types of returned dashboard and tabs."""
+        dboard = meas.plot()
+        assert isinstance(dboard, pn.layout.tabs.Tabs)
+        assert isinstance(dboard[0], pn.pane.holoviews.HoloViews)
+        assert isinstance(dboard[1], pn.layout.base.Column)
+        assert isinstance(dboard[2], pn.layout.base.Column)
 
 
 if __name__ == '__main__':
