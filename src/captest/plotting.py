@@ -111,7 +111,7 @@ def parse_combine(combine, column_groups=None, data=None, cd=None):
             group_re = re_str
         elif isinstance(re_str, list):
             if len(re_str) != 2:
-                warnings.userwarning(
+                warnings.warn(
                     'When passing a list of regex. There should be two strings. One for '
                     'identifying groups and one for identifying individual tags (columns).'
                 )
