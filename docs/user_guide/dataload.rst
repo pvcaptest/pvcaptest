@@ -90,6 +90,56 @@ Screenshot of the excel file loaded in the Concise Example Capacity Test showing
 
     The column names in the column groups template excel file are sorted alphabetically after reversing the names, so names with the same ending are grouped together. This is often a good starting point for grouping the columns, but it is not always correct, so review carefully!
 
+Dashboard
+---------
+
+The :py:meth:`~captest.capdata.CapData.plot` method of CapData objects will create a `Panel <https://panel.holoviz.org/>`_ dashboard that can be used to explore timeseries plots of the data.
+
+The dashboard contains three tabs: Groups, Layout, and Overlay.
+
+Groups Tab
+~~~~~~~~~~
+The first tab, Groups, presents a column of plots with a separate plot overlaying the measurements for each group of the :py:attr:`~captest.capdata.CapData.column_groups` attribute. The groups plotted are defined by the ``default_groups`` argument. This is the default tab when the dashboard is first opened.
+
+.. image:: ../_images/dboard_groups.png
+
+The ``default_groups`` argument can be used to specify which groups to plot by passing a list of regular expressions which are used to search the keys of the :py:attr:`~captest.capdata.CapData.column_groups` attribute. The default list of regular expressions attempts to create the following plots:
+
+* Metered power and sum of inverter power, group name is "inv_sum_mtr_pwr"
+* Inverter power output - group id must contain "real", "pwr", "inv"
+* Metered power output - group id must contain "real", "pwr", "mtr"
+* GHI irradiance
+* Modeled clear sky POA irradiance
+* Modeled clear sky GHI irradiance
+* Ambient temperature and BOM temperature - group name is "temp_amb_bom"
+
+The groups names ``inv_sum_mtr_pwr`` and ``temp_amb_bom`` are not keys from :py:attr:`~captest.capdata.CapData.column_groups`, but are created from the dictionary keys of the ``combine`` argument. These labels are for combinations of groups from the ``column_groups`` attribute. The ``combine`` argument can be used to create these combined groups by passing a dictionary of group names and regular expressions. The regular expressions are used to identify groups from :py:attr:`~captest.capdata.CapData.column_groups` and individual tags (columns) of :py:attr:`~captest.capdata.CapData.data` to combine into new groups. The dictionary keys are strings which will be used as the names of new groups. Values should be either a string or a list of two strings. If a string, the string is used as a regex to identify groups to combine. If a list, the first string is used to identify groups to combine and the second is used to identify individual tags (columns) to combine.
+
+See the :py:func:`~captest.plotting.parse_combine` and :py:func:`~captest.plotting.find_default_groups` functions for more details.
+
+The `Layout` and `Overlay` tabs provide the same functionality of combining and selecting groups to be plotted on the `Groups` tab through a GUI without needing to write regular expressions.
+
+Layout Tab
+~~~~~~~~~~
+The `Layout` tab allows creating a column of plots like the `Groups` tab by selecting groups from the list.
+
+.. image:: ../_images/dboard_layout.png
+
+The button labeled "Set plots to current layout" above the list of groups can be used to replace the figure shown on the `Groups` tab with the current figure on the `Layout` tab. This will save a ``plot_defaults.json`` file in the current working directory that will be used to set the default groups for the `Groups` tab when the :py:meth:`~captest.capdata.CapData.plot` method is called. You will need to rerun the ``plot`` method to see the new defaults.
+
+.. note::
+
+    The ``plots_defaults.json`` file will override the ``default_groups`` argument. If you want to use the ``default_groups`` argument, you will need to delete the ``plot_defaults.json`` file.
+
+
+Overlay Tab
+~~~~~~~~~~~
+The `Overlay` tab allows picking a group or any combination of individual tags to overlay on a single plot similar to the functionality of the ``combine`` argument.
+
+.. image:: ../_images/dboard_overlay.png
+
+The list of groups and tags can be filtered using regular expressions. The text box at the top left of the tab is used to provide a label for the current overlay, which can be added to the list on the `Layout` tab by clicking the `Update` button. 
+
 Identifying Regression Data
 ---------------------------
 To perform the regression pvcaptest uses `statsmodels <https://www.statsmodels.org/stable/index.html>`_, which in turn `relies on patsy <https://www.statsmodels.org/stable/examples/notebooks/generated/formulas.html>`_ to simplify specifying regression equations.
