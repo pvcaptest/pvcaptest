@@ -228,7 +228,7 @@ def plot_group_tag_overlay(data, group_tags, column_tags, width=1500, height=400
     return plot_tag(data, joined_tags, width=width, height=height)
 
 
-def plot_tag_groups(data, tags_to_plot):
+def plot_tag_groups(data, tags_to_plot, width=1500, height=250):
     """
     Plot groups of tags, one of overlayed curves per group.
 
@@ -243,7 +243,7 @@ def plot_tag_groups(data, tags_to_plot):
     if len(tags_to_plot) == 0:
         tags_to_plot = [[]]
     for group in tags_to_plot:
-        plot = plot_tag(data, group)
+        plot = plot_tag(data, group, width=width, height=height)
         group_plots.append(plot)
     return hv.Layout(group_plots).cols(1)
 
@@ -332,14 +332,26 @@ def plot(cd=None, cg=None, data=None, combine=COMBINE, default_groups=DEFAULT_GR
 
     custom_plot_name = pn.widgets.TextInput()
     update = pn.widgets.Button(name='Update')
-
+    width_custom = pn.widgets.IntInput(
+        name='Plot Width', value=1500, start=200, end=2800, step=100, width=200
+    )
+    height_custom = pn.widgets.IntInput(
+        name='Plot height', value=400, start=150, end=800, step=50, width=200
+    )
     custom_plot = pn.Column(
-        pn.Row(custom_plot_name, update),
+        pn.Row(custom_plot_name, update, width_custom, height_custom),
         pn.Row(
             pn.WidgetBox(groups_re_input, groups),
             pn.WidgetBox(columns_re_input, tags),
         ),
-        pn.Row(pn.bind(plot_group_tag_overlay, data, groups, tags))
+        pn.Row(pn.bind(
+            plot_group_tag_overlay,
+            data,
+            groups,
+            tags,
+            width=width_custom,
+            height=height_custom,
+        ))
     )
 
     # setup group plotter for 'Main' tab
@@ -357,9 +369,17 @@ def plot(cd=None, cg=None, data=None, combine=COMBINE, default_groups=DEFAULT_GR
         main_ms.options = column_groups_
     update.on_click(add_custom_plot_group)
     plots_to_layout = pn.widgets.Button(name='Set plots to current layout')
+    width_main = pn.widgets.IntInput(
+        name='Plot Width', value=1500, start=200, end=2800, step=100, width=200
+    )
+    height_main = pn.widgets.IntInput(
+        name='Plot height', value=250, start=150, end=800, step=50, width=200
+    )
     main_plot = pn.Column(
-        pn.Row(pn.WidgetBox(plots_to_layout, main_ms)),
-        pn.Row(pn.bind(plot_tag_groups, data, main_ms))
+        pn.Row(pn.WidgetBox(plots_to_layout, main_ms, pn.Row(width_main, height_main))),
+        pn.Row(pn.bind(
+            plot_tag_groups, data, main_ms, width=width_main, height=height_main
+        )),
     )
 
     def set_defaults(event):
