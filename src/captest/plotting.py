@@ -282,7 +282,15 @@ def filter_list(text_input, ms_to_filter, names, event=None):
     ms_to_filter.param.update(options=options)
 
 
-def plot(cd=None, cg=None, data=None, combine=COMBINE, default_groups=DEFAULT_GROUPS):
+def plot(
+    cd=None,
+    cg=None,
+    data=None,
+    combine=COMBINE,
+    default_groups=DEFAULT_GROUPS,
+    width=1500,
+    height=250,
+):
     """
     Create plotting dashboard.
 
@@ -307,6 +315,10 @@ def plot(cd=None, cg=None, data=None, combine=COMBINE, default_groups=DEFAULT_GR
     default_groups : list of str, optional
         List of regex strings to use to identify default groups to plot. See the
         `find_default_groups` function for more details.
+    width : int, optional
+        The width of the plots on the Groups tab.
+    height : int, optional
+        The height of the plots on the Groups tab.
     """
     if cd is not None:
         data = cd.data
@@ -396,7 +408,7 @@ def plot(cd=None, cg=None, data=None, combine=COMBINE, default_groups=DEFAULT_GR
 
     # layout dashboard
     plotter = pn.Tabs(
-        ('Groups', plot_tag_groups(data, default_tags)),
+        ('Groups', plot_tag_groups(data, default_tags, width=width, height=height)),
         ('Layout', main_plot),
         ('Overlay', custom_plot),
     )
