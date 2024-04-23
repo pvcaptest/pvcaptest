@@ -1812,6 +1812,7 @@ class CapData(object):
         default_groups=plotting.DEFAULT_GROUPS,
         width=1500,
         height=250,
+        **kwargs,
     ):
         """
         Create a dashboard to explore timeseries plots of the data.
@@ -1840,17 +1841,24 @@ class CapData(object):
         default_groups : list of str, optional
             List of regex strings to use to identify default groups to plot. See the
             `plotting.find_default_groups` function for more details.
-        width : int, optional
+        group_width : int, optional
             The width of the plots on the Groups tab.
-        height : int, optional
+        group_height : int, optional
             The height of the plots on the Groups tab.
+        **kwargs : optional
+            Additional keyword arguments are passed to the options of the scatter plot.
 
         Returns
         -------
         Panel tabbed layout
         """
         return plotting.plot(
-            self, combine=combine, default_groups=default_groups, width=width, height=height
+            self,
+            combine=combine,
+            default_groups=default_groups,
+            group_width=width,
+            group_height=height,
+            **kwargs,
         )
 
     def scatter_filters(self):

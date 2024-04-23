@@ -11,6 +11,7 @@ from panel.interact import fixed
 import holoviews as hv
 from holoviews import opts
 import colorcet as cc
+from bokeh.models import NumeralTickFormatter
 
 from .util import tags_by_regex, append_tags, read_json
 
@@ -282,14 +283,69 @@ def filter_list(text_input, ms_to_filter, names, event=None):
     ms_to_filter.param.update(options=options)
 
 
+def scatter_dboard(data, **kwargs):
+    """
+    Create a dashboard to plot any two columns of data against each other.
+
+    Parameters
+    ----------
+    data : pd.DataFrame
+        The data to plot.
+    **kwargs : optional
+        Pass additional keyword arguments to the holoviews options of the scatter plot.
+
+    Returns
+    -------
+    pn.Column
+        The dashboard with a scatter plot of the data.
+    """
+    cols = list(data.columns)
+    cols.sort()
+    x = pn.widgets.Select(name='x', value=cols[0], options=cols)
+    y = pn.widgets.Select(name='y', value=cols[1], options=cols)
+    slope = pn.widgets.Checkbox(name='Slope', value=True)
+
+    defaults = {
+        'width': 500,
+        'height': 500,
+        'fill_alpha': 0.4,
+        'line_alpha': 0,
+        'size': 4,
+        'yformatter': NumeralTickFormatter(format='0,0'),
+        'xformatter': NumeralTickFormatter(format='0,0'),
+    }
+    for opt, value in defaults.items():
+        kwargs.setdefault(opt, value)
+
+    def scatter(data, x, y, slope=True, **kwargs):
+        scatter_plot = hv.Scatter(data, x, y).opts(**kwargs)
+        slope_line = hv.Slope.from_scatter(scatter_plot).opts(
+            line_color='red',
+            line_width=1,
+            line_alpha=0.4,
+            line_dash=(5,3)
+        )
+        if slope:
+            return scatter_plot * slope_line
+        else:
+            return scatter_plot
+
+    dboard = pn.Column(
+        pn.Row(x, y, slope),
+        pn.bind(scatter, data, x, y, slope=slope, **kwargs)
+    )
+    return dboard
+
+
 def plot(
     cd=None,
     cg=None,
     data=None,
     combine=COMBINE,
     default_groups=DEFAULT_GROUPS,
-    width=1500,
-    height=250,
+    group_width=1500,
+    group_height=250,
+    **kwargs,
 ):
     """
     Create plotting dashboard.
@@ -315,10 +371,13 @@ def plot(
     default_groups : list of str, optional
         List of regex strings to use to identify default groups to plot. See the
         `find_default_groups` function for more details.
-    width : int, optional
+    group_width : int, optional
         The width of the plots on the Groups tab.
-    height : int, optional
+    group_height : int, optional
         The height of the plots on the Groups tab.
+    **kwargs : optional
+        Pass additional keyword arguments to the holoviews options of the scatter plot
+        on the 'Scatter' tab.
     """
     if cd is not None:
         data = cd.data
@@ -408,9 +467,10 @@ def plot(
 
     # layout dashboard
     plotter = pn.Tabs(
-        ('Groups', plot_tag_groups(data, default_tags, width=width, height=height)),
+        ('Groups', plot_tag_groups(data, default_tags, width=group_width, height=group_height)),
         ('Layout', main_plot),
         ('Overlay', custom_plot),
+        ('Scatter', scatter_dboard(data, **kwargs)),
     )
     return plotter
 
