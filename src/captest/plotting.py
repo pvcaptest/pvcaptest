@@ -303,7 +303,7 @@ def scatter_dboard(data, **kwargs):
     cols.sort()
     x = pn.widgets.Select(name='x', value=cols[0], options=cols)
     y = pn.widgets.Select(name='y', value=cols[1], options=cols)
-    slope = pn.widgets.Checkbox(name='Slope', value=True)
+    # slope = pn.widgets.Checkbox(name='Slope', value=False)
 
     defaults = {
         'width': 500,
@@ -319,20 +319,25 @@ def scatter_dboard(data, **kwargs):
 
     def scatter(data, x, y, slope=True, **kwargs):
         scatter_plot = hv.Scatter(data, x, y).opts(**kwargs)
-        slope_line = hv.Slope.from_scatter(scatter_plot).opts(
-            line_color='red',
-            line_width=1,
-            line_alpha=0.4,
-            line_dash=(5,3)
-        )
-        if slope:
-            return scatter_plot * slope_line
-        else:
-            return scatter_plot
+        # if slope:
+        #     slope_line = hv.Slope.from_scatter(scatter_plot).opts(
+        #         line_color='red',
+        #         line_width=1,
+        #         line_alpha=0.4,
+        #         line_dash=(5,3)
+        #     )
+        # if slope:
+        #     return scatter_plot * slope_line
+        # else:
+        return scatter_plot
 
+    # dboard = pn.Column(
+    #     pn.Row(x, y, slope),
+    #     pn.bind(scatter, data, x, y, slope=slope, **kwargs)
+    # )
     dboard = pn.Column(
-        pn.Row(x, y, slope),
-        pn.bind(scatter, data, x, y, slope=slope, **kwargs)
+        pn.Row(x, y),
+        pn.bind(scatter, data, x, y, **kwargs)
     )
     return dboard
 
