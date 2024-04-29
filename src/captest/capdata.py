@@ -1430,6 +1430,13 @@ def index_capdata(capdata, label, filtered=True):
                 selected_data = data[capdata.column_groups[col_or_grp]]
             elif col_or_grp in data.columns:
                 selected_data = data[col_or_grp]
+            else:
+                warnings.warn(
+                    'Group or column "{}" mapped to the "{}" key of regression_cols '
+                    'not found in column_groups keys or columns of CapData.data'.format(
+                        col_or_grp, label
+                    )
+                )
         elif label in data.columns:
             selected_data = data.loc[:, label]
         if isinstance(selected_data, pd.Series):
