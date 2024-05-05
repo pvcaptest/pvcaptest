@@ -1347,6 +1347,7 @@ class TestAggSensors():
         assert meas.data_filtered.shape[0] == meas.data.shape[0]
         # Check for poa aggregation column
         assert 'irr_poa_pyran_mean_agg' in meas.data_filtered.columns
+        assert meas.regression_cols['poa'] == 'irr_poa_pyran_mean_agg'
 
     def test_agg_map_update_regression_cols(self, meas):
         meas.agg_sensors()

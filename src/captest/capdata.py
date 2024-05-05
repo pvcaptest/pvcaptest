@@ -2070,6 +2070,7 @@ class CapData(object):
                        self.regression_cols['w_vel']: 'mean'}
 
         dfs_to_concat = []
+        agg_names = {}
         for group_id, agg_func in agg_map.items():
             columns_to_aggregate = self.loc[group_id]
             if columns_to_aggregate.shape[1] == 1:
@@ -2081,23 +2082,23 @@ class CapData(object):
                 col_name = group_id + '_' + agg_func.__name__ + '_agg'
             agg_result.rename(columns={agg_result.columns[0]: col_name}, inplace=True)
             dfs_to_concat.append(agg_result)
+            agg_names[group_id] = col_name
 
         dfs_to_concat.append(self.data)
         # write over data and data_filtered attributes
         self.data = pd.concat(dfs_to_concat, axis=1)
         self.data_filtered = self.data.copy()
 
-        # update regression_cols attribute 
+        # update regression_cols attribute
         for reg_var, trans_group in self.regression_cols.items():
             if self.loc[reg_var].shape[1] == 1:
                 continue
-            if trans_group in agg_map.keys():
-                try:
-                    agg_col = trans_group + '_' + agg_map[trans_group] + '_agg'  # noqa: E501
-                except TypeError:
-                    agg_col = trans_group + '_' + col_name + '_agg'
-                print(agg_col)
-                self.regression_cols[reg_var] = agg_col
+            if trans_group in agg_names.keys():
+                print(
+                    "Regression variable '{}' has been remapped: '{}' to '{}'"
+                    .format(reg_var, trans_group, agg_names[trans_group])
+                )
+                self.regression_cols[reg_var] = agg_names[trans_group]
 
     def data_columns_to_excel(self, sort_by_reversed_names=True):
         """
