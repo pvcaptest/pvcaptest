@@ -16,6 +16,7 @@ the plotting dependency on the CapData.trans_keys attribute.
 - Changes selected points on scatter plot and linked timeseries produced by `scatter_hv` to red.
 - Tolerances may now be fractions eg '- 3.5'
 - The plotting methods `scatter_hv`, `scatter_filters`, and `timeseries_filters` do not require a column labeled 'index' with string datetimes in the `data` DataFrame anymore. Also, the index of the `data` DataFrame does not need to be named 'Timeseries'.
+- Removes the `add_index_col` kwarg option from `util.reindex`.
 
 [0.12.0]: https://github.com/pvcaptest/pvcaptest/compare/v0.11.2...v0.12.0
 ## [0.12.0] - 2023-08-27
