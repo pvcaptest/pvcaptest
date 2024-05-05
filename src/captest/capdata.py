@@ -1928,7 +1928,7 @@ class CapData(object):
         )
         plots.append(plt_no_filtering)
 
-        d1 = self.loc['power'].loc[self.removed[0]['index'], :]
+        d1 = data.loc[self.removed[0]['index'], 'power']
         plt_first_filter = hv.Scatter(
             d1, ['Timestamp'], ['power'], label=self.removed[0]['name']
         )
