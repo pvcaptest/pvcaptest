@@ -1,3 +1,4 @@
+import re
 import json
 import yaml
 import numpy as np
@@ -61,7 +62,7 @@ def get_common_timestep(data, units='m', string_output=True):
     else:
         return freq
 
-def reindex_datetime(data, report=False, add_index_col=True):
+def reindex_datetime(data, report=False):
     """
     Find dataframe index frequency and reindex to add any missing intervals.
 
@@ -85,10 +86,6 @@ def reindex_datetime(data, report=False, add_index_col=True):
     df = df.reindex(index=full_ix)
     df_index_length = df.shape[0]
     missing_intervals = df_index_length - data_index_length
-
-    if add_index_col:
-        ix_ser = df.index.to_series()
-        df['index'] = ix_ser.apply(lambda x: x.strftime('%m/%d/%Y %H %M'))
 
     if report:
         print('Frequency determined to be ' + freq_str + ' minutes.')
@@ -136,3 +133,14 @@ def generate_irr_distribution(
         else:
             irr_values.append(next_val)
     return irr_values
+
+
+def tags_by_regex(tag_list, regex_str):
+    regex = re.compile(regex_str, re.IGNORECASE)
+    return [tag for tag in tag_list if regex.search(tag) is not None]
+
+
+def append_tags(sel_tags, tags, regex_str):
+    new_list = sel_tags.copy()
+    new_list.extend(tags_by_regex(tags, regex_str))
+    return new_list
