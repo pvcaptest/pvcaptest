@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [Unreleased]
 ### Added
 - `load_data` can read site location and system information for generating clear sky irradiance from a json or yaml file.
+- New plotting module with a plot function which replaces the CapData.plot method. The new plot function creates a panel dashboard with expanded functionality. Internally, removes
+the plotting dependency on the CapData.trans_keys attribute.
 
 ### Changed
 - `load_data` now checks if any individual files were loaded when loading multiple files from a directory.

@@ -290,7 +290,6 @@ class DataLoader:
             current_file, missing_intervals, freq_str = util.reindex_datetime(
                 file,
                 report=False,
-                add_index_col=True,
             )
             reindexed_dfs[name] = current_file
             file_frequencies.append(freq_str)

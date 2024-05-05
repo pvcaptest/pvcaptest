@@ -87,6 +87,7 @@ else:
                   'pvlib package.')
 
 from captest import util
+from captest import plotting
 
 plot_colors_brewer = {'real_pwr': ['#2b8cbe', '#7bccc4', '#bae4bc', '#f0f9e8'],
                       'irr_poa': ['#e31a1c', '#fd8d3c', '#fecc5c', '#ffffb2'],
@@ -1834,155 +1835,60 @@ class CapData(object):
         else:
             return(poa_vs_kw)
 
-    def plot(self, marker='line', ncols=1, width=1500, height=250,
-             legends=False, merge_grps=['irr', 'temp'], subset=None,
-             filtered=False, use_abrev_name=False, **kwargs):
+    def plot(
+        self,
+        combine=plotting.COMBINE,
+        default_groups=plotting.DEFAULT_GROUPS,
+        width=1500,
+        height=250,
+        **kwargs,
+    ):
         """
-        Create a plot for each group of sensors in self.column_groups.
+        Create a dashboard to explore timeseries plots of the data.
 
-        Function returns a Bokeh grid of figures.  A figure is generated for
-        each type of measurement identified by the keys in `column_groups` and
-        a line is plotted on the figure for each column of measurements of
-        that type.
+        The dashboard contains three tabs: Groups, Layout, and Overlay. The first tab,
+        Groups, presents a column of plots with a separate plot overlaying the measurements
+        for each group of the `column_groups`. The groups plotted are defined by the
+        `default_groups` argument.
 
-        For example, if there are multiple plane of array irradiance sensors,
-        the data from each one will be plotted on a single figure.
+        The second tab, Layout, allows manually selecting groups to plot. The button
+        on this tab can be used to replace the column of plots on the Groups tab with
+        the current figure on the Layout tab. Rerun this method after clicking the button
+        to see the new plots in the Groups tab.
 
-        Figures are not generated for categories that would plot more than 10
-        lines.
+        The third tab, Overlay, allows picking a group or any combination of individual
+        tags to overlay on a single plot. The list of groups and tags can be filtered
+        using regular expressions. Adding a text id in the box and clicking Update will
+        add the current overlay to the list of groups on the Layout tab.
 
         Parameters
         ----------
-        marker : str, default 'line'
-            Accepts 'line', 'circle', 'line-circle'.  These are bokeh marker
-            options.
-        ncols : int, default 2
-            Number of columns in the bokeh gridplot.
-        width : int, default 400
-            Width of individual plots in gridplot.
-        height: int, default 350
-            Height of individual plots in gridplot.
-        legends : bool, default False
-            Turn on or off legends for individual plots.
-        merge_grps : list, default ['irr', 'temp']
-            List of strings to search for in the `column_groups` keys.
-            A new entry is added to `column_groups` with keys following the
-            format 'search str_comb' and the value is a list of column names
-            that contain the search string. The default will combine all
-            irradiance measurements into a group and temperature measurements
-            into a group.
-
-            Pass an empty list to not merge any plots.
-
-            Use 'irr-poa' and 'irr-ghi' to plot clear sky modeled with measured
-            data.
-        subset : list, default None
-            List of the keys of `column_groups` to control the order of to plot
-            only a subset of the plots or control the order of plots.
-        filtered : bool, default False
-            Set to true to plot the filtered data.
-        kwargs
-            Pass additional options to bokeh gridplot.  Merge_tools=False will
-            shows the hover tool icon, so it can be turned off.
+        combine : dict, optional
+            Dictionary of group names and regex strings to use to identify groups from
+            column groups and individual tags (columns) to combine into new groups. See the
+            `parse_combine` function for more details.
+        default_groups : list of str, optional
+            List of regex strings to use to identify default groups to plot. See the
+            `plotting.find_default_groups` function for more details.
+        group_width : int, optional
+            The width of the plots on the Groups tab.
+        group_height : int, optional
+            The height of the plots on the Groups tab.
+        **kwargs : optional
+            Additional keyword arguments are passed to the options of the scatter plot.
 
         Returns
         -------
-        show(grid)
-            Command to show grid of figures.  Intended for use in jupyter
-            notebook.
+        Panel tabbed layout
         """
-        for str_val in merge_grps:
-            self.__comb_trans_keys(str_val)
-
-        if filtered:
-            dframe = self.data_filtered
-        else:
-            dframe = self.data
-        dframe.index.name = 'Timestamp'
-
-        names_to_abrev = {val: key for key, val in self.trans_abrev.items()}
-
-        plots = []
-        x_axis = None
-
-        source = ColumnDataSource(dframe)
-
-        hover = HoverTool()
-        hover.tooltips = [
-            ("Name", "$name"),
-            ("Datetime", "@Timestamp{%F %H:%M}"),
-            ("Value", "$y{0,0.00}"),
-        ]
-        hover.formatters = {"@Timestamp": "datetime"}
-
-        tools = 'pan, xwheel_pan, xwheel_zoom, box_zoom, save, reset'
-
-        if isinstance(subset, list):
-            plot_keys = subset
-        else:
-            plot_keys = self.trans_keys
-
-        for j, key in enumerate(plot_keys):
-            df = dframe[self.column_groups[key]]
-            cols = df.columns.tolist()
-
-            if x_axis is None:
-                p = figure(title=key, width=width, height=height,
-                           x_axis_type='datetime', tools=tools)
-                p.tools.append(hover)
-                x_axis = p.x_range
-            if j > 0:
-                p = figure(title=key, width=width, height=height,
-                           x_axis_type='datetime', x_range=x_axis, tools=tools)
-                p.tools.append(hover)
-            legend_items = []
-            for i, col in enumerate(cols):
-                if use_abrev_name:
-                    name = names_to_abrev[col]
-                else:
-                    name = col
-
-                if col.find('csky') == -1:
-                    line_dash = 'solid'
-                else:
-                    line_dash = (5, 2)
-
-                if marker == 'line':
-                    try:
-                        series = p.line('Timestamp', col, source=source,
-                                        line_color=self.col_colors[col],
-                                        line_dash=line_dash,
-                                        name=name)
-                    except KeyError:
-                            series = p.line('Timestamp', col, source=source,
-                                            line_dash=line_dash,
-                                            name=name)
-                elif marker == 'circle':
-                    series = p.circle('Timestamp', col,
-                                      source=source,
-                                      line_color=self.col_colors[col],
-                                      size=2, fill_color="white",
-                                      name=name)
-                if marker == 'line-circle':
-                    series = p.line('Timestamp', col, source=source,
-                                    line_color=self.col_colors[col],
-                                    name=name)
-                    series = p.circle('Timestamp', col,
-                                      source=source,
-                                      line_color=self.col_colors[col],
-                                      size=2, fill_color="white",
-                                      name=name)
-                legend_items.append((col, [series, ]))
-
-            legend = Legend(items=legend_items, location=(40, -5))
-            legend.label_text_font_size = '8pt'
-            if legends:
-                p.add_layout(legend, 'below')
-
-            plots.append(p)
-
-        grid = gridplot(plots, ncols=ncols, **kwargs)
-        return show(grid)
+        return plotting.plot(
+            self,
+            combine=combine,
+            default_groups=default_groups,
+            group_width=width,
+            group_height=height,
+            **kwargs,
+        )
 
     def scatter_filters(self):
         """

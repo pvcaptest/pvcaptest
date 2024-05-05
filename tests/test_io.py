@@ -627,9 +627,9 @@ class TestDataLoader:
         dl = DataLoader(tmp_path)
         dl.load()
         # print(dl.data.info())
-        # print(dl.data)
+        print(dl.data)
         assert isinstance(dl.data, pd.DataFrame)
-        assert dl.data.shape == (60, 3)
+        assert dl.data.shape == (60, 2)
 
     def test_load_all_files_in_directory_one_fails_to_load(self, tmp_path, capsys):
         """
@@ -693,7 +693,7 @@ class TestDataLoader:
         dl.files_to_load = [file_paths[0], file_paths[2]]
         dl.load()
         assert isinstance(dl.data, pd.DataFrame)
-        assert dl.data.shape == (40, 3)
+        assert dl.data.shape == (40, 2)
         assert dl.loaded_files["file_1"].index.equals(
             pd.date_range(start="8/1/22", periods=20, freq="1min")
         )
@@ -754,7 +754,7 @@ class TestLoadDataFunction:
             ).to_csv(csv_path)
         cd = load_data(tmp_path, drop_duplicates=False)
         assert isinstance(cd.data, pd.DataFrame)
-        assert cd.data.shape == (2900, 3)
+        assert cd.data.shape == (2900, 2)
 
     def test_adds_csky_when_passesed_site(self, location_and_system):
         site = {
@@ -846,7 +846,6 @@ class TestLoadDataMethods(unittest.TestCase):
             "ae_site_1_Weather Station 2 (Kipp GHI)_Weather Station 2 (Kipp GHI), Sun2_W/m²",
             "ae_site_1_Weather Station 1 (Standard w/ Kipp POA)_Weather Station 1 (Standard w/ Kipp POA), Sun_W/m²",
             "ae_site_1_Weather Station 1 (Standard w/ Kipp POA)_Weather Station 1 (Standard w/ Kipp POA), WindSpeed_mph",
-            "index",
         ]
         self.assertTrue(
             all(das_1.data.columns == col_names1),
@@ -866,10 +865,8 @@ class TestLoadDataMethods(unittest.TestCase):
             "ae_site_2_Weather Station 3 (Pad 3 - Main) (Standard w/o Mod, w/ Hukse POA)_Weather Station 3 (Pad 3 - Main) (Standard w/o Mod, w/ Hukse POA), Sun_W/m²",
             "ae_site_2_Weather Station 1 (Pad 1) (Standard w/o Mod, w/ Hukse POA)_Weather Station 1 (Pad 1) (Standard w/o Mod, w/ Hukse POA), WindSpeed_mph",
             "ae_site_2_Weather Station 3 (Pad 3 - Main) (Standard w/o Mod, w/ Hukse POA)_Weather Station 3 (Pad 3 - Main) (Standard w/o Mod, w/ Hukse POA), WindSpeed_mph",
-            "index",
         ]
         self.assertTrue(
             all(das_2.data.columns == col_names2),
             "Column names are not expected value for ae_site2",
         )
-
