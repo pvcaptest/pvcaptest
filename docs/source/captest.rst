@@ -44,6 +44,14 @@ captest.util module
    :undoc-members:
    :show-inheritance:
 
+captest.plotting module
+-------------------
+
+.. automodule:: captest.plotting
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 .. Module contents
 .. ---------------
 

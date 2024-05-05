@@ -40,7 +40,7 @@ from bokeh.io import show
 from bokeh.plotting import figure
 from bokeh.palettes import Category10
 from bokeh.layouts import gridplot
-from bokeh.models import Legend, HoverTool, ColumnDataSource
+from bokeh.models import Legend, HoverTool, ColumnDataSource, NumeralTickFormatter
 
 import param
 
@@ -87,6 +87,7 @@ else:
                   'pvlib package.')
 
 from captest import util
+from captest import plotting
 
 plot_colors_brewer = {'real_pwr': ['#2b8cbe', '#7bccc4', '#bae4bc', '#f0f9e8'],
                       'irr_poa': ['#e31a1c', '#fd8d3c', '#fecc5c', '#ffffb2'],
@@ -1149,7 +1150,7 @@ def determine_pass_or_fail(cap_ratio, tolerance, nameplate):
         Limits for passing and failing test.
     """
     sign = tolerance.split(sep=' ')[0]
-    error = int(tolerance.split(sep=' ')[1]) / 100
+    error = float(tolerance.split(sep=' ')[1]) / 100
 
     nameplate_plus_error = nameplate * (1 + error)
     nameplate_minus_error = nameplate * (1 - error)
@@ -1743,25 +1744,109 @@ class CapData(object):
         vdims = ['power', 'index']
         if all_reg_columns:
             vdims.extend(list(df.columns.difference(vdims)))
+        hover = HoverTool(
+            tooltips=[
+                ('datetime', '@index{%Y-%m-%d %H:%M}'),
+                ('poa', '@poa{0,0.0}'),
+                ('power', '@power{0,0.0}'),
+            ],
+            formatters={
+                '@index': 'datetime',
+            }
+        )
         poa_vs_kw = hv.Scatter(df, 'poa', vdims).opts(
             size=5,
-            tools=['hover', 'lasso_select', 'box_select'],
+            tools=[hover, 'lasso_select', 'box_select'],
             legend_position='right',
             height=400,
             width=400,
+            selection_fill_color='red',
+            selection_line_color='red',
+            yformatter=NumeralTickFormatter(format='0,0'),
         )
         # layout_scatter = (poa_vs_kw).opts(opt_dict)
         if timeseries:
-            poa_vs_time = hv.Curve(df, 'index', ['power', 'poa']).opts(
-                tools=['hover', 'lasso_select', 'box_select'],
+            power_vs_time = hv.Scatter(df, 'index', ['power', 'poa']).opts(
+                tools=[hover, 'lasso_select', 'box_select'],
                 height=400,
                 width=800,
+                selection_fill_color='red',
+                selection_line_color='red',
             )
-            layout_timeseries = (poa_vs_kw + poa_vs_time)
-            DataLink(poa_vs_kw, poa_vs_time)
+            power_col, poa_col = self.loc[['power', 'poa']].columns
+            power_vs_time_underlay = hv.Curve(
+                self.data.rename_axis('index', axis='index'),
+                'index',
+                [power_col, poa_col],
+            ).opts(
+                tools=['lasso_select', 'box_select'],
+                height=400,
+                width=800,
+                line_color='gray',
+                line_width=1,
+                line_alpha=0.4,
+                yformatter=NumeralTickFormatter(format='0,0'),
+            )
+            layout_timeseries = (poa_vs_kw + power_vs_time * power_vs_time_underlay)
+            DataLink(poa_vs_kw, power_vs_time)
             return(layout_timeseries.cols(1))
         else:
             return(poa_vs_kw)
+
+    def plot(
+        self,
+        combine=plotting.COMBINE,
+        default_groups=plotting.DEFAULT_GROUPS,
+        width=1500,
+        height=250,
+        **kwargs,
+    ):
+        """
+        Create a dashboard to explore timeseries plots of the data.
+
+        The dashboard contains three tabs: Groups, Layout, and Overlay. The first tab,
+        Groups, presents a column of plots with a separate plot overlaying the measurements
+        for each group of the `column_groups`. The groups plotted are defined by the
+        `default_groups` argument.
+
+        The second tab, Layout, allows manually selecting groups to plot. The button
+        on this tab can be used to replace the column of plots on the Groups tab with
+        the current figure on the Layout tab. Rerun this method after clicking the button
+        to see the new plots in the Groups tab.
+
+        The third tab, Overlay, allows picking a group or any combination of individual
+        tags to overlay on a single plot. The list of groups and tags can be filtered
+        using regular expressions. Adding a text id in the box and clicking Update will
+        add the current overlay to the list of groups on the Layout tab.
+
+        Parameters
+        ----------
+        combine : dict, optional
+            Dictionary of group names and regex strings to use to identify groups from
+            column groups and individual tags (columns) to combine into new groups. See the
+            `parse_combine` function for more details.
+        default_groups : list of str, optional
+            List of regex strings to use to identify default groups to plot. See the
+            `plotting.find_default_groups` function for more details.
+        group_width : int, optional
+            The width of the plots on the Groups tab.
+        group_height : int, optional
+            The height of the plots on the Groups tab.
+        **kwargs : optional
+            Additional keyword arguments are passed to the options of the scatter plot.
+
+        Returns
+        -------
+        Panel tabbed layout
+        """
+        return plotting.plot(
+            self,
+            combine=combine,
+            default_groups=default_groups,
+            group_width=width,
+            group_height=height,
+            **kwargs,
+        )
 
     def scatter_filters(self):
         """
@@ -1774,7 +1859,7 @@ class CapData(object):
         scatters = []
 
         data = self.get_reg_cols(reg_vars=['power', 'poa'], filtered_data=False)
-        data['index'] = self.data.loc[:, 'index']
+        data['index'] = self.data.index
         plt_no_filtering = hv.Scatter(data, 'poa', ['power', 'index']).relabel('all')
         scatters.append(plt_no_filtering)
 
@@ -1794,6 +1879,16 @@ class CapData(object):
             scatters.append(plt)
 
         scatter_overlay = hv.Overlay(scatters)
+        hover = HoverTool(
+            tooltips=[
+                ('datetime', '@index{%Y-%m-%d %H:%M}'),
+                ('poa', '@poa{0,0.0}'),
+                ('power', '@power{0,0.0}'),
+            ],
+            formatters={
+                '@index': 'datetime',
+            }
+        )
         scatter_overlay.opts(
             hv.opts.Scatter(
                 size=5,
@@ -1802,7 +1897,8 @@ class CapData(object):
                 muted_fill_alpha=0,
                 fill_alpha=0.4,
                 line_width=0,
-                tools=['hover'],
+                tools=[hover],
+                yformatter=NumeralTickFormatter(format='0,0'),
             ),
             hv.opts.Overlay(
                 legend_position='right',
@@ -1822,8 +1918,8 @@ class CapData(object):
         plots = []
 
         data = self.get_reg_cols(reg_vars='power', filtered_data=False)
-        data.reset_index(inplace=True)
-        plt_no_filtering  = hv.Curve(data, ['Timestamp'], ['power'], label='all')
+        data['Timestamp'] = data.index
+        plt_no_filtering = hv.Curve(data, ['Timestamp'], ['power'], label='all')
         plt_no_filtering.opts(
             line_color='black',
             line_width=1,
@@ -1834,8 +1930,8 @@ class CapData(object):
 
         d1 = self.loc['power'].loc[self.removed[0]['index'], :]
         plt_first_filter = hv.Scatter(
-            (d1.index, d1.iloc[:, 0]),
-            label=self.removed[0]['name'])
+            d1, ['Timestamp'], ['power'], label=self.removed[0]['name']
+        )
         plots.append(plt_first_filter)
 
         for i, filtering_step in enumerate(self.kept):
@@ -1843,18 +1939,30 @@ class CapData(object):
                 break
             else:
                 flt_legend = self.kept[i + 1]['name']
-            d_flt = self.loc['power'].loc[filtering_step['index'], :]
-            plt = hv.Scatter((d_flt.index, d_flt.iloc[:, 0]), label=flt_legend)
+            d_flt = data.loc[filtering_step['index'], :]
+            plt = hv.Scatter(
+                d_flt, ['Timestamp'], ['power'], label=flt_legend
+            )
             plots.append(plt)
 
         scatter_overlay = hv.Overlay(plots)
+        hover = HoverTool(
+            tooltips=[
+                ('datetime', '@Timestamp{%Y-%m-%d %H:%M}'),
+                ('power', '@power{0,0.0}'),
+            ],
+            formatters={
+                '@Timestamp': 'datetime',
+            }
+        )
         scatter_overlay.opts(
             hv.opts.Scatter(
                 size=5,
                 muted_fill_alpha=0,
                 fill_alpha=1,
                 line_width=0,
-                tools=['hover'],
+                tools=[hover],
+                yformatter=NumeralTickFormatter(format='0,0'),
             ),
             hv.opts.Overlay(
                 legend_position='bottom',

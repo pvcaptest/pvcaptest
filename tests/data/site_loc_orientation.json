@@ -1,0 +1,16 @@
+{
+    "loc": {
+        "latitude": 41.2,
+        "longitude": -71.5,
+        "altitude": 90,
+        "tz": "America/New_York"
+    },
+    "sys": {
+        "axis_tilt": 0,
+        "axis_azimuth": 180,
+        "max_angle": 60,
+        "backtrack": true,
+        "gcr": 0.40,
+        "albedo": 0.2
+    }
+}

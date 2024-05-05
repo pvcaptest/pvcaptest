@@ -1,4 +1,5 @@
 # this file is formatted with black
+import copy
 import dateutil
 import datetime
 from pathlib import Path
@@ -288,7 +289,6 @@ class DataLoader:
             current_file, missing_intervals, freq_str = util.reindex_datetime(
                 file,
                 report=False,
-                add_index_col=True,
             )
             reindexed_dfs[name] = current_file
             file_frequencies.append(freq_str)
@@ -497,13 +497,13 @@ def load_data(
         By default will create a new index for the data using the earliest datetime,
         latest datetime, and the most frequent time interval ensuring there are no
         missing intervals.
-    site : dict, default None
-        Pass a dictionary containing site data, which will be used to generate
-        modeled clear sky ghi and poa values. The clear sky irradiance values are
-        added to the data and the column_groups attribute is updated to include these
-        two irradiance columns. The site data dictionary should be
-        {sys: {system data}, loc: {location data}}. See the capdata.csky documentation
-        for the format of the system data and location data.
+    site : dict or str, default None
+        Pass a dictionary or path to a json or yaml file containing site data, which
+        will be used to generate modeled clear sky ghi and poa values. The clear sky
+        irradiance values are added to the data and the column_groups attribute is
+        updated to include these two irradiance columns. The site data dictionary should
+        be {sys: {system data}, loc: {location data}}. See the capdata.csky
+        documentation for the format of the system data and location data.
     column_groups_template : bool, default False
         If True, will call `CapData.data_columns_to_excel` to save a file to use to
         manually create column groupings at `path`.
@@ -542,10 +542,21 @@ def load_data(
         elif (p.suffix == '.xlsx') or (p.suffix == '.xls'):
             cd.column_groups = cg.ColumnGroups(load_excel_column_groups(group_columns))
     if site is not None:
-        cd.data = csky(cd.data, loc=site['loc'], sys=site['sys'])
-        cd.data_filtered = cd.data.copy()
-        cd.column_groups['irr-poa-clear_sky'] = ['poa_mod_csky']
-        cd.column_groups['irr-ghi-clear_sky'] = ['ghi_mod_csky']
+        if isinstance(site, str):
+            path_to_site = Path(site)
+            if path_to_site.is_file():
+                if path_to_site.suffix == ".json":
+                    site = util.read_json(site)
+                if (path_to_site.suffix == ".yaml") or (path_to_site.suffix == ".yml"):
+                    site = util.read_yaml(site)
+                cd.site = copy.deepcopy(site)
+        if isinstance(site, dict):
+            cd.data = csky(cd.data, loc=site['loc'], sys=site['sys'])
+            cd.data_filtered = cd.data.copy()
+            cd.column_groups['irr-poa-clear_sky'] = ['poa_mod_csky']
+            cd.column_groups['irr-ghi-clear_sky'] = ['ghi_mod_csky']
+    cd.trans_keys = list(cd.column_groups.keys())
+    cd.set_plot_attributes()
     if column_groups_template:
         cd.data_columns_to_excel()
     return cd

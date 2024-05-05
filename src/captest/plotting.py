@@ -11,8 +11,12 @@ from panel.interact import fixed
 import holoviews as hv
 from holoviews import opts
 import colorcet as cc
+from bokeh.models import NumeralTickFormatter
 
 from .util import tags_by_regex, append_tags, read_json
+
+# disable error messages for panel dashboard
+pn.config.console_output = 'disable'
 
 COMBINE = {
     'poa_ghi': 'irr.*(poa|ghi)$',
@@ -54,6 +58,13 @@ def find_default_groups(groups, default_groups):
         found_grp = tags_by_regex(groups, re_str)
         if len(found_grp) == 1:
             found_groups.append(found_grp[0])
+        elif len(found_grp) > 1:
+            warnings.warn(
+                f'More than one group found for regex string {re_str}. '
+                'Refine regex string to find only one group. '
+                f'Groups found: {found_grp}'
+
+            )
     return found_groups
 
 
@@ -101,7 +112,7 @@ def parse_combine(combine, column_groups=None, data=None, cd=None):
             group_re = re_str
         elif isinstance(re_str, list):
             if len(re_str) != 2:
-                warnings.userwarning(
+                warnings.warn(
                     'When passing a list of regex. There should be two strings. One for '
                     'identifying groups and one for identifying individual tags (columns).'
                 )
@@ -179,7 +190,8 @@ def plot_tag(data, tag, width=1500, height=250):
             width=width,
             height=height,
             muted_alpha=0,
-            tools=['hover']
+            tools=['hover'],
+            yformatter=NumeralTickFormatter(format='0,0'),
         ),
         opts.NdOverlay(width=width, height=height, legend_position='right')
     )
@@ -218,7 +230,7 @@ def plot_group_tag_overlay(data, group_tags, column_tags, width=1500, height=400
     return plot_tag(data, joined_tags, width=width, height=height)
 
 
-def plot_tag_groups(data, tags_to_plot):
+def plot_tag_groups(data, tags_to_plot, width=1500, height=250):
     """
     Plot groups of tags, one of overlayed curves per group.
 
@@ -233,7 +245,7 @@ def plot_tag_groups(data, tags_to_plot):
     if len(tags_to_plot) == 0:
         tags_to_plot = [[]]
     for group in tags_to_plot:
-        plot = plot_tag(data, group)
+        plot = plot_tag(data, group, width=width, height=height)
         group_plots.append(plot)
     return hv.Layout(group_plots).cols(1)
 
@@ -272,7 +284,75 @@ def filter_list(text_input, ms_to_filter, names, event=None):
     ms_to_filter.param.update(options=options)
 
 
-def plot(cd=None, cg=None, data=None, combine=COMBINE, default_groups=DEFAULT_GROUPS):
+def scatter_dboard(data, **kwargs):
+    """
+    Create a dashboard to plot any two columns of data against each other.
+
+    Parameters
+    ----------
+    data : pd.DataFrame
+        The data to plot.
+    **kwargs : optional
+        Pass additional keyword arguments to the holoviews options of the scatter plot.
+
+    Returns
+    -------
+    pn.Column
+        The dashboard with a scatter plot of the data.
+    """
+    cols = list(data.columns)
+    cols.sort()
+    x = pn.widgets.Select(name='x', value=cols[0], options=cols)
+    y = pn.widgets.Select(name='y', value=cols[1], options=cols)
+    # slope = pn.widgets.Checkbox(name='Slope', value=False)
+
+    defaults = {
+        'width': 500,
+        'height': 500,
+        'fill_alpha': 0.4,
+        'line_alpha': 0,
+        'size': 4,
+        'yformatter': NumeralTickFormatter(format='0,0'),
+        'xformatter': NumeralTickFormatter(format='0,0'),
+    }
+    for opt, value in defaults.items():
+        kwargs.setdefault(opt, value)
+
+    def scatter(data, x, y, slope=True, **kwargs):
+        scatter_plot = hv.Scatter(data, x, y).opts(**kwargs)
+        # if slope:
+        #     slope_line = hv.Slope.from_scatter(scatter_plot).opts(
+        #         line_color='red',
+        #         line_width=1,
+        #         line_alpha=0.4,
+        #         line_dash=(5,3)
+        #     )
+        # if slope:
+        #     return scatter_plot * slope_line
+        # else:
+        return scatter_plot
+
+    # dboard = pn.Column(
+    #     pn.Row(x, y, slope),
+    #     pn.bind(scatter, data, x, y, slope=slope, **kwargs)
+    # )
+    dboard = pn.Column(
+        pn.Row(x, y),
+        pn.bind(scatter, data, x, y, **kwargs)
+    )
+    return dboard
+
+
+def plot(
+    cd=None,
+    cg=None,
+    data=None,
+    combine=COMBINE,
+    default_groups=DEFAULT_GROUPS,
+    group_width=1500,
+    group_height=250,
+    **kwargs,
+):
     """
     Create plotting dashboard.
 
@@ -297,10 +377,21 @@ def plot(cd=None, cg=None, data=None, combine=COMBINE, default_groups=DEFAULT_GR
     default_groups : list of str, optional
         List of regex strings to use to identify default groups to plot. See the
         `find_default_groups` function for more details.
+    group_width : int, optional
+        The width of the plots on the Groups tab.
+    group_height : int, optional
+        The height of the plots on the Groups tab.
+    **kwargs : optional
+        Pass additional keyword arguments to the holoviews options of the scatter plot
+        on the 'Scatter' tab.
     """
     if cd is not None:
         data = cd.data
         cg = cd.column_groups
+    # make sure data is numeric
+    data = data.apply(pd.to_numeric, errors='coerce')
+    bool_columns = data.select_dtypes(include='bool').columns
+    data.loc[:, bool_columns] = data.loc[:, bool_columns].astype(int)
     # setup custom plot for 'Custom' tab
     groups = msel_from_column_groups(cg)
     tags = msel_from_column_groups({'all_tags': list(data.columns)}, groups=False)
@@ -318,14 +409,26 @@ def plot(cd=None, cg=None, data=None, combine=COMBINE, default_groups=DEFAULT_GR
 
     custom_plot_name = pn.widgets.TextInput()
     update = pn.widgets.Button(name='Update')
-
+    width_custom = pn.widgets.IntInput(
+        name='Plot Width', value=1500, start=200, end=2800, step=100, width=200
+    )
+    height_custom = pn.widgets.IntInput(
+        name='Plot height', value=400, start=150, end=800, step=50, width=200
+    )
     custom_plot = pn.Column(
-        pn.Row(custom_plot_name, update),
+        pn.Row(custom_plot_name, update, width_custom, height_custom),
         pn.Row(
             pn.WidgetBox(groups_re_input, groups),
             pn.WidgetBox(columns_re_input, tags),
         ),
-        pn.Row(pn.bind(plot_group_tag_overlay, data, groups, tags))
+        pn.Row(pn.bind(
+            plot_group_tag_overlay,
+            data,
+            groups,
+            tags,
+            width=width_custom,
+            height=height_custom,
+        ))
     )
 
     # setup group plotter for 'Main' tab
@@ -343,9 +446,17 @@ def plot(cd=None, cg=None, data=None, combine=COMBINE, default_groups=DEFAULT_GR
         main_ms.options = column_groups_
     update.on_click(add_custom_plot_group)
     plots_to_layout = pn.widgets.Button(name='Set plots to current layout')
+    width_main = pn.widgets.IntInput(
+        name='Plot Width', value=1500, start=200, end=2800, step=100, width=200
+    )
+    height_main = pn.widgets.IntInput(
+        name='Plot height', value=250, start=150, end=800, step=50, width=200
+    )
     main_plot = pn.Column(
-        pn.Row(pn.WidgetBox(plots_to_layout, main_ms)),
-        pn.Row(pn.bind(plot_tag_groups, data, main_ms))
+        pn.Row(pn.WidgetBox(plots_to_layout, main_ms, pn.Row(width_main, height_main))),
+        pn.Row(pn.bind(
+            plot_tag_groups, data, main_ms, width=width_main, height=height_main
+        )),
     )
 
     def set_defaults(event):
@@ -362,9 +473,10 @@ def plot(cd=None, cg=None, data=None, combine=COMBINE, default_groups=DEFAULT_GR
 
     # layout dashboard
     plotter = pn.Tabs(
-        ('Plots', plot_tag_groups(data, default_tags)),
+        ('Groups', plot_tag_groups(data, default_tags, width=group_width, height=group_height)),
         ('Layout', main_plot),
         ('Overlay', custom_plot),
+        ('Scatter', scatter_dboard(data, **kwargs)),
     )
     return plotter
 

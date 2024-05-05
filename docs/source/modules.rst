@@ -9,3 +9,4 @@ captest
    io
    prtest
    util
+   plotting

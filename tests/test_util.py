@@ -81,43 +81,12 @@ class TestReindexDatetime():
         """Check that missing intervals in the index are added to the dataframe."""
         df1, df2 = reindex_dfs
         df = pd.concat([df1, df2])
-        (df_reindexed, missing_intervals, freq_str) = util.reindex_datetime(
-            df, add_index_col=False
-        )
+        (df_reindexed, missing_intervals, freq_str) = util.reindex_datetime(df)
         assert df_reindexed.shape[0] == 10
 
-        df = pd.concat([df2, df1]) # reverse order, check sorting
-        (df_reindexed, missing_intervals, str) = util.reindex_datetime(
-            df, add_index_col=False
-        )
+        df = pd.concat([df2, df1])  # reverse order, check sorting
+        (df_reindexed, missing_intervals, str) = util.reindex_datetime(df)
         assert df_reindexed.shape[0] == 10
-
-    def test_adds_index_column(self, reindex_dfs):
-        """Check that a string representation of the datetime index is added."""
-        df1, df2 = reindex_dfs
-        df = pd.concat([df2, df1])
-        # df_reindexed = util.reindex_datetime(df, add_index_col=True)
-        (df_reindexed, missing_intervals, freq_str) = util.reindex_datetime(
-            df, add_index_col=True
-        )
-        assert df_reindexed.shape[1] == 2
-        assert isinstance((df_reindexed.loc[:, 'index'][0]), str)
-        datetime_str = df_reindexed.iloc[0, 1]
-        date_str = datetime_str.split(' ')[0]
-        assert len(date_str.split('/')[0]) == 2
-        assert len(date_str.split('/')[1]) == 2
-        assert len(date_str.split('/')[2]) == 4
 
     def test_isinstance_str(self):
         assert isinstance('test string', str)
-
-    def test_report_output(self, reindex_dfs):
-        """Check that a string representation of the datetime index is added."""
-        df1, df2 = reindex_dfs
-        df = pd.concat([df2, df1])
-        df_reindexed, missing_int, freq = util.reindex_datetime(
-            df, report=True, add_index_col=True
-        )
-        assert df_reindexed.shape[0] == 10
-        assert missing_int == 2
-        assert freq == '5min'
