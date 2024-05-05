@@ -190,7 +190,8 @@ def plot_tag(data, tag, width=1500, height=250):
             width=width,
             height=height,
             muted_alpha=0,
-            tools=['hover']
+            tools=['hover'],
+            yformatter=NumeralTickFormatter(format='0,0'),
         ),
         opts.NdOverlay(width=width, height=height, legend_position='right')
     )
