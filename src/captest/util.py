@@ -62,7 +62,7 @@ def get_common_timestep(data, units='m', string_output=True):
     else:
         return freq
 
-def reindex_datetime(data, report=False, add_index_col=True):
+def reindex_datetime(data, report=False):
     """
     Find dataframe index frequency and reindex to add any missing intervals.
 
@@ -86,10 +86,6 @@ def reindex_datetime(data, report=False, add_index_col=True):
     df = df.reindex(index=full_ix)
     df_index_length = df.shape[0]
     missing_intervals = df_index_length - data_index_length
-
-    if add_index_col:
-        ix_ser = df.index.to_series()
-        df['index'] = ix_ser.apply(lambda x: x.strftime('%m/%d/%Y %H %M'))
 
     if report:
         print('Frequency determined to be ' + freq_str + ' minutes.')
