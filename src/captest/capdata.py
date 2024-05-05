@@ -424,7 +424,34 @@ def check_all_perc_diff_comb(series, perc_diff):
     return all([perc_difference(x, y) < perc_diff for x, y in c])
 
 
-def sensor_filter(df, perc_diff):
+def abs_diff_from_average(series, threshold):
+    """Check each value in series <= average of other values.
+
+    Drops NaNs from series before calculating difference from average for each value.
+
+    Returns True if there is only one value in the series.
+
+    Parameters
+    ----------
+    series : pd.Series
+        Pandas series of values to check.
+    threshold : numeric
+        Threshold value for absolute difference from average.
+
+    Returns
+    -------
+    bool
+    """
+    series = series.dropna()
+    if len(series) == 1:
+        return True
+    abs_diffs = []
+    for i, val in enumerate(series):
+        abs_diffs.append(abs(val - series.drop(series.index[i]).mean()) <= threshold)
+    return all(abs_diffs)
+
+
+def sensor_filter(df, threshold, row_filter=check_all_perc_diff_comb):
     """
     Check dataframe for rows with inconsistent values.
 
@@ -437,8 +464,7 @@ def sensor_filter(df, perc_diff):
         Percent difference as decimal.
     """
     if df.shape[1] >= 2:
-        bool_ser = df.apply(check_all_perc_diff_comb, perc_diff=perc_diff,
-                            axis=1)
+        bool_ser = df.apply(row_filter, args=(threshold, ), axis=1)
         return df[bool_ser].index
     elif df.shape[1] == 1:
         return df.index
@@ -1364,17 +1390,60 @@ def overlay_scatters(measured, expected, expected_label='PVsyst'):
 
 
 def index_capdata(capdata, label, filtered=True):
+    """
+    Like Dataframe.loc but for CapData objects.
+
+    Pass a single label or list of labels to select the columns from the `data` or
+    `data_filtered` DataFrames. The label can be a column name, a column group key, or
+    a regression column key.
+
+    The special label `regcols` will return the columns identified in `regression_cols`.
+
+    Parameters
+    ----------
+    capdata : CapData
+        The CapData object to select from.
+    label : str or list
+        The label or list of labels to select from the `data` or `data_filtered`
+        DataFrames. The label can be a column name, a column group key, or a
+        regression column key. The special label `regcols` will return the columns
+        identified in `regression_cols`.
+    filtered : bool, default True
+        By default the method will return columns from the `data_filtered` DataFrame.
+        Set to False to return columns from the `data` DataFrame.
+
+    Returns
+    --------
+    DataFrame
+    """
     if filtered:
         data = capdata.data_filtered
     else:
         data = capdata.data
+    if label == 'regcols':
+        label = list(capdata.regression_cols.values())
     if isinstance(label, str):
         if label in capdata.column_groups.keys():
-            return data[capdata.column_groups[label]]
+            selected_data = data[capdata.column_groups[label]]
         elif label in capdata.regression_cols.keys():
-            return data[capdata.column_groups[capdata.regression_cols[label]]]
+            col_or_grp = capdata.regression_cols[label]
+            if col_or_grp in capdata.column_groups.keys():
+                selected_data = data[capdata.column_groups[col_or_grp]]
+            elif col_or_grp in data.columns:
+                selected_data = data[col_or_grp]
+            else:
+                warnings.warn(
+                    'Group or column "{}" mapped to the "{}" key of regression_cols '
+                    'not found in column_groups keys or columns of CapData.data'.format(
+                        col_or_grp, label
+                    )
+                )
         elif label in data.columns:
-            return data.loc[:, label]
+            selected_data = data.loc[:, label]
+        if isinstance(selected_data, pd.Series):
+            return selected_data.to_frame()
+        else:
+            return selected_data
     elif isinstance(label, list):
         cols_to_return = []
         for l in label:
@@ -1421,15 +1490,15 @@ class FilteredLocIndexer(object):
 
 class CapData(object):
     """
-    Class to store capacity test data and translation of column names.
+    Class to store capacity test data and column grouping.
 
     CapData objects store a pandas dataframe of measured or simulated data
-    and a dictionary used grouping columns by type of measurement.
+    and a dictionary grouping columns by type of measurement.
 
     The `column_groups` dictionary allows maintaining the original column names
     while also grouping measurements of the same type from different
     sensors.  Many of the methods for plotting and filtering data rely on the
-    column groupings to streamline user interaction.
+    column groupings.
 
     Parameters
     ----------
@@ -1447,18 +1516,11 @@ class CapData(object):
         `group_columns` creates an abbreviated name and a list of columns that
         contain measurements of that type. The abbreviated names are the keys
         and the corresponding values are the lists of columns.
-    trans_keys : list
-        Simply a list of the `column_groups` keys.
     regression_cols : dictionary
         Dictionary identifying which columns in `data` or groups of columns as
         identified by the keys of `column_groups` are the independent variables
         of the ASTM Capacity test regression equation. Set using
         `set_regression_cols` or by directly assigning a dictionary.
-    trans_abrev : dictionary
-        Enumerated translation dict keys mapped to original column names.
-        Enumerated translation dict keys are used in plot hover tooltip.
-    col_colors : dictionary
-        Original column names mapped to a color for use in plot function.
     summary_ix : list of tuples
         Holds the row index data modified by the update_summary decorator
         function.
@@ -1483,10 +1545,7 @@ class CapData(object):
         self.data = pd.DataFrame()
         self.data_filtered = None
         self.column_groups = {}
-        self.trans_keys = []
         self.regression_cols = {}
-        self.trans_abrev = {}
-        self.col_colors = {}
         self.summary_ix = []
         self.summary = []
         self.removed = []
@@ -1494,8 +1553,9 @@ class CapData(object):
         self.filter_counts = {}
         self.rc = None
         self.regression_results = None
-        self.regression_formula = ('power ~ poa + I(poa * poa)'
-                                   '+ I(poa * t_amb) + I(poa * w_vel) - 1')
+        self.regression_formula = (
+            'power ~ poa + I(poa * poa) + I(poa * t_amb) + I(poa * w_vel) - 1'
+        )
         self.tolerance = None
         self.pre_agg_cols = None
         self.pre_agg_trans = None
@@ -1536,11 +1596,7 @@ class CapData(object):
         cd_c.data = self.data.copy()
         cd_c.data_filtered = self.data_filtered.copy()
         cd_c.column_groups = copy.copy(self.column_groups)
-        cd_c.trans_keys = copy.copy(self.trans_keys)
         cd_c.regression_cols = copy.copy(self.regression_cols)
-        cd_c.trans_abrev = copy.copy(self.trans_abrev)
-        cd_c.col_colors = copy.copy(self.col_colors)
-        cd_c.col_colors = copy.copy(self.col_colors)
         cd_c.summary_ix = copy.copy(self.summary_ix)
         cd_c.summary = copy.copy(self.summary)
         cd_c.rc = copy.copy(self.rc)
@@ -1553,36 +1609,8 @@ class CapData(object):
 
     def empty(self):
         """Return a boolean indicating if the CapData object contains data."""
-        tests_indicating_empty = [self.data.empty, len(self.trans_keys) == 0,
-                                  len(self.column_groups) == 0]
+        tests_indicating_empty = [self.data.empty, len(self.column_groups) == 0]
         return all(tests_indicating_empty)
-
-    def set_plot_attributes(self):
-        """Set column colors used in plot method."""
-        # dframe = self.data
-
-        group_id_regex = {
-            'real_pwr': re.compile(r'real_pwr|pwr|meter_power|active_pwr|active_power', re.IGNORECASE),
-            'irr_poa': re.compile(r'poa|irr_poa|poa_irr', re.IGNORECASE),
-            'irr_ghi': re.compile(r'ghi|irr_ghi|ghi_irr', re.IGNORECASE),
-            'temp_amb': re.compile(r'amb|temp.*amb', re.IGNORECASE),
-            'temp_mod': re.compile(r'bom|temp.*bom|module.*temp.*|temp.*mod.*', re.IGNORECASE),
-            'wind': re.compile(r'wind|w_vel|wspd|wind__', re.IGNORECASE),
-        }
-
-        for group_id, cols_in_group in self.column_groups.items():
-            col_key = None
-            for plot_colors_group_key, regex in group_id_regex.items():
-                if regex.match(group_id):
-                    col_key = plot_colors_group_key
-                    break
-            for i, col in enumerate(cols_in_group):
-                try:
-                    j = i % 4
-                    self.col_colors[col] = plot_colors_brewer[col_key][j]
-                except KeyError:
-                    j = i % 256
-                    self.col_colors[col] = cc.glasbey_dark[j]
 
     def drop_cols(self, columns):
         """
@@ -1626,7 +1654,10 @@ class CapData(object):
         """
         if reg_vars is None:
             reg_vars = list(self.regression_cols.keys())
-        df = self.rview(reg_vars, filtered_data=filtered_data).copy()
+        if filtered_data:
+            df = self.floc[reg_vars].copy()
+        else:
+            df = self.loc[reg_vars].copy()
         rename = {df.columns[0]: reg_vars}
 
         if isinstance(reg_vars, list):
@@ -1643,79 +1674,6 @@ class CapData(object):
 
         df.rename(columns=rename, inplace=True)
         return df
-
-    def view(self, tkey, filtered_data=False):
-        """
-        Convience function returns columns using `column_groups` names.
-
-        Parameters
-        ----------
-        tkey: int or str or list of int or strs
-            String or list of strings from self.trans_keys or int postion or
-            list of int postitions of value in self.trans_keys.
-        """
-        if isinstance(tkey, int):
-            keys = self.column_groups[self.trans_keys[tkey]]
-        elif isinstance(tkey, list) and len(tkey) > 1:
-            keys = []
-            for key in tkey:
-                if isinstance(key, str):
-                    keys.extend(self.column_groups[key])
-                elif isinstance(key, int):
-                    keys.extend(self.column_groups[self.trans_keys[key]])
-        elif tkey in self.trans_keys:
-            keys = self.column_groups[tkey]
-
-        if filtered_data:
-            return self.data_filtered[keys]
-        else:
-            return self.data[keys]
-
-    def rview(self, ind_var, filtered_data=False):
-        """
-        Convience fucntion to return regression independent variable.
-
-        Parameters
-        ----------
-        ind_var: string or list of strings
-            may be 'power', 'poa', 't_amb', 'w_vel', a list of some subset of
-            the previous four strings or 'all'
-        """
-        if ind_var == 'all':
-            keys = list(self.regression_cols.values())
-        elif isinstance(ind_var, list) and len(ind_var) > 1:
-            keys = [self.regression_cols[key] for key in ind_var]
-        elif ind_var in met_keys:
-            ind_var = [ind_var]
-            keys = [self.regression_cols[key] for key in ind_var]
-
-        lst = []
-        for key in keys:
-            if key in self.data.columns:
-                lst.extend([key])
-            else:
-                lst.extend(self.column_groups[key])
-        if filtered_data:
-            return self.data_filtered[lst]
-        else:
-            return self.data[lst]
-
-    def __comb_trans_keys(self, grp):
-        comb_keys = []
-
-        for key in self.trans_keys:
-            if key.find(grp) != -1:
-                comb_keys.append(key)
-
-        cols = []
-        for key in comb_keys:
-            cols.extend(self.column_groups[key])
-
-        grp_comb = grp + '_comb'
-        if grp_comb not in self.trans_keys:
-            self.column_groups[grp_comb] = cols
-            self.trans_keys.extend([grp_comb])
-            print('Added new group: ' + grp_comb)
 
     def review_column_groups(self):
         """Print `column_groups` with nice formatting."""
@@ -1747,9 +1705,9 @@ class CapData(object):
             Plots filtered data when true and all data when false.
         """
         if filtered:
-            df = self.rview(['power', 'poa'], filtered_data=True)
+            df = self.floc[['power', 'poa']]
         else:
-            df = self.rview(['power', 'poa'], filtered_data=False)
+            df = self.loc[['power', 'poa']]
 
         if df.shape[1] != 2:
             return warnings.warn('Aggregate sensors before using this '
@@ -1970,8 +1928,7 @@ class CapData(object):
         )
         plots.append(plt_no_filtering)
 
-        d1 = self.rview('power').loc[self.removed[0]['index'], :]
-        d1 = data.loc[self.removed[0]['index'], :]
+        d1 = data.loc[self.removed[0]['index'], 'power']
         plt_first_filter = hv.Scatter(
             d1, ['Timestamp'], ['power'], label=self.removed[0]['name']
         )
@@ -2114,7 +2071,7 @@ class CapData(object):
 
         dfs_to_concat = []
         for group_id, agg_func in agg_map.items():
-            columns_to_aggregate = self.view(group_id, filtered_data=False)
+            columns_to_aggregate = self.loc[group_id]
             if columns_to_aggregate.shape[1] == 1:
                 continue
             agg_result = columns_to_aggregate.agg(agg_func, axis=1).to_frame()
@@ -2132,7 +2089,7 @@ class CapData(object):
 
         # update regression_cols attribute 
         for reg_var, trans_group in self.regression_cols.items():
-            if self.rview(reg_var).shape[1] == 1:
+            if self.loc[reg_var].shape[1] == 1:
                 continue
             if trans_group in agg_map.keys():
                 try:
@@ -2449,7 +2406,7 @@ class CapData(object):
             Add option to return plot showing envelope with points not removed
             alpha decreased.
         """
-        XandY = self.rview(['poa', 'power'], filtered_data=True)
+        XandY = self.floc[['poa', 'power']]
         if XandY.shape[1] > 2:
             return warnings.warn('Too many columns. Try running '
                                  'aggregate_sensors before using '
@@ -2492,7 +2449,7 @@ class CapData(object):
         Spec pf column
             Increase options to specify which columns are used in the filter.
         """
-        for key in self.trans_keys:
+        for key in self.column_groups.keys():
             if key.find('pf') == 0:
                 selection = key
 
@@ -2542,7 +2499,7 @@ class CapData(object):
             power_data = self.get_reg_cols('power')
         elif isinstance(columns, str):
             if columns in self.column_groups.keys():
-                power_data = self.view(columns, filtered_data=True)
+                power_data = self.floc[columns]
                 multiple_columns = True
             else:
                 power_data = pd.DataFrame(self.data_filtered[columns])
@@ -2610,7 +2567,8 @@ class CapData(object):
         self.data_filtered = func(self.data_filtered, *args, **kwargs)
 
     @update_summary
-    def filter_sensors(self, perc_diff=None, inplace=True):
+    def filter_sensors(
+        self, perc_diff=None, inplace=True, row_filter=check_all_perc_diff_comb):
         """
         Drop suspicious measurments by comparing values from different sensors.
 
@@ -2646,16 +2604,18 @@ class CapData(object):
             poa_trans_key = regression_cols['poa']
             perc_diff = {poa_trans_key: 0.05}
 
-        for key, perc_diff_for_key in perc_diff.items():
+        for key, threshold in perc_diff.items():
             if 'index' in locals():
                 # if index has been assigned then take intersection
                 sensors_df = df[trans[key]]
-                next_index = sensor_filter(sensors_df, perc_diff_for_key)
+                next_index = sensor_filter(
+                    sensors_df, threshold, row_filter=row_filter)
                 index = index.intersection(next_index)  # noqa: F821
             else:
                 # if index has not been assigned then assign it
                 sensors_df = df[trans[key]]
-                index = sensor_filter(sensors_df, perc_diff_for_key)
+                index = sensor_filter(
+                    sensors_df, threshold, row_filter=row_filter)
 
         df_out = self.data_filtered.loc[index, :]
 
@@ -2702,7 +2662,7 @@ class CapData(object):
                                  'load_data clear_sky option.')
         if ghi_col is None:
             ghi_keys = []
-            for key in self.trans_keys:
+            for key in self.column_groups.keys():
                 defs = key.split('-')
                 if len(defs) == 1:
                     continue
@@ -2717,7 +2677,7 @@ class CapData(object):
             else:
                 meas_ghi = ghi_keys[0]
 
-            meas_ghi = self.view(meas_ghi, filtered_data=True)
+            meas_ghi = self.floc[meas_ghi]
             if meas_ghi.shape[1] > 1:
                 warnings.warn('Averaging measured GHI data.  Pass column name '
                               'to ghi_col to use a specific column.')
@@ -2916,8 +2876,7 @@ class CapData(object):
         pandas DataFrame
             If pred=True, then returns a pandas dataframe of results.
         """
-        df = self.rview(['poa', 't_amb', 'w_vel'],
-                        filtered_data=True)
+        df = self.floc[['poa', 't_amb', 'w_vel']]
         df = df.rename(columns={df.columns[0]: 'poa',
                                 df.columns[1]: 't_amb',
                                 df.columns[2]: 'w_vel'})
@@ -3005,8 +2964,7 @@ class CapData(object):
             See pandas Grouper doucmentation for details. Default is left
             labeled and left closed.
         """
-        df = self.rview(['poa', 't_amb', 'w_vel', 'power'],
-                        filtered_data=True)
+        df = self.floc[['poa', 't_amb', 'w_vel', 'power']]
         df = df.rename(columns={df.columns[0]: 'poa',
                                 df.columns[1]: 't_amb',
                                 df.columns[2]: 'w_vel',
@@ -3112,7 +3070,7 @@ class CapData(object):
         """
         spatial_uncerts = {}
         for group in column_groups:
-            df = self.view(group, filtered_data=True)
+            df = self.floc[group]
             # prevent aggregation from updating column groups?
             # would not need the below line then
             df = df[[col for col in df.columns if 'agg' not in col]]

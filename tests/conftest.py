@@ -19,7 +19,6 @@ def meas():
     meas.column_groups = cg.ColumnGroups(util.read_json(
         './tests/data/example_measured_data_column_groups.json'
     ))
-    meas.trans_keys = copy.deepcopy(meas.column_groups.keys())
     meas.set_regression_cols(
         power='meter_power', poa='irr_poa_pyran', t_amb='temp_amb', w_vel='wind'
     )
@@ -56,7 +55,6 @@ def nrel():
         'temp--': ['Deck Dry Bulb Temp [deg C]', ],
         'wind--': ['Avg Wind Speed @ 19ft [m/s]', ],
     }
-    nrel.trans_keys = list(nrel.column_groups.keys())
     nrel.regression_cols = {
         'power': '', 'poa': 'irr-poa-', 't_amb': 'temp--', 'w_vel': 'wind--'
     }
@@ -93,7 +91,6 @@ def pvsyst():
     pvsyst.regression_cols = {
         'power': 'real_pwr--', 'poa': 'irr-poa-', 't_amb': 'temp-amb-', 'w_vel': 'wind--'
     }
-    pvsyst.trans_keys = list(pvsyst.column_groups.keys())
     return pvsyst
 
 @pytest.fixture
@@ -121,5 +118,31 @@ def nrel_clear_sky(nrel):
     nrel.data_filtered = nrel.data.copy()
     nrel.column_groups['irr-poa-clear_sky'] = ['poa_mod_csky']
     nrel.column_groups['irr-ghi-clear_sky'] = ['ghi_mod_csky']
-    nrel.trans_keys = list(nrel.column_groups.keys())
     return nrel
+
+@pytest.fixture
+def capdata_irr():
+    """
+    Creates a CapData instance with dummy irradiance data"""
+    start_time = pd.Timestamp('2023-10-01 12:00')
+    end_time = start_time + pd.Timedelta(minutes=15)
+    datetime_index = pd.date_range(start_time, end_time, freq='1T')
+
+    np.random.seed(42)
+    random_values = np.random.uniform(876, 900, size=(len(datetime_index), 4))
+
+    # for i in range(1, len(random_values)):
+    #     random_values[i] = np.clip(
+    #         random_values[i] + np.random.randint(-25, 26), 850, 900)
+
+    df = pd.DataFrame(
+        random_values,
+        index=datetime_index,
+        columns=['poa1', 'poa2', 'poa3', 'poa4']
+    )
+
+    cd = pvc.CapData('cd')
+    cd.data = df
+    cd.data_filtered = df.copy()
+    cd.column_groups = {'poa': ['poa1', 'poa2', 'poa3', 'poa4']}
+    return cd

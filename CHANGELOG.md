@@ -10,7 +10,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - New plotting module with a plot function which replaces the CapData.plot method. The new plot function creates a panel dashboard with expanded functionality. Internally, removes
 the plotting dependency on the CapData.trans_keys attribute.
 
+### Added
+- `loc` and `floc` can be used to retrieve the regression columns, similar to previous rview functionality by using `regcols`.
+
 ### Changed
+- Removed the CapData `trans_keys ` attribute, which was a copy of the `column_groups` keys and would be modified by the old `CapData.plot` method. `trans_keys` made it difficult to create a `CapData` object without using the `load_data` function.
+- Replaces all uses of view and rview with `loc` and `floc`.
+- Updated `loc` and `floc` to always return a DataFrame. Previously these would sometimes return a Series.
 - `load_data` now checks if any individual files were loaded when loading multiple files from a directory.
 - Adds underlay curve of unfiltered power to the linked timeseries created when calling `scatter_hv` with `timeseries=True`.
 - Changes selected points on scatter plot and linked timeseries produced by `scatter_hv` to red.

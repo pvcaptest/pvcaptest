@@ -163,7 +163,6 @@ def load_pvsyst(
         cd.data["E_Grid"] = cd.data["E_Grid"] / egrid_unit_adj_factor
     cd.data_filtered = cd.data.copy()
     cd.column_groups = cg.group_columns(cd.data)
-    cd.trans_keys = list(cd.column_groups.keys())
     if set_regression_columns:
         cd.set_regression_cols(
             power="E_Grid", poa="GlobInc", t_amb="T_Amb", w_vel="WindVel"
@@ -557,7 +556,6 @@ def load_data(
             cd.column_groups['irr-poa-clear_sky'] = ['poa_mod_csky']
             cd.column_groups['irr-ghi-clear_sky'] = ['ghi_mod_csky']
     cd.trans_keys = list(cd.column_groups.keys())
-    cd.set_plot_attributes()
     if column_groups_template:
         cd.data_columns_to_excel()
     return cd
