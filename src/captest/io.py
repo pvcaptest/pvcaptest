@@ -47,7 +47,7 @@ def load_excel_column_groups(path):
     dict
         Dictionary mapping column group names to lists of column names.
     """
-    df = pd.read_excel(path, header=None).fillna(method="ffill")
+    df = pd.read_excel(path, header=None).ffill(axis='index')
     return df.groupby(0)[1].apply(list).to_dict()
 
 
