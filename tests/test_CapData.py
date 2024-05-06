@@ -2367,8 +2367,6 @@ class TestTimeseriesFilters():
         })
         meas.filter_irr(200, 900)
         meas.filter_irr(400, 800)
-        # meas.data.index.name = 'Timestamp'
-        # meas.data_filtered.index.name = 'Timestamp'
         overlay = meas.timeseries_filters()
         assert 'index' not in meas.data.columns
         assert 'index' not in meas.data_filtered.columns
