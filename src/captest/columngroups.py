@@ -28,6 +28,7 @@ type_defs = collections.OrderedDict([
     ('real_pwr', ['real power', 'ac power', 'e_grid']),
     ('shade', ['fshdbm', 'shd', 'shade']),
     ('pvsyt_losses', ['IL Pmax', 'IL Pmin', 'IL Vmax', 'IL Vmin']),
+    ('pe',["PE","pe"]),
     ('index', ['index']),
 ])
 

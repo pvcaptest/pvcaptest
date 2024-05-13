@@ -1563,7 +1563,7 @@ class CapData(object):
         self.loc = LocIndexer(self)
         self.floc = FilteredLocIndexer(self)
 
-    def set_regression_cols(self, power='', poa='', t_amb='', w_vel=''):
+    def set_regression_cols(self, pe = '',power='', poa='', t_amb='', w_vel=''):
         """
         Create a dictionary linking the regression variables to data.
 
@@ -1585,6 +1585,7 @@ class CapData(object):
             Translation key for the wind velocity key.
         """
         self.regression_cols = {'power': power,
+                                'pe': pe ,
                                 'poa': poa,
                                 't_amb': t_amb,
                                 'w_vel': w_vel}
