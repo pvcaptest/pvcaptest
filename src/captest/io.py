@@ -152,6 +152,9 @@ def load_pvsyst(
     pvraw.drop("date", axis=1, inplace=True)
     pvraw = pvraw.rename(columns={"T Amb": "T_Amb"}).rename(columns={"TAmb": "T_Amb"})
 
+    pvraw["GlobInc"] = pvraw["GlobInc"]*pvraw["FIAMGl"] * pvraw["FSlgGl"]
+    pvraw["PE"] = pvraw["E_Grid"]/pvraw["GlobInc"]
+
 
     cd = CapData(name)
     pvraw.index.name = "Timestamp"
@@ -165,7 +168,7 @@ def load_pvsyst(
     cd.column_groups = cg.group_columns(cd.data)
     if set_regression_columns:
         cd.set_regression_cols(
-            power="E_Grid", poa="GlobInc", t_amb="T_Amb", w_vel="WindVel"
+            pe = "PE", power="E_Grid", poa="GlobInc", t_amb="T_Amb", w_vel="WindVel"
         )
     return cd
 

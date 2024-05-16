@@ -1554,7 +1554,7 @@ class CapData(object):
         self.rc = None
         self.regression_results = None
         self.regression_formula = (
-            'power ~ poa + I(poa * poa) + I(poa * t_amb) + I(poa * w_vel) - 1'
+            'power ~ poa + t_amb + 1'
         )
         self.tolerance = None
         self.pre_agg_cols = None
