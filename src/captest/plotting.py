@@ -175,30 +175,27 @@ def plot_tag(data, tag, width=1500, height=250):
         curves = {}
         for column in tag:
             try:
-                print(column)
                 curves[column] = hv.Curve(data[column])
             except KeyError:
-                print(f'Column {column} not found in data.')
                 continue
         plot = hv.NdOverlay(curves)
-    return curves
-    # elif len(tag) == 0:
-    #     plot = hv.Curve(pd.DataFrame(
-    #         {'no_data': [np.NaN] * data.shape[0]},
-    #         index=data.index
-    #     ))
-    # plot.opts(
-    #     opts.Curve(
-    #         line_width=1,
-    #         width=width,
-    #         height=height,
-    #         muted_alpha=0,
-    #         tools=['hover'],
-    #         yformatter=NumeralTickFormatter(format='0,0'),
-    #     ),
-    #     opts.NdOverlay(width=width, height=height, legend_position='right')
-    # )
-    # return plot
+    elif len(tag) == 0:
+        plot = hv.Curve(pd.DataFrame(
+            {'no_data': [np.NaN] * data.shape[0]},
+            index=data.index
+        ))
+    plot.opts(
+        opts.Curve(
+            line_width=1,
+            width=width,
+            height=height,
+            muted_alpha=0,
+            tools=['hover'],
+            yformatter=NumeralTickFormatter(format='0,0'),
+        ),
+        opts.NdOverlay(width=width, height=height, legend_position='right')
+    )
+    return plot
 
 
 def group_tag_overlay(group_tags, column_tags):
