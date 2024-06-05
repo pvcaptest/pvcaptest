@@ -193,7 +193,9 @@ def plot_tag(data, tag, width=1500, height=250):
             tools=['hover'],
             yformatter=NumeralTickFormatter(format='0,0'),
         ),
-        opts.NdOverlay(width=width, height=height, legend_position='right')
+        opts.NdOverlay(
+            width=width, height=height, legend_position='right', batched=False
+        )
     )
     return plot
 
