@@ -3249,14 +3249,14 @@ class CapData(object):
         ).stack().to_frame().droplevel(1).to_excel(save_to, header=False)
 
 
-if __name__ == "__main__":
-    import doctest
-    import pandas as pd  # noqa F811
+# if __name__ == "__main__":
+#     import doctest
+#     import pandas as pd  # noqa F811
 
-    das = CapData('das')
-    das.load_data(path='../examples/data/', fname='example_meas_data.csv',
-                  source='AlsoEnergy')
-    das.set_regression_cols(power='-mtr-', poa='irr-poa-',
-                            t_amb='temp-amb-', w_vel='wind--')
+#     das = CapData('das')
+#     das.load_data(path='../examples/data/', fname='example_meas_data.csv',
+#                   source='AlsoEnergy')
+#     das.set_regression_cols(power='-mtr-', poa='irr-poa-',
+#                             t_amb='temp-amb-', w_vel='wind--')
 
-    doctest.testmod()
+#     doctest.testmod()
