@@ -161,7 +161,7 @@ def update_summary(func):
         It should not be.
     """
     @wraps(func)
-    def wrapper(self, *args, **kwargs):
+    def wrapper(self, filter_name=None, *args, **kwargs):
         pts_before = self.data_filtered.shape[0]
         ix_before = self.data_filtered.index
         if pts_before == 0:
@@ -199,7 +199,8 @@ def update_summary(func):
         else:
             arg_str = arg_str + ', ' + kwarg_str
 
-        filter_name = func.__name__
+        if filter_name is None:
+            filter_name = func.__name__
         if filter_name in self.filter_counts.keys():
             filter_name_enum = filter_name + '-' + str(self.filter_counts[filter_name])
             self.filter_counts[filter_name] += 1
@@ -2136,7 +2137,8 @@ class CapData(object):
             )
 
     @update_summary
-    def filter_irr(self, low, high, ref_val=None, col_name=None, inplace=True):
+    def filter_irr(self, low, high, ref_val=None, col_name=None, 
+                   inplace=True, filter_name=None):
         """
         Filter on irradiance values.
 
@@ -2156,6 +2158,10 @@ class CapData(object):
         inplace : bool, default True
             Default true write back to data_filtered or return filtered
             dataframe.
+        filter_name : str, default None
+            The name of the filter method that you'd like to pass to the 
+            update_summary wrapper.  By default uses func.__name__ as the 
+            filter name.
 
         Returns
         -------
@@ -2178,7 +2184,7 @@ class CapData(object):
             return df_flt
 
     @update_summary
-    def filter_pvsyst(self, inplace=True):
+    def filter_pvsyst(self, inplace=True, filter_name=None):
         """
         Filter pvsyst data for off max power point tracking operation.
 
@@ -2191,6 +2197,10 @@ class CapData(object):
         inplace: bool, default True
             If inplace is true, then function overwrites the filtered data.  If
             false returns a CapData object.
+        filter_name : str, default None
+            The name of the filter method that you'd like to pass to the 
+            update_summary wrapper.  By default uses func.__name__ as the 
+            filter name.
 
         Returns
         -------
@@ -2218,7 +2228,8 @@ class CapData(object):
             return self.data_filtered.loc[index, :]
 
     @update_summary
-    def filter_shade(self, fshdbm=1.0, query_str=None, inplace=True):
+    def filter_shade(self, fshdbm=1.0, query_str=None, 
+                     inplace=True, filter_name=None):
         """
         Remove data during periods of array shading.
 
@@ -2244,6 +2255,10 @@ class CapData(object):
         inplace: bool, default True
             If inplace is true, then function overwrites the filtered
             dataframe. If false returns a DataFrame.
+        filter_name : str, default None
+            The name of the filter method that you'd like to pass to the 
+            update_summary wrapper.  By default uses func.__name__ as the 
+            filter name.
 
         Returns
         -------
@@ -2264,7 +2279,7 @@ class CapData(object):
 
     @update_summary
     def filter_time(self, start=None, end=None, drop=False, days=None, test_date=None,
-                    inplace=True, wrap_year=False):
+                    inplace=True, wrap_year=False, filter_name=None):
         """
         Select data for a specified time period.
 
@@ -2295,6 +2310,10 @@ class CapData(object):
         wrap_year : bool, default False
             If true calls the wrap_year_end function.  See wrap_year_end
             docstring for details. wrap_year_end was cntg_eoy prior to v0.7.0.
+        filter_name : str, default None
+            The name of the filter method that you'd like to pass to the 
+            update_summary wrapper.  By default uses func.__name__ as the 
+            filter name.
 
         Todo
         ----
@@ -2353,7 +2372,7 @@ class CapData(object):
             return df_temp
 
     @update_summary
-    def filter_days(self, days, drop=False, inplace=True):
+    def filter_days(self, days, drop=False, inplace=True, filter_name=None):
         """
         Select or drop timestamps for days passed.
 
@@ -2367,6 +2386,10 @@ class CapData(object):
         inplace : bool, default True
             If inplace is true, then function overwrites the filtered
             dataframe. If false returns a DataFrame.
+        filter_name : str, default None
+            The name of the filter method that you'd like to pass to the 
+            update_summary wrapper.  By default uses func.__name__ as the 
+            filter name.
         """
         ix_all_days = None
         for day in days:
@@ -2388,7 +2411,7 @@ class CapData(object):
             return filtered_data
 
     @update_summary
-    def filter_outliers(self, inplace=True, **kwargs):
+    def filter_outliers(self, inplace=True, filter_name=None, **kwargs):
         """
         Apply eliptic envelope from scikit-learn to remove outliers.
 
@@ -2397,6 +2420,10 @@ class CapData(object):
         inplace : bool
             Default of true writes filtered dataframe back to data_filtered
             attribute.
+        filter_name : str, default None
+            The name of the filter method that you'd like to pass to the 
+            update_summary wrapper.  By default uses func.__name__ as the 
+            filter name.
         **kwargs
             Passed to sklearn EllipticEnvelope.  Contamination keyword
             is useful to adjust proportion of outliers in dataset.
@@ -2428,7 +2455,7 @@ class CapData(object):
             return self.data_filtered[clf_1.predict(X1) == 1]
 
     @update_summary
-    def filter_pf(self, pf, inplace=True):
+    def filter_pf(self, pf, inplace=True, filter_name=None):
         """
         Filter data on the power factor.
 
@@ -2440,6 +2467,10 @@ class CapData(object):
         inplace : bool
             Default of true writes filtered dataframe back to data_filtered
             attribute.
+        filter_name : str, default None
+            The name of the filter method that you'd like to pass to the 
+            update_summary wrapper.  By default uses func.__name__ as the 
+            filter name.
 
         Returns
         -------
@@ -2464,7 +2495,8 @@ class CapData(object):
             return df_flt
 
     @update_summary
-    def filter_power(self, power, percent=None, columns=None, inplace=True):
+    def filter_power(self, power, percent=None, columns=None, 
+                     inplace=True, filter_name=None):
         """
         Remove data above the specified power threshold.
 
@@ -2486,6 +2518,10 @@ class CapData(object):
         inplace : bool, default True
             Default of true writes filtered dataframe back to data_filtered
             attribute.
+        filter_name : str, default None
+            The name of the filter method that you'd like to pass to the 
+            update_summary wrapper.  By default uses func.__name__ as the 
+            filter name.
 
         Returns
         -------
@@ -2523,7 +2559,7 @@ class CapData(object):
             return df_flt
 
     @update_summary
-    def filter_custom(self, func, *args, **kwargs):
+    def filter_custom(self, func, filter_name=None, *args, **kwargs):
         """
         Apply `update_summary` decorator to passed function.
 
@@ -2534,6 +2570,10 @@ class CapData(object):
             returns a dataframe.
             Many pandas dataframe methods meet this requirement, like
             pd.DataFrame.between_time.
+        filter_name : str, default None
+            The name of the filter method that you'd like to pass to the 
+            update_summary wrapper.  By default uses func.__name__ as the 
+            filter name.
         *args
             Additional positional arguments passed to func.
         **kwds
@@ -2568,8 +2608,8 @@ class CapData(object):
         self.data_filtered = func(self.data_filtered, *args, **kwargs)
 
     @update_summary
-    def filter_sensors(
-        self, perc_diff=None, inplace=True, row_filter=check_all_perc_diff_comb):
+    def filter_sensors(self, perc_diff=None, inplace=True, 
+                       filter_name=None, row_filter=check_all_perc_diff_comb):
         """
         Drop suspicious measurments by comparing values from different sensors.
 
@@ -2586,6 +2626,10 @@ class CapData(object):
         inplace : bool, default True
             If True, writes over current filtered dataframe. If False, returns
             CapData object.
+        filter_name : str, default None
+            The name of the filter method that you'd like to pass to the 
+            update_summary wrapper.  By default uses func.__name__ as the 
+            filter name.
 
         Returns
         -------
@@ -2626,8 +2670,8 @@ class CapData(object):
             return df_out
 
     @update_summary
-    def filter_clearsky(self, window_length=20, ghi_col=None, inplace=True,
-                        keep_clear=True, **kwargs):
+    def filter_clearsky(self, window_length=20, ghi_col=None, inplace=True, 
+                        filter_name=None, keep_clear=True, **kwargs):
         """
         Use pvlib detect_clearsky to remove periods with unstable irradiance.
 
@@ -2651,6 +2695,10 @@ class CapData(object):
             When true removes periods with unstable irradiance.  When false
             returns pvlib detect_clearsky results, which by default is a series
             of booleans.
+        filter_name : str, default None
+            The name of the filter method that you'd like to pass to the 
+            update_summary wrapper.  By default uses func.__name__ as the 
+            filter name.
         keep_clear : bool, default True
             Set to False to keep cloudy periods.
         **kwargs
@@ -2708,7 +2756,7 @@ class CapData(object):
             return df_out
 
     @update_summary
-    def filter_missing(self, columns=None):
+    def filter_missing(self, columns=None, filter_name=None):
         """
         Drops time intervals with missing data for specified columns.
 
@@ -2719,6 +2767,10 @@ class CapData(object):
         ----------
         columns : list, default None
             Subset of columns to check for missing data.
+        filter_name : str, default None
+            The name of the filter method that you'd like to pass to the 
+            update_summary wrapper.  By default uses func.__name__ as the 
+            filter name.
         """
         if columns is None:
             columns = list(self.regression_cols.values())
@@ -2726,7 +2778,8 @@ class CapData(object):
         ix = df_reg_vars.dropna().index
         self.data_filtered = self.data_filtered.loc[ix, :]
 
-    def filter_op_state(self, op_state, mult_inv=None, inplace=True):
+    def filter_op_state(self, op_state, mult_inv=None, 
+                        inplace=True, filter_name=None):
         """
         NOT CURRENTLY IMPLEMENTED - Filter on inverter operation state.
 
@@ -2829,6 +2882,7 @@ class CapData(object):
         percent_filter=20,
         w_vel=None,
         inplace=True,
+        filter_name=None,
         func={'poa': perc_wrap(60), 't_amb': 'mean', 'w_vel': 'mean'},
         freq=None,
         grouper_kwargs={},
@@ -2862,6 +2916,10 @@ class CapData(object):
         inplace: bool, True by default
             When true updates object rc parameter, when false returns
             dicitionary of reporting conditions.
+        filter_name : str, default None
+            The name of the filter method that you'd like to pass to the 
+            update_summary wrapper.  By default uses func.__name__ as the 
+            filter name.
         grouper_kwargs : dict
             Passed to pandas Grouper to control label and closed side of
             intervals. See pandas Grouper doucmentation for details. Default is
@@ -2989,7 +3047,8 @@ class CapData(object):
         return results
 
     @update_summary
-    def fit_regression(self, filter=False, inplace=True, summary=True):
+    def fit_regression(self, filter=False, inplace=True, 
+                       filter_name=None, summary=True):
         """
         Perform a regression with statsmodels on filtered data.
 
@@ -3002,6 +3061,10 @@ class CapData(object):
         inplace: bool, default True
             If filter is true and inplace is true, then function overwrites the
             filtered data for sim or das.  If false returns a CapData object.
+        filter_name : str, default None
+            The name of the filter method that you'd like to pass to the 
+            update_summary wrapper.  By default uses func.__name__ as the 
+            filter name.
         summary: bool, default True
             Set to false to not print regression summary.
 
