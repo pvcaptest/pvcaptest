@@ -161,7 +161,8 @@ def update_summary(func):
         It should not be.
     """
     @wraps(func)
-    def wrapper(self, filter_name=None, *args, **kwargs):
+    def wrapper(self, *args, **kwargs):
+        filter_name = kwargs.pop('filter_name', None)
         pts_before = self.data_filtered.shape[0]
         ix_before = self.data_filtered.index
         if pts_before == 0:
@@ -2559,7 +2560,7 @@ class CapData(object):
             return df_flt
 
     @update_summary
-    def filter_custom(self, func, filter_name=None, *args, **kwargs):
+    def filter_custom(self, func, *args, **kwargs):
         """
         Apply `update_summary` decorator to passed function.
 
