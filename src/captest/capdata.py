@@ -509,12 +509,7 @@ def filter_irr(df, irr_col, low, high, ref_val=None):
         low *= ref_val
         high *= ref_val
 
-    df_renamed = df.rename(columns={irr_col: "poa"})
-
-    flt_str = "@low <= " + "poa" + " <= @high"
-    indx = df_renamed.query(flt_str).index
-
-    return df.loc[indx, :]
+    return df.loc[(df[irr_col] >= low) & (df[irr_col] <= high), :]
 
 
 def filter_grps(grps, rcs, irr_col, low, high, freq, **kwargs):
