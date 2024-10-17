@@ -181,7 +181,7 @@ def plot_tag(data, tag, width=1500, height=250):
         plot = hv.NdOverlay(curves)
     elif len(tag) == 0:
         plot = hv.Curve(pd.DataFrame(
-            {'no_data': [np.NaN] * data.shape[0]},
+            {'no_data': [np.nan] * data.shape[0]},
             index=data.index
         ))
     plot.opts(

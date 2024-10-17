@@ -1486,7 +1486,7 @@ class TestAbsDiffFromAverage():
         is less than the threshold.
         """
         s = pd.Series(
-            [800, 805, 806, np.NAN], index=['poa1', 'poa2', 'poa3', 'poa4'])
+            [800, 805, 806, np.nan], index=['poa1', 'poa2', 'poa3', 'poa4'])
         meets_threshold = pvc.abs_diff_from_average(s, 25)
         assert meets_threshold is True
 
@@ -1925,10 +1925,10 @@ class TestFilterMissing():
         )
         assert all(meas.floc['regcols'].isna().sum() == 0)
         assert meas.data_filtered.shape[0] == 1440
-        meas.data_filtered.loc['10/9/90 12:00', 'meter_power'] = np.NaN
-        meas.data_filtered.loc['10/9/90 12:30', 'met1_poa_refcell'] = np.NaN
-        meas.data_filtered.loc['10/10/90 12:35', 'met2_amb_temp'] = np.NaN
-        meas.data_filtered.loc['10/10/90 12:50', 'met1_windspeed'] = np.NaN
+        meas.data_filtered.loc['10/9/90 12:00', 'meter_power'] = np.nan
+        meas.data_filtered.loc['10/9/90 12:30', 'met1_poa_refcell'] = np.nan
+        meas.data_filtered.loc['10/10/90 12:35', 'met2_amb_temp'] = np.nan
+        meas.data_filtered.loc['10/10/90 12:50', 'met1_windspeed'] = np.nan
         meas.filter_missing()
         assert meas.data_filtered.shape[0] == 1436
 
