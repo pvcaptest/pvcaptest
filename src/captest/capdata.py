@@ -2119,7 +2119,7 @@ class CapData(object):
         else:
             return poa_cols[0]
 
-    def agg_sensors(self, agg_map=None):
+    def agg_sensors(self, agg_map=None, verbose=False):
         """
         Aggregate measurments of the same variable from different sensors.
 
@@ -2136,6 +2136,10 @@ class CapData(object):
             and 'w_vel' keys in the `regression_cols` attribute are aggregated:
             - sum power
             - mean of poa, t_amb, w_vel
+        verbose : bool, default False
+            Set to True to print the columns that have been aggregated, the
+            aggregation function used, and the new column name. If the group being
+            aggregated has more than 10 columns, only the group name will be printed.
 
         Returns
         -------
@@ -2184,6 +2188,17 @@ class CapData(object):
             agg_result.rename(columns={agg_result.columns[0]: col_name}, inplace=True)
             dfs_to_concat.append(agg_result)
             agg_names[group_id] = col_name
+            if verbose:
+                print(
+                    'Aggregating the below columns using {} function.  New column name: {}:'.format(
+                        agg_func, col_name
+                    )
+                )
+                if len(columns_to_aggregate.columns) <= 10:
+                    for col in columns_to_aggregate.columns:
+                        print('    ' + col)
+                elif len(columns_to_aggregate.columns) > 10:
+                    print('   Aggregating all columns of the {} group'.format(group_id))
 
         dfs_to_concat.append(self.data)
         # write over data and data_filtered attributes
