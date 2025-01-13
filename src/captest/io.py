@@ -357,7 +357,14 @@ class DataLoader:
         data = data.apply(pd.to_numeric, errors="coerce")
         return data
 
-    def load(self, extension="csv", verbose=True, raise_errors=False, **kwargs):
+    def load(
+        self,
+        extension="csv",
+        verbose=True,
+        raise_errors=False,
+        skip_dir_load=False,
+        **kwargs,
+    ):
         """
         Load file(s) of timeseries data from SCADA / DAS systems.
 
@@ -388,7 +395,11 @@ class DataLoader:
             set to a directory not a file. Set to False to not print out any file
             loading status.
         raise_errors : bool, default False
-            Set to true to print error if file fails to load.
+            Set to true to raise error if file fails to load.
+        skip_dir_load : bool, default False
+            Set to True to pass a custom file_reader that handles multiple files. This will
+            skip the parsing of files in a directory and pass the path to the directory and kwargs
+            to the file_reader function.
         **kwargs
             Are passed through to the file_reader callable, which by default will pass
             them on to pandas.read_csv.
@@ -399,8 +410,10 @@ class DataLoader:
             Resulting DataFrame of data is stored to the `data` attribute.
         """
         if self.path.is_file():
-            self.data = self.file_reader(str(self.path), **kwargs)
-        elif self.path.is_dir():
+            self.data = self.file_reader(self.path, **kwargs)
+        elif self.path.is_dir() and skip_dir_load:
+            self.data = self.file_reader(self.path, **kwargs)
+        elif self.path.is_dir() and not skip_dir_load:
             if self.files_to_load is None:
                 self.set_files_to_load(extension=extension)
             self.loaded_files = dict()
@@ -459,6 +472,7 @@ def load_data(
     path,
     group_columns=cg.group_columns,
     file_reader=file_reader,
+    skip_dir_load=False,
     name="meas",
     sort=True,
     drop_duplicates=True,
@@ -496,6 +510,10 @@ def load_data(
         Function to use to load an individual file. By default will use the built in
         `file_reader` function to try to load csv files. If passing a function to read
         other filetypes, the kwargs should include the filetype extension e.g. 'parquet'.
+    skip_dir_load : bool, default False
+        Set to True to pass a custom file_reader that handles multiple files. This will
+        skip the parsing of files in a directory by DataLoader.load and allow the function
+        passed to file_reader to handle multiple files in a directory.
     name : str
         Identifier that will be assigned to the returned CapData instance.
     sort : bool, default True
@@ -528,7 +546,7 @@ def load_data(
         path=path,
         file_reader=file_reader,
     )
-    dl.load(verbose=verbose, **kwargs)
+    dl.load(verbose=verbose, skip_dir_load=skip_dir_load, **kwargs)
 
     if sort:
         dl.sort_data()
