@@ -1754,6 +1754,20 @@ class CapData(object):
         self.data.drop(columns, axis=1, inplace=True)
         self.data_filtered.drop(columns, axis=1, inplace=True)
 
+    def rename_cols(self, column_map):
+        """
+        Rename columns in `data`, `data_filtered`, and `column_groups`.
+
+        Parameters
+        ----------
+        column_map : dict
+            Dictionary mapping old column names to new column names.
+        """
+        self.data.rename(columns=column_map, inplace=True)
+        self.data_filtered.rename(columns=column_map, inplace=True)
+        for key, value in self.column_groups.items():
+            self.column_groups[key] = [column_map.get(col, col) for col in value]
+
     def get_reg_cols(self, reg_vars=None, filtered_data=True):
         """
         Get regression columns renamed with keys from `regression_cols`.
@@ -2219,8 +2233,6 @@ class CapData(object):
         agg_names = {}
         print(agg_map)
         for group_id, agg_func in agg_map.items():
-            # output = self.agg_group(group_id, agg_func, verbose)
-            # type(output)
             if self.loc[group_id].shape[1] == 1:
                 continue
             agg_result, col_name = self.agg_group(group_id, agg_func)

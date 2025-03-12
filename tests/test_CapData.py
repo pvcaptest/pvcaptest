@@ -1493,6 +1493,14 @@ class TestGetRegCols:
         assert meas.data["irr_poa_pyran_mean_agg"].iloc[100] == df["poa"].iloc[100]
 
 
+class TestCapDataHelperMethods:
+    def test_rename_cols(self, meas):
+        meas.rename_cols({"met1_poa_pyranometer": "poa_new_name"})
+        assert "poa_new_name" in meas.data.columns
+        assert "poa_new_name" in meas.data_filtered.columns
+        assert "poa_new_name" in meas.column_groups["irr_poa_pyran"]
+
+
 class TestAggSensors:
     def test_agg_group(self, meas):
         agg_result, col_name = meas.agg_group("irr_poa_pyran", "mean")
@@ -1624,7 +1632,6 @@ class TestAggSensors:
 
     def test_verbose_prints_group_name_when_gt_10(self, meas, capsys):
         """Verbose should print only the group name when group has > 10 columns."""
-        # Add extra columns to make the group have > 10 members
         extra_cols = [f"extra_poa_{i}" for i in range(10)]
         for col in extra_cols:
             meas.data[col] = meas.data["met1_poa_pyranometer"]
@@ -1636,8 +1643,35 @@ class TestAggSensors:
         captured = capsys.readouterr()
         assert "Aggregating the below columns using mean function" in captured.out
         assert "Aggregating all columns of the irr_poa_pyran group" in captured.out
-        # Individual column names should NOT be printed
         assert "    met1_poa_pyranometer" not in captured.out
+
+    def test_agg_subgroups_expanded_map(self, cd_nested_col_groups):
+        """
+        Proof of concept test of idea to implement aggregating sub
+        groups of sensors with agg_sensors by recursively traversing
+        the original agg map, expanding it, sorting it, and adding
+        the intermediate column groupings to the column groups.
+        """
+        cd = cd_nested_col_groups
+        cd.column_groups["irr_poa_aggs"] = [
+            "irr_poa_met1_mean_agg",
+            "irr_poa_met2_mean_agg",
+        ]
+        cd.agg_sensors(
+            agg_map={
+                "irr_poa": "mean",
+                "irr_poa_met1": "mean",
+                "irr_poa_met2": "mean",
+                "irr_poa_aggs": "mean",
+            }
+        )
+        cd.rename_cols({"irr_poa_aggs_mean_agg": "irr_poa_mean_agg"})
+        for agg_col in [
+            "irr_poa_mean_agg",
+            "irr_poa_met1_mean_agg",
+            "irr_poa_met2_mean_agg",
+        ]:
+            assert agg_col in cd.data.columns
 
     def test_agg_subgroups(self, cd_nested_col_groups):
         cd = cd_nested_col_groups
