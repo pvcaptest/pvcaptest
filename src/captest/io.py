@@ -606,6 +606,8 @@ def load_data(
             cd.column_groups = cg.ColumnGroups(util.read_yaml(group_columns))
         elif (p.suffix == ".xlsx") or (p.suffix == ".xls"):
             cd.column_groups = cg.ColumnGroups(load_excel_column_groups(group_columns))
+    if cd.column_groups is not None:
+        cd.create_column_group_attributes()
     if site is not None:
         if isinstance(site, str):
             path_to_site = Path(site)

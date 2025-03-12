@@ -894,6 +894,19 @@ class TestLoadDataFunction:
         assert (cd.data_loader.path.parent / "column_groups.xlsx").exists()
         os.remove(cd.data_loader.path.parent / "column_groups.xlsx")
 
+    def test_column_group_attributes_added(self):
+        """
+        Check that column group attributes are added when a column_groups instance
+        is successfully created.
+        """
+        meas = load_data(
+            path="./tests/data/example_measured_data.csv",
+            group_columns="./tests/data/example_measured_data_column_groups.json",
+        )
+        assert isinstance(meas.column_groups, cg.ColumnGroups)
+        for group_key in meas.column_groups.keys():
+            assert hasattr(meas, group_key), f"Attribute {group_key} not created"
+
     def test_kwargs_pass_to_read_csv(self, tmp_path):
         csv_path = tmp_path / "first_two_cols_ints_data.csv"
         pd.DataFrame(

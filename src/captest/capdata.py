@@ -1662,6 +1662,24 @@ class CapData(object):
         self.loc = LocIndexer(self)
         self.floc = FilteredLocIndexer(self)
 
+    def create_column_group_attributes(self):
+        """Create callable attributes for each column group that return data views.
+
+        For each key in self.column_groups, creates an attribute on the instance
+        that when called returns a view of the data for that column group using
+        the loc indexer functionality.
+        """
+        for grp_id in self.column_groups.keys():
+
+            def make_getter(key):
+                def getter(self):
+                    return self.loc[key]
+
+                return getter
+
+            # Create the property and set it on the instance
+            setattr(self.__class__, grp_id, property(make_getter(grp_id)))
+
     def set_regression_cols(self, power="", poa="", t_amb="", w_vel=""):
         """
         Create a dictionary linking the regression variables to data.
