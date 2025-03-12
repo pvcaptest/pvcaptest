@@ -1626,6 +1626,24 @@ class TestAggSensors:
         # Individual column names should NOT be printed
         assert "    met1_poa_pyranometer" not in captured.out
 
+    def test_agg_subgroups(self, cd_nested_col_groups):
+        cd = cd_nested_col_groups
+        cd.agg_sensors(
+            agg_map={
+                "irr_poa": {"irr_poa_met1": "mean", "irr_poa_met2": "mean"},
+                "irr_rpoa": {"irr_rpoa_met1": "mean", "irr_rpoa_met2": "mean"},
+            }
+        )
+        for agg_col in [
+            "irr_poa_mean_agg",
+            "irr_poa_met1_mean_agg",
+            "irr_poa_met2_mean_agg",
+            "irr_rpoa_mean_agg",
+            "irr_rpoa_met1_mean_agg",
+            "irr_rpoa_met2_mean_agg",
+        ]:
+            assert agg_col in cd.data.columns
+
 
 class TestFilterSensors:
     def test_perc_diff_none(self, meas):

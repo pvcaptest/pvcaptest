@@ -162,3 +162,64 @@ def capdata_irr():
     cd.data_filtered = df.copy()
     cd.column_groups = {"poa": ["poa1", "poa2", "poa3", "poa4"]}
     return cd
+
+
+@pytest.fixture
+def cd_nested_col_groups():
+    """
+    Creates a CapData instance with from the column groups defined in
+    ./tests/data/example_measured_data_column_groups_subgroups.json.
+
+    Creates dummy timeseries data at 5min intervals for 2 days with one column for
+    each column in the column groups file.
+
+    Used to test CapData.agg_sensors when agg_map is nested. E.g. aggregating groups
+    of rear POA irradiance sensors and then aggregating the results.
+    """
+    # Create CapData instance
+    cd = pvc.CapData("nested_groups")
+
+    # Load column groups from json file
+    cd.column_groups = cg.ColumnGroups(
+        util.read_json(
+            "./tests/data/example_measured_data_column_groups_subgroups.json"
+        )
+    )
+
+    # Create datetime index for 2 days at 5min intervals
+    start_time = pd.Timestamp("2023-01-01")
+    end_time = start_time + pd.Timedelta(days=2)
+    datetime_index = pd.date_range(start_time, end_time, freq="5T")
+
+    # Get all column names from column groups
+    all_columns = []
+    for columns in cd.column_groups.values():
+        all_columns.extend(columns)
+    all_columns = list(set(all_columns))
+
+    # Create dummy data for each column
+    np.random.seed(42)  # For reproducibility
+    data = {}
+
+    # Generate data for each column with realistic irradiance patterns
+    for col in all_columns:
+        # Base pattern: daily cycle with peak around noon
+        time_of_day = (datetime_index.hour * 60 + datetime_index.minute) / (24 * 60)
+        base_pattern = 1000 * np.sin(np.pi * time_of_day) ** 2
+
+        # Add some random variation (±5% of the base value)
+        noise = np.random.normal(0, 0.05 * base_pattern)
+
+        # Set nighttime values to 0 and clip negative values
+        base_pattern = np.where(
+            (datetime_index.hour >= 6) & (datetime_index.hour <= 18),
+            base_pattern + noise,
+            0,
+        )
+        data[col] = np.clip(base_pattern, 0, 1200)
+
+    # Create DataFrame with the generated data
+    cd.data = pd.DataFrame(data, index=datetime_index)
+    cd.data_filtered = cd.data.copy()
+
+    return cd
