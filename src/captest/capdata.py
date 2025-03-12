@@ -2229,14 +2229,13 @@ class CapData(object):
                 self.regression_cols["w_vel"]: "mean",
             }
 
-        dfs_to_concat = []
         agg_names = {}
         print(agg_map)
         for group_id, agg_func in agg_map.items():
             if self.loc[group_id].shape[1] == 1:
                 continue
             agg_result, col_name = self.agg_group(group_id, agg_func)
-            dfs_to_concat.append(agg_result)
+            self.data = pd.concat([agg_result, self.data], axis=1)
             agg_names[group_id] = col_name
             if verbose:
                 print(
@@ -2249,10 +2248,6 @@ class CapData(object):
                         print("    " + col)
                 elif len(columns_to_aggregate.columns) > 10:
                     print("   Aggregating all columns of the {} group".format(group_id))
-
-        dfs_to_concat.append(self.data)
-        # write over data and data_filtered attributes
-        self.data = pd.concat(dfs_to_concat, axis=1)
         self.data_filtered = self.data.copy()
 
         # update regression_cols attribute
