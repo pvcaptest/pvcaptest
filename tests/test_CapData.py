@@ -1494,6 +1494,19 @@ class TestGetRegCols:
 
 
 class TestAggSensors:
+    def test_agg_group(self, meas):
+        agg_result, col_name = meas.agg_group("irr_poa_pyran", "mean")
+        assert "irr_poa_pyran_mean_agg" == col_name
+        assert isinstance(agg_result, pd.DataFrame)
+        exp_mean = (
+            meas.data[meas.column_groups["irr_poa_pyran"]]
+            .mean(axis=1)
+            .rename("irr_poa_pyran_mean_agg")
+            .to_frame()
+        )
+        assert exp_mean.shape == agg_result.shape
+        assert exp_mean.equals(agg_result)
+
     def test_agg_map_none(self, meas):
         """Test default behaviour when no agg_map is passed."""
         meas.agg_sensors()

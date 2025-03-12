@@ -2137,6 +2137,29 @@ class CapData(object):
         else:
             return poa_cols[0]
 
+    def agg_group(self, group_id, agg_func):
+        """
+        Aggregate columns in a group.
+
+        Parameters
+        ----------
+        group_id : str
+            Key from `column_groups` attribute.
+        agg_func : str or callable
+            Aggregation function to apply.
+        verbose : bool, default False
+            Set to True to print the columns that have been aggregated, the
+            aggregation function used, and the new column name. If the group being
+            aggregated has more than 10 columns, only the group name will be printed.
+        """
+        agg_result = self.loc[group_id].agg(agg_func, axis=1)
+        if isinstance(agg_func, str):
+            col_name = group_id + "_" + agg_func + "_agg"
+        else:
+            col_name = group_id + "_" + agg_func.__name__ + "_agg"
+        agg_result = agg_result.rename(col_name).to_frame()
+        return (agg_result, col_name)
+
     def agg_sensors(self, agg_map=None, verbose=False):
         """
         Aggregate measurments of the same variable from different sensors.
@@ -2194,16 +2217,13 @@ class CapData(object):
 
         dfs_to_concat = []
         agg_names = {}
+        print(agg_map)
         for group_id, agg_func in agg_map.items():
-            columns_to_aggregate = self.loc[group_id]
-            if columns_to_aggregate.shape[1] == 1:
+            # output = self.agg_group(group_id, agg_func, verbose)
+            # type(output)
+            if self.loc[group_id].shape[1] == 1:
                 continue
-            agg_result = columns_to_aggregate.agg(agg_func, axis=1).to_frame()
-            if isinstance(agg_func, str):
-                col_name = group_id + "_" + agg_func + "_agg"
-            else:
-                col_name = group_id + "_" + agg_func.__name__ + "_agg"
-            agg_result.rename(columns={agg_result.columns[0]: col_name}, inplace=True)
+            agg_result, col_name = self.agg_group(group_id, agg_func)
             dfs_to_concat.append(agg_result)
             agg_names[group_id] = col_name
             if verbose:
