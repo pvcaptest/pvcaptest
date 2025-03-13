@@ -2236,6 +2236,8 @@ class CapData(object):
         agg_map : dict
         """
         expanded_map = {}
+        rename_map = {}
+        subgroup_rename_map = {}
 
         # First pass: expand nested dictionaries and collect subgroup info
         for key, value in agg_map.items():
@@ -2255,10 +2257,14 @@ class CapData(object):
                 expanded_map[aggs_key] = value[
                     next(iter(value))
                 ]  # Use same agg function as subgroups
+                rename_map[f"{aggs_key}_mean_agg"] = (
+                    f"{key}_{value[next(iter(value))]}_agg"
+                )
+                subgroup_rename_map[key] = f"{key}_{value[next(iter(value))]}_agg"
             else:
                 expanded_map[key] = value
 
-        return expanded_map
+        return expanded_map, rename_map, subgroup_rename_map
 
     def agg_sensors(self, agg_map=None, verbose=False):
         """
@@ -2318,7 +2324,13 @@ class CapData(object):
             }
 
         agg_names = {}
-        print(agg_map)
+        # print('Original agg map')
+        # print(agg_map)
+        agg_map, rename_map, subgroup_rename_map = self.expand_agg_map(agg_map)
+        # print('Expanded agg map')
+        # print(agg_map)
+        # print('Subgroup rename map')
+        # print(subgroup_rename_map)
         for group_id, agg_func in agg_map.items():
             if self.loc[group_id].shape[1] == 1:
                 continue
@@ -2327,17 +2339,29 @@ class CapData(object):
             agg_names[group_id] = col_name
         self.data_filtered = self.data.copy()
 
+        # print('Agg names')
+        # print(agg_names)
+        # print('Renamer')
+        # print(rename_map)
+        self.rename_cols(rename_map)
         # update regression_cols attribute
         for reg_var, trans_group in self.regression_cols.items():
             if self.loc[reg_var].shape[1] == 1:
                 continue
-            if trans_group in agg_names.keys():
+            elif trans_group in agg_names.keys():
                 print(
                     "Regression variable '{}' has been remapped: '{}' to '{}'".format(
                         reg_var, trans_group, agg_names[trans_group]
                     )
                 )
                 self.regression_cols[reg_var] = agg_names[trans_group]
+            elif trans_group in subgroup_rename_map.keys():
+                print(
+                    "Regression variable '{}' has been remapped: '{}' to '{}".format(
+                        reg_var, trans_group, subgroup_rename_map[trans_group]
+                    )
+                )
+                self.regression_cols[reg_var] = subgroup_rename_map[trans_group]
 
     def data_columns_to_excel(self, sort_by_reversed_names=True):
         """
