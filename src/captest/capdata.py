@@ -2151,7 +2151,7 @@ class CapData(object):
         else:
             return poa_cols[0]
 
-    def agg_group(self, group_id, agg_func):
+    def agg_group(self, group_id, agg_func, verbose=True):
         """
         Aggregate columns in a group.
 
@@ -2161,17 +2161,29 @@ class CapData(object):
             Key from `column_groups` attribute.
         agg_func : str or callable
             Aggregation function to apply.
-        verbose : bool, default False
+        verbose : bool, default True
             Set to True to print the columns that have been aggregated, the
             aggregation function used, and the new column name. If the group being
             aggregated has more than 10 columns, only the group name will be printed.
         """
-        agg_result = self.loc[group_id].agg(agg_func, axis=1)
+        columns_to_aggregate = self.loc[group_id]
+        agg_result = columns_to_aggregate.agg(agg_func, axis=1)
         if isinstance(agg_func, str):
             col_name = group_id + "_" + agg_func + "_agg"
         else:
             col_name = group_id + "_" + agg_func.__name__ + "_agg"
         agg_result = agg_result.rename(col_name).to_frame()
+        if verbose:
+            print(
+                "Aggregating the below columns using {} function.  New column name: {}:".format(
+                    agg_func, col_name
+                )
+            )
+            if len(columns_to_aggregate.columns) <= 10:
+                for col in columns_to_aggregate.columns:
+                    print("    " + col)
+            elif len(columns_to_aggregate.columns) > 10:
+                print("   Aggregating all columns of the {} group".format(group_id))
         return (agg_result, col_name)
 
     def agg_sensors(self, agg_map=None, verbose=False):
@@ -2205,6 +2217,8 @@ class CapData(object):
         -----
         This method is intended to be used before any filtering methods are applied.
         Filtering steps applied when this method is used will be lost.
+
+        This method modifies the `data`, `data_filtered`, and `regression_cols` attributes.
         """
         if not len(self.summary) == 0:
             warnings.warn(
@@ -2234,20 +2248,9 @@ class CapData(object):
         for group_id, agg_func in agg_map.items():
             if self.loc[group_id].shape[1] == 1:
                 continue
-            agg_result, col_name = self.agg_group(group_id, agg_func)
+            agg_result, col_name = self.agg_group(group_id, agg_func, verbose)
             self.data = pd.concat([agg_result, self.data], axis=1)
             agg_names[group_id] = col_name
-            if verbose:
-                print(
-                    "Aggregating the below columns using {} function.  New column name: {}:".format(
-                        agg_func, col_name
-                    )
-                )
-                if len(columns_to_aggregate.columns) <= 10:
-                    for col in columns_to_aggregate.columns:
-                        print("    " + col)
-                elif len(columns_to_aggregate.columns) > 10:
-                    print("   Aggregating all columns of the {} group".format(group_id))
         self.data_filtered = self.data.copy()
 
         # update regression_cols attribute
