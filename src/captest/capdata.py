@@ -2186,6 +2186,80 @@ class CapData(object):
                 print("   Aggregating all columns of the {} group".format(group_id))
         return (agg_result, col_name)
 
+    def expand_agg_map(self, agg_map):
+        """
+        Traverses, expands, and sorts the agg_map.
+
+        If a value of `agg_map` is a dictionary, the items in that dictionary are
+        added to the returned expanded agg_map at the top level. Also, the following
+        steps are completed to aggregate the subgroups:
+        - The `column_groups` attribute is updated to add a new group with the aggregated
+        columns from the subgroups.
+        - This new group is added to the expanded returned agg_map after the subgroup
+        aggregations.
+        - The resulting aggregation of the subgroups is renamed.
+
+        For example, given the following `agg_map`:
+        ```python
+        agg_map = {
+            'irr_ghi': 'mean',
+            'irr_poa': {
+                'irr_poa_met1': 'mean',
+                'irr_poa_met2': 'mean'
+            },
+        }
+        ```
+        The returned expanded `agg_map` would be:
+        ```python
+        agg_map = {
+            'irr_ghi': 'mean',
+            'irr_poa': 'mean',
+            'irr_poa_met1': 'mean',
+            'irr_poa_met2': 'mean',
+            'irr_poa_aggs': 'mean',
+        }
+
+        and the column_groups attribute would be updated to add the group:
+        'irr_poa_aggs': ['irr_poa_met1_mean_agg', 'irr_poa_met2_mean_agg']
+
+        The column resulting from aggregating the "irr_poa_aggs" group would be
+        "irr_poa_aggs_mean_agg", which is renamed to "irr_poa_mean_agg".
+
+        Parameters
+        ----------
+        agg_map : dict
+            Dictionary specifying aggregations to be performed on
+            the specified groups from the `column_groups` attribute.
+
+        Returns
+        -------
+        agg_map : dict
+        """
+        expanded_map = {}
+
+        # First pass: expand nested dictionaries and collect subgroup info
+        for key, value in agg_map.items():
+            if isinstance(value, dict):
+                # Add the subgroup entries to the expanded map
+                for sub_key, sub_value in value.items():
+                    expanded_map[sub_key] = sub_value
+
+                # Create a new group for the aggregated subgroups
+                aggs_key = f"{key}_aggs"
+                agg_columns = [
+                    f"{sub_key}_{sub_value}_agg" for sub_key, sub_value in value.items()
+                ]
+                self.column_groups[aggs_key] = agg_columns
+
+                # Add the aggs key to the expanded map
+                expanded_map[aggs_key] = value[
+                    next(iter(value))
+                ]  # Use same agg function as subgroups
+            else:
+                expanded_map[key] = value
+
+        return expanded_map
+
     def agg_sensors(self, agg_map=None, verbose=False):
         """
         Aggregate measurments of the same variable from different sensors.
