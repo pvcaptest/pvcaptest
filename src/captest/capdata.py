@@ -2175,7 +2175,7 @@ class CapData(object):
         agg_result = agg_result.rename(col_name).to_frame()
         if verbose:
             print(
-                "Aggregating the below columns using {} function.  New column name: {}:".format(
+                "Aggregating the below columns using the {} function. New column name: {}:".format(
                     agg_func, col_name
                 )
             )
@@ -2213,7 +2213,6 @@ class CapData(object):
         ```python
         agg_map = {
             'irr_ghi': 'mean',
-            'irr_poa': 'mean',
             'irr_poa_met1': 'mean',
             'irr_poa_met2': 'mean',
             'irr_poa_aggs': 'mean',

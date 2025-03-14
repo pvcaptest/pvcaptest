@@ -1674,16 +1674,47 @@ class TestAggSensors:
         ]:
             assert agg_col in cd.data.columns
 
-    def test_agg_subgroups(self, cd_nested_col_groups):
+    def test_agg_subgroups(self, cd_nested_col_groups, capsys):
         cd = cd_nested_col_groups
         cd.regression_cols["poa"] = "irr_poa"
         cd.agg_sensors(
             agg_map={
                 "irr_poa": {"irr_poa_met1": "mean", "irr_poa_met2": "mean"},
                 "irr_rpoa": {"irr_rpoa_met1": "mean", "irr_rpoa_met2": "mean"},
-            }
+            },
+            verbose=True,
         )
 
+        # Check stdout from agg_sensors
+        captured = capsys.readouterr()
+        expected_output = [
+            "Aggregating the below columns using the mean function. New column name: irr_poa_met1_mean_agg:",
+            "    met1_poa1_pyranometer",
+            "    met1_poa2_pyranometer",
+            "Aggregating the below columns using the mean function. New column name: irr_poa_met2_mean_agg:",
+            "    met2_poa1_pyranometer",
+            "    met2_poa2_pyranometer",
+            "Aggregating the below columns using the mean function. New column name: irr_poa_mean_agg:",
+            "    irr_poa_met1_mean_agg",
+            "    irr_poa_met2_mean_agg",
+            "Aggregating the below columns using the mean function. New column name: irr_rpoa_met1_mean_agg:",
+            "    met1_rpoa1_pyranometer",
+            "    met1_rpoa2_pyranometer",
+            "    met1_rpoa3_pyranometer",
+            "Aggregating the below columns using the mean function. New column name: irr_rpoa_met2_mean_agg:",
+            "    met2_rpoa1_pyranometer",
+            "    met2_rpoa2_pyranometer",
+            "    met2_rpoa3_pyranometer",
+            "Aggregating the below columns using the mean function. New column name: irr_rpoa_mean_agg:",
+            "    irr_rpoa_met1_mean_agg",
+            "    irr_rpoa_met2_mean_agg",
+        ]
+        for expected_line, actual_line in zip(
+            expected_output, captured.out.splitlines()
+        ):
+            print("-" * 40)
+            print(expected_line + "\n" + actual_line)
+            assert expected_line == actual_line
         # Check that the expected columns exist
         for agg_col in [
             "irr_poa_mean_agg",
