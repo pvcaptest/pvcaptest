@@ -1729,6 +1729,12 @@ class TestAggSensors:
         # Check regression column mapping
         assert cd.regression_cols["poa"] == "irr_poa_mean_agg"
 
+        # Check that average of subgroup averages is as expected
+        expected_mean = (
+            cd.data["irr_poa_met1_mean_agg"] + cd.data["irr_poa_met2_mean_agg"]
+        ) / 2
+        assert expected_mean.equals(cd.data["irr_poa_mean_agg"])
+
 
 class TestFilterSensors:
     def test_perc_diff_none(self, meas):

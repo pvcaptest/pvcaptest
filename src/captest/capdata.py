@@ -2151,7 +2151,7 @@ class CapData(object):
         else:
             return poa_cols[0]
 
-    def agg_group(self, group_id, agg_func, verbose=True):
+    def agg_group(self, group_id, agg_func, verbose=True, rename_map=None):
         """
         Aggregate columns in a group.
 
@@ -2174,9 +2174,12 @@ class CapData(object):
             col_name = group_id + "_" + agg_func.__name__ + "_agg"
         agg_result = agg_result.rename(col_name).to_frame()
         if verbose:
+            col_name_to_print = copy.copy(col_name)
+            if rename_map is not None and col_name in rename_map.keys():
+                col_name_to_print = rename_map[col_name]
             print(
                 "Aggregating the below columns using the {} function. New column name: {}:".format(
-                    agg_func, col_name
+                    agg_func, col_name_to_print
                 )
             )
             if len(columns_to_aggregate.columns) <= 10:
@@ -2333,7 +2336,9 @@ class CapData(object):
         for group_id, agg_func in agg_map.items():
             if self.loc[group_id].shape[1] == 1:
                 continue
-            agg_result, col_name = self.agg_group(group_id, agg_func, verbose)
+            agg_result, col_name = self.agg_group(
+                group_id, agg_func, verbose=verbose, rename_map=rename_map
+            )
             self.data = pd.concat([agg_result, self.data], axis=1)
             agg_names[group_id] = col_name
         self.data_filtered = self.data.copy()
