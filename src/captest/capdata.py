@@ -1680,6 +1680,24 @@ class CapData(object):
             # Create the property and set it on the instance
             setattr(self.__class__, grp_id, property(make_getter(grp_id)))
 
+    def create_agg_attributes(self):
+        """Create callable attributes for each aggregated column that return data views.
+
+        For each column in self.column_groups['agg'], creates an attribute on the instance
+        that when called returns a view of the data for that column group using
+        the loc indexer functionality.
+        """
+        for grp_id in self.column_groups["agg"]:
+
+            def make_getter(key):
+                def getter(self):
+                    return self.loc[key]
+
+                return getter
+
+            # Create the property and set it on the instance
+            setattr(self.__class__, "aggs_" + grp_id, property(make_getter(grp_id)))
+
     def set_regression_cols(self, power="", poa="", t_amb="", w_vel=""):
         """
         Create a dictionary linking the regression variables to data.
@@ -2366,6 +2384,13 @@ class CapData(object):
                     )
                 )
                 self.regression_cols[reg_var] = subgroup_rename_map[trans_group]
+        # update column_groups attribute
+        self.column_groups["agg"] = [
+            rename_map[name] if name in rename_map.keys() else name
+            for name in agg_names.values()
+        ]
+        self.create_column_group_attributes()
+        self.create_agg_attributes()
 
     def data_columns_to_excel(self, sort_by_reversed_names=True):
         """

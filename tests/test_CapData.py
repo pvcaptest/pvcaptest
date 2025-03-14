@@ -1501,6 +1501,42 @@ class TestCapDataHelperMethods:
         assert "poa_new_name" in meas.column_groups["irr_poa_pyran"]
 
 
+class TestExpandAggMap:
+    """Test the expand_agg_map method of the CapData class."""
+
+    def test_expand_agg_map(self, cd_nested_col_groups):
+        """Test the example from the docstring showing nested aggregation map expansion."""
+        cd = cd_nested_col_groups
+
+        # Input aggregation map with nested structure
+        agg_map = {
+            "irr_ghi": "mean",
+            "irr_poa": {"irr_poa_met1": "mean", "irr_poa_met2": "mean"},
+        }
+
+        # Expected expanded map
+        expected_expanded_map = {
+            "irr_ghi": "mean",
+            "irr_poa_met1": "mean",
+            "irr_poa_met2": "mean",
+            "irr_poa_aggs": "mean",
+        }
+
+        # Call the method
+        expanded_map, rename_map, subgroup_rename_map = cd.expand_agg_map(agg_map)
+
+        # Verify the expanded map matches expected (order independent)
+        assert set(expanded_map.keys()) == set(expected_expanded_map.keys())
+        for key in expected_expanded_map:
+            assert expanded_map[key] == expected_expanded_map[key]
+
+        # Verify the column groups were updated correctly
+        assert cd.column_groups["irr_poa_aggs"] == [
+            "irr_poa_met1_mean_agg",
+            "irr_poa_met2_mean_agg",
+        ]
+
+
 class TestAggSensors:
     def test_agg_group(self, meas):
         agg_result, col_name = meas.agg_group("irr_poa_pyran", "mean")
@@ -1712,18 +1748,17 @@ class TestAggSensors:
         for expected_line, actual_line in zip(
             expected_output, captured.out.splitlines()
         ):
-            print("-" * 40)
-            print(expected_line + "\n" + actual_line)
             assert expected_line == actual_line
         # Check that the expected columns exist
-        for agg_col in [
+        expected_columns = [
             "irr_poa_mean_agg",
             "irr_poa_met1_mean_agg",
             "irr_poa_met2_mean_agg",
             "irr_rpoa_mean_agg",
             "irr_rpoa_met1_mean_agg",
             "irr_rpoa_met2_mean_agg",
-        ]:
+        ]
+        for agg_col in expected_columns:
             assert agg_col in cd.data.columns
 
         # Check regression column mapping
@@ -1734,6 +1769,22 @@ class TestAggSensors:
             cd.data["irr_poa_met1_mean_agg"] + cd.data["irr_poa_met2_mean_agg"]
         ) / 2
         assert expected_mean.equals(cd.data["irr_poa_mean_agg"])
+
+        # Check that column_groups were updated correctly
+        assert "agg" in cd.column_groups.keys()
+        assert cd.column_groups["agg"] == [
+            "irr_poa_met1_mean_agg",
+            "irr_poa_met2_mean_agg",
+            "irr_poa_mean_agg",
+            "irr_rpoa_met1_mean_agg",
+            "irr_rpoa_met2_mean_agg",
+            "irr_rpoa_mean_agg",
+        ]
+
+        # check that aggs CapData attributes are created
+        for agg_col in expected_columns:
+            assert hasattr(cd, "aggs_" + agg_col)
+            assert getattr(cd, "aggs_" + agg_col).equals(cd.data[agg_col].to_frame())
 
 
 class TestFilterSensors:
@@ -2969,41 +3020,6 @@ class TestCreateColumnGroupAttributes:
 
             # Check that the attribute returns the correct data
             pd.testing.assert_frame_equal(attr_data, expected_data)
-
-
-class TestExpandAggMap:
-    """Test the expand_agg_map method of the CapData class."""
-
-    def test_expand_agg_map(self, cd_nested_col_groups):
-        """Test the example from the docstring showing nested aggregation map expansion."""
-        cd = cd_nested_col_groups
-
-        # Input aggregation map with nested structure
-        agg_map = {
-            "irr_ghi": "mean",
-            "irr_poa": {"irr_poa_met1": "mean", "irr_poa_met2": "mean"},
-        }
-
-        # Expected expanded map
-        expected_expanded_map = {
-            "irr_ghi": "mean",
-            "irr_poa_met1": "mean",
-            "irr_poa_met2": "mean",
-            "irr_poa_aggs": "mean",
-        }
-
-        # Call the method
-        expanded_map, rename_map, subgroup_rename_map = cd.expand_agg_map(agg_map)
-        # Verify the expanded map matches expected (order independent)
-        assert set(expanded_map.keys()) == set(expected_expanded_map.keys())
-        for key in expected_expanded_map:
-            assert expanded_map[key] == expected_expanded_map[key]
-
-        # Verify the column groups were updated correctly
-        assert cd.column_groups["irr_poa_aggs"] == [
-            "irr_poa_met1_mean_agg",
-            "irr_poa_met2_mean_agg",
-        ]
 
 
 if __name__ == "__main__":
