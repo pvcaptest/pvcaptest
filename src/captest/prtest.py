@@ -285,7 +285,9 @@ def perf_ratio_temp_corr_nrel(
     dc_nameplate,
     poa,
     power_temp_coeff=None,
+    temp_bom=None,
     temp_amb=None,
+    single_irr_weighted_temp=False,
     wind_speed=None,
     base_temp=25,
     module_type="glass_cell_poly",
@@ -309,6 +311,14 @@ def perf_ratio_temp_corr_nrel(
     power_temp_coeff : numeric, default None
         Module power temperature coefficient as percent per degree celsius.
         Ex. -0.36
+    temp_bom : Series
+        Measured back of module temperature. The `temp_amb` and `wind_speed` arguments
+        are not used if this argument is not None; skips calculating BOM temps from
+        ambient temperature, wind speed, and POA irradiance.
+    single_irr_weighted_temp : bool, default False
+        Set to True to calculate a single irradiance weighted temperature to use
+        when temperature correcting the power. Some contract language calls for this
+        but it does not the calculation defined in the NREL paper.
     temp_amb : Series
         Ambient temperature (degrees C) measurements.
     wind_speed : Series
@@ -343,8 +353,12 @@ def perf_ratio_temp_corr_nrel(
     timestep = get_common_timestep(poa, units="h", string_output=False)
     timestep_str = get_common_timestep(poa, units="h", string_output=True)
 
-    temp_bom = back_of_module_temp(poa, temp_amb, wind_speed, module_type, racking)
+
+    if temp_bom is None:
+        temp_bom = back_of_module_temp(poa, temp_amb, wind_speed, module_type, racking)
     temp_cell = cell_temp(temp_bom, poa, module_type, racking)
+    if single_irr_weighted_temp:
+        temp_cell = avg_typ_cell_temp(poa, temp_cell)
     dc_nameplate_temp_corr = temp_correct_power(
         dc_nameplate, power_temp_coeff, temp_cell, base_temp=base_temp
     )
