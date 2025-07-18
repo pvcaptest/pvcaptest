@@ -639,7 +639,7 @@ class ReportingIrradiance(param.Parameterized):
         )
         if poa_flt['valid'].sum() == 0:
             self.poa_flt = poa_flt
-            self.irr_rc = np.NaN
+            self.irr_rc = np.nan
             warnings.warn(
                 'No valid reference irradiance found. Try reviewing the min and max '
                 'reference irradiance values and the min and max percent below and '
@@ -704,7 +704,7 @@ class ReportingIrradiance(param.Parameterized):
             self.poa_flt['above_count'].reset_index(), ['poa'], ['above_count'],
             label='Count pts above',
         )
-        if self.irr_rc is not np.NaN:
+        if self.irr_rc is not np.nan:
             count_ellipse = hv.Ellipse(
                 self.irr_rc,
                 self.poa_flt.loc[self.irr_rc, 'below_count'],
@@ -719,7 +719,7 @@ class ReportingIrradiance(param.Parameterized):
             hv.VLine(self.min_ref_irradiance) *
             hv.VLine(self.max_ref_irradiance)
         )
-        if self.irr_rc is not np.NaN:
+        if self.irr_rc is not np.nan:
             perc_ellipse = hv.Ellipse(
                 self.irr_rc,
                 self.poa_flt.loc[self.irr_rc, 'perc_below'],
@@ -731,7 +731,7 @@ class ReportingIrradiance(param.Parameterized):
             ) *
             hv.HLine(self.points_required)
         )
-        if self.irr_rc is not np.NaN:
+        if self.irr_rc is not np.nan:
             total_points_ellipse = hv.Ellipse(
                 self.irr_rc,
                 self.poa_flt.loc[self.irr_rc, 'total_pts'],
@@ -744,7 +744,7 @@ class ReportingIrradiance(param.Parameterized):
         else:
             ylim_top = self.total_pts + 50
         vl = hv.VLine(self.rc_irr_60th_perc).opts(line_color='gray')
-        if self.irr_rc is not np.NaN:
+        if self.irr_rc is not np.nan:
             rep_cond_plot = (
                 (below_count_scatter * above_count_scatter * count_ellipse * vl).opts(ylabel='count points') +
                 (perc_below_scatter * perc_ellipse).opts(ylim=(0, 100)) +
@@ -3145,7 +3145,7 @@ class CapData(object):
 
         Time intervals removed are marked with a "1".
         Time intervals kept are marked with a "0".
-        Time intervals removed by a previous filter are np.NaN/blank.
+        Time intervals removed by a previous filter are np.nan/blank.
         Columns/filters are in order they are run from left to right.
         The last column labeled "all_filters" shows is True for intervals that were
         not removed by any of the filters.

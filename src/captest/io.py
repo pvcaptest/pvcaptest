@@ -210,7 +210,10 @@ def file_reader(path, **kwargs):
             continue
         else:
             break
-    data_file.dropna(how="all", axis=0, inplace=True)
+    if data_file.isna().all().all():
+        warnings.warn("There is no data in the file {}".format(path))
+    else:
+        data_file.dropna(how="all", axis=0, inplace=True)
     if data_file.index.equals(pd.Index(np.arange(len(data_file.index)))):
         kwargs['index_col'] = 1
         data_file = pd.read_csv(

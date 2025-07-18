@@ -180,6 +180,22 @@ class TestFileReader:
         assert loaded_data.columns[0] == "met1_poa1"
         assert isinstance(loaded_data.index, pd.DatetimeIndex)
 
+    def test_empty_file(self, tmp_path):
+        """
+        Test loading a csv with ok indices but no data.
+        """
+        csv_path = tmp_path / "no_data.csv"
+        pd.DataFrame(
+            {
+                "met1_poa1": np.nan * 20,
+                "met1_poa2": np.nan * 20,
+            },
+            index=pd.date_range(start="8/1/22", periods=20, freq="1min"),
+        ).to_csv(csv_path)
+        loaded_data = io.file_reader(csv_path)
+        print(loaded_data)
+        assert loaded_data.isna().all().all()
+
     def test_double_headers_with_blank(self, tmp_path):
         """Two header rows followed by a blank line."""
         test_csv = StringIO()
