@@ -4,7 +4,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-[Unreleased]
+## [Unreleased]
+### Changed
+- Migrated from versioneer to setuptools-scm for git-based version management
+- Migrated from setup.py to modern pyproject.toml with [project] section
+- Added uv for dependency management and development workflows
+- Updated version access to use `importlib.metadata.version()`
+- Updated `numpy` version constraint to `<2.4.0` for compatibility
+- Updated `param` version constraint to `<2.0` for compatibility
+- Updated development status classifier to "4 - Beta"
+- Simplified license metadata format in pyproject.toml
+
+### Removed
+- setup.py (all configuration moved to pyproject.toml)
+- Versioneer dependency and configuration
+
+### Added
+- setuptools-scm for automatic version generation from git tags
+- Modern pyproject.toml with complete project metadata
 
 [0.13.2]: https://github.com/pvcaptest/pvcaptest/compare/v0.13.1...v0.13.2
 ## [0.13.2] - 2025-07-17
