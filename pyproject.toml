@@ -43,36 +43,21 @@ optional = [
     "s3path",
     "s3fs",
 ]
+
+[dependency-groups]
+dev = [
+    "captest[optional]",
+    {include-group = "test"},
+    {include-group = "docs"},
+]
 test = [
-    "holoviews>=1.14.8",
-    "panel",
-    "pvlib>=0.9.0",
-    "openpyxl",
-    "s3path",
-    "s3fs",
     "coveralls",
     "pytest",
     "pytest-cov",
     "pytest-mock",
     "pytest-timeout",
 ]
-build = [
-    "holoviews>=1.14.8",
-    "panel",
-    "pvlib>=0.9.0",
-    "openpyxl",
-    "s3path",
-    "s3fs",
-    "build",
-    "twine",
-]
 docs = [
-    "holoviews>=1.14.8",
-    "panel",
-    "pvlib>=0.9.0",
-    "openpyxl",
-    "s3path",
-    "s3fs",
     "docutils==0.18.1",
     "nbsphinx==0.9.1",
     "notebook",
