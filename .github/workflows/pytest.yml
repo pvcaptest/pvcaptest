@@ -34,7 +34,7 @@ jobs:
             **/uv.lock
 
       - name: Install dependencies
-        run: uv sync --extra test
+        run: uv sync
 
       - name: Run tests
         run: uv run pytest --cov-report=xml --cov=captest tests/
