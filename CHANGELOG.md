@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Updated `param` version constraint to `<2.0` for compatibility
 - Updated development status classifier to "4 - Beta"
 - Simplified license metadata format in pyproject.toml
+- Moved testing and documentation dependencies to dependency-groups
 
 ### Removed
 - setup.py (all configuration moved to pyproject.toml)
