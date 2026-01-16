@@ -36,6 +36,9 @@ jobs:
       - name: Install dependencies
         run: uv sync
 
+      - name: Import test
+        run: uv run python -c "import captest; print(captest.__version__)"
+
       - name: Run tests
         run: uv run pytest --cov-report=xml --cov=captest tests/
 
