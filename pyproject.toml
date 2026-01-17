@@ -24,7 +24,7 @@ dynamic = ["version"]
 
 dependencies = [
     "pandas>=1",
-    "numpy>1.24.4,<2",
+    "numpy>1.24.4,<2.4",
     "python-dateutil>=2.5",
     "matplotlib>=2",
     "statsmodels>=0.8",
