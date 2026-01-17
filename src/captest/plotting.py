@@ -4,19 +4,36 @@ import json
 import warnings
 import itertools
 from functools import partial
+import importlib
+
 import numpy as np
 import pandas as pd
-import panel as pn
-from panel.interact import fixed
-import holoviews as hv
-from holoviews import opts
 import colorcet as cc
 from bokeh.models import NumeralTickFormatter
 
 from .util import tags_by_regex, append_tags, read_json
 
-# disable error messages for panel dashboard
-pn.config.console_output = 'disable'
+pn_spec = importlib.util.find_spec('panel')
+if pn_spec is not None:
+    import panel as pn
+    from panel.interact import fixed
+    pn.extension()
+    # disable error messages for panel dashboard
+    pn.config.console_output = 'disable'
+else:
+    warnings.warn(
+        'The ReportingIrradiance.dashboard method will not work without '
+        'the panel package.'
+    )
+
+hv_spec = importlib.util.find_spec('holoviews')
+if hv_spec is not None:
+    import holoviews as hv
+    from holoviews import opts
+else:
+    warnings.warn(
+        'The plotting methods will not work without the holoviews package.'
+    )
 
 COMBINE = {
     'poa_ghi': 'irr.*(poa|ghi)$',
