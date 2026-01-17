@@ -78,3 +78,4 @@ where = ["src"]
 [tool.setuptools_scm]
 version_file = "src/captest/_version.py"
 tag_regex = "^v(?P<version>\\d+\\.\\d+\\.\\d+)$"
+version_scheme = "no-guess-dev"
