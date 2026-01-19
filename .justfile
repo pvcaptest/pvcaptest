@@ -1,4 +1,5 @@
 set dotenv-load # loads env variables from .env
+set shell := ["zsh", "-c"]
 
 # Delete dist folder and uv build
 build:
@@ -31,3 +32,10 @@ test-module-example:
 # Run a specific test 
 test-module module_name:
 	uv run pytest --disable-warnings tests/{{module_name}}
+
+# Test install package in new venv
+test-install python-ver="3.12":
+	uv venv ../_pvc_test_dir/.venv --python {{python-ver}}
+	uv pip install --python ../_pvc_test_dir/.venv ./dist/*.whl
+	uv run --python ../_pvc_test_dir/.venv python -c "import captest; print(captest.__version__)"
+	rm -rf ../_pvc_test_dir
