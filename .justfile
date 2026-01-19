@@ -1,0 +1,33 @@
+set dotenv-load # loads env variables from .env
+
+# Delete dist folder and uv build
+build:
+	rm -r dist/
+	uv build
+
+# Run build and then publish to testpypi
+publish-to-testpypi: build
+	uv publish --index testpypi --token $UV_PUBLISH_TESTPYPI_TOKEN # token from .env
+
+# Run all tests
+test:
+	uv run pytest tests/
+
+# Run all tests without warnings
+test-wo-warnings:
+	uv run pytest tests/ --disable-warnings
+
+# Run all tests with coverage report
+test-cov:
+	uv run pytest --cov-report html --cov=src/captest tests/
+
+# Reminder on how to run a specific test module
+test-module-example:
+	@echo "To run a class of tests: "
+	@echo "uv run pytest tests/test_CapData.py::TestCapDataEmpty\n"
+	@echo "To run a specific test:"
+	@echo "uv run pytest tests/test_CapData.py::TestCapDataEmpty::test_capdata_empty\n"
+
+# Run a specific test 
+test-module module_name:
+	uv run pytest --disable-warnings tests/{{module_name}}
