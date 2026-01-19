@@ -39,3 +39,7 @@ test-install python-ver="3.12":
 	uv pip install --python ../_pvc_test_dir/.venv ./dist/*.whl
 	cd ../_pvc_test_dir && .venv/bin/python -c "import captest; print(captest.__version__)"
 	rm -rf ../_pvc_test_dir
+
+# Check current version of package
+ver:
+	uv run python -c "import captest; print(captest.__version__)"
