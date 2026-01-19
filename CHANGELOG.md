@@ -23,6 +23,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - setuptools-scm for automatic version generation from git tags
 - Modern pyproject.toml with complete project metadata
+- Just command runner (justfile) with development recipes
+- Just recipes for testing package builds and version checking
+- MAINTAINER.md documentation for project maintainers
 
 [0.13.2]: https://github.com/pvcaptest/pvcaptest/compare/v0.13.1...v0.13.2
 ## [0.13.2] - 2025-07-17
