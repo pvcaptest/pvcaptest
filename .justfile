@@ -37,5 +37,5 @@ test-module module_name:
 test-install python-ver="3.12":
 	uv venv ../_pvc_test_dir/.venv --python {{python-ver}}
 	uv pip install --python ../_pvc_test_dir/.venv ./dist/*.whl
-	uv run --python ../_pvc_test_dir/.venv python -c "import captest; print(captest.__version__)"
+	cd ../_pvc_test_dir && .venv/bin/python -c "import captest; print(captest.__version__)"
 	rm -rf ../_pvc_test_dir
