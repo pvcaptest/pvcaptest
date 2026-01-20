@@ -36,6 +36,12 @@ jobs:
       - name: Install dependencies
         run: uv sync
 
+      - name: Ruff lint
+        run: uv run ruff check .
+
+      - name: Ruff format check
+        run: uv run ruff format --check .
+
       - name: Import test
         run: uv run python -c "import captest; print(captest.__version__)"
 

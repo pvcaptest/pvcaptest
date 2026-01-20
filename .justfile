@@ -10,6 +10,14 @@ build:
 publish-to-testpypi: build
 	uv publish --index testpypi --token $UV_PUBLISH_TESTPYPI_TOKEN # token from .env
 
+# Lint using ruff
+lint:
+	uv run ruff check --fix
+
+# Format using ruff, applies black formatting
+fmt:
+	uv run ruff format
+
 # Run all tests
 test:
 	uv run pytest tests/

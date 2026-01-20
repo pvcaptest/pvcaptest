@@ -52,6 +52,7 @@ dev = [
 ]
 test = [
     "coveralls",
+    "pre-commit>=4.5.1",
     "pytest",
     "pytest-cov",
     "pytest-mock",

@@ -12,6 +12,31 @@ Install just with `uv tool install rust-just` or see the [packages](https://just
 - `just --list` shows available recipes
 - recipes are stored in `.justfile` in the project root directory
 
+## Pre-commit Hooks
+
+This project uses pre-commit to automatically run code quality checks before commits. The hooks include ruff for linting and formatting.
+
+### Setup
+
+After cloning the repository, install the pre-commit hooks:
+
+```bash
+pre-commit install
+```
+
+This will configure git to run the hooks automatically before each commit.
+
+### Running Manually
+
+To run pre-commit on all files without committing:
+
+```bash
+pre-commit run --all-files
+```
+
+Or, run ruff commands. Run `just --list` to see options.
+
+
 ## Publishing to TestPyPI
 
 TestPyPI (test.pypi.org) is a separate instance of the Python Package Index for testing distribution tools and processes without affecting the real index.
