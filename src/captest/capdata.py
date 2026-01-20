@@ -8,11 +8,9 @@ modeled data. The get_summary and captest_results functions accept two CapData
 objects as arguments and provide a summary of the data filtering steps and
 the results of the capacity test, respectively.
 """
+
 # standard library imports
-import os
-from pathlib import Path
 import re
-import datetime
 import copy
 from functools import wraps
 from itertools import combinations
@@ -21,85 +19,80 @@ import pytz
 import importlib
 
 # anaconda distribution defaults
-import dateutil
 import numpy as np
 import pandas as pd
 
 # anaconda distribution defaults
 # statistics and machine learning imports
 import statsmodels.formula.api as smf
-from scipy import stats
+
 # from sklearn.covariance import EllipticEnvelope
 import sklearn.covariance as sk_cv
 
 # anaconda distribution defaults
 # visualization library imports
-import matplotlib.pyplot as plt
-import colorcet as cc
-from bokeh.io import show
-from bokeh.plotting import figure
-from bokeh.palettes import Category10
-from bokeh.layouts import gridplot
-from bokeh.models import Legend, HoverTool, ColumnDataSource, NumeralTickFormatter
+from bokeh.models import HoverTool, NumeralTickFormatter
 
 import param
 
 # visualization library imports
-hv_spec = importlib.util.find_spec('holoviews')
+hv_spec = importlib.util.find_spec("holoviews")
 if hv_spec is not None:
     import holoviews as hv
     from holoviews.plotting.links import DataLink
     from holoviews import opts
-    hv.extension('bokeh')
-else:
-    warnings.warn('Some plotting functions will not work without the '
-                  'holoviews package.')
 
-pn_spec = importlib.util.find_spec('panel')
-if pn_spec  is not None:
+    hv.extension("bokeh")
+else:
+    warnings.warn(
+        "Some plotting functions will not work without the holoviews package."
+    )
+
+pn_spec = importlib.util.find_spec("panel")
+if pn_spec is not None:
     import panel as pn
+
     pn.extension()
 else:
     warnings.warn(
-        'The ReportingIrradiance.dashboard method will not work without '
-        'the panel package.'
+        "The ReportingIrradiance.dashboard method will not work without "
+        "the panel package."
     )
 
-xlsx_spec = importlib.util.find_spec('openpyxl')
+xlsx_spec = importlib.util.find_spec("openpyxl")
 if xlsx_spec is None:
     warnings.warn(
-        'Specifying a column grouping in an excel file will not work without '
-        'the openpyxl package.'
+        "Specifying a column grouping in an excel file will not work without "
+        "the openpyxl package."
     )
 
 # pvlib imports
-pvlib_spec = importlib.util.find_spec('pvlib')
+pvlib_spec = importlib.util.find_spec("pvlib")
 if pvlib_spec is not None:
     from pvlib.location import Location
-    from pvlib.pvsystem import (
-        PVSystem, Array, FixedMount, SingleAxisTrackerMount
-    )
+    from pvlib.pvsystem import PVSystem, Array, FixedMount, SingleAxisTrackerMount
     from pvlib.pvsystem import retrieve_sam
     from pvlib.modelchain import ModelChain
     from pvlib.clearsky import detect_clearsky
 else:
-    warnings.warn('Clear sky functions will not work without the '
-                  'pvlib package.')
+    warnings.warn("Clear sky functions will not work without the pvlib package.")
 
 from captest import util
 from captest import plotting
 
-plot_colors_brewer = {'real_pwr': ['#2b8cbe', '#7bccc4', '#bae4bc', '#f0f9e8'],
-                      'irr_poa': ['#e31a1c', '#fd8d3c', '#fecc5c', '#ffffb2'],
-                      'irr_ghi': ['#91003f', '#e7298a', '#c994c7', '#e7e1ef'],
-                      'temp_amb': ['#238443', '#78c679', '#c2e699', '#ffffcc'],
-                      'temp_mod': ['#88419d', '#8c96c6', '#b3cde3', '#edf8fb'],
-                      'wind': ['#238b45', '#66c2a4', '#b2e2e2', '#edf8fb']}
+plot_colors_brewer = {
+    "real_pwr": ["#2b8cbe", "#7bccc4", "#bae4bc", "#f0f9e8"],
+    "irr_poa": ["#e31a1c", "#fd8d3c", "#fecc5c", "#ffffb2"],
+    "irr_ghi": ["#91003f", "#e7298a", "#c994c7", "#e7e1ef"],
+    "temp_amb": ["#238443", "#78c679", "#c2e699", "#ffffcc"],
+    "temp_mod": ["#88419d", "#8c96c6", "#b3cde3", "#edf8fb"],
+    "wind": ["#238b45", "#66c2a4", "#b2e2e2", "#edf8fb"],
+}
 
-met_keys = ['poa', 't_amb', 'w_vel', 'power']
+met_keys = ["poa", "t_amb", "w_vel", "power"]
 
 
-columns = ['pts_after_filter', 'pts_removed', 'filter_arguments']
+columns = ["pts_after_filter", "pts_removed", "filter_arguments"]
 
 
 def round_kwarg_floats(kwarg_dict, decimals=3):
@@ -141,7 +134,7 @@ def tstamp_kwarg_to_strings(kwarg_dict):
     output_vals = []
     for val in kwarg_dict.values():
         if isinstance(val, pd.Timestamp):
-            output_vals.append(val.strftime('%Y-%m-%d %H:%M'))
+            output_vals.append(val.strftime("%Y-%m-%d %H:%M"))
         else:
             output_vals.append(val)
     return {key: val for key, val in zip(kwarg_dict.keys(), output_vals)}
@@ -160,28 +153,29 @@ def update_summary(func):
         Check if summary is updated when function is called with inplace=False.
         It should not be.
     """
+
     @wraps(func)
     def wrapper(self, *args, **kwargs):
         pts_before = self.data_filtered.shape[0]
         ix_before = self.data_filtered.index
         if pts_before == 0:
             pts_before = self.data.shape[0]
-            self.summary_ix.append((self.name, 'count'))
-            self.summary.append({columns[0]: pts_before,
-                                 columns[1]: 0,
-                                 columns[2]: 'no filters'})
+            self.summary_ix.append((self.name, "count"))
+            self.summary.append(
+                {columns[0]: pts_before, columns[1]: 0, columns[2]: "no filters"}
+            )
 
         ret_val = func(self, *args, **kwargs)
 
         arg_str = args.__repr__()
-        lst = arg_str.split(',')
+        lst = arg_str.split(",")
         arg_lst = [item.strip("()") for item in lst]
         arg_lst_one = arg_lst[0]
-        if arg_lst_one == 'das' or arg_lst_one == 'sim':
+        if arg_lst_one == "das" or arg_lst_one == "sim":
             arg_lst = arg_lst[1:]
-        arg_str = ', '.join(arg_lst)
+        arg_str = ", ".join(arg_lst)
 
-        func_re = re.compile('<function (.*) at', re.IGNORECASE)
+        func_re = re.compile("<function (.*) at", re.IGNORECASE)
         if func_re.search(arg_str) is not None:
             custom_func_name = func_re.search(arg_str).group(1)
             arg_str = re.sub("<function.*>", custom_func_name, arg_str)
@@ -189,19 +183,19 @@ def update_summary(func):
         kwargs = round_kwarg_floats(kwargs)
         kwargs = tstamp_kwarg_to_strings(kwargs)
         kwarg_str = kwargs.__repr__()
-        kwarg_str = kwarg_str.strip('{}')
+        kwarg_str = kwarg_str.strip("{}")
         kwarg_str = kwarg_str.replace("'", "")
 
         if len(arg_str) == 0 and len(kwarg_str) == 0:
-            arg_str = 'Default arguments'
+            arg_str = "Default arguments"
         elif len(arg_str) == 0:
             arg_str = kwarg_str
         else:
-            arg_str = arg_str + ', ' + kwarg_str
+            arg_str = arg_str + ", " + kwarg_str
 
         filter_name = func.__name__
         if filter_name in self.filter_counts.keys():
-            filter_name_enum = filter_name + '-' + str(self.filter_counts[filter_name])
+            filter_name_enum = filter_name + "-" + str(self.filter_counts[filter_name])
             self.filter_counts[filter_name] += 1
         else:
             self.filter_counts[filter_name] = 1
@@ -210,27 +204,26 @@ def update_summary(func):
         pts_after = self.data_filtered.shape[0]
         pts_removed = pts_before - pts_after
         self.summary_ix.append((self.name, filter_name_enum))
-        self.summary.append({columns[0]: pts_after,
-                             columns[1]: pts_removed,
-                             columns[2]: arg_str})
+        self.summary.append(
+            {columns[0]: pts_after, columns[1]: pts_removed, columns[2]: arg_str}
+        )
 
         ix_after = self.data_filtered.index
-        self.removed.append({
-            'name': filter_name_enum,
-            'index': ix_before.difference(ix_after)
-        })
-        self.kept.append({
-            'name': filter_name_enum,
-            'index': ix_after
-        })
+        self.removed.append(
+            {"name": filter_name_enum, "index": ix_before.difference(ix_after)}
+        )
+        self.kept.append({"name": filter_name_enum, "index": ix_after})
 
         if pts_after == 0:
-            warnings.warn('The last filter removed all data! '
-                          'Calling additional filtering or visualization '
-                          'methods that reference the data_filtered attribute '
-                          'will raise an error.')
+            warnings.warn(
+                "The last filter removed all data! "
+                "Calling additional filtering or visualization "
+                "methods that reference the data_filtered attribute "
+                "will raise an error."
+            )
 
         return ret_val
+
     return wrapper
 
 
@@ -277,7 +270,7 @@ def wrap_year_end(df, start, end):
 
     df_return = pd.concat([df_start, df_end], axis=0)
     ix_series = df_return.index.to_series()
-    df_return['index'] = ix_series.apply(lambda x: x.strftime('%m/%d/%Y %H %M'))  # noqa E501
+    df_return["index"] = ix_series.apply(lambda x: x.strftime("%m/%d/%Y %H %M"))  # noqa E501
     return df_return
 
 
@@ -322,27 +315,45 @@ def wrap_seasons(df, freq):
     BQ-NOV vs BQS vs QS
         Need to review if BQ is the correct offset alias vs BQS or QS.
     """
-    check_freqs = ['BQ-JAN', 'BQ-FEB', 'BQ-APR', 'BQ-MAY', 'BQ-JUL',
-                   'BQ-AUG', 'BQ-OCT', 'BQ-NOV']
-    month_int = {'JAN': 1, 'FEB': 2, 'APR': 4, 'MAY': 5, 'JUL': 7,
-                 'AUG': 8, 'OCT': 10, 'NOV': 11}
+    check_freqs = [
+        "BQ-JAN",
+        "BQ-FEB",
+        "BQ-APR",
+        "BQ-MAY",
+        "BQ-JUL",
+        "BQ-AUG",
+        "BQ-OCT",
+        "BQ-NOV",
+    ]
+    month_int = {
+        "JAN": 1,
+        "FEB": 2,
+        "APR": 4,
+        "MAY": 5,
+        "JUL": 7,
+        "AUG": 8,
+        "OCT": 10,
+        "NOV": 11,
+    }
 
     if freq in check_freqs:
-        warnings.warn('DataFrame index adjusted to be continous through new'
-                      'year, but not returned or set to attribute for user.'
-                      'This is not an issue if using RCs with'
-                      'predict_capacities.')
+        warnings.warn(
+            "DataFrame index adjusted to be continous through new"
+            "year, but not returned or set to attribute for user."
+            "This is not an issue if using RCs with"
+            "predict_capacities."
+        )
         if isinstance(freq, str):
-            month = month_int[freq.split('-')[1]]
+            month = month_int[freq.split("-")[1]]
         else:
             month = freq.startingMonth
         year = df.index[0].year
         months_year_end = 12 - month
         months_year_start = 3 - months_year_end
         if int(month) >= 10:
-            str_date = str(months_year_start) + '/' + str(year)
+            str_date = str(months_year_start) + "/" + str(year)
         else:
-            str_date = str(month) + '/' + str(year)
+            str_date = str(month) + "/" + str(year)
         tdelta = df.index[1] - df.index[0]
         date_to_offset = df.loc[str_date].index[-1].to_pydatetime()
         start = date_to_offset + tdelta
@@ -358,8 +369,10 @@ def wrap_seasons(df, freq):
 
 def perc_wrap(p):
     """Wrap numpy percentile function for use in rep_cond method."""
+
     def numpy_percentile(x):
-        return np.percentile(x.T, p, interpolation='nearest')
+        return np.percentile(x.T, p, interpolation="nearest")
+
     return numpy_percentile
 
 
@@ -464,7 +477,7 @@ def sensor_filter(df, threshold, row_filter=check_all_perc_diff_comb):
         Percent difference as decimal.
     """
     if df.shape[1] >= 2:
-        bool_ser = df.apply(row_filter, args=(threshold, ), axis=1)
+        bool_ser = df.apply(row_filter, args=(threshold,), axis=1)
         return df[bool_ser].index
     elif df.shape[1] == 1:
         return df.index
@@ -495,9 +508,9 @@ def filter_irr(df, irr_col, low, high, ref_val=None):
         low *= ref_val
         high *= ref_val
 
-    df_renamed = df.rename(columns={irr_col: 'poa'})
+    df_renamed = df.rename(columns={irr_col: "poa"})
 
-    flt_str = '@low <= ' + 'poa' + ' <= @high'
+    flt_str = "@low <= " + "poa" + " <= @high"
     indx = df_renamed.query(flt_str).index
 
     return df.loc[indx, :]
@@ -520,7 +533,7 @@ def filter_grps(grps, rcs, irr_col, low, high, freq, **kwargs):
     irr_col : str
         String that is the name of the column with the irradiance data.
     low : float
-        Minimum value as fraction e.g. 0.8. 
+        Minimum value as fraction e.g. 0.8.
     high : float
         Max value as fraction e.g. 1.2.
     freq : str
@@ -536,7 +549,7 @@ def filter_grps(grps, rcs, irr_col, low, high, freq, **kwargs):
     """
     flt_dfs = []
     for grp_name, grp_df in grps:
-        ref_val = rcs.loc[grp_name, 'poa']
+        ref_val = rcs.loc[grp_name, "poa"]
         grp_df_flt = filter_irr(grp_df, irr_col, low, high, ref_val=ref_val)
         flt_dfs.append(grp_df_flt)
     df_flt = pd.concat(flt_dfs)
@@ -546,12 +559,13 @@ def filter_grps(grps, rcs, irr_col, low, high, freq, **kwargs):
 
 class ReportingIrradiance(param.Parameterized):
     df = param.DataFrame(
-        doc='Data to use to calculate reporting irradiance.',
-        precedence=-1)
+        doc="Data to use to calculate reporting irradiance.", precedence=-1
+    )
     irr_col = param.String(
-        default='GlobInc',
+        default="GlobInc",
         doc="Name of column in `df` containing irradiance data.",
-        precedence=-1)
+        precedence=-1,
+    )
     irr_rc = param.Number(precedence=-1)
     poa_flt = param.DataFrame(precedence=-1)
     total_pts = param.Number(precedence=-1)
@@ -559,23 +573,28 @@ class ReportingIrradiance(param.Parameterized):
     percent_band = param.Integer(20, softbounds=(2, 50), step=1)
     min_percent_below = param.Integer(
         default=40,
-        doc='Minimum number of points as a percentage allowed below the \
-        reporting irradiance.')
+        doc="Minimum number of points as a percentage allowed below the \
+        reporting irradiance.",
+    )
     max_percent_above = param.Integer(
         default=60,
-        doc='Maximum number of points as a percentage allowed above the \
-        reporting irradiance.')
+        doc="Maximum number of points as a percentage allowed above the \
+        reporting irradiance.",
+    )
     min_ref_irradiance = param.Integer(
-        default=None,
-        doc='Minimum value allowed for the reference irradiance.')
-    max_ref_irradiance = param.Integer(None,
-        doc='Maximum value allowed for the reference irradiance. By default this\
+        default=None, doc="Minimum value allowed for the reference irradiance."
+    )
+    max_ref_irradiance = param.Integer(
+        None,
+        doc="Maximum value allowed for the reference irradiance. By default this\
         maximum is calculated by dividing the highest irradiance value in `df`\
-        by `high`.')
+        by `high`.",
+    )
     points_required = param.Integer(
         default=750,
-        doc='This is value is only used in the plot to overlay a horizontal \
-        line on the plot of the total points.')
+        doc="This is value is only used in the plot to overlay a horizontal \
+        line on the plot of the total points.",
+    )
 
     def __init__(self, df, irr_col, **param):
         super().__init__(**param)
@@ -597,22 +616,21 @@ class ReportingIrradiance(param.Parameterized):
 
         poa_flt.sort_values(self.irr_col, inplace=True)
 
-        poa_flt['plus_perc'] = poa_flt[self.irr_col] * high
-        poa_flt['minus_perc'] = poa_flt[self.irr_col] * low
+        poa_flt["plus_perc"] = poa_flt[self.irr_col] * high
+        poa_flt["minus_perc"] = poa_flt[self.irr_col] * low
 
-
-        poa_flt['below_count'] = [
-            poa_flt[self.irr_col].between(low, ref).sum() for low, ref
-            in zip(poa_flt['minus_perc'], poa_flt[self.irr_col])
+        poa_flt["below_count"] = [
+            poa_flt[self.irr_col].between(low, ref).sum()
+            for low, ref in zip(poa_flt["minus_perc"], poa_flt[self.irr_col])
         ]
-        poa_flt['above_count'] = [
-            poa_flt[self.irr_col].between(ref, high).sum() for ref, high
-            in zip(poa_flt[self.irr_col], poa_flt['plus_perc'])
+        poa_flt["above_count"] = [
+            poa_flt[self.irr_col].between(ref, high).sum()
+            for ref, high in zip(poa_flt[self.irr_col], poa_flt["plus_perc"])
         ]
 
-        poa_flt['total_pts'] = poa_flt['above_count'] + poa_flt['below_count']
-        poa_flt['perc_above'] = (poa_flt['above_count'] / poa_flt['total_pts']) * 100
-        poa_flt['perc_below'] =  (poa_flt['below_count'] / poa_flt['total_pts']) * 100
+        poa_flt["total_pts"] = poa_flt["above_count"] + poa_flt["below_count"]
+        poa_flt["perc_above"] = (poa_flt["above_count"] / poa_flt["total_pts"]) * 100
+        poa_flt["perc_below"] = (poa_flt["below_count"] / poa_flt["total_pts"]) * 100
 
         # set index to the poa irradiance
         poa_flt.set_index(self.irr_col, inplace=True)
@@ -623,41 +641,41 @@ class ReportingIrradiance(param.Parameterized):
             self.min_ref_irradiance = int(poa_flt.index[0] / low)
         if self.min_ref_irradiance > self.max_ref_irradiance:
             warnings.warn(
-                'The minimum reference irradiance ({:.2f}) is greater than the maximum '
-                'reference irradiance ({:.2f}). Setting the minimum to 400 and the '
-                'maximum to 1000.'.format(self.min_ref_irradiance, self.max_ref_irradiance)
+                "The minimum reference irradiance ({:.2f}) is greater than the maximum "
+                "reference irradiance ({:.2f}). Setting the minimum to 400 and the "
+                "maximum to 1000.".format(
+                    self.min_ref_irradiance, self.max_ref_irradiance
+                )
             )
             self.min_ref_irradiance = 400
             self.max_ref_irradiance = 1000
 
         # determine ref irradiance by finding 50/50 irradiance in upper group of data
-        poa_flt['valid'] = (
-            poa_flt['perc_below'].between(
-                self.min_percent_below, self.max_percent_above) &
-            poa_flt.index.to_series().between(
-                self.min_ref_irradiance, self.max_ref_irradiance)
+        poa_flt["valid"] = poa_flt["perc_below"].between(
+            self.min_percent_below, self.max_percent_above
+        ) & poa_flt.index.to_series().between(
+            self.min_ref_irradiance, self.max_ref_irradiance
         )
-        if poa_flt['valid'].sum() == 0:
+        if poa_flt["valid"].sum() == 0:
             self.poa_flt = poa_flt
             self.irr_rc = np.nan
             warnings.warn(
-                'No valid reference irradiance found. Try reviewing the min and max '
-                'reference irradiance values and the min and max percent below and '
-                'above values. The dashboard method will show these values with '
-                'related plots and allow you to adjust them.'
+                "No valid reference irradiance found. Try reviewing the min and max "
+                "reference irradiance values and the min and max percent below and "
+                "above values. The dashboard method will show these values with "
+                "related plots and allow you to adjust them."
             )
             return None
-        poa_flt['perc_below_minus_50_abs'] = (poa_flt['perc_below'] - 50).abs()
-        valid_df = poa_flt[poa_flt['valid']].copy()
-        valid_df.sort_values('perc_below_minus_50_abs', inplace=True)
+        poa_flt["perc_below_minus_50_abs"] = (poa_flt["perc_below"] - 50).abs()
+        valid_df = poa_flt[poa_flt["valid"]].copy()
+        valid_df.sort_values("perc_below_minus_50_abs", inplace=True)
         # if there are more than one points that are exactly 50 points above and
         # 50 above then pick the one that results in the most points
         self.valid_df = valid_df
-        fifty_fifty_points = valid_df['perc_below_minus_50_abs'] == 0
+        fifty_fifty_points = valid_df["perc_below_minus_50_abs"] == 0
         if (fifty_fifty_points).sum() > 1:
             possible_points = poa_flt.loc[
-                fifty_fifty_points[fifty_fifty_points].index,
-                'total_pts'
+                fifty_fifty_points[fifty_fifty_points].index, "total_pts"
             ]
             possible_points.sort_values(ascending=False, inplace=True)
             irr_RC = possible_points.index[0]
@@ -666,10 +684,9 @@ class ReportingIrradiance(param.Parameterized):
         flt_df = filter_irr(self.df, self.irr_col, low, high, ref_val=irr_RC)
         self.irr_rc = irr_RC
         self.poa_flt = poa_flt
-        self.total_pts = poa_flt.loc[self.irr_rc, 'total_pts']
+        self.total_pts = poa_flt.loc[self.irr_rc, "total_pts"]
 
         return (irr_RC, flt_df)
-
 
     def save_plot(self, output_plot_path=None):
         """
@@ -680,12 +697,7 @@ class ReportingIrradiance(param.Parameterized):
         output_plot_path : str or Path
             Path to save plot to.
         """
-        hv.save(
-            self.plot(),
-            output_plot_path,
-            fmt='html',
-            toolbar=True
-        )
+        hv.save(self.plot(), output_plot_path, fmt="html", toolbar=True)
 
     def save_csv(self, output_csv_path):
         """
@@ -693,99 +705,124 @@ class ReportingIrradiance(param.Parameterized):
         """
         self.poa_flt.to_csv(output_csv_path)
 
-    @param.depends('percent_band', 'min_percent_below', 'max_percent_above', 'min_ref_irradiance', 'points_required', 'max_ref_irradiance')
+    @param.depends(
+        "percent_band",
+        "min_percent_below",
+        "max_percent_above",
+        "min_ref_irradiance",
+        "points_required",
+        "max_ref_irradiance",
+    )
     def plot(self):
         self.get_rep_irr()
         below_count_scatter = hv.Scatter(
-            self.poa_flt['below_count'].reset_index(), ['poa'], ['below_count'],
-            label='Count pts below',
+            self.poa_flt["below_count"].reset_index(),
+            ["poa"],
+            ["below_count"],
+            label="Count pts below",
         )
         above_count_scatter = hv.Scatter(
-            self.poa_flt['above_count'].reset_index(), ['poa'], ['above_count'],
-            label='Count pts above',
+            self.poa_flt["above_count"].reset_index(),
+            ["poa"],
+            ["above_count"],
+            label="Count pts above",
         )
         if self.irr_rc is not np.nan:
             count_ellipse = hv.Ellipse(
-                self.irr_rc,
-                self.poa_flt.loc[self.irr_rc, 'below_count'],
-                (20, 50)
+                self.irr_rc, self.poa_flt.loc[self.irr_rc, "below_count"], (20, 50)
             )
         perc_below_scatter = (
             hv.Scatter(
-                self.poa_flt['perc_below'].reset_index(), ['poa'], ['perc_below']
-            ) *
-            hv.HLine(self.min_percent_below) *
-            hv.HLine(self.max_percent_above) *
-            hv.VLine(self.min_ref_irradiance) *
-            hv.VLine(self.max_ref_irradiance)
+                self.poa_flt["perc_below"].reset_index(), ["poa"], ["perc_below"]
+            )
+            * hv.HLine(self.min_percent_below)
+            * hv.HLine(self.max_percent_above)
+            * hv.VLine(self.min_ref_irradiance)
+            * hv.VLine(self.max_ref_irradiance)
         )
         if self.irr_rc is not np.nan:
             perc_ellipse = hv.Ellipse(
-                self.irr_rc,
-                self.poa_flt.loc[self.irr_rc, 'perc_below'],
-                (20, 10)
+                self.irr_rc, self.poa_flt.loc[self.irr_rc, "perc_below"], (20, 10)
             )
-        total_points_scatter = (
-            hv.Scatter(
-                self.poa_flt['total_pts'].reset_index(), ['poa'], ['total_pts']
-            ) *
-            hv.HLine(self.points_required)
-        )
+        total_points_scatter = hv.Scatter(
+            self.poa_flt["total_pts"].reset_index(), ["poa"], ["total_pts"]
+        ) * hv.HLine(self.points_required)
         if self.irr_rc is not np.nan:
             total_points_ellipse = hv.Ellipse(
-                self.irr_rc,
-                self.poa_flt.loc[self.irr_rc, 'total_pts'],
-                (20, 50)
+                self.irr_rc, self.poa_flt.loc[self.irr_rc, "total_pts"], (20, 50)
             )
 
-        ylim_bottom = self.poa_flt['total_pts'].min() - 20
+        ylim_bottom = self.poa_flt["total_pts"].min() - 20
         if self.total_pts < self.points_required:
-            ylim_top =  self.points_required + 20
+            ylim_top = self.points_required + 20
         else:
             ylim_top = self.total_pts + 50
-        vl = hv.VLine(self.rc_irr_60th_perc).opts(line_color='gray')
+        vl = hv.VLine(self.rc_irr_60th_perc).opts(line_color="gray")
         if self.irr_rc is not np.nan:
             rep_cond_plot = (
-                (below_count_scatter * above_count_scatter * count_ellipse * vl).opts(ylabel='count points') +
-                (perc_below_scatter * perc_ellipse).opts(ylim=(0, 100)) +
-                (total_points_scatter * total_points_ellipse).opts(
-                    ylim=(ylim_bottom, ylim_top))
-            ).opts(
-                opts.HLine(line_width=1),
-                opts.VLine(line_width=1),
-                opts.Scatter(
-                     size=4, show_legend=True, legend_position='right', tools=['hover']
-                ),
-               opts.Overlay(width=700),
-                opts.Layout(
-                    title='Reporting Irradiance: {:0.2f}, Total Points {}'.format(
-                        self.irr_rc,
-                        self.total_pts)),
-            ).cols(1)
+                (
+                    (
+                        below_count_scatter * above_count_scatter * count_ellipse * vl
+                    ).opts(ylabel="count points")
+                    + (perc_below_scatter * perc_ellipse).opts(ylim=(0, 100))
+                    + (total_points_scatter * total_points_ellipse).opts(
+                        ylim=(ylim_bottom, ylim_top)
+                    )
+                )
+                .opts(
+                    opts.HLine(line_width=1),
+                    opts.VLine(line_width=1),
+                    opts.Scatter(
+                        size=4,
+                        show_legend=True,
+                        legend_position="right",
+                        tools=["hover"],
+                    ),
+                    opts.Overlay(width=700),
+                    opts.Layout(
+                        title="Reporting Irradiance: {:0.2f}, Total Points {}".format(
+                            self.irr_rc, self.total_pts
+                        )
+                    ),
+                )
+                .cols(1)
+            )
         else:
             rep_cond_plot = (
-                (below_count_scatter * above_count_scatter * vl).opts(ylabel='count points') +
-                perc_below_scatter.opts(ylim=(0, 100)) +
-                total_points_scatter.opts(
-                    ylim=(ylim_bottom, ylim_top))
-            ).opts(
-                opts.HLine(line_width=1),
-                opts.VLine(line_width=1),
-                opts.Scatter(
-                    size=4, show_legend=True, legend_position='right', tools=['hover']
-                ),
-                opts.Overlay(width=700),
-                opts.Layout(
-                    title='Reporting Irradiance: None identified, Total Points {}'.format(
-                        self.total_pts)),
-            ).cols(1)
+                (
+                    (below_count_scatter * above_count_scatter * vl).opts(
+                        ylabel="count points"
+                    )
+                    + perc_below_scatter.opts(ylim=(0, 100))
+                    + total_points_scatter.opts(ylim=(ylim_bottom, ylim_top))
+                )
+                .opts(
+                    opts.HLine(line_width=1),
+                    opts.VLine(line_width=1),
+                    opts.Scatter(
+                        size=4,
+                        show_legend=True,
+                        legend_position="right",
+                        tools=["hover"],
+                    ),
+                    opts.Overlay(width=700),
+                    opts.Layout(
+                        title="Reporting Irradiance: None identified, Total Points {}".format(
+                            self.total_pts
+                        )
+                    ),
+                )
+                .cols(1)
+            )
         return rep_cond_plot
 
     def dashboard(self):
         return pn.Row(self.param, self.plot)
 
 
-def fit_model(df, fml='power ~ poa + I(poa * poa) + I(poa * t_amb) + I(poa * w_vel) - 1'):  # noqa E501
+def fit_model(
+    df, fml="power ~ poa + I(poa * poa) + I(poa * t_amb) + I(poa * w_vel) - 1"
+):  # noqa E501
     """
     Fits linear regression using statsmodels to dataframe passed.
 
@@ -859,24 +896,23 @@ def pred_summary(grps, rcs, allowance, **kwargs):
     regs = grps.apply(fit_model, **kwargs)
     predictions = predict(regs, rcs)
     params = regs.apply(lambda x: x.params.transpose())
-    pt_qty = grps.agg('count').iloc[:, 0]
+    pt_qty = grps.agg("count").iloc[:, 0]
     predictions.index = pt_qty.index
 
     params.index = pt_qty.index
     rcs.index = pt_qty.index
-    predictions.name = 'PredCap'
+    predictions.name = "PredCap"
 
     for rc_col_name in rcs.columns:
         for param_col_name in params.columns:
             if rc_col_name == param_col_name:
-                new_col_name = param_col_name + '-param'
-                params.rename(columns={param_col_name: new_col_name},
-                              inplace=True)
+                new_col_name = param_col_name + "-param"
+                params.rename(columns={param_col_name: new_col_name}, inplace=True)
 
     results = pd.concat([rcs, predictions, params], axis=1)
 
-    results['guaranteedCap'] = results['PredCap'] * (1 - allowance)
-    results['pt_qty'] = pt_qty.values
+    results["guaranteedCap"] = results["PredCap"] * (1 - allowance)
+    results["pt_qty"] = pt_qty.values
 
     return results
 
@@ -938,19 +974,23 @@ def pvlib_system(sys):
     -------
     pvlib PVSystem object.
     """
-    sandia_modules = retrieve_sam('SandiaMod')
-    cec_inverters = retrieve_sam('cecinverter')
+    sandia_modules = retrieve_sam("SandiaMod")
+    cec_inverters = retrieve_sam("cecinverter")
     sandia_module = sandia_modules.iloc[:, 0]
     cec_inverter = cec_inverters.iloc[:, 0]
 
-    albedo = sys.pop('albedo', None)
-    trck_kwords = ['axis_tilt', 'axis_azimuth', 'max_angle', 'backtrack', 'gcr']  # noqa: E501
+    albedo = sys.pop("albedo", None)
+    trck_kwords = ["axis_tilt", "axis_azimuth", "max_angle", "backtrack", "gcr"]  # noqa: E501
     if any(kword in sys.keys() for kword in trck_kwords):
         mount = SingleAxisTrackerMount(**sys)
     else:
         mount = FixedMount(**sys)
-    array = Array(mount, albedo=albedo, module_parameters=sandia_module,
-                  temperature_model_parameters={'u_c': 29.0, 'u_v': 0.0})
+    array = Array(
+        mount,
+        albedo=albedo,
+        module_parameters=sandia_module,
+        temperature_model_parameters={"u_c": 29.0, "u_v": 0.0},
+    )
     system = PVSystem(arrays=[array], inverter_parameters=cec_inverter)
 
     return system
@@ -981,29 +1021,33 @@ def get_tz_index(time_source, loc):
     if isinstance(time_source, pd.core.indexes.datetimes.DatetimeIndex):
         if time_source.tz is None:
             time_source = time_source.tz_localize(
-                loc['tz'], ambiguous='infer', nonexistent='NaT'
+                loc["tz"], ambiguous="infer", nonexistent="NaT"
             )
             return time_source
         else:
-            if pytz.timezone(loc['tz']) != time_source.tz:
-                warnings.warn('Passed a DatetimeIndex with a timezone that '
-                              'does not match the timezone in the loc dict. '
-                              'Using the timezone of the DatetimeIndex.')
+            if pytz.timezone(loc["tz"]) != time_source.tz:
+                warnings.warn(
+                    "Passed a DatetimeIndex with a timezone that "
+                    "does not match the timezone in the loc dict. "
+                    "Using the timezone of the DatetimeIndex."
+                )
             return time_source
     elif isinstance(time_source, pd.core.frame.DataFrame):
         if time_source.index.tz is None:
             return time_source.index.tz_localize(
-                loc['tz'], ambiguous='infer', nonexistent='NaT'
+                loc["tz"], ambiguous="infer", nonexistent="NaT"
             )
         else:
-            if pytz.timezone(loc['tz']) != time_source.index.tz:
-                warnings.warn('Passed a DataFrame with a timezone that '
-                              'does not match the timezone in the loc dict. '
-                              'Using the timezone of the DataFrame.')
+            if pytz.timezone(loc["tz"]) != time_source.index.tz:
+                warnings.warn(
+                    "Passed a DataFrame with a timezone that "
+                    "does not match the timezone in the loc dict. "
+                    "Using the timezone of the DataFrame."
+                )
             return time_source.index
 
 
-def csky(time_source, loc=None, sys=None, concat=True, output='both'):
+def csky(time_source, loc=None, sys=None, concat=True, output="both"):
     """
     Calculate clear sky poa and ghi.
 
@@ -1060,25 +1104,31 @@ def csky(time_source, loc=None, sys=None, concat=True, output='both'):
     ghi = location.get_clearsky(times=times)
     # pvlib get_Clearsky also returns 'wind_speed' and 'temp_air'
     mc.prepare_inputs(weather=ghi)
-    cols = ['poa_global', 'poa_direct', 'poa_diffuse', 'poa_sky_diffuse',
-            'poa_ground_diffuse']
+    cols = [
+        "poa_global",
+        "poa_direct",
+        "poa_diffuse",
+        "poa_sky_diffuse",
+        "poa_ground_diffuse",
+    ]
 
-    if output == 'both':
-        csky_df = pd.DataFrame({
-            'poa_mod_csky': mc.results.total_irrad['poa_global'],
-            'ghi_mod_csky': ghi['ghi']
-        })
-    if output == 'poa_all':
+    if output == "both":
+        csky_df = pd.DataFrame(
+            {
+                "poa_mod_csky": mc.results.total_irrad["poa_global"],
+                "ghi_mod_csky": ghi["ghi"],
+            }
+        )
+    if output == "poa_all":
         csky_df = mc.results.total_irrad[cols]
-    if output == 'ghi_all':
-        csky_df = ghi[['ghi', 'dni', 'dhi']]
-    if output == 'all':
-        csky_df = pd.concat([mc.results.total_irrad[cols],
-                             ghi[['ghi', 'dni', 'dhi']]],
-                            axis=1)
+    if output == "ghi_all":
+        csky_df = ghi[["ghi", "dni", "dhi"]]
+    if output == "all":
+        csky_df = pd.concat(
+            [mc.results.total_irrad[cols], ghi[["ghi", "dni", "dhi"]]], axis=1
+        )
 
-    ix_no_tz = csky_df.index.tz_localize(None, ambiguous='infer',
-                                         nonexistent='NaT')
+    ix_no_tz = csky_df.index.tz_localize(None, ambiguous="infer", nonexistent="NaT")
     csky_df.index = ix_no_tz
 
     if concat:
@@ -1092,8 +1142,10 @@ def csky(time_source, loc=None, sys=None, concat=True, output='both'):
                 )
             return df_with_csky
         else:
-            warnings.warn('time_source is not a dataframe; only clear sky data\
-                           returned')
+            warnings.warn(
+                "time_source is not a dataframe; only clear sky data\
+                           returned"
+            )
             return csky_df
     else:
         return csky_df
@@ -1115,15 +1167,16 @@ def pick_attr(sim, das, name):
     sim_attr = getattr(sim, name)
     das_attr = getattr(das, name)
     if sim_attr is None and das_attr is None:
-        warn_str = '{} must be set for either sim or das'.format(name)
+        warn_str = "{} must be set for either sim or das".format(name)
         return warnings.warn(warn_str)
     elif sim_attr is None and das_attr is not None:
-        return (das_attr, 'das')
+        return (das_attr, "das")
     elif sim_attr is not None and das_attr is None:
-        return (sim_attr, 'sim')
+        return (sim_attr, "sim")
     elif sim_attr is not None and das_attr is not None:
-        warn_str = ('{} found for sim and das set {} to None for one of '
-                    'the two'.format(name, name))
+        warn_str = "{} found for sim and das set {} to None for one of the two".format(
+            name, name
+        )
         return warnings.warn(warn_str)
 
 
@@ -1149,24 +1202,26 @@ def determine_pass_or_fail(cap_ratio, tolerance, nameplate):
         True for a passing test and false for a failing test.
         Limits for passing and failing test.
     """
-    sign = tolerance.split(sep=' ')[0]
-    error = float(tolerance.split(sep=' ')[1]) / 100
+    sign = tolerance.split(sep=" ")[0]
+    error = float(tolerance.split(sep=" ")[1]) / 100
 
     nameplate_plus_error = nameplate * (1 + error)
     nameplate_minus_error = nameplate * (1 - error)
 
-    if sign == '+/-' or sign == '-/+':
-        return (round(np.abs(1 - cap_ratio), ndigits=6) <= error,
-                str(nameplate_minus_error) + ', ' + str(nameplate_plus_error))
-    elif sign == '-':
-        return (cap_ratio >= 1 - error,
-                str(nameplate_minus_error) + ', None')
+    if sign == "+/-" or sign == "-/+":
+        return (
+            round(np.abs(1 - cap_ratio), ndigits=6) <= error,
+            str(nameplate_minus_error) + ", " + str(nameplate_plus_error),
+        )
+    elif sign == "-":
+        return (cap_ratio >= 1 - error, str(nameplate_minus_error) + ", None")
     else:
         warnings.warn("Sign must be '-', '+/-', or '-/+'.")
 
 
-def captest_results(sim, das, nameplate, tolerance, check_pvalues=False,
-                    pval=0.05, print_res=True):
+def captest_results(
+    sim, das, nameplate, tolerance, check_pvalues=False, pval=0.05, print_res=True
+):
     """
     Print a summary indicating if system passed or failed capacity test.
 
@@ -1203,8 +1258,7 @@ def captest_results(sim, das, nameplate, tolerance, check_pvalues=False,
     das_int = das.copy()
 
     if sim_int.regression_formula != das_int.regression_formula:
-        return warnings.warn('CapData objects do not have the same'
-                             'regression formula.')
+        return warnings.warn("CapData objects do not have the sameregression formula.")
 
     if check_pvalues:
         for cd in [sim_int, das_int]:
@@ -1212,9 +1266,9 @@ def captest_results(sim, das, nameplate, tolerance, check_pvalues=False,
                 if val > pval:
                     cd.regression_results.params[key] = 0
 
-    rc = pick_attr(sim_int, das_int, 'rc')
+    rc = pick_attr(sim_int, das_int, "rc")
     if print_res:
-        print('Using reporting conditions from {}. \n'.format(rc[1]))
+        print("Using reporting conditions from {}. \n".format(rc[1]))
     rc = rc[0]
 
     actual = das_int.regression_results.predict(rc)[0]
@@ -1223,16 +1277,19 @@ def captest_results(sim, das, nameplate, tolerance, check_pvalues=False,
     if cap_ratio < 0.01:
         cap_ratio *= 1000
         actual *= 1000
-        warnings.warn('Capacity ratio and actual capacity multiplied by 1000'
-                      ' because the capacity ratio was less than 0.01.')
+        warnings.warn(
+            "Capacity ratio and actual capacity multiplied by 1000"
+            " because the capacity ratio was less than 0.01."
+        )
     capacity = nameplate * cap_ratio
 
     if print_res:
         test_passed = determine_pass_or_fail(cap_ratio, tolerance, nameplate)
-        print_results(test_passed, expected, actual, cap_ratio, capacity,
-                      test_passed[1])
+        print_results(
+            test_passed, expected, actual, cap_ratio, capacity, test_passed[1]
+        )
 
-    return(cap_ratio)
+    return cap_ratio
 
 
 def print_results(test_passed, expected, actual, cap_ratio, capacity, bounds):
@@ -1242,15 +1299,15 @@ def print_results(test_passed, expected, actual, cap_ratio, capacity, bounds):
     else:
         print("{:<25s}{}".format("Capacity Test Result:", "FAIL"))
 
-    print("{:<30s}{:0.3f}".format("Modeled test output:",
-                                  expected) + "\n" +
-          "{:<30s}{:0.3f}".format("Actual test output:",
-                                  actual) + "\n" +
-          "{:<30s}{:0.3f}".format("Tested output ratio:",
-                                  cap_ratio) + "\n" +
-          "{:<30s}{:0.3f}".format("Tested Capacity:",
-                                  capacity)
-          )
+    print(
+        "{:<30s}{:0.3f}".format("Modeled test output:", expected)
+        + "\n"
+        + "{:<30s}{:0.3f}".format("Actual test output:", actual)
+        + "\n"
+        + "{:<30s}{:0.3f}".format("Tested output ratio:", cap_ratio)
+        + "\n"
+        + "{:<30s}{:0.3f}".format("Tested Capacity:", capacity)
+    )
 
     print("{:<30s}{}\n\n".format("Bounds:", test_passed[1]))
 
@@ -1258,11 +1315,12 @@ def print_results(test_passed, expected, actual, cap_ratio, capacity, bounds):
 def highlight_pvals(s):
     """Highlight vals greater than or equal to 0.05 in a Series yellow."""
     is_greaterthan = s >= 0.05
-    return ['background-color: yellow' if v else '' for v in is_greaterthan]
+    return ["background-color: yellow" if v else "" for v in is_greaterthan]
 
 
-def captest_results_check_pvalues(sim, das, nameplate, tolerance,
-                                  print_res=False, **kwargs):
+def captest_results_check_pvalues(
+    sim, das, nameplate, tolerance, print_res=False, **kwargs
+):
     """
     Print a summary of the capacity test results.
 
@@ -1305,29 +1363,44 @@ def captest_results_check_pvalues(sim, das, nameplate, tolerance,
 
     df_pvals = pd.DataFrame([das_pvals, sim_pvals, das_params, sim_params])
     df_pvals = df_pvals.transpose()
-    df_pvals.rename(columns={0: 'das_pvals', 1: 'sim_pvals',
-                             2: 'das_params', 3: 'sim_params'}, inplace=True)
+    df_pvals.rename(
+        columns={0: "das_pvals", 1: "sim_pvals", 2: "das_params", 3: "sim_params"},
+        inplace=True,
+    )
 
-    cap_ratio = captest_results(sim, das, nameplate, tolerance,
-                                print_res=print_res, check_pvalues=False,
-                                **kwargs)
-    cap_ratio_check_pvalues = captest_results(sim, das, nameplate, tolerance,
-                                              print_res=print_res,
-                                              check_pvalues=True, **kwargs)
+    cap_ratio = captest_results(
+        sim,
+        das,
+        nameplate,
+        tolerance,
+        print_res=print_res,
+        check_pvalues=False,
+        **kwargs,
+    )
+    cap_ratio_check_pvalues = captest_results(
+        sim,
+        das,
+        nameplate,
+        tolerance,
+        print_res=print_res,
+        check_pvalues=True,
+        **kwargs,
+    )
 
     cap_ratio_rounded = np.round(cap_ratio, decimals=4) * 100
-    cap_ratio_check_pvalues_rounded = np.round(cap_ratio_check_pvalues,
-                                               decimals=4) * 100
+    cap_ratio_check_pvalues_rounded = (
+        np.round(cap_ratio_check_pvalues, decimals=4) * 100
+    )
 
-    result_str = '{:.3f}% - Cap Ratio'
+    result_str = "{:.3f}% - Cap Ratio"
     print(result_str.format(cap_ratio_rounded))
 
-    result_str_pval_check = '{:.3f}% - Cap Ratio after pval check'
+    result_str_pval_check = "{:.3f}% - Cap Ratio after pval check"
     print(result_str_pval_check.format(cap_ratio_check_pvalues_rounded))
 
-    return(df_pvals.style.format('{:20,.5f}').apply(highlight_pvals,
-                                                    subset=['das_pvals',
-                                                            'sim_pvals']))
+    return df_pvals.style.format("{:20,.5f}").apply(
+        highlight_pvals, subset=["das_pvals", "sim_pvals"]
+    )
 
 
 def run_test(cd, steps):
@@ -1354,7 +1427,7 @@ def run_test(cd, steps):
         step[0](cd, *step[1], **step[2])
 
 
-def overlay_scatters(measured, expected, expected_label='PVsyst'):
+def overlay_scatters(measured, expected, expected_label="PVsyst"):
     """
     Plot labeled overlay scatter of final filtered measured and simulated data.
 
@@ -1376,16 +1449,14 @@ def overlay_scatters(measured, expected, expected_label='PVsyst'):
     simulated data.
     """
     meas_last_filter_scatter = getattr(
-        measured.Scatter,
-        measured.Scatter.children[-1]
-    ).relabel('Measured')
+        measured.Scatter, measured.Scatter.children[-1]
+    ).relabel("Measured")
     exp_last_filter_scatter = getattr(
-        expected.Scatter,
-        expected.Scatter.children[-1]
+        expected.Scatter, expected.Scatter.children[-1]
     ).relabel(expected_label)
-    overlay = (
-        meas_last_filter_scatter * exp_last_filter_scatter
-    ).opts(hv.opts.Overlay(legend_position='right'))
+    overlay = (meas_last_filter_scatter * exp_last_filter_scatter).opts(
+        hv.opts.Overlay(legend_position="right")
+    )
     return overlay
 
 
@@ -1420,7 +1491,7 @@ def index_capdata(capdata, label, filtered=True):
         data = capdata.data_filtered
     else:
         data = capdata.data
-    if label == 'regcols':
+    if label == "regcols":
         label = list(capdata.regression_cols.values())
     if isinstance(label, str):
         if label in capdata.column_groups.keys():
@@ -1434,7 +1505,7 @@ def index_capdata(capdata, label, filtered=True):
             else:
                 warnings.warn(
                     'Group or column "{}" mapped to the "{}" key of regression_cols '
-                    'not found in column_groups keys or columns of CapData.data'.format(
+                    "not found in column_groups keys or columns of CapData.data".format(
                         col_or_grp, label
                     )
                 )
@@ -1467,6 +1538,7 @@ class LocIndexer(object):
     Allows passing a column_groups key, a list of column_groups keys, or a column or
     list of columns of the CapData.data dataframe.
     """
+
     def __init__(self, _capdata):
         self._capdata = _capdata
 
@@ -1481,6 +1553,7 @@ class FilteredLocIndexer(object):
     Allows passing a column_groups key, a list of column_groups keys, or a column or
     list of columns of the CapData.data_filtered dataframe.
     """
+
     def __init__(self, _capdata):
         self._capdata = _capdata
 
@@ -1554,7 +1627,7 @@ class CapData(object):
         self.rc = None
         self.regression_results = None
         self.regression_formula = (
-            'power ~ poa + I(poa * poa) + I(poa * t_amb) + I(poa * w_vel) - 1'
+            "power ~ poa + I(poa * poa) + I(poa * t_amb) + I(poa * w_vel) - 1"
         )
         self.tolerance = None
         self.pre_agg_cols = None
@@ -1563,7 +1636,7 @@ class CapData(object):
         self.loc = LocIndexer(self)
         self.floc = FilteredLocIndexer(self)
 
-    def set_regression_cols(self, power='', poa='', t_amb='', w_vel=''):
+    def set_regression_cols(self, power="", poa="", t_amb="", w_vel=""):
         """
         Create a dictionary linking the regression variables to data.
 
@@ -1584,14 +1657,16 @@ class CapData(object):
         w_vel : str
             Translation key for the wind velocity key.
         """
-        self.regression_cols = {'power': power,
-                                'poa': poa,
-                                't_amb': t_amb,
-                                'w_vel': w_vel}
+        self.regression_cols = {
+            "power": power,
+            "poa": poa,
+            "t_amb": t_amb,
+            "w_vel": w_vel,
+        }
 
     def copy(self):
         """Create and returns a copy of self."""
-        cd_c = CapData('')
+        cd_c = CapData("")
         cd_c.name = copy.copy(self.name)
         cd_c.data = self.data.copy()
         cd_c.data_filtered = self.data_filtered.copy()
@@ -1667,9 +1742,11 @@ class CapData(object):
                 else:
                     columns = self.column_groups[self.regression_cols[reg_var]]
                     if len(columns) != 1:
-                        return warnings.warn('Multiple columns per translation '
-                                             'dictionary group. Run agg_sensors '
-                                             'before this method.')
+                        return warnings.warn(
+                            "Multiple columns per translation "
+                            "dictionary group. Run agg_sensors "
+                            "before this method."
+                        )
             rename = {old: new for old, new in zip(df.columns, reg_vars)}
 
         df.rename(columns=rename, inplace=True)
@@ -1678,22 +1755,22 @@ class CapData(object):
     def review_column_groups(self):
         """Print `column_groups` with nice formatting."""
         if len(self.column_groups) == 0:
-            return 'column_groups attribute is empty.'
+            return "column_groups attribute is empty."
         else:
             for trans_grp, col_list in self.column_groups.items():
                 print(trans_grp)
                 for col in col_list:
-                    print('    ' + col)
+                    print("    " + col)
 
     # PLOTTING METHODS
     def reg_scatter_matrix(self):
         """Create pandas scatter matrix of regression variables."""
-        df = self.get_reg_cols(reg_vars=['poa', 't_amb', 'w_vel'])
-        df['poa_poa'] = df['poa'] * df['poa']
-        df['poa_t_amb'] = df['poa'] * df['t_amb']
-        df['poa_w_vel'] = df['poa'] * df['w_vel']
-        df.drop(['t_amb', 'w_vel'], axis=1, inplace=True)
-        return(pd.plotting.scatter_matrix(df))
+        df = self.get_reg_cols(reg_vars=["poa", "t_amb", "w_vel"])
+        df["poa_poa"] = df["poa"] * df["poa"]
+        df["poa_t_amb"] = df["poa"] * df["t_amb"]
+        df["poa_w_vel"] = df["poa"] * df["w_vel"]
+        df.drop(["t_amb", "w_vel"], axis=1, inplace=True)
+        return pd.plotting.scatter_matrix(df)
 
     def scatter(self, filtered=True):
         """
@@ -1705,18 +1782,16 @@ class CapData(object):
             Plots filtered data when true and all data when false.
         """
         if filtered:
-            df = self.floc[['power', 'poa']]
+            df = self.floc[["power", "poa"]]
         else:
-            df = self.loc[['power', 'poa']]
+            df = self.loc[["power", "poa"]]
 
         if df.shape[1] != 2:
-            return warnings.warn('Aggregate sensors before using this '
-                                 'method.')
+            return warnings.warn("Aggregate sensors before using this method.")
 
-        df = df.rename(columns={df.columns[0]: 'power', df.columns[1]: 'poa'})
-        plt = df.plot(kind='scatter', x='poa', y='power',
-                      title=self.name, alpha=0.2)
-        return(plt)
+        df = df.rename(columns={df.columns[0]: "power", df.columns[1]: "poa"})
+        plt = df.plot(kind="scatter", x="poa", y="power", title=self.name, alpha=0.2)
+        return plt
 
     def scatter_hv(self, timeseries=False, all_reg_columns=False):
         """
@@ -1739,59 +1814,59 @@ class CapData(object):
             to poa irradiance and power in the hover tooltip.
         """
         df = self.get_reg_cols(filtered_data=True)
-        df.index.name = 'index'
+        df.index.name = "index"
         df.reset_index(inplace=True)
-        vdims = ['power', 'index']
+        vdims = ["power", "index"]
         if all_reg_columns:
             vdims.extend(list(df.columns.difference(vdims)))
         hover = HoverTool(
             tooltips=[
-                ('datetime', '@index{%Y-%m-%d %H:%M}'),
-                ('poa', '@poa{0,0.0}'),
-                ('power', '@power{0,0.0}'),
+                ("datetime", "@index{%Y-%m-%d %H:%M}"),
+                ("poa", "@poa{0,0.0}"),
+                ("power", "@power{0,0.0}"),
             ],
             formatters={
-                '@index': 'datetime',
-            }
+                "@index": "datetime",
+            },
         )
-        poa_vs_kw = hv.Scatter(df, 'poa', vdims).opts(
+        poa_vs_kw = hv.Scatter(df, "poa", vdims).opts(
             size=5,
-            tools=[hover, 'lasso_select', 'box_select'],
-            legend_position='right',
+            tools=[hover, "lasso_select", "box_select"],
+            legend_position="right",
             height=400,
             width=400,
-            selection_fill_color='red',
-            selection_line_color='red',
-            yformatter=NumeralTickFormatter(format='0,0'),
+            selection_fill_color="red",
+            selection_line_color="red",
+            yformatter=NumeralTickFormatter(format="0,0"),
         )
         # layout_scatter = (poa_vs_kw).opts(opt_dict)
         if timeseries:
-            power_vs_time = hv.Scatter(df, 'index', ['power', 'poa']).opts(
-                tools=[hover, 'lasso_select', 'box_select'],
+            power_vs_time = hv.Scatter(df, "index", ["power", "poa"]).opts(
+                tools=[hover, "lasso_select", "box_select"],
                 height=400,
                 width=800,
-                selection_fill_color='red',
-                selection_line_color='red',
+                selection_fill_color="red",
+                selection_line_color="red",
             )
-            power_col, poa_col = self.loc[['power', 'poa']].columns
+            power_col, poa_col = self.loc[["power", "poa"]].columns
             power_vs_time_underlay = hv.Curve(
-                self.data.rename_axis('index', axis='index'),
-                'index',
+                self.data.rename_axis("index", axis="index"),
+                "index",
                 [power_col, poa_col],
             ).opts(
-                tools=['lasso_select', 'box_select'],
+                tools=["lasso_select", "box_select"],
                 height=400,
                 width=800,
-                line_color='gray',
+                line_color="gray",
                 line_width=1,
                 line_alpha=0.4,
-                yformatter=NumeralTickFormatter(format='0,0'),
+                yformatter=NumeralTickFormatter(format="0,0"),
             )
-            layout_timeseries = (poa_vs_kw + power_vs_time * power_vs_time_underlay)
+            layout_timeseries = poa_vs_kw + power_vs_time * power_vs_time_underlay
             DataLink(poa_vs_kw, power_vs_time)
-            return(layout_timeseries.cols(1))
+            return layout_timeseries.cols(1)
         else:
-            return(poa_vs_kw)
+            return poa_vs_kw
 
     def plot(
         self,
@@ -1858,14 +1933,14 @@ class CapData(object):
         """
         scatters = []
 
-        data = self.get_reg_cols(reg_vars=['power', 'poa'], filtered_data=False)
-        data['index'] = self.data.index
-        plt_no_filtering = hv.Scatter(data, 'poa', ['power', 'index']).relabel('all')
+        data = self.get_reg_cols(reg_vars=["power", "poa"], filtered_data=False)
+        data["index"] = self.data.index
+        plt_no_filtering = hv.Scatter(data, "poa", ["power", "index"]).relabel("all")
         scatters.append(plt_no_filtering)
 
-        d1 = data.loc[self.removed[0]['index'], :]
-        plt_first_filter = hv.Scatter(d1, 'poa', ['power', 'index']).relabel(
-            self.removed[0]['name']
+        d1 = data.loc[self.removed[0]["index"], :]
+        plt_first_filter = hv.Scatter(d1, "poa", ["power", "index"]).relabel(
+            self.removed[0]["name"]
         )
         scatters.append(plt_first_filter)
 
@@ -1873,21 +1948,21 @@ class CapData(object):
             if i >= len(self.kept) - 1:
                 break
             else:
-                flt_legend = self.kept[i + 1]['name']
-            d_flt = data.loc[filtering_step['index'], :]
-            plt = hv.Scatter(d_flt, 'poa', ['power', 'index']).relabel(flt_legend)
+                flt_legend = self.kept[i + 1]["name"]
+            d_flt = data.loc[filtering_step["index"], :]
+            plt = hv.Scatter(d_flt, "poa", ["power", "index"]).relabel(flt_legend)
             scatters.append(plt)
 
         scatter_overlay = hv.Overlay(scatters)
         hover = HoverTool(
             tooltips=[
-                ('datetime', '@index{%Y-%m-%d %H:%M}'),
-                ('poa', '@poa{0,0.0}'),
-                ('power', '@power{0,0.0}'),
+                ("datetime", "@index{%Y-%m-%d %H:%M}"),
+                ("poa", "@poa{0,0.0}"),
+                ("power", "@power{0,0.0}"),
             ],
             formatters={
-                '@index': 'datetime',
-            }
+                "@index": "datetime",
+            },
         )
         scatter_overlay.opts(
             hv.opts.Scatter(
@@ -1898,12 +1973,9 @@ class CapData(object):
                 fill_alpha=0.4,
                 line_width=0,
                 tools=[hover],
-                yformatter=NumeralTickFormatter(format='0,0'),
+                yformatter=NumeralTickFormatter(format="0,0"),
             ),
-            hv.opts.Overlay(
-                legend_position='right',
-                toolbar='above'
-            ),
+            hv.opts.Overlay(legend_position="right", toolbar="above"),
         )
         return scatter_overlay
 
@@ -1917,20 +1989,20 @@ class CapData(object):
         """
         plots = []
 
-        data = self.get_reg_cols(reg_vars='power', filtered_data=False)
-        data['Timestamp'] = data.index
-        plt_no_filtering = hv.Curve(data, ['Timestamp'], ['power'], label='all')
+        data = self.get_reg_cols(reg_vars="power", filtered_data=False)
+        data["Timestamp"] = data.index
+        plt_no_filtering = hv.Curve(data, ["Timestamp"], ["power"], label="all")
         plt_no_filtering.opts(
-            line_color='black',
+            line_color="black",
             line_width=1,
             width=1500,
             height=450,
         )
         plots.append(plt_no_filtering)
 
-        d1 = data.loc[self.removed[0]['index'], ['power', 'Timestamp']]
+        d1 = data.loc[self.removed[0]["index"], ["power", "Timestamp"]]
         plt_first_filter = hv.Scatter(
-            d1, ['Timestamp'], ['power'], label=self.removed[0]['name']
+            d1, ["Timestamp"], ["power"], label=self.removed[0]["name"]
         )
         plots.append(plt_first_filter)
 
@@ -1938,22 +2010,20 @@ class CapData(object):
             if i >= len(self.kept) - 1:
                 break
             else:
-                flt_legend = self.kept[i + 1]['name']
-            d_flt = data.loc[filtering_step['index'], :]
-            plt = hv.Scatter(
-                d_flt, ['Timestamp'], ['power'], label=flt_legend
-            )
+                flt_legend = self.kept[i + 1]["name"]
+            d_flt = data.loc[filtering_step["index"], :]
+            plt = hv.Scatter(d_flt, ["Timestamp"], ["power"], label=flt_legend)
             plots.append(plt)
 
         scatter_overlay = hv.Overlay(plots)
         hover = HoverTool(
             tooltips=[
-                ('datetime', '@Timestamp{%Y-%m-%d %H:%M}'),
-                ('power', '@power{0,0.0}'),
+                ("datetime", "@Timestamp{%Y-%m-%d %H:%M}"),
+                ("power", "@power{0,0.0}"),
             ],
             formatters={
-                '@Timestamp': 'datetime',
-            }
+                "@Timestamp": "datetime",
+            },
         )
         scatter_overlay.opts(
             hv.opts.Scatter(
@@ -1962,11 +2032,11 @@ class CapData(object):
                 fill_alpha=1,
                 line_width=0,
                 tools=[hover],
-                yformatter=NumeralTickFormatter(format='0,0'),
+                yformatter=NumeralTickFormatter(format="0,0"),
             ),
             hv.opts.Overlay(
-                legend_position='bottom',
-                toolbar='right',
+                legend_position="bottom",
+                toolbar="right",
             ),
         )
         return scatter_overlay
@@ -1994,8 +2064,7 @@ class CapData(object):
         Does not reset filtering of data or data_filtered.
         """
         if self.pre_agg_cols is None:
-            return warnings.warn('Nothing to reset; agg_sensors has not been'
-                                 'used.')
+            return warnings.warn("Nothing to reset; agg_sensors has not beenused.")
         else:
             self.data = self.data[self.pre_agg_cols].copy()
             self.data_filtered = self.data_filtered[self.pre_agg_cols].copy()
@@ -2010,15 +2079,17 @@ class CapData(object):
         Also, issues warning if there are more than one poa columns in
         `column_groups`.
         """
-        poa_trans_key = self.regression_cols['poa']
+        poa_trans_key = self.regression_cols["poa"]
         if poa_trans_key in self.data.columns:
             return poa_trans_key
         else:
             poa_cols = self.column_groups[poa_trans_key]
         if len(poa_cols) > 1:
-            return warnings.warn('{} columns of irradiance data. '
-                                 'Use col_name to specify a single '
-                                 'column.'.format(len(poa_cols)))
+            return warnings.warn(
+                "{} columns of irradiance data. "
+                "Use col_name to specify a single "
+                "column.".format(len(poa_cols))
+            )
         else:
             return poa_cols[0]
 
@@ -2034,7 +2105,7 @@ class CapData(object):
             keys should be keys from the `column_gruops` attribute. The
             dictionary values should be aggregation functions. See pandas API
             documentation of Computations / descriptive statistics for a list of all
-            options. 
+            options.
             By default the groups of columns assigned to the 'power', 'poa', 't_amb',
             and 'w_vel' keys in the `regression_cols` attribute are aggregated:
             - sum power
@@ -2044,17 +2115,19 @@ class CapData(object):
         -------
         None
             Acts in place on the data, data_filtered, and regression_cols attributes.
-            
+
         Notes
         -----
         This method is intended to be used before any filtering methods are applied.
         Filtering steps applied when this method is used will be lost.
         """
         if not len(self.summary) == 0:
-            warnings.warn('The data_filtered attribute has been overwritten '
-                          'and previously applied filtering steps have been '
-                          'lost.  It is recommended to use agg_sensors '
-                          'before any filtering methods.')
+            warnings.warn(
+                "The data_filtered attribute has been overwritten "
+                "and previously applied filtering steps have been "
+                "lost.  It is recommended to use agg_sensors "
+                "before any filtering methods."
+            )
         # reset summary data
         self.summary_ix = []
         self.summary = []
@@ -2064,10 +2137,12 @@ class CapData(object):
         self.pre_agg_reg_trans = copy.deepcopy(self.regression_cols)
 
         if agg_map is None:
-            agg_map = {self.regression_cols['power']: 'sum',
-                       self.regression_cols['poa']: 'mean',
-                       self.regression_cols['t_amb']: 'mean',
-                       self.regression_cols['w_vel']: 'mean'}
+            agg_map = {
+                self.regression_cols["power"]: "sum",
+                self.regression_cols["poa"]: "mean",
+                self.regression_cols["t_amb"]: "mean",
+                self.regression_cols["w_vel"]: "mean",
+            }
 
         dfs_to_concat = []
         agg_names = {}
@@ -2077,9 +2152,9 @@ class CapData(object):
                 continue
             agg_result = columns_to_aggregate.agg(agg_func, axis=1).to_frame()
             if isinstance(agg_func, str):
-                col_name = group_id + '_' + agg_func + '_agg'
+                col_name = group_id + "_" + agg_func + "_agg"
             else:
-                col_name = group_id + '_' + agg_func.__name__ + '_agg'
+                col_name = group_id + "_" + agg_func.__name__ + "_agg"
             agg_result.rename(columns={agg_result.columns[0]: col_name}, inplace=True)
             dfs_to_concat.append(agg_result)
             agg_names[group_id] = col_name
@@ -2095,8 +2170,9 @@ class CapData(object):
                 continue
             if trans_group in agg_names.keys():
                 print(
-                    "Regression variable '{}' has been remapped: '{}' to '{}'"
-                    .format(reg_var, trans_group, agg_names[trans_group])
+                    "Regression variable '{}' has been remapped: '{}' to '{}'".format(
+                        reg_var, trans_group, agg_names[trans_group]
+                    )
                 )
                 self.regression_cols[reg_var] = agg_names[trans_group]
 
@@ -2115,22 +2191,22 @@ class CapData(object):
             Writes to excel file at self.data_loader.path / 'column_groups.xlsx'.
         """
         df = self.data.columns.to_frame().reset_index(drop=True)
-        df['a'] = ""
-        df = df[['a', 0]]
+        df["a"] = ""
+        df = df[["a", 0]]
         # print(df)
         df.sort_values(by=0, inplace=True, ascending=True)
         if sort_by_reversed_names:
-            df['reversed'] = df[0].str[::-1]
-            df.sort_values(by='reversed', inplace=True, ascending=True)
-            df = df[['a', 0]]
+            df["reversed"] = df[0].str[::-1]
+            df.sort_values(by="reversed", inplace=True, ascending=True)
+            df = df[["a", 0]]
         if self.data_loader.path.is_dir():
             df.to_excel(
-                self.data_loader.path / 'column_groups.xlsx', index=False, header=False
+                self.data_loader.path / "column_groups.xlsx", index=False, header=False
             )
         elif self.data_loader.path.is_file():
             print(self.data_loader.path.parent)
             df.to_excel(
-                self.data_loader.path.parent / 'column_groups.xlsx',
+                self.data_loader.path.parent / "column_groups.xlsx",
                 index=False,
                 header=False,
             )
@@ -2167,11 +2243,10 @@ class CapData(object):
         else:
             irr_col = col_name
 
-        if ref_val == 'self_val':
-            ref_val = self.rc['poa'][0]
+        if ref_val == "self_val":
+            ref_val = self.rc["poa"][0]
 
-        df_flt = filter_irr(self.data_filtered, irr_col, low, high,
-                            ref_val=ref_val)
+        df_flt = filter_irr(self.data_filtered, irr_col, low, high, ref_val=ref_val)
         if inplace:
             self.data_filtered = df_flt
         else:
@@ -2198,19 +2273,22 @@ class CapData(object):
         """
         df = self.data_filtered
 
-        columns = ['IL Pmin', 'IL Vmin', 'IL Pmax', 'IL Vmax']
+        columns = ["IL Pmin", "IL Vmin", "IL Pmax", "IL Vmax"]
         index = df.index
 
         for column in columns:
             if column not in df.columns:
-                column = column.replace(' ', '_')
+                column = column.replace(" ", "_")
             if column in df.columns:
                 indices_to_drop = df[df[column] > 0].index
                 if not index.equals(indices_to_drop):
                     index = index.difference(indices_to_drop)
             else:
-                warnings.warn('{} or {} is not a column in the '
-                              'data.'.format(column, column.replace('_', ' ')))
+                warnings.warn(
+                    "{} or {} is not a column in the data.".format(
+                        column, column.replace("_", " ")
+                    )
+                )
 
         if inplace:
             self.data_filtered = self.data_filtered.loc[index, :]
@@ -2263,8 +2341,16 @@ class CapData(object):
             return self.data_filtered.loc[index_shd, :]
 
     @update_summary
-    def filter_time(self, start=None, end=None, drop=False, days=None, test_date=None,
-                    inplace=True, wrap_year=False):
+    def filter_time(
+        self,
+        start=None,
+        end=None,
+        drop=False,
+        days=None,
+        test_date=None,
+        inplace=True,
+        wrap_year=False,
+    ):
         """
         Select data for a specified time period.
 
@@ -2407,17 +2493,19 @@ class CapData(object):
             Add option to return plot showing envelope with points not removed
             alpha decreased.
         """
-        XandY = self.floc[['poa', 'power']]
+        XandY = self.floc[["poa", "power"]]
         if XandY.shape[1] > 2:
-            return warnings.warn('Too many columns. Try running '
-                                 'aggregate_sensors before using '
-                                 'filter_outliers.')
+            return warnings.warn(
+                "Too many columns. Try running "
+                "aggregate_sensors before using "
+                "filter_outliers."
+            )
         X1 = XandY.values
 
-        if 'support_fraction' not in kwargs.keys():
-            kwargs['support_fraction'] = 0.9
-        if 'contamination' not in kwargs.keys():
-            kwargs['contamination'] = 0.04
+        if "support_fraction" not in kwargs.keys():
+            kwargs["support_fraction"] = 0.9
+        if "contamination" not in kwargs.keys():
+            kwargs["contamination"] = 0.04
 
         clf_1 = sk_cv.EllipticEnvelope(**kwargs)
         clf_1.fit(X1)
@@ -2451,7 +2539,7 @@ class CapData(object):
             Increase options to specify which columns are used in the filter.
         """
         for key in self.column_groups.keys():
-            if key.find('pf') == 0:
+            if key.find("pf") == 0:
                 selection = key
 
         df = self.data_filtered[self.column_groups[selection]]
@@ -2497,23 +2585,23 @@ class CapData(object):
         multiple_columns = False
 
         if columns is None:
-            power_data = self.get_reg_cols('power')
+            power_data = self.get_reg_cols("power")
         elif isinstance(columns, str):
             if columns in self.column_groups.keys():
                 power_data = self.floc[columns]
                 multiple_columns = True
             else:
                 power_data = pd.DataFrame(self.data_filtered[columns])
-                power_data.rename(columns={power_data.columns[0]: 'power'},
-                                  inplace=True)
+                power_data.rename(
+                    columns={power_data.columns[0]: "power"}, inplace=True
+                )
         else:
-            return warnings.warn('columns must be None or a string.')
+            return warnings.warn("columns must be None or a string.")
 
         if multiple_columns:
-            filtered_power_bool = power_data.apply(lambda x: all(x < power),
-                                                   axis=1)
+            filtered_power_bool = power_data.apply(lambda x: all(x < power), axis=1)
         else:
-            filtered_power_bool = power_data['power'] < power
+            filtered_power_bool = power_data["power"] < power
 
         df_flt = self.data_filtered[filtered_power_bool]
 
@@ -2569,7 +2657,8 @@ class CapData(object):
 
     @update_summary
     def filter_sensors(
-        self, perc_diff=None, inplace=True, row_filter=check_all_perc_diff_comb):
+        self, perc_diff=None, inplace=True, row_filter=check_all_perc_diff_comb
+    ):
         """
         Drop suspicious measurments by comparing values from different sensors.
 
@@ -2602,21 +2691,19 @@ class CapData(object):
             regression_cols = self.regression_cols
 
         if perc_diff is None:
-            poa_trans_key = regression_cols['poa']
+            poa_trans_key = regression_cols["poa"]
             perc_diff = {poa_trans_key: 0.05}
 
         for key, threshold in perc_diff.items():
-            if 'index' in locals():
+            if "index" in locals():
                 # if index has been assigned then take intersection
                 sensors_df = df[trans[key]]
-                next_index = sensor_filter(
-                    sensors_df, threshold, row_filter=row_filter)
+                next_index = sensor_filter(sensors_df, threshold, row_filter=row_filter)
                 index = index.intersection(next_index)  # noqa: F821
             else:
                 # if index has not been assigned then assign it
                 sensors_df = df[trans[key]]
-                index = sensor_filter(
-                    sensors_df, threshold, row_filter=row_filter)
+                index = sensor_filter(sensors_df, threshold, row_filter=row_filter)
 
         df_out = self.data_filtered.loc[index, :]
 
@@ -2626,8 +2713,9 @@ class CapData(object):
             return df_out
 
     @update_summary
-    def filter_clearsky(self, window_length=20, ghi_col=None, inplace=True,
-                        keep_clear=True, **kwargs):
+    def filter_clearsky(
+        self, window_length=20, ghi_col=None, inplace=True, keep_clear=True, **kwargs
+    ):
         """
         Use pvlib detect_clearsky to remove periods with unstable irradiance.
 
@@ -2657,45 +2745,52 @@ class CapData(object):
             kwargs are passed to pvlib detect_clearsky.  See pvlib
             documentation for details.
         """
-        if 'ghi_mod_csky' not in self.data_filtered.columns:
-            return warnings.warn('Modeled clear sky data must be availabe to '
-                                 'run this filter method. Use CapData '
-                                 'load_data clear_sky option.')
+        if "ghi_mod_csky" not in self.data_filtered.columns:
+            return warnings.warn(
+                "Modeled clear sky data must be availabe to "
+                "run this filter method. Use CapData "
+                "load_data clear_sky option."
+            )
         if ghi_col is None:
             ghi_keys = []
             for key in self.column_groups.keys():
-                defs = key.split('-')
+                defs = key.split("-")
                 if len(defs) == 1:
                     continue
-                if 'ghi' == key.split('-')[1]:
+                if "ghi" == key.split("-")[1]:
                     ghi_keys.append(key)
-            ghi_keys.remove('irr-ghi-clear_sky')
+            ghi_keys.remove("irr-ghi-clear_sky")
 
             if len(ghi_keys) > 1:
-                return warnings.warn('Too many ghi categories. Pass column '
-                                     'name to ghi_col to use a specific '
-                                     'column.')
+                return warnings.warn(
+                    "Too many ghi categories. Pass column "
+                    "name to ghi_col to use a specific "
+                    "column."
+                )
             else:
                 meas_ghi = ghi_keys[0]
 
             meas_ghi = self.floc[meas_ghi]
             if meas_ghi.shape[1] > 1:
-                warnings.warn('Averaging measured GHI data.  Pass column name '
-                              'to ghi_col to use a specific column.')
+                warnings.warn(
+                    "Averaging measured GHI data.  Pass column name "
+                    "to ghi_col to use a specific column."
+                )
             meas_ghi = meas_ghi.mean(axis=1)
         else:
             meas_ghi = self.data_filtered[ghi_col]
 
         clear_per = detect_clearsky(
             meas_ghi,
-            self.data_filtered['ghi_mod_csky'],
+            self.data_filtered["ghi_mod_csky"],
             meas_ghi.index,
             window_length,
             **kwargs,
         )
         if not any(clear_per):
-            return warnings.warn('No clear periods detected. Try increasing '
-                                 'the window length.')
+            return warnings.warn(
+                "No clear periods detected. Try increasing the window length."
+            )
 
         if keep_clear:
             df_out = self.data_filtered[clear_per]
@@ -2815,12 +2910,14 @@ class CapData(object):
         Pandas DataFrame
         """
         try:
-            df = pd.DataFrame(data=self.summary,
-                              index=pd.MultiIndex.from_tuples(self.summary_ix),
-                              columns=columns)
+            df = pd.DataFrame(
+                data=self.summary,
+                index=pd.MultiIndex.from_tuples(self.summary_ix),
+                columns=columns,
+            )
             return df
         except TypeError:
-            print('No filters have been run.')
+            print("No filters have been run.")
 
     @update_summary
     def rep_cond(
@@ -2829,10 +2926,11 @@ class CapData(object):
         percent_filter=20,
         w_vel=None,
         inplace=True,
-        func={'poa': perc_wrap(60), 't_amb': 'mean', 'w_vel': 'mean'},
+        func={"poa": perc_wrap(60), "t_amb": "mean", "w_vel": "mean"},
         freq=None,
         grouper_kwargs={},
-        rc_kwargs={}):
+        rc_kwargs={},
+    ):
         """
         Calculate reporting conditons.
 
@@ -2877,30 +2975,34 @@ class CapData(object):
         pandas DataFrame
             If pred=True, then returns a pandas dataframe of results.
         """
-        df = self.floc[['poa', 't_amb', 'w_vel']]
-        df = df.rename(columns={df.columns[0]: 'poa',
-                                df.columns[1]: 't_amb',
-                                df.columns[2]: 'w_vel'})
+        df = self.floc[["poa", "t_amb", "w_vel"]]
+        df = df.rename(
+            columns={
+                df.columns[0]: "poa",
+                df.columns[1]: "t_amb",
+                df.columns[2]: "w_vel",
+            }
+        )
 
         RCs_df = pd.DataFrame(df.agg(func)).T
 
         if irr_bal:
             self.rc_tool = ReportingIrradiance(
                 df,
-                'poa',
+                "poa",
                 percent_band=percent_filter,
                 **rc_kwargs,
             )
             results = self.rc_tool.get_rep_irr()
             flt_df = results[1]
-            temp_RC = flt_df['t_amb'].mean()
-            wind_RC = flt_df['w_vel'].mean()
-            RCs_df = pd.DataFrame({'poa': results[0],
-                                   't_amb': temp_RC,
-                                   'w_vel': wind_RC}, index=[0])
+            temp_RC = flt_df["t_amb"].mean()
+            wind_RC = flt_df["w_vel"].mean()
+            RCs_df = pd.DataFrame(
+                {"poa": results[0], "t_amb": temp_RC, "w_vel": wind_RC}, index=[0]
+            )
 
         if w_vel is not None:
-            RCs_df['w_vel'][0] = w_vel
+            RCs_df["w_vel"][0] = w_vel
 
         if freq is not None:
             # wrap_seasons passes df through unchanged unless freq is one of
@@ -2917,26 +3019,26 @@ class CapData(object):
                 for name, month in df_grpd:
                     self.rc_tool = ReportingIrradiance(
                         month,
-                        'poa',
+                        "poa",
                         percent_band=percent_filter,
                         **rc_kwargs,
                     )
                     results = self.rc_tool.get_rep_irr()
                     poa_RC.append(results[0])
                     flt_df = results[1]
-                    temp_RC.append(flt_df['t_amb'].mean())
-                    wind_RC.append(flt_df['w_vel'].mean())
-                RCs_df = pd.DataFrame({'poa': poa_RC,
-                                       't_amb': temp_RC,
-                                       'w_vel': wind_RC}, index=ix)
+                    temp_RC.append(flt_df["t_amb"].mean())
+                    wind_RC.append(flt_df["w_vel"].mean())
+                RCs_df = pd.DataFrame(
+                    {"poa": poa_RC, "t_amb": temp_RC, "w_vel": wind_RC}, index=ix
+                )
             else:
                 RCs_df = df_grpd.agg(func)
 
             if w_vel is not None:
-                RCs_df['w_vel'] = w_vel
+                RCs_df["w_vel"] = w_vel
 
         if inplace:
-            print('Reporting conditions saved to rc attribute.')
+            print("Reporting conditions saved to rc attribute.")
             print(RCs_df)
             self.rc = RCs_df
         else:
@@ -2965,15 +3067,21 @@ class CapData(object):
             See pandas Grouper doucmentation for details. Default is left
             labeled and left closed.
         """
-        df = self.floc[['poa', 't_amb', 'w_vel', 'power']]
-        df = df.rename(columns={df.columns[0]: 'poa',
-                                df.columns[1]: 't_amb',
-                                df.columns[2]: 'w_vel',
-                                df.columns[3]: 'power'})
+        df = self.floc[["poa", "t_amb", "w_vel", "power"]]
+        df = df.rename(
+            columns={
+                df.columns[0]: "poa",
+                df.columns[1]: "t_amb",
+                df.columns[2]: "w_vel",
+                df.columns[3]: "power",
+            }
+        )
 
         if self.rc is None:
-            return warnings.warn('Reporting condition attribute is None.\
-                                 Use rep_cond to generate RCs.')
+            return warnings.warn(
+                "Reporting condition attribute is None.\
+                                 Use rep_cond to generate RCs."
+            )
 
         low, high = perc_bounds(percent_filter)
         freq = self.rc.index.freq
@@ -2981,9 +3089,9 @@ class CapData(object):
         grps = df.groupby(by=pd.Grouper(freq=freq, **kwargs))
 
         if irr_filter:
-            grps = filter_grps(grps, self.rc, 'poa', low, high, freq)
+            grps = filter_grps(grps, self.rc, "poa", low, high, freq)
 
-        error = float(self.tolerance.split(sep=' ')[1]) / 100
+        error = float(self.tolerance.split(sep=" ")[1]) / 100
         results = pred_summary(grps, self.rc, error, fml=self.regression_formula)
 
         return results
@@ -3016,7 +3124,7 @@ class CapData(object):
         reg = fit_model(df, fml=self.regression_formula)
 
         if filter:
-            print('NOTE: Regression used to filter outlying points.\n\n')
+            print("NOTE: Regression used to filter outlying points.\n\n")
             if summary:
                 print(reg.summary())
             df = df[np.abs(reg.resid) < 2 * np.sqrt(reg.scale)]
@@ -3074,11 +3182,11 @@ class CapData(object):
             df = self.floc[group]
             # prevent aggregation from updating column groups?
             # would not need the below line then
-            df = df[[col for col in df.columns if 'agg' not in col]]
+            df = df[[col for col in df.columns if "agg" not in col]]
             qty_sensors = df.shape[1]
             s_spatial = df.std(axis=1)
             b_spatial_j = s_spatial / (qty_sensors ** (1 / 2))
-            b_spatial = ((b_spatial_j ** 2).sum() / b_spatial_j.shape[0]) ** (1 / 2)
+            b_spatial = ((b_spatial_j**2).sum() / b_spatial_j.shape[0]) ** (1 / 2)
             spatial_uncerts[group] = b_spatial
         self.spatial_uncerts = spatial_uncerts
 
@@ -3129,15 +3237,17 @@ class CapData(object):
         pred_cap = pred.predicted_mean[0]
         perc_diffs = {}
         for group, inst_uncert in self.instrument_uncert.items():
-            by_group = (inst_uncert ** 2 + self.spatial_uncerts[group] ** 2) ** (1 / 2)
+            by_group = (inst_uncert**2 + self.spatial_uncerts[group] ** 2) ** (1 / 2)
             rcs = self.rc.copy()
             rcs.loc[0, grp_to_term[group]] = rcs.loc[0, grp_to_term[group]] + by_group
-            pred_cap_uncert = self.regression_results.get_prediction(rcs).predicted_mean[0]
+            pred_cap_uncert = self.regression_results.get_prediction(
+                rcs
+            ).predicted_mean[0]
             perc_diffs[group] = (pred_cap_uncert - pred_cap) / pred_cap
         df = pd.DataFrame(perc_diffs.values())
-        by = (df ** 2).sum().values[0] ** (1 / 2)
+        by = (df**2).sum().values[0] ** (1 / 2)
         sy = pred.se_obs[0] / pred_cap
-        return (by ** 2 + sy ** 2) ** (1 / 2) * k
+        return (by**2 + sy**2) ** (1 / 2) * k
 
     def get_filtering_table(self):
         """
@@ -3151,16 +3261,16 @@ class CapData(object):
         not removed by any of the filters.
         """
         filtering_data = pd.DataFrame(index=self.data.index)
-        for i, (flt_step_kept, flt_step_removed) in (
-            enumerate(zip(self.kept, self.removed))
+        for i, (flt_step_kept, flt_step_removed) in enumerate(
+            zip(self.kept, self.removed)
         ):
             if i == 0:
-                filtering_data.loc[:, flt_step_removed['name']] = 0
+                filtering_data.loc[:, flt_step_removed["name"]] = 0
             else:
-                filtering_data.loc[self.kept[i - 1]['index'], flt_step_kept['name']] = 0
-            filtering_data.loc[flt_step_removed['index'], flt_step_removed['name']] = 1
+                filtering_data.loc[self.kept[i - 1]["index"], flt_step_kept["name"]] = 0
+            filtering_data.loc[flt_step_removed["index"], flt_step_removed["name"]] = 1
 
-        filtering_data['all_filters'] = filtering_data.apply(
+        filtering_data["all_filters"] = filtering_data.apply(
             lambda x: all(x == 0), axis=1
         )
         return filtering_data
@@ -3174,19 +3284,24 @@ class CapData(object):
         self.set_test_complete(self.pts_required)
         pts_collected = self.data_filtered.shape[0]
         avg_pts_per_day = pts_collected / self.length_test_period
-        print('length of test period to date: {} days'.format(self.length_test_period))
+        print("length of test period to date: {} days".format(self.length_test_period))
         if self.test_complete:
-            print('sufficient points have been collected. {} points required; '
-                  '{} points collected'.format(self.pts_required, pts_collected))
-        else:
-            print('{} points of {} points needed, {} remaining to collect.'.format(
-                pts_collected,
-                self.pts_required,
-                self.pts_required - pts_collected)
+            print(
+                "sufficient points have been collected. {} points required; "
+                "{} points collected".format(self.pts_required, pts_collected)
             )
-            print('{:0.2f} points / day on average.'.format(avg_pts_per_day))
-            print('Approximate days remaining: {:0.0f}'.format(
-                round(((self.pts_required - pts_collected) / avg_pts_per_day), 0) + 1)
+        else:
+            print(
+                "{} points of {} points needed, {} remaining to collect.".format(
+                    pts_collected, self.pts_required, self.pts_required - pts_collected
+                )
+            )
+            print("{:0.2f} points / day on average.".format(avg_pts_per_day))
+            print(
+                "Approximate days remaining: {:0.0f}".format(
+                    round(((self.pts_required - pts_collected) / avg_pts_per_day), 0)
+                    + 1
+                )
             )
 
     def get_length_test_period(self):
@@ -3206,9 +3321,9 @@ class CapData(object):
         """
         test_period = self.data.index[-1] - self.data.index[0]
         for filter in self.kept:
-            if 'filter_time' == filter['name']:
-                test_period = filter['index'][-1] - filter['index'][0]
-        self.length_test_period = test_period.ceil('D').days
+            if "filter_time" == filter["name"]:
+                test_period = filter["index"][-1] - filter["index"][0]
+        self.length_test_period = test_period.ceil("D").days
 
     def get_pts_required(self, hrs_req=12.5):
         """
@@ -3221,9 +3336,8 @@ class CapData(object):
             Default of 12.5 hours is dictated by ASTM E2848 and corresponds to
             750 1-minute data points, 150 5-minute, or 50 15-minute points.
         """
-        self.pts_required = (
-            (hrs_req * 60) /
-            util.get_common_timestep(self.data, units='m', string_output=False)
+        self.pts_required = (hrs_req * 60) / util.get_common_timestep(
+            self.data, units="m", string_output=False
         )
 
     def set_test_complete(self, pts_required):
@@ -3236,7 +3350,7 @@ class CapData(object):
         """
         self.test_complete = self.data_filtered.shape[0] >= pts_required
 
-    def column_groups_to_excel(self, save_to='./column_groups.xlsx'):
+    def column_groups_to_excel(self, save_to="./column_groups.xlsx"):
         """Export the column groups attribute to an excel file.
 
         Parameters
@@ -3245,7 +3359,7 @@ class CapData(object):
             File path to save column groups to. Should include .xlsx.
         """
         pd.DataFrame.from_dict(
-                self.column_groups.data, orient='index'
+            self.column_groups.data, orient="index"
         ).stack().to_frame().droplevel(1).to_excel(save_to, header=False)
 
 
@@ -3253,10 +3367,12 @@ if __name__ == "__main__":
     import doctest
     import pandas as pd  # noqa F811
 
-    das = CapData('das')
-    das.load_data(path='../examples/data/', fname='example_meas_data.csv',
-                  source='AlsoEnergy')
-    das.set_regression_cols(power='-mtr-', poa='irr-poa-',
-                            t_amb='temp-amb-', w_vel='wind--')
+    das = CapData("das")
+    das.load_data(
+        path="../examples/data/", fname="example_meas_data.csv", source="AlsoEnergy"
+    )
+    das.set_regression_cols(
+        power="-mtr-", poa="irr-poa-", t_amb="temp-amb-", w_vel="wind--"
+    )
 
     doctest.testmod()

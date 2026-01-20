@@ -15,6 +15,7 @@ from captest.io import (
 
 try:
     from importlib.metadata import version
+
     __version__ = version("captest")
 except Exception:
     __version__ = "unknown"

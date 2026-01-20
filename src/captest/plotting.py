@@ -8,49 +8,46 @@ import importlib
 
 import numpy as np
 import pandas as pd
-import colorcet as cc
 from bokeh.models import NumeralTickFormatter
 
-from .util import tags_by_regex, append_tags, read_json
+from .util import tags_by_regex, read_json
 
-pn_spec = importlib.util.find_spec('panel')
+pn_spec = importlib.util.find_spec("panel")
 if pn_spec is not None:
     import panel as pn
-    from panel.interact import fixed
+
     pn.extension()
     # disable error messages for panel dashboard
-    pn.config.console_output = 'disable'
+    pn.config.console_output = "disable"
 else:
     warnings.warn(
-        'The ReportingIrradiance.dashboard method will not work without '
-        'the panel package.'
+        "The ReportingIrradiance.dashboard method will not work without "
+        "the panel package."
     )
 
-hv_spec = importlib.util.find_spec('holoviews')
+hv_spec = importlib.util.find_spec("holoviews")
 if hv_spec is not None:
     import holoviews as hv
     from holoviews import opts
 else:
-    warnings.warn(
-        'The plotting methods will not work without the holoviews package.'
-    )
+    warnings.warn("The plotting methods will not work without the holoviews package.")
 
 COMBINE = {
-    'poa_ghi': 'irr.*(poa|ghi)$',
-    'poa_csky': '(?=.*poa)(?=.*irr)',
-    'ghi_csky': '(?=.*ghi)(?=.*irr)',
-    'temp_amb_bom': '(?=.*temp)((?=.*amb)|(?=.*bom))',
-    'inv_sum_mtr_pwr': ['(?=.*real)(?=.*pwr)(?=.*mtr)', '(?=.*pwr)(?=.*agg)'],
+    "poa_ghi": "irr.*(poa|ghi)$",
+    "poa_csky": "(?=.*poa)(?=.*irr)",
+    "ghi_csky": "(?=.*ghi)(?=.*irr)",
+    "temp_amb_bom": "(?=.*temp)((?=.*amb)|(?=.*bom))",
+    "inv_sum_mtr_pwr": ["(?=.*real)(?=.*pwr)(?=.*mtr)", "(?=.*pwr)(?=.*agg)"],
 }
 
 DEFAULT_GROUPS = [
-    'inv_sum_mtr_pwr',
-    '(?=.*real)(?=.*pwr)(?=.*inv)',
-    '(?=.*real)(?=.*pwr)(?=.*mtr)',
-    'poa_ghi',
-    'poa_csky',
-    'ghi_csky',
-    'temp_amb_bom',
+    "inv_sum_mtr_pwr",
+    "(?=.*real)(?=.*pwr)(?=.*inv)",
+    "(?=.*real)(?=.*pwr)(?=.*mtr)",
+    "poa_ghi",
+    "poa_csky",
+    "ghi_csky",
+    "temp_amb_bom",
 ]
 
 
@@ -77,10 +74,9 @@ def find_default_groups(groups, default_groups):
             found_groups.append(found_grp[0])
         elif len(found_grp) > 1:
             warnings.warn(
-                f'More than one group found for regex string {re_str}. '
-                'Refine regex string to find only one group. '
-                f'Groups found: {found_grp}'
-
+                f"More than one group found for regex string {re_str}. "
+                "Refine regex string to find only one group. "
+                f"Groups found: {found_grp}"
             )
     return found_groups
 
@@ -130,8 +126,8 @@ def parse_combine(combine, column_groups=None, data=None, cd=None):
         elif isinstance(re_str, list):
             if len(re_str) != 2:
                 warnings.warn(
-                    'When passing a list of regex. There should be two strings. One for '
-                    'identifying groups and one for identifying individual tags (columns).'
+                    "When passing a list of regex. There should be two strings. One for "
+                    "identifying groups and one for identifying individual tags (columns)."
                 )
                 return None
             else:
@@ -166,22 +162,17 @@ def msel_from_column_groups(column_groups, groups=True):
         keys = list(column_groups.data.keys())
         keys.sort()
         options = {k: column_groups.data[k] for k in keys}
-        name = 'Groups'
+        name = "Groups"
         value = column_groups.data[list(column_groups.keys())[0]]
     else:
         options = []
         for columns in column_groups.values():
             options += columns
         options.sort()
-        name = 'Columns'
+        name = "Columns"
         value = [options[0]]
     return pn.widgets.MultiSelect(
-        name=name,
-        value=value,
-        options=options,
-        size=8,
-        height=400,
-        width=400
+        name=name, value=value, options=options, size=8, height=400, width=400
     )
 
 
@@ -197,22 +188,21 @@ def plot_tag(data, tag, width=1500, height=250):
                 continue
         plot = hv.NdOverlay(curves)
     elif len(tag) == 0:
-        plot = hv.Curve(pd.DataFrame(
-            {'no_data': [np.nan] * data.shape[0]},
-            index=data.index
-        ))
+        plot = hv.Curve(
+            pd.DataFrame({"no_data": [np.nan] * data.shape[0]}, index=data.index)
+        )
     plot.opts(
         opts.Curve(
             line_width=1,
             width=width,
             height=height,
             muted_alpha=0,
-            tools=['hover'],
-            yformatter=NumeralTickFormatter(format='0,0'),
+            tools=["hover"],
+            yformatter=NumeralTickFormatter(format="0,0"),
         ),
         opts.NdOverlay(
-            width=width, height=height, legend_position='right', batched=False
-        )
+            width=width, height=height, legend_position="right", batched=False
+        ),
     )
     return plot
 
@@ -288,8 +278,8 @@ def filter_list(text_input, ms_to_filter, names, event=None):
     -------
     None
     """
-    if text_input.value == '':
-        re_value = '.*'
+    if text_input.value == "":
+        re_value = ".*"
     else:
         re_value = text_input.value
     names_ = copy.deepcopy(names)
@@ -321,18 +311,18 @@ def scatter_dboard(data, **kwargs):
     """
     cols = list(data.columns)
     cols.sort()
-    x = pn.widgets.Select(name='x', value=cols[0], options=cols)
-    y = pn.widgets.Select(name='y', value=cols[1], options=cols)
+    x = pn.widgets.Select(name="x", value=cols[0], options=cols)
+    y = pn.widgets.Select(name="y", value=cols[1], options=cols)
     # slope = pn.widgets.Checkbox(name='Slope', value=False)
 
     defaults = {
-        'width': 500,
-        'height': 500,
-        'fill_alpha': 0.4,
-        'line_alpha': 0,
-        'size': 4,
-        'yformatter': NumeralTickFormatter(format='0,0'),
-        'xformatter': NumeralTickFormatter(format='0,0'),
+        "width": 500,
+        "height": 500,
+        "fill_alpha": 0.4,
+        "line_alpha": 0,
+        "size": 4,
+        "yformatter": NumeralTickFormatter(format="0,0"),
+        "xformatter": NumeralTickFormatter(format="0,0"),
     }
     for opt, value in defaults.items():
         kwargs.setdefault(opt, value)
@@ -355,10 +345,7 @@ def scatter_dboard(data, **kwargs):
     #     pn.Row(x, y, slope),
     #     pn.bind(scatter, data, x, y, slope=slope, **kwargs)
     # )
-    dboard = pn.Column(
-        pn.Row(x, y),
-        pn.bind(scatter, data, x, y, **kwargs)
-    )
+    dboard = pn.Column(pn.Row(x, y), pn.bind(scatter, data, x, y, **kwargs))
     return dboard
 
 
@@ -408,31 +395,29 @@ def plot(
         data = cd.data
         cg = cd.column_groups
     # make sure data is numeric
-    data = data.apply(pd.to_numeric, errors='coerce')
-    bool_columns = data.select_dtypes(include='bool').columns
+    data = data.apply(pd.to_numeric, errors="coerce")
+    bool_columns = data.select_dtypes(include="bool").columns
     data.loc[:, bool_columns] = data.loc[:, bool_columns].astype(int)
     # setup custom plot for 'Custom' tab
     groups = msel_from_column_groups(cg)
-    tags = msel_from_column_groups({'all_tags': list(data.columns)}, groups=False)
-    columns_re_input = pn.widgets.TextInput(name='Input regex to filter columns list')
-    groups_re_input = pn.widgets.TextInput(name='Input regex to filter groups list')
+    tags = msel_from_column_groups({"all_tags": list(data.columns)}, groups=False)
+    columns_re_input = pn.widgets.TextInput(name="Input regex to filter columns list")
+    groups_re_input = pn.widgets.TextInput(name="Input regex to filter groups list")
 
     columns_re_input.param.watch(
-        partial(filter_list, columns_re_input, tags, tags.options),
-        'value'
+        partial(filter_list, columns_re_input, tags, tags.options), "value"
     )
     groups_re_input.param.watch(
-        partial(filter_list, groups_re_input, groups, groups.options),
-        'value'
+        partial(filter_list, groups_re_input, groups, groups.options), "value"
     )
 
     custom_plot_name = pn.widgets.TextInput()
-    update = pn.widgets.Button(name='Update')
+    update = pn.widgets.Button(name="Update")
     width_custom = pn.widgets.IntInput(
-        name='Plot Width', value=1500, start=200, end=2800, step=100, width=200
+        name="Plot Width", value=1500, start=200, end=2800, step=100, width=200
     )
     height_custom = pn.widgets.IntInput(
-        name='Plot height', value=400, start=150, end=800, step=50, width=200
+        name="Plot height", value=400, start=150, end=800, step=50, width=200
     )
     custom_plot = pn.Column(
         pn.Row(custom_plot_name, update, width_custom, height_custom),
@@ -440,14 +425,16 @@ def plot(
             pn.WidgetBox(groups_re_input, groups),
             pn.WidgetBox(columns_re_input, tags),
         ),
-        pn.Row(pn.bind(
-            plot_group_tag_overlay,
-            data,
-            groups,
-            tags,
-            width=width_custom,
-            height=height_custom,
-        ))
+        pn.Row(
+            pn.bind(
+                plot_group_tag_overlay,
+                data,
+                groups,
+                tags,
+                width=width_custom,
+                height=height_custom,
+            )
+        ),
     )
 
     # setup group plotter for 'Main' tab
@@ -463,39 +450,46 @@ def plot(
             tags.value,
         )
         main_ms.options = column_groups_
+
     update.on_click(add_custom_plot_group)
-    plots_to_layout = pn.widgets.Button(name='Set plots to current layout')
+    plots_to_layout = pn.widgets.Button(name="Set plots to current layout")
     width_main = pn.widgets.IntInput(
-        name='Plot Width', value=1500, start=200, end=2800, step=100, width=200
+        name="Plot Width", value=1500, start=200, end=2800, step=100, width=200
     )
     height_main = pn.widgets.IntInput(
-        name='Plot height', value=250, start=150, end=800, step=50, width=200
+        name="Plot height", value=250, start=150, end=800, step=50, width=200
     )
     main_plot = pn.Column(
         pn.Row(pn.WidgetBox(plots_to_layout, main_ms, pn.Row(width_main, height_main))),
-        pn.Row(pn.bind(
-            plot_tag_groups, data, main_ms, width=width_main, height=height_main
-        )),
+        pn.Row(
+            pn.bind(
+                plot_tag_groups, data, main_ms, width=width_main, height=height_main
+            )
+        ),
     )
 
     def set_defaults(event):
-        with open('./plot_defaults.json', 'w') as file:
+        with open("./plot_defaults.json", "w") as file:
             json.dump(main_ms.value, file)
+
     plots_to_layout.on_click(set_defaults)
 
     # setup default groups
-    if Path('./plot_defaults.json').exists():
-        default_tags = read_json('./plot_defaults.json')
+    if Path("./plot_defaults.json").exists():
+        default_tags = read_json("./plot_defaults.json")
     else:
         default_groups = find_default_groups(list(cg_layout.keys()), default_groups)
         default_tags = [cg_layout.get(grp, []) for grp in default_groups]
 
     # layout dashboard
     plotter = pn.Tabs(
-        ('Groups', plot_tag_groups(data, default_tags, width=group_width, height=group_height)),
-        ('Layout', main_plot),
-        ('Overlay', custom_plot),
-        ('Scatter', scatter_dboard(data, **kwargs)),
+        (
+            "Groups",
+            plot_tag_groups(data, default_tags, width=group_width, height=group_height),
+        ),
+        ("Layout", main_plot),
+        ("Overlay", custom_plot),
+        ("Scatter", scatter_dboard(data, **kwargs)),
     )
     return plotter
 
