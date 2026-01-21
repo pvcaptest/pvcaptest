@@ -11,12 +11,12 @@ publish-to-testpypi: build
 	uv publish --index testpypi --token $UV_PUBLISH_TESTPYPI_TOKEN # token from .env
 
 # Lint using ruff
-lint:
-	uv run ruff check --fix
+lint file=".":
+	uv run ruff check --fix {{file}}
 
 # Format using ruff, applies black formatting
-fmt:
-	uv run ruff format
+fmt file=".":
+	uv run ruff format {{file}}
 
 # Run all tests
 test:
