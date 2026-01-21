@@ -98,3 +98,13 @@ exclude = [
 [tool.ruff.lint]
 # Add the `line-too-long` rule to the enforced rule set.
 extend-select = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+# Ignore line length in docs config, source files with unavoidable long docstrings,
+# and test files with long test data strings
+"docs/conf.py" = ["E501", "F821"]
+"src/captest/io.py" = ["E501"]
+"src/captest/plotting.py" = ["E501"]
+"tests/test_io.py" = ["E501"]
+"tests/test_CapData.py" = ["E501"]
+"tests/test_prtest.py" = ["E501"]

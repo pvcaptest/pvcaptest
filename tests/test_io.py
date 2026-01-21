@@ -320,9 +320,7 @@ class TestLoadPVsyst:
                     "Otherwise the date column may actually be missing. Exception:"
                 ),
             ):
-                pvsyst = load_pvsyst(
-                    "./tests/data/pvsyst_example_HourlyRes_2_semicolon.csv"
-                )
+                load_pvsyst("./tests/data/pvsyst_example_HourlyRes_2_semicolon.csv")
 
     def test_load_pvsyst_after_excel_open(self):
         """Test loading pvsyst output with m/d/yyyy h:mm dates.
@@ -391,7 +389,7 @@ class TestLoadPVsyst:
                 "Dates are not in month/day/year format. Trying day/month/year format."
             ),
         ):
-            pvsyst = load_pvsyst("./tests/data/pvsyst_example_day_month_year.csv")
+            load_pvsyst("./tests/data/pvsyst_example_day_month_year.csv")
 
     def test_scale_egrid(self):
         pvsyst = load_pvsyst(
@@ -428,7 +426,7 @@ class TestDataLoader:
         Also, check sorting of filenames.
         """
         for fname in ["b.csv", "a.csv", "c.csv"]:
-            with open(tmp_path / fname, "w") as f:
+            with open(tmp_path / fname, "w"):
                 pass
         dl = DataLoader(tmp_path)
         dl.set_files_to_load()
@@ -444,7 +442,7 @@ class TestDataLoader:
         Also, check sorting of filenames.
         """
         for fname in ["2023-04-02.csv", "2023-04-01.csv", "2023-04-03.csv"]:
-            with open(tmp_path / fname, "w") as f:
+            with open(tmp_path / fname, "w"):
                 pass
         dl = DataLoader(tmp_path)
         dl.set_files_to_load()
@@ -457,7 +455,7 @@ class TestDataLoader:
     def test_set_files_to_load_not_all_csv(self, tmp_path):
         """Test that files with the wrong extension are not loaded."""
         for fname in ["a.csv", "b.parquet", "c.csv"]:
-            with open(tmp_path / fname, "w") as f:
+            with open(tmp_path / fname, "w"):
                 pass
         dl = DataLoader(tmp_path)
         dl.set_files_to_load()
@@ -469,7 +467,7 @@ class TestDataLoader:
     def test_set_files_to_load_no_files(self, tmp_path):
         """Test for warning if an empty directory is passed."""
         for fname in ["a.html", "b.pdf"]:
-            with open(tmp_path / fname, "w") as f:
+            with open(tmp_path / fname, "w"):
                 pass
         dl = DataLoader(tmp_path)
         with pytest.warns(

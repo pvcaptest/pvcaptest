@@ -66,7 +66,6 @@ class TestTopLevelFuncs(unittest.TestCase):
     def test_perc_wrap(self):
         """Test percent wrap function."""
         rng = np.arange(1, 100, 1)
-        rng_cpy = rng.copy()
         df = pd.DataFrame({"vals": rng})
         df_cpy = df.copy()
         bool_array = []
@@ -930,7 +929,7 @@ class TestIrrRcBalanced:
             irr_col=meas.regression_cols["poa"],
             percent_band=20,
         )
-        results = rep_irr.get_rep_irr()
+        rep_irr.get_rep_irr()
         rep_irr.save_csv(output_csv_path=f)
         assert f.exists()
 
@@ -1247,9 +1246,7 @@ class TestGetTimezoneIndex:
                 "the timezone in the loc dict. Using the timezone of the DataFrame."
             ),
         ):
-            tz_ix = pvc.get_tz_index(
-                df, location_and_system["location"]
-            )  # tz is Chicago
+            pvc.get_tz_index(df, location_and_system["location"])  # tz is Chicago
 
     def test_get_tz_index_ix_tz(self, location_and_system):
         """Test that get_tz_index function returns a datetime index
@@ -1279,7 +1276,7 @@ class TestGetTimezoneIndex:
                 "Using the timezone of the DatetimeIndex."
             ),
         ):
-            tz_ix = pvc.get_tz_index(ix, location_and_system["location"])
+            pvc.get_tz_index(ix, location_and_system["location"])
 
     def test_get_tz_index_ix(self, location_and_system):
         """Test that get_tz_index function returns a datetime index\
@@ -1545,8 +1542,6 @@ class TestAggSensors:
 
     def test_reset_agg_method(self, meas):
         orig_df = meas.data.copy()
-        orig_trans = meas.column_groups.copy()
-        orig_reg_trans = meas.regression_cols.copy()
 
         meas.agg_sensors()
         meas.filter_irr(200, 500)
@@ -1822,7 +1817,7 @@ class TestFilterIrr:
                 "[0-9]+ columns of irradiance data. Use col_name to specify a single column."
             ),
         ):
-            col = nrel._CapData__get_poa_col()
+            nrel._CapData__get_poa_col()
 
     def test_lowhigh_nocol(self, nrel):
         pts_before = nrel.data_filtered.shape[0]
@@ -2377,7 +2372,6 @@ class TestGetFilteringTable:
         assert table_flt2_removed.equals(flt2_removed_ix)
         table_flt_all_column = flt_table.iloc[:, 3]
         table_flt_all_removed = table_flt_all_column[~table_flt_all_column].index
-        out = pd.concat([flt_table, nrel.loc["poa"]], axis=1)
         assert table_flt_all_removed.equals(
             flt0_removed_ix.union(flt1_removed_ix).union(flt2_removed_ix)
         )

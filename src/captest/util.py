@@ -49,7 +49,7 @@ def get_common_timestep(data, units="m", string_output=True):
     if string_output:
         try:
             return str(int(freq)) + units_abbrev[units]
-        except:
+        except Exception:
             return str(freq) + units_abbrev[units]
     else:
         return freq
