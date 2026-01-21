@@ -35,6 +35,9 @@ from bokeh.models import HoverTool, NumeralTickFormatter
 
 import param
 
+from captest import util
+from captest import plotting
+
 # visualization library imports
 hv_spec = importlib.util.find_spec("holoviews")
 if hv_spec is not None:
@@ -77,8 +80,6 @@ if pvlib_spec is not None:
 else:
     warnings.warn("Clear sky functions will not work without the pvlib package.")
 
-from captest import util
-from captest import plotting
 
 plot_colors_brewer = {
     "real_pwr": ["#2b8cbe", "#7bccc4", "#bae4bc", "#f0f9e8"],
@@ -807,8 +808,9 @@ class ReportingIrradiance(param.Parameterized):
                     ),
                     opts.Overlay(width=700),
                     opts.Layout(
-                        title="Reporting Irradiance: None identified, Total Points {}".format(
-                            self.total_pts
+                        title=(
+                            "Reporting Irradiance: None identified, "
+                            f"Total Points {self.total_pts}"
                         )
                     ),
                 )
@@ -1517,17 +1519,17 @@ def index_capdata(capdata, label, filtered=True):
             return selected_data
     elif isinstance(label, list):
         cols_to_return = []
-        for l in label:
-            if l in capdata.column_groups.keys():
-                cols_to_return.extend(capdata.column_groups[l])
-            elif l in capdata.regression_cols.keys():
-                col_or_grp = capdata.regression_cols[l]
+        for label_item in label:
+            if label_item in capdata.column_groups.keys():
+                cols_to_return.extend(capdata.column_groups[label_item])
+            elif label_item in capdata.regression_cols.keys():
+                col_or_grp = capdata.regression_cols[label_item]
                 if col_or_grp in capdata.column_groups.keys():
                     cols_to_return.extend(capdata.column_groups[col_or_grp])
                 elif col_or_grp in data.columns:
                     cols_to_return.append(col_or_grp)
-            elif l in data.columns:
-                cols_to_return.append(l)
+            elif label_item in data.columns:
+                cols_to_return.append(label_item)
         return data[cols_to_return]
 
 
@@ -1880,14 +1882,14 @@ class CapData(object):
         Create a dashboard to explore timeseries plots of the data.
 
         The dashboard contains three tabs: Groups, Layout, and Overlay. The first tab,
-        Groups, presents a column of plots with a separate plot overlaying the measurements
-        for each group of the `column_groups`. The groups plotted are defined by the
-        `default_groups` argument.
+        Groups, presents a column of plots with a separate plot overlaying the
+        measurements for each group of the `column_groups`. The groups plotted are
+        defined by the `default_groups` argument.
 
         The second tab, Layout, allows manually selecting groups to plot. The button
         on this tab can be used to replace the column of plots on the Groups tab with
-        the current figure on the Layout tab. Rerun this method after clicking the button
-        to see the new plots in the Groups tab.
+        the current figure on the Layout tab. Rerun this method after clicking the
+        button to see the new plots in the Groups tab.
 
         The third tab, Overlay, allows picking a group or any combination of individual
         tags to overlay on a single plot. The list of groups and tags can be filtered
@@ -1898,8 +1900,8 @@ class CapData(object):
         ----------
         combine : dict, optional
             Dictionary of group names and regex strings to use to identify groups from
-            column groups and individual tags (columns) to combine into new groups. See the
-            `parse_combine` function for more details.
+            column groups and individual tags (columns) to combine into new groups. See
+            the `parse_combine` function for more details.
         default_groups : list of str, optional
             List of regex strings to use to identify default groups to plot. See the
             `plotting.find_default_groups` function for more details.
