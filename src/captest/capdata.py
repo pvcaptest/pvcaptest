@@ -15,7 +15,6 @@ import copy
 from functools import wraps
 from itertools import combinations
 import warnings
-import pytz
 import importlib
 
 # anaconda distribution defaults
@@ -931,11 +930,10 @@ def pvlib_location(loc):
         loc = {'latitude': float,
                'longitude': float,
                'altitude': float/int,
-               'tz': str, int, float, or pytz.timezone, default 'UTC'}
+               'tz': str, int, float, default 'UTC'}
         See
         http://en.wikipedia.org/wiki/List_of_tz_database_time_zones
         for a list of valid time zones.
-        pytz.timezone objects will be converted to strings.
         ints and floats must be in hours from UTC.
 
     Returns
@@ -1008,18 +1006,22 @@ def get_tz_index(time_source, loc):
 
     Parameters
     ----------
-    time_source : dataframe or DatetimeIndex
-        If passing a dataframe the index of the dataframe will be used.  If the
-        index does not have a timezone the timezone will be set using the
+    time_source : Dataframe, Series, or DatetimeIndex
+        If passing a Dataframe or Series, the index of the dataframe will be used.
+        If the index does not have a timezone, the timezone will be set using the
         timezone in the passed loc dictionary. If passing a DatetimeIndex with
-        a timezone it will be returned directly. If passing a DatetimeIndex
-        without a timezone the timezone in the timezone dictionary will be
-        used.
+        a timezone, it will be returned directly. If passing a DatetimeIndex
+        without a timezone, the timezone will be set using the timezone in the passed
+        loc dictionary.
 
     Returns
     -------
     DatetimeIndex with timezone
     """
+    if isinstance(time_source, pd.core.series.Series) or isinstance(
+        time_source, pd.core.frame.DataFrame
+    ):
+        time_source = time_source.index
     if isinstance(time_source, pd.core.indexes.datetimes.DatetimeIndex):
         if time_source.tz is None:
             time_source = time_source.tz_localize(
@@ -1027,26 +1029,13 @@ def get_tz_index(time_source, loc):
             )
             return time_source
         else:
-            if pytz.timezone(loc["tz"]) != time_source.tz:
+            if loc["tz"] != str(time_source.tz):
                 warnings.warn(
-                    "Passed a DatetimeIndex with a timezone that "
+                    "The DatetimeIndex of time_source has a timezone that "
                     "does not match the timezone in the loc dict. "
-                    "Using the timezone of the DatetimeIndex."
+                    "Using the timezone of the time_source DatetimeIndex."
                 )
             return time_source
-    elif isinstance(time_source, pd.core.frame.DataFrame):
-        if time_source.index.tz is None:
-            return time_source.index.tz_localize(
-                loc["tz"], ambiguous="infer", nonexistent="NaT"
-            )
-        else:
-            if pytz.timezone(loc["tz"]) != time_source.index.tz:
-                warnings.warn(
-                    "Passed a DataFrame with a timezone that "
-                    "does not match the timezone in the loc dict. "
-                    "Using the timezone of the DataFrame."
-                )
-            return time_source.index
 
 
 def csky(time_source, loc=None, sys=None, concat=True, output="both"):
@@ -1068,11 +1057,10 @@ def csky(time_source, loc=None, sys=None, concat=True, output="both"):
         loc = {'latitude': float,
                'longitude': float,
                'altitude': float/int,
-               'tz': str, int, float, or pytz.timezone, default 'UTC'}
+               'tz': str, int, float, default 'UTC'}
         See
         http://en.wikipedia.org/wiki/List_of_tz_database_time_zones
         for a list of valid time zones.
-        pytz.timezone objects will be converted to strings.
         ints and floats must be in hours from UTC.
     sys : dict
         Dictionary of keywords required to create a pvlib

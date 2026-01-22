@@ -3,7 +3,6 @@ import copy
 import collections
 import unittest
 import pytest
-import pytz
 import numpy as np
 import pandas as pd
 import statsmodels.formula.api as smf
@@ -1213,7 +1212,7 @@ class TestGetTimezoneIndex:
         print(df.loc["11/4/18 01:00"].index)
         tz_ix = pvc.get_tz_index(df, location_and_system["location"])
         assert isinstance(tz_ix, pd.core.indexes.datetimes.DatetimeIndex)
-        assert tz_ix.tz == pytz.timezone(location_and_system["location"]["tz"])
+        assert str(tz_ix.tz) == location_and_system["location"]["tz"]
 
     def test_get_tz_index_df_tz(self, location_and_system):
         """Test that get_tz_index function returns a datetime index\
@@ -1229,7 +1228,7 @@ class TestGetTimezoneIndex:
         df = pd.DataFrame(index=ix_dst)
         tz_ix = pvc.get_tz_index(df, location_and_system["location"])
         assert isinstance(tz_ix, pd.core.indexes.datetimes.DatetimeIndex)
-        assert tz_ix.tz == pytz.timezone(location_and_system["location"]["tz"])
+        assert str(tz_ix.tz) == location_and_system["location"]["tz"]
 
     def test_get_tz_index_df_tz_warn(self, location_and_system):
         """Test that get_tz_index function warns when datetime index\
@@ -1242,8 +1241,9 @@ class TestGetTimezoneIndex:
         with pytest.warns(
             UserWarning,
             match=(
-                "Passed a DataFrame with a timezone that does not match "
-                "the timezone in the loc dict. Using the timezone of the DataFrame."
+                "The DatetimeIndex of time_source has a timezone that "
+                "does not match the timezone in the loc dict. "
+                "Using the timezone of the time_source DatetimeIndex."
             ),
         ):
             pvc.get_tz_index(df, location_and_system["location"])  # tz is Chicago
@@ -1271,9 +1271,9 @@ class TestGetTimezoneIndex:
         with pytest.warns(
             UserWarning,
             match=(
-                "Passed a DatetimeIndex with a timezone that "
+                "The DatetimeIndex of time_source has a timezone that "
                 "does not match the timezone in the loc dict. "
-                "Using the timezone of the DatetimeIndex."
+                "Using the timezone of the time_source DatetimeIndex."
             ),
         ):
             pvc.get_tz_index(ix, location_and_system["location"])
@@ -1290,7 +1290,7 @@ class TestGetTimezoneIndex:
         assert isinstance(tz_ix, pd.core.indexes.datetimes.DatetimeIndex)
         # If passing an index without a timezone use returned index should have
         # the timezone of the passed location dictionary.
-        assert tz_ix.tz == pytz.timezone(location_and_system["location"]["tz"])
+        assert str(tz_ix.tz) == location_and_system["location"]["tz"]
 
 
 class Test_csky:
