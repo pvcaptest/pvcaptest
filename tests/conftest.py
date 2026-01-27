@@ -144,7 +144,7 @@ def capdata_irr():
     Creates a CapData instance with dummy irradiance data"""
     start_time = pd.Timestamp("2023-10-01 12:00")
     end_time = start_time + pd.Timedelta(minutes=15)
-    datetime_index = pd.date_range(start_time, end_time, freq="1T")
+    datetime_index = pd.date_range(start_time, end_time, freq="1min")
 
     np.random.seed(42)
     random_values = np.random.uniform(876, 900, size=(len(datetime_index), 4))

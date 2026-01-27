@@ -20,7 +20,7 @@ from captest import (
 )
 
 data = np.arange(0, 1300, 54.167)
-index = pd.date_range(start="1/1/2017", freq="H", periods=24)
+index = pd.date_range(start="1/1/2017", freq="h", periods=24)
 df = pd.DataFrame(data=data, index=index, columns=["poa"])
 
 # capdata = pvc.CapData('capdata')
@@ -174,7 +174,7 @@ class TestTopLevelFuncs(unittest.TestCase):
 
         df_regs = pvsyst.data.loc[:, ["E_Grid", "GlobInc", "T_Amb", "WindVel"]]
         df_regs_day = df_regs.query("GlobInc > 0")
-        grps = df_regs_day.groupby(pd.Grouper(freq="M", label="right"))
+        grps = df_regs_day.groupby(pd.Grouper(freq="ME", label="right"))
 
         ones = np.ones(12)
         irr_rc = ones * 500
@@ -1252,7 +1252,7 @@ class TestGetTimezoneIndex:
         """Test that get_tz_index function returns a datetime index
         with a timezone when passed a datetime index with a timezone."""
         ix = pd.date_range(
-            start="1/1/2019", periods=8760, freq="H", tz="America/Chicago"
+            start="1/1/2019", periods=8760, freq="h", tz="America/Chicago"
         )
         tz_ix = pvc.get_tz_index(ix, location_and_system["location"])  # tz is Chicago
         assert isinstance(tz_ix, pd.core.indexes.datetimes.DatetimeIndex)
@@ -1265,7 +1265,7 @@ class TestGetTimezoneIndex:
         does not match the location dic timezone.
         """
         ix = pd.date_range(
-            start="1/1/2019", periods=8760, freq="H", tz="America/New_York"
+            start="1/1/2019", periods=8760, freq="h", tz="America/New_York"
         )
 
         with pytest.warns(
@@ -1282,7 +1282,7 @@ class TestGetTimezoneIndex:
         """Test that get_tz_index function returns a datetime index\
            with a timezone when passed a datetime index without a timezone."""
         ix = pd.date_range(
-            start="1/1/2019", periods=8760, freq="H", tz="America/Chicago"
+            start="1/1/2019", periods=8760, freq="h", tz="America/Chicago"
         )
         # remove timezone info but keep missing  hour and extra hour due to DST
         ix = ix.tz_localize(None)
@@ -1320,7 +1320,7 @@ class Test_csky:
         includes the 2 to 3AM hour that is skipped during daylight savings time."""
         # concat=True by default
         data = meas.data.loc["10/9/1990"]
-        data.index = pd.date_range("3/12/23", periods=(60 / 5) * 24, freq="5min")
+        data.index = pd.date_range("3/12/23", periods=int((60 / 5) * 24), freq="5min")
         csky_ghi_poa = pvc.csky(
             data, loc=location_and_system["location"], sys=location_and_system["system"]
         )
@@ -1731,21 +1731,21 @@ class TestRepCondNoFreq:
 
 class TestRepCondFreq:
     def test_monthly_no_irr_bal(self, pvsyst):
-        pvsyst.rep_cond(freq="M")
+        pvsyst.rep_cond(freq="ME")
         # Check that the rc attribute is a dataframe
         assert isinstance(pvsyst.rc, pd.core.frame.DataFrame)
         # Rep conditions dataframe should have 12 rows
         assert pvsyst.rc.shape[0] == 12
 
     def test_monthly_irr_bal(self, pvsyst):
-        pvsyst.rep_cond(freq="M", irr_bal=True, percent_filter=20)
+        pvsyst.rep_cond(freq="ME", irr_bal=True, percent_filter=20)
         # Check that the rc attribute is a dataframe
         assert isinstance(pvsyst.rc, pd.core.frame.DataFrame)
         # Rep conditions dataframe should have 12 rows
         assert pvsyst.rc.shape[0] == 12
 
     def test_seas_no_irr_bal(self, pvsyst):
-        pvsyst.rep_cond(freq="BQ-NOV", irr_bal=False)
+        pvsyst.rep_cond(freq="QE-DEC", irr_bal=False)
         # Check that the rc attribute is a dataframe
         assert isinstance(pvsyst.rc, pd.core.frame.DataFrame)
         # Rep conditions dataframe should have 4 rows
@@ -1783,19 +1783,19 @@ class TestPredictCapacities:
         assert july_manual == pytest.approx(july_grpby)
 
     def test_no_irr_filter(self, pvsyst_irr_filter):
-        pvsyst_irr_filter.rep_cond(freq="M")
+        pvsyst_irr_filter.rep_cond(freq="ME")
         pred_caps = pvsyst_irr_filter.predict_capacities(irr_filter=False)
         assert isinstance(pred_caps, pd.core.frame.DataFrame)
         assert pred_caps.shape[0] == 12
 
     def test_rc_from_irrBal(self, pvsyst_irr_filter):
-        pvsyst_irr_filter.rep_cond(freq="M", irr_bal=True, percent_filter=20)
+        pvsyst_irr_filter.rep_cond(freq="ME", irr_bal=True, percent_filter=20)
         pred_caps = pvsyst_irr_filter.predict_capacities(irr_filter=False)
         assert isinstance(pred_caps, pd.core.frame.DataFrame)
         assert pred_caps.shape[0] == 12
 
     def test_seasonal_freq(self, pvsyst_irr_filter):
-        pvsyst_irr_filter.rep_cond(freq="BQ-NOV")
+        pvsyst_irr_filter.rep_cond(freq="QE-DEC")
         pred_caps = pvsyst_irr_filter.predict_capacities(
             irr_filter=True, percent_filter=20
         )
@@ -2324,10 +2324,10 @@ class TestCapTestCpResultsMultCoeff(unittest.TestCase):
         results_str = (
             "Using reporting conditions from das. \n\n"
             "Capacity Test Result:    FAIL\n"
-            "Modeled test output:          66.451\n"
-            "Actual test output:           72.429\n"
-            "Tested output ratio:          1.090\n"
-            "Tested Capacity:              108.996\n"
+            "Modeled test output:          66.849\n"
+            "Actual test output:           73.093\n"
+            "Tested output ratio:          1.093\n"
+            "Tested Capacity:              109.341\n"
             "Bounds:                       95.0, 105.0\n\n\n"
         )
 

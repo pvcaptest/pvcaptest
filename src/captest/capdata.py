@@ -684,7 +684,13 @@ class ReportingIrradiance(param.Parameterized):
         flt_df = filter_irr(self.df, self.irr_col, low, high, ref_val=irr_RC)
         self.irr_rc = irr_RC
         self.poa_flt = poa_flt
-        self.total_pts = poa_flt.loc[self.irr_rc, "total_pts"]
+        total_pts_value = poa_flt.loc[self.irr_rc, "total_pts"]
+        # Handle case where .loc returns a Series instead of scalar
+        self.total_pts = (
+            total_pts_value.iloc[0]
+            if isinstance(total_pts_value, pd.Series)
+            else total_pts_value
+        )
 
         return (irr_RC, flt_df)
 
@@ -2992,7 +2998,7 @@ class CapData(object):
             )
 
         if w_vel is not None:
-            RCs_df["w_vel"][0] = w_vel
+            RCs_df.loc[0, "w_vel"] = w_vel
 
         if freq is not None:
             # wrap_seasons passes df through unchanged unless freq is one of
