@@ -95,10 +95,6 @@ exclude = [
     "**/*.ipynb",
 ]
 
-[tool.ruff.lint]
-# Add the `line-too-long` rule to the enforced rule set.
-extend-select = ["E501"]
-
 [tool.ruff.lint.per-file-ignores]
 # Ignore line length in docs config, source files with unavoidable long docstrings,
 # and test files with long test data strings
