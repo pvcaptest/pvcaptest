@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Removed
 - setup.py (all configuration moved to pyproject.toml)
 - Versioneer dependency and configuration
+- scipy dependency (replaced scipy.stats.mode with pandas.Series.mode in July 2023, unused imports removed January 2026)
 
 ### Added
 - setuptools-scm for automatic version generation from git tags
