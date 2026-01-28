@@ -2306,6 +2306,7 @@ class TestCapTestCpResultsMultCoeff(unittest.TestCase):
         using pytest.  Run just this test using 'pytest tests/
         test_CapData.py::TestCapTestCpResultsMultCoeff::test_pvals_true_print'
         """
+        self.maxDiff = 10_000
         self.meas.regression_results.params["poa"] = 0
         self.sim.regression_results.params["poa"] = 0
 
