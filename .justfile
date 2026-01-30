@@ -19,12 +19,12 @@ fmt file=".":
 	uv run ruff format {{file}}
 
 # Run all tests
-test:
-	uv run pytest tests/
+test python-ver="3.12":
+	uv run --python {{python-ver}} pytest tests/
 
 # Run all tests without warnings
-test-wo-warnings:
-	uv run pytest tests/ --disable-warnings
+test-wo-warnings python-ver="3.12":
+	uv run --python {{python-ver}} pytest tests/ --disable-warnings
 
 # Run all tests with coverage report
 test-cov:
