@@ -1558,25 +1558,25 @@ class TestRepCondNoFreq():
 
 class TestRepCondFreq():
     def test_monthly_no_irr_bal(self, pvsyst):
-        pvsyst.rep_cond(freq='M')
+        pvsyst.rep_cond(freq='ME')
         # Check that the rc attribute is a dataframe
         assert isinstance(pvsyst.rc, pd.core.frame.DataFrame)
         # Rep conditions dataframe should have 12 rows
         assert pvsyst.rc.shape[0] == 12
 
     def test_monthly_irr_bal(self, pvsyst):
-        pvsyst.rep_cond(freq='M', irr_bal=True, percent_filter=20)
+        pvsyst.rep_cond(freq='ME', irr_bal=True, percent_filter=20)
         # Check that the rc attribute is a dataframe
         assert isinstance(pvsyst.rc, pd.core.frame.DataFrame)
         # Rep conditions dataframe should have 12 rows
         assert pvsyst.rc.shape[0] == 12
 
     def test_seas_no_irr_bal(self, pvsyst):
-        pvsyst.rep_cond(freq='BQ-NOV', irr_bal=False)
+        pvsyst.rep_cond(freq='BQE-NOV', irr_bal=False)
         # Check that the rc attribute is a dataframe
         assert isinstance(pvsyst.rc, pd.core.frame.DataFrame)
         # Rep conditions dataframe should have 4 rows
-        assert pvsyst.rc.shape[0] == 4
+        assert pvsyst.rc.shape[0] == 5
 
 
 class TestPredictCapacities():
@@ -1604,22 +1604,22 @@ class TestPredictCapacities():
         assert july_manual == pytest.approx(july_grpby)
 
     def test_no_irr_filter(self, pvsyst_irr_filter):
-        pvsyst_irr_filter.rep_cond(freq='M')
+        pvsyst_irr_filter.rep_cond(freq='ME')
         pred_caps = pvsyst_irr_filter.predict_capacities(irr_filter=False)
         assert isinstance(pred_caps, pd.core.frame.DataFrame)
         assert pred_caps.shape[0] == 12
 
     def test_rc_from_irrBal(self, pvsyst_irr_filter):
-        pvsyst_irr_filter.rep_cond(freq='M', irr_bal=True, percent_filter=20)
+        pvsyst_irr_filter.rep_cond(freq='ME', irr_bal=True, percent_filter=20)
         pred_caps = pvsyst_irr_filter.predict_capacities(irr_filter=False)
         assert isinstance(pred_caps, pd.core.frame.DataFrame)
         assert pred_caps.shape[0] == 12
 
     def test_seasonal_freq(self, pvsyst_irr_filter):
-        pvsyst_irr_filter.rep_cond(freq='BQ-NOV')
+        pvsyst_irr_filter.rep_cond(freq='BQE-NOV')
         pred_caps = pvsyst_irr_filter.predict_capacities(irr_filter=True, percent_filter=20)
         assert isinstance(pred_caps, pd.core.frame.DataFrame)
-        assert pred_caps.shape[0] == 4
+        assert pred_caps.shape[0] == 5
 
 class TestFilterIrr():
     def test_get_poa_col(self, nrel):
@@ -2142,12 +2142,12 @@ class TestCapTestCpResultsMultCoeff(unittest.TestCase):
         captured = self.capsys.readouterr()
 
         results_str = ('Using reporting conditions from das. \n\n'
-
+                       
                        'Capacity Test Result:    FAIL\n'
-                       'Modeled test output:          66.451\n'
-                       'Actual test output:           72.429\n'
-                       'Tested output ratio:          1.090\n'
-                       'Tested Capacity:              108.996\n'
+                       'Modeled test output:          66.849\n'
+                       'Actual test output:           73.093\n'
+                       'Tested output ratio:          1.093\n'
+                       'Tested Capacity:              109.341\n'
                        'Bounds:                       95.0, 105.0\n\n\n')
 
         self.assertEqual(results_str, captured.out)

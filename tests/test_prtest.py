@@ -160,7 +160,7 @@ class TestCellTemp:
 
 class TestAvgTypCellTemp:
     def test_math(self):
-        ix = pd.date_range(start="1/1/2021 12:00", freq="H", periods=3)
+        ix = pd.date_range(start="1/1/2021 12:00", freq="h", periods=3)
         poa = pd.Series([805, 810, 812], index=ix)
         cell_temp = pd.Series([26, 27, 27.5], index=ix)
 
@@ -192,7 +192,7 @@ class TestCheckPerfRatioInputs:
 
     def test_poa_ac_energy_index_match(self):
         """Raise warning if indices of poa and ac_energy do not match."""
-        ix_poa = pd.date_range(start="1/1/2021 13:00", freq="H", periods=3)
+        ix_poa = pd.date_range(start="1/1/2021 13:00", freq="h", periods=3)
         ac_energy = pd.Series([90, 95, 97], index=ix)
         poa = pd.Series([805, 810, 812], index=ix_poa)
         with pytest.warns(UserWarning):
@@ -201,7 +201,7 @@ class TestCheckPerfRatioInputs:
 
     def test_avail_index_match(self):
         """Raise warning if index of availability does not match poa."""
-        ix_availability = pd.date_range(start="1/1/2021 13:00", freq="H", periods=3)
+        ix_availability = pd.date_range(start="1/1/2021 13:00", freq="h", periods=3)
         ac_energy = pd.Series([90, 95, 97], index=ix)
         poa = pd.Series([805, 810, 812], index=ix)
         avail = pd.Series([0.9, 1, 0.95], index=ix_availability)
