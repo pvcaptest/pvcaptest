@@ -392,8 +392,8 @@ class PrResults(param.Parameterized):
     expected_pr = param.Number(
         bounds=(0, 1), doc="Expected Performance ratio result decimal fraction."
     )
-    input_data = param.ClassSelector(capdata.CapData)
-    results_data = param.ClassSelector(pd.DataFrame)
+    input_data = param.ClassSelector(class_=capdata.CapData)
+    results_data = param.ClassSelector(class_=pd.DataFrame)
 
     def print_pr_result(self):
         """Print summary of PR result - passing / failing and by how much

@@ -10,7 +10,7 @@ from captest import util
 
 ix = pd.date_range(
     start='1/1/2021 12:00',
-    freq='H',
+    freq='h',
     periods=3
 )
 

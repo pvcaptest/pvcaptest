@@ -17,7 +17,7 @@ To run a specific test:
 pytest tests/test_CapData.py::TestCapDataEmpty::test_capdata_empty
 """
 
-ix = pd.date_range(start="1/1/2021 12:00", freq="H", periods=3)
+ix = pd.date_range(start="1/1/2021 12:00", freq="h", periods=3)
 
 ix_5min = pd.date_range(start="1/1/2021 12:00", freq="5min", periods=3)
 
@@ -76,7 +76,7 @@ class TestTempCorrectPower:
         assert pytest.approx(corr_power, 0.3) == 11.019
 
     def test_math_series_power(self):
-        ix = pd.date_range(start="1/1/2021 12:00", freq="H", periods=3)
+        ix = pd.date_range(start="1/1/2021 12:00", freq="h", periods=3)
         power = pd.Series([10, 20, 15], index=ix)
         corr_power = pr.temp_correct_power(power, -0.37, 50)
         assert pytest.approx(corr_power.values, 0.3) == [11.019, 22.038, 16.528]
@@ -96,7 +96,7 @@ class TestBackOfModuleTemp:
         assert pr.back_of_module_temp(800, 30, 3) == pytest.approx(48.1671)
 
     def test_series_inputs(self):
-        ix = pd.date_range(start="1/1/2021 12:00", freq="H", periods=3)
+        ix = pd.date_range(start="1/1/2021 12:00", freq="h", periods=3)
         poa = pd.Series([805, 810, 812], index=ix)
         temp_amb = pd.Series([26, 27, 27.5], index=ix)
         wind = pd.Series([0.5, 1, 2.5], index=ix)
@@ -132,7 +132,7 @@ class TestCellTemp:
         assert pr.cell_temp(30, 850) == pytest.approx(32.55)
 
     def test_series_inputs(self):
-        ix = pd.date_range(start="1/1/2021 12:00", freq="H", periods=3)
+        ix = pd.date_range(start="1/1/2021 12:00", freq="h", periods=3)
         poa = pd.Series([805, 810, 812], index=ix)
         temp_bom = pd.Series([26, 27, 27.5], index=ix)
 

@@ -25,7 +25,7 @@ from captest import(
 )
 
 data = np.arange(0, 1300, 54.167)
-index = pd.date_range(start='1/1/2017', freq='H', periods=24)
+index = pd.date_range(start='1/1/2017', freq='h', periods=24)
 df = pd.DataFrame(data=data, index=index, columns=['poa'])
 
 # capdata = pvc.CapData('capdata')
@@ -76,7 +76,7 @@ class TestTopLevelFuncs(unittest.TestCase):
         df_cpy = df.copy()
         bool_array = []
         for val in rng:
-            np_perc = np.percentile(rng, val, interpolation='nearest')
+            np_perc = np.percentile(rng, val, method='nearest')
             wrap_perc = df.agg(pvc.perc_wrap(val)).values[0]
             bool_array.append(np_perc == wrap_perc)
         self.assertTrue(all(bool_array),
@@ -160,7 +160,7 @@ class TestTopLevelFuncs(unittest.TestCase):
 
         df_regs = pvsyst.data.loc[:, ['E_Grid', 'GlobInc', 'T_Amb', 'WindVel']]
         df_regs_day = df_regs.query('GlobInc > 0')
-        grps = df_regs_day.groupby(pd.Grouper(freq='M', label='right'))
+        grps = df_regs_day.groupby(pd.Grouper(freq='ME', label='right'))
 
         ones = np.ones(12)
         irr_rc = ones * 500
@@ -1059,7 +1059,7 @@ class TestGetTimezoneIndex():
         print(df.loc['11/4/18 01:00'].index)
         tz_ix = pvc.get_tz_index(df, location_and_system['location'])
         assert(isinstance(tz_ix, pd.core.indexes.datetimes.DatetimeIndex))
-        assert(tz_ix.tz == pytz.timezone(location_and_system['location']['tz']))
+        assert(tz_ix.tz.key == pytz.timezone(location_and_system['location']['tz']).zone)
 
     def test_get_tz_index_df_tz(self, location_and_system):
         """Test that get_tz_index function returns a datetime index\
@@ -1075,7 +1075,7 @@ class TestGetTimezoneIndex():
         df = pd.DataFrame(index=ix_dst)
         tz_ix = pvc.get_tz_index(df, location_and_system['location'])
         assert(isinstance(tz_ix, pd.core.indexes.datetimes.DatetimeIndex))
-        assert(tz_ix.tz == pytz.timezone(location_and_system['location']['tz']))
+        assert(tz_ix.tz.key == pytz.timezone(location_and_system['location']['tz']).zone)
 
     def test_get_tz_index_df_tz_warn(self, location_and_system):
         """Test that get_tz_index function warns when datetime index\
@@ -1092,7 +1092,7 @@ class TestGetTimezoneIndex():
     def test_get_tz_index_ix_tz(self, location_and_system):
         """Test that get_tz_index function returns a datetime index
            with a timezone when passed a datetime index with a timezone."""
-        ix = pd.date_range(start='1/1/2019', periods=8760, freq='H',
+        ix = pd.date_range(start='1/1/2019', periods=8760, freq='h',
                                    tz='America/Chicago')
         tz_ix = pvc.get_tz_index(ix, location_and_system['location'])  # tz is Chicago
         assert isinstance(tz_ix, pd.core.indexes.datetimes.DatetimeIndex)
@@ -1104,7 +1104,7 @@ class TestGetTimezoneIndex():
         """Test that get_tz_index function warns when DatetimeIndex timezone
            does not match the location dic timezone.
         """
-        ix = pd.date_range(start='1/1/2019', periods=8760, freq='H',
+        ix = pd.date_range(start='1/1/2019', periods=8760, freq='h',
                                    tz='America/New_York')
 
         with pytest.warns(UserWarning, match=(
@@ -1118,7 +1118,7 @@ class TestGetTimezoneIndex():
         """Test that get_tz_index function returns a datetime index\
            with a timezone when passed a datetime index without a timezone."""
         ix = pd.date_range(
-            start='1/1/2019', periods=8760, freq='H', tz='America/Chicago'
+            start='1/1/2019', periods=8760, freq='h', tz='America/Chicago'
         )
         # remove timezone info but keep missing  hour and extra hour due to DST
         ix = ix.tz_localize(None)
@@ -1126,7 +1126,7 @@ class TestGetTimezoneIndex():
         assert isinstance(tz_ix, pd.core.indexes.datetimes.DatetimeIndex)
         # If passing an index without a timezone use returned index should have
         # the timezone of the passed location dictionary.
-        assert tz_ix.tz == pytz.timezone(location_and_system['location']['tz'])
+        assert tz_ix.tz.key == pytz.timezone(location_and_system['location']['tz']).zone
 
 class Test_csky():
     """Test clear sky function which returns pvlib ghi and poa clear sky."""
@@ -1152,7 +1152,9 @@ class Test_csky():
            includes the 2 to 3AM hour that is skipped during daylight savings time."""
         # concat=True by default
         data = meas.data.loc['10/9/1990']
-        data.index = pd.date_range('3/12/23', periods=(60 / 5) * 24, freq='5min')
+        # XXX: periods must be a integer
+        # NOTE: 288 periods of 5min data is 24 hours
+        data.index = pd.date_range('3/12/23', periods=288, freq='5min')
         csky_ghi_poa = pvc.csky(
             data,
             loc=location_and_system['location'],
