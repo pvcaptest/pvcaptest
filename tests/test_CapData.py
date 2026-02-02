@@ -2261,6 +2261,79 @@ class TestCapTestCpResultsMultCoeff(unittest.TestCase):
         self.meas.data_filtered = pd.DataFrame()
         self.sim.data_filtered = pd.DataFrame()
 
+    def testNumpyRandomSeed(self):
+        np.random.seed(9876789)
+
+        # Check random numbers
+        e = np.random.normal(size=100)
+        print(f"\nRandom - First 5: {e[:5]}")
+        print(f"Random - Sum: {e.sum()}")
+
+        # Rebuild the exact data from setUp
+        nsample = 100
+        a = np.linspace(0, 10, nsample)
+        b = np.linspace(0, 10, nsample) / 2.0
+        c = np.linspace(0, 10, nsample) + 3.0
+
+        das_y = a + (a**2) + (a * b) + (a * c)
+        sim_y = a + (a**2 * 0.9) + (a * b * 1.1) + (a * c * 0.8)
+        das_y = das_y + e
+        sim_y = sim_y + e
+
+        das_df = pd.DataFrame({"power": das_y, "poa": a, "t_amb": b, "w_vel": c})
+        sim_df = pd.DataFrame({"power": sim_y, "poa": a, "t_amb": b, "w_vel": c})
+
+        # Fit models
+        fml = "power ~ poa + I(poa * poa) + I(poa * t_amb) + I(poa * w_vel) - 1"
+        das_model = smf.ols(formula=fml, data=das_df)
+        sim_model = smf.ols(formula=fml, data=sim_df)
+        das_results = das_model.fit()
+        sim_results = sim_model.fit()
+
+        # Check coefficients
+        print("\nDAS coefficients:")
+        print(das_results.params)
+        print("\nSIM coefficients:")
+        print(sim_results.params)
+
+        print(f"\ndas_results.params type:\n {type(das_results.params)}")
+        print(f"\ndas_results.params:\n {das_results.params}")
+
+        # Check if modification actually affects the params
+        print("\nBefore modification:")
+        print(f"das_results.params['poa'] = {das_results.params['poa']}")
+        print(f"sim_results.params['poa'] = {sim_results.params['poa']}")
+        params_id_before = id(das_results.params)
+
+        das_params = das_results.params.copy()
+        das_params.loc["poa"] = 0
+        das_results.params = das_params
+
+        sim_results.params["poa"] = 0
+
+        print("\nAfter modification:")
+        print(f"das_results.params['poa'] = {das_results.params['poa']}")
+        print(f"sim_results.params['poa'] = {sim_results.params['poa']}")
+        # Check if the params object ID changed (CoW creates new object)
+        params_id_after = id(das_results.params)
+        print(f"\nParams object ID changed: {params_id_before != params_id_after}")
+
+        # Check predictions with poa=0
+        rc = pd.DataFrame({"poa": [6], "t_amb": [5], "w_vel": [3]})
+        print(f"das_results.params type: {type(das_results.params)}")
+        das_results.params["poa"] = 0
+        sim_results.params["poa"] = 0
+
+        actual = das_results.predict(rc)[0]
+        expected = sim_results.predict(rc)[0]
+
+        print("\nPredictions after setting poa=0:")
+        print(f"Actual (das): {actual}")
+        print(f"Expected (sim): {expected}")
+        print(f"Ratio: {actual / expected}")
+
+        # assert 0
+
     def test_pvals_default_false(self):
         actual = self.meas.regression_results.predict(self.meas.rc)[0]
         expected = self.sim.regression_results.predict(self.meas.rc)[0]
