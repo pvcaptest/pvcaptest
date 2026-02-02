@@ -2291,8 +2291,6 @@ class TestCapTestCpResultsMultCoeff(unittest.TestCase):
         self.meas.regression_results = das_model.fit()
         self.sim.regression_results = sim_model.fit()
 
-        # das_results = das_model.fit()
-        # sim_results = sim_model.fit()
         das_results = self.meas.regression_results
         sim_results = self.sim.regression_results
 
@@ -2301,11 +2299,6 @@ class TestCapTestCpResultsMultCoeff(unittest.TestCase):
         print(das_results.params)
         print("\nSIM coefficients:")
         print(sim_results.params)
-
-        print(f"\ndas_results.params type:\n {type(das_results.params)}")
-
-        das_params_id_before = id(das_results.params)
-        sim_params_id_before = id(sim_results.params)
 
         # Check predictions before param modifications
         rc = pd.DataFrame({"poa": [6], "t_amb": [5], "w_vel": [3]})
@@ -2317,43 +2310,57 @@ class TestCapTestCpResultsMultCoeff(unittest.TestCase):
         print(f"Expected (sim): {expected_before}")
         print(f"Ratio: {actual_before / expected_before}")
 
-        # das_params = das_results.params.copy()
-        # das_params.loc["poa"] = 0
-        # das_results.params = das_params
+        # Create modified params (copy to avoid CoW issues)
+        das_params_modified = das_results.params.copy()
+        das_params_modified["poa"] = 0
 
-        # sim_results.params["poa"] = 0
+        sim_params_modified = sim_results.params.copy()
+        sim_params_modified["poa"] = 0
 
-        sim_params = sim_results.params.copy()
-        sim_params.loc["poa"] = 0
-        sim_results.params = sim_params
+        print("\nModified params:")
+        print(f"DAS params (poa set to 0): {das_params_modified['poa']}")
+        print(f"SIM params (poa set to 0): {sim_params_modified['poa']}")
 
-        das_results.params["poa"] = 0
+        # Use model.predict() with custom params
+        # Need to transform rc into design matrix
+        from patsy import dmatrix
 
-        print("\nAfter modification:")
-        print("\nDAS coefficients:")
-        print(das_results.params)
-        print("\nSIM coefficients:")
-        print(sim_results.params)
-        # Check if the params object ID changed (CoW creates new object)
-        das_params_id_after = id(das_results.params)
-        sim_params_id_after = id(sim_results.params)
-        print(
-            f"\nDAS Params object ID changed: {das_params_id_before != das_params_id_after}"
-        )
-        print(
-            f"\nSIM Params object ID changed: {sim_params_id_before != sim_params_id_after}"
-        )
+        das_design_info = das_results.model.data.design_info
+        print(das_design_info)
+        sim_design_info = sim_results.model.data.design_info
 
-        # Check predictions with poa=0
-        actual_after = das_results.predict(rc)[0]
-        expected_after = sim_results.predict(rc)[0]
+        das_exog = dmatrix(das_design_info, rc)
+        sim_exog = dmatrix(sim_design_info, rc)
+
+        # Predictions with modified params
+        actual_after = das_results.model.predict(das_params_modified, das_exog)[0]
+        expected_after = sim_results.model.predict(sim_params_modified, sim_exog)[0]
 
         print("\nPredictions after setting poa=0:")
         print(f"Actual (das): {actual_after}")
         print(f"Expected (sim): {expected_after}")
         print(f"Ratio: {actual_after / expected_after}")
 
-        assert 0
+        # Verify the predictions changed as expected
+        print("\nVerification:")
+        print(f"DAS prediction changed: {actual_before != actual_after}")
+        print(f"SIM prediction changed: {expected_before != expected_after}")
+
+        # Both predictions should be close to intercept-only values
+        # (no poa coefficient, so only interaction terms remain)
+        self.assertNotAlmostEqual(
+            actual_before,
+            actual_after,
+            3,
+            "DAS prediction should change when poa coeff set to 0",
+        )
+        self.assertNotAlmostEqual(
+            expected_before,
+            expected_after,
+            3,
+            "SIM prediction should change when poa coeff set to 0",
+        )
+        # assert 0
 
     def test_pvals_default_false(self):
         actual = self.meas.regression_results.predict(self.meas.rc)[0]
