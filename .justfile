@@ -38,8 +38,8 @@ test-module-example:
 	@echo "uv run pytest tests/test_CapData.py::TestCapDataEmpty::test_capdata_empty\n"
 
 # Run a specific test 
-test-module module_name:
-	uv run pytest --disable-warnings tests/{{module_name}}
+test-module module_name python-ver="3.12":
+	uv run --python {{python-ver}} pytest --disable-warnings tests/{{module_name}}
 
 # Test install package in new venv
 test-install python-ver="3.12":
