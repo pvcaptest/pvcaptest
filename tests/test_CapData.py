@@ -2325,10 +2325,10 @@ class TestCapTestCpResultsMultCoeff(unittest.TestCase):
         results_str = (
             "Using reporting conditions from das. \n\n"
             "Capacity Test Result:    FAIL\n"
-            "Modeled test output:          66.849\n"
-            "Actual test output:           73.093\n"
-            "Tested output ratio:          1.093\n"
-            "Tested Capacity:              109.341\n"
+            "Modeled test output:          66.451\n"
+            "Actual test output:           72.429\n"
+            "Tested output ratio:          1.090\n"
+            "Tested Capacity:              108.996\n"
             "Bounds:                       95.0, 105.0\n\n\n"
         )
 
