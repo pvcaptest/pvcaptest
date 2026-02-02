@@ -2287,8 +2287,14 @@ class TestCapTestCpResultsMultCoeff(unittest.TestCase):
         fml = "power ~ poa + I(poa * poa) + I(poa * t_amb) + I(poa * w_vel) - 1"
         das_model = smf.ols(formula=fml, data=das_df)
         sim_model = smf.ols(formula=fml, data=sim_df)
-        das_results = das_model.fit()
-        sim_results = sim_model.fit()
+
+        self.meas.regression_results = das_model.fit()
+        self.sim.regression_results = sim_model.fit()
+
+        # das_results = das_model.fit()
+        # sim_results = sim_model.fit()
+        das_results = self.meas.regression_results
+        sim_results = self.sim.regression_results
 
         # Check coefficients
         print("\nDAS coefficients:")
@@ -2297,42 +2303,57 @@ class TestCapTestCpResultsMultCoeff(unittest.TestCase):
         print(sim_results.params)
 
         print(f"\ndas_results.params type:\n {type(das_results.params)}")
-        print(f"\ndas_results.params:\n {das_results.params}")
 
-        # Check if modification actually affects the params
-        print("\nBefore modification:")
-        print(f"das_results.params['poa'] = {das_results.params['poa']}")
-        print(f"sim_results.params['poa'] = {sim_results.params['poa']}")
-        params_id_before = id(das_results.params)
+        das_params_id_before = id(das_results.params)
+        sim_params_id_before = id(sim_results.params)
 
-        das_params = das_results.params.copy()
-        das_params.loc["poa"] = 0
-        das_results.params = das_params
+        # Check predictions before param modifications
+        rc = pd.DataFrame({"poa": [6], "t_amb": [5], "w_vel": [3]})
+        actual_before = das_results.predict(rc)[0]
+        expected_before = sim_results.predict(rc)[0]
 
-        sim_results.params["poa"] = 0
+        print("\nPredictions before setting poa=0:")
+        print(f"Actual (das): {actual_before}")
+        print(f"Expected (sim): {expected_before}")
+        print(f"Ratio: {actual_before / expected_before}")
+
+        # das_params = das_results.params.copy()
+        # das_params.loc["poa"] = 0
+        # das_results.params = das_params
+
+        # sim_results.params["poa"] = 0
+
+        sim_params = sim_results.params.copy()
+        sim_params.loc["poa"] = 0
+        sim_results.params = sim_params
+
+        das_results.params["poa"] = 0
 
         print("\nAfter modification:")
-        print(f"das_results.params['poa'] = {das_results.params['poa']}")
-        print(f"sim_results.params['poa'] = {sim_results.params['poa']}")
+        print("\nDAS coefficients:")
+        print(das_results.params)
+        print("\nSIM coefficients:")
+        print(sim_results.params)
         # Check if the params object ID changed (CoW creates new object)
-        params_id_after = id(das_results.params)
-        print(f"\nParams object ID changed: {params_id_before != params_id_after}")
+        das_params_id_after = id(das_results.params)
+        sim_params_id_after = id(sim_results.params)
+        print(
+            f"\nDAS Params object ID changed: {das_params_id_before != das_params_id_after}"
+        )
+        print(
+            f"\nSIM Params object ID changed: {sim_params_id_before != sim_params_id_after}"
+        )
 
         # Check predictions with poa=0
-        rc = pd.DataFrame({"poa": [6], "t_amb": [5], "w_vel": [3]})
-        print(f"das_results.params type: {type(das_results.params)}")
-        das_results.params["poa"] = 0
-        sim_results.params["poa"] = 0
-
-        actual = das_results.predict(rc)[0]
-        expected = sim_results.predict(rc)[0]
+        actual_after = das_results.predict(rc)[0]
+        expected_after = sim_results.predict(rc)[0]
 
         print("\nPredictions after setting poa=0:")
-        print(f"Actual (das): {actual}")
-        print(f"Expected (sim): {expected}")
-        print(f"Ratio: {actual / expected}")
+        print(f"Actual (das): {actual_after}")
+        print(f"Expected (sim): {expected_after}")
+        print(f"Ratio: {actual_after / expected_after}")
 
-        # assert 0
+        assert 0
 
     def test_pvals_default_false(self):
         actual = self.meas.regression_results.predict(self.meas.rc)[0]
@@ -2364,6 +2385,19 @@ class TestCapTestCpResultsMultCoeff(unittest.TestCase):
             print_res=False,
         )
 
+        cp_rat_no_check = pvc.captest_results(
+            self.sim,
+            self.meas,
+            100,
+            "+/- 5",
+            check_pvalues=False,
+            pval=1e-15,
+            print_res=False,
+        )
+        print(f"cp_rat: {cp_rat}")
+        print(f"cp_rat_no_check: {cp_rat_no_check}")
+
+        assert 0
         self.assertEqual(
             cp_rat, cp_rat_pval_check, "captest_results did not return expected value."
         )
@@ -2388,24 +2422,34 @@ class TestCapTestCpResultsMultCoeff(unittest.TestCase):
             self.meas,
             100,
             "+/- 5",
-            check_pvalues=True,
+            check_pvalues=False,
             pval=1e-15,
             print_res=True,
         )
 
-        captured = self.capsys.readouterr()
-
-        results_str = (
-            "Using reporting conditions from das. \n\n"
-            "Capacity Test Result:    FAIL\n"
-            "Modeled test output:          66.451\n"
-            "Actual test output:           72.429\n"
-            "Tested output ratio:          1.090\n"
-            "Tested Capacity:              108.996\n"
-            "Bounds:                       95.0, 105.0\n\n\n"
+        pvc.captest_results(
+            self.sim,
+            self.meas,
+            100,
+            "+/- 5",
+            check_pvalues=True,
+            pval=1e-15,
+            print_res=True,
         )
+        assert 0
+        # captured = self.capsys.readouterr()
 
-        self.assertEqual(results_str, captured.out)
+        # results_str = (
+        #     "Using reporting conditions from das. \n\n"
+        #     "Capacity Test Result:    FAIL\n"
+        #     "Modeled test output:          66.451\n"
+        #     "Actual test output:           72.429\n"
+        #     "Tested output ratio:          1.090\n"
+        #     "Tested Capacity:              108.996\n"
+        #     "Bounds:                       95.0, 105.0\n\n\n"
+        # )
+
+        # self.assertEqual(results_str, captured.out)
 
     def test_formulas_match(self):
         sim = pvc.CapData("sim")
