@@ -23,6 +23,7 @@ import pandas as pd
 
 # anaconda distribution defaults
 # statistics and machine learning imports
+from patsy import dmatrix
 import statsmodels.formula.api as smf
 
 # from sklearn.covariance import EllipticEnvelope
@@ -1215,6 +1216,47 @@ def determine_pass_or_fail(cap_ratio, tolerance, nameplate):
         warnings.warn("Sign must be '-', '+/-', or '-/+'.")
 
 
+def predict_with_pvalue_check(cd, rc=None, pval_threshold=0.05):
+    """
+    Make prediction with optional p-value filtering of coefficients.
+
+    Uses model.predict() with custom params to ensure consistent behavior
+    across pandas 2.x and 3.0+ (avoids Copy-on-Write issues).
+
+    Parameters
+    ----------
+    cd : CapData
+        Instance of CapData with:
+        - regression_results attribute (fitted statsmodels results)
+        - rc attribute (reporting conditions DataFrame), used if rc param is None
+    rc : DataFrame, optional
+        Reporting conditions DataFrame. If None, uses cd.rc.
+    pval_threshold : float, default 0.05
+        If provided, coefficients with p-value > threshold are set to zero
+        before making the prediction. Set to None to skip pval check.
+
+    Returns
+    -------
+    float
+        Predicted value at reporting conditions.
+    """
+    results = cd.regression_results
+    if rc is None:
+        rc = cd.rc
+    # Copy params to avoid modifying original
+    modified_params = results.params.copy()
+    # Zero out coefficients with p-values above threshold
+    if pval_threshold is not None:
+        for key, pval in results.pvalues.items():
+            if pval > pval_threshold:
+                modified_params[key] = 0
+    # Create design matrix from reporting conditions
+    design_info = results.model.data.design_info
+    exog = dmatrix(design_info, rc)
+    # Predict using model.predict with custom params
+    return results.model.predict(modified_params, exog)[0]
+
+
 def captest_results(
     sim, das, nameplate, tolerance, check_pvalues=False, pval=0.05, print_res=True
 ):
@@ -1250,25 +1292,18 @@ def captest_results(
     and the measured data divided by the capacity calculated from the reporting
     conditions and the simulated data.
     """
-    sim_int = sim.copy()
-    das_int = das.copy()
+    if sim.regression_formula != das.regression_formula:
+        return warnings.warn("CapData objects do not have the same regression formula.")
 
-    if sim_int.regression_formula != das_int.regression_formula:
-        return warnings.warn("CapData objects do not have the sameregression formula.")
-
-    if check_pvalues:
-        for cd in [sim_int, das_int]:
-            for key, val in cd.regression_results.pvalues.items():
-                if val > pval:
-                    cd.regression_results.params[key] = 0
-
-    rc = pick_attr(sim_int, das_int, "rc")
+    rc_result = pick_attr(sim, das, "rc")
     if print_res:
-        print("Using reporting conditions from {}. \n".format(rc[1]))
-    rc = rc[0]
+        print("Using reporting conditions from {}. \n".format(rc_result[1]))
+    rc = rc_result[0]
 
-    actual = das_int.regression_results.predict(rc)[0]
-    expected = sim_int.regression_results.predict(rc)[0]
+    # Use predict_with_pvalue_check for consistent behavior across pandas versions
+    pval_threshold = pval if check_pvalues else None
+    actual = predict_with_pvalue_check(das, rc=rc, pval_threshold=pval_threshold)
+    expected = predict_with_pvalue_check(sim, rc=rc, pval_threshold=pval_threshold)
     cap_ratio = actual / expected
     if cap_ratio < 0.01:
         cap_ratio *= 1000

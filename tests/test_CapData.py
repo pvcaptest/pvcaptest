@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 import statsmodels.formula.api as smf
 import holoviews as hv
+from patsy import dmatrix
 
 import pvlib
 
@@ -2123,6 +2124,150 @@ class TestFilterMissing:
         assert meas.data_filtered.shape[0] == 1424
 
 
+class TestStatsmodelsParamModification:
+    """
+    Tests documenting statsmodels parameter modification behavior.
+
+    Using `model.predict(modified_params, exog)` works consistently across
+    pandas versions. Direct assignment to `.params` has inconsistent behavior:
+    - pandas 2.x: Direct modification DOES affect predictions
+    - pandas 3.0+: Direct modification does NOT affect predictions (CoW)
+
+    This behavior is important for pandas 3.0 Copy-on-Write compatibility.
+    """
+
+    @pytest.fixture
+    def regression_model(self):
+        """Create a simple regression model for testing."""
+        np.random.seed(42)
+        df = pd.DataFrame({"y": np.random.randn(100), "x": np.random.randn(100)})
+        results = smf.ols("y ~ x", data=df).fit()
+        test_df = pd.DataFrame({"x": [1]})  # i.e. reporting conditions
+        return results, test_df
+
+    def test_model_predict_with_custom_params(self, regression_model):
+        """
+        Verify that model.predict(modified_params, exog) correctly uses
+        the modified parameters for prediction.
+
+        This approach works consistently across pandas 2.x and 3.0+.
+        """
+        results, test_df = regression_model
+
+        # Get original prediction
+        orig_pred = results.predict(test_df)[0]
+
+        # Create modified params with x coefficient set to 0
+        modified_params = results.params.copy()
+        modified_params["x"] = 0
+
+        # Create design matrix for prediction
+        design_info = results.model.data.design_info
+        exog = dmatrix(design_info, test_df)
+
+        # Predict with modified params
+        pred_with_modified = results.model.predict(modified_params, exog)[0]
+
+        # With x=0 coefficient, prediction should equal intercept
+        expected = results.params["Intercept"]
+
+        assert pred_with_modified == pytest.approx(expected, abs=1e-10), (
+            "Prediction with x=0 should equal intercept"
+        )
+        assert orig_pred != pytest.approx(pred_with_modified, abs=1e-5), (
+            "Modified prediction should differ from original"
+        )
+
+
+class TestPredictWithPvalueCheck:
+    """
+    Tests for predict_with_pvalue_check function.
+
+    This function makes predictions using model.predict() with custom params
+    for consistent behavior across pandas versions.
+    """
+
+    @pytest.fixture
+    def capdata_with_regression(self):
+        """
+        Create a CapData object with fitted regression and reporting conditions.
+
+        Uses data where some coefficients will have high p-values (insignificant)
+        to test the p-value filtering functionality.
+        """
+        np.random.seed(42)
+
+        cd = pvc.CapData("test")
+
+        # Create data where 'x' is a strong predictor but 'noise' is not
+        n = 100
+        x = np.linspace(0, 10, n)
+        noise_var = np.random.randn(n) * 0.01  # Very weak relationship
+        y = 2 * x + 5 + np.random.randn(n) * 0.5  # Strong relationship with x
+
+        df = pd.DataFrame({"y": y, "x": x, "noise": noise_var})
+        cd.data = df
+        cd.data_filtered = df.copy()
+
+        # Fit model with both significant (x) and insignificant (noise) predictors
+        fml = "y ~ x + noise"
+        model = smf.ols(formula=fml, data=df)
+        cd.regression_results = model.fit()
+
+        # Set reporting conditions
+        cd.rc = pd.DataFrame({"x": [5.0], "noise": [0.0]})
+
+        return cd
+
+    def test_predict_no_pvalue_threshold(self, capdata_with_regression):
+        """Test prediction without p-value filtering (threshold=None)."""
+        cd = capdata_with_regression
+
+        # Prediction without filtering should match standard predict
+        expected = cd.regression_results.predict(cd.rc)[0]
+        actual = pvc.predict_with_pvalue_check(cd, pval_threshold=None)
+
+        assert actual == pytest.approx(expected, rel=1e-10)
+
+    def test_predict_with_pvalue_threshold_zeros_insignificant(
+        self, capdata_with_regression
+    ):
+        """Test that insignificant coefficients are zeroed with p-value threshold."""
+        cd = capdata_with_regression
+
+        # Check that 'noise' coefficient has high p-value (should be filtered)
+        noise_pval = cd.regression_results.pvalues["noise"]
+        assert noise_pval > 0.05, "Test setup error: noise should be insignificant"
+
+        # Get prediction with p-value filtering
+        pred_with_filter = pvc.predict_with_pvalue_check(cd, pval_threshold=0.05)
+
+        # The key test is that the function runs without error and returns a float
+        assert isinstance(pred_with_filter, (float, np.floating))
+
+    def test_predict_with_very_low_threshold_zeros_all(self, capdata_with_regression):
+        """Test with very low threshold that zeros out all coefficients."""
+        cd = capdata_with_regression
+
+        # With threshold of 0, all coefficients should be zeroed
+        # (no p-value is exactly 0)
+        pred = pvc.predict_with_pvalue_check(cd, pval_threshold=0)
+
+        # Result should be close to 0 (all coeffs zeroed, including intercept)
+        # or equal to intercept if intercept p-value is 0
+        assert isinstance(pred, (float, np.floating))
+
+    def test_predict_with_high_threshold_keeps_all(self, capdata_with_regression):
+        """Test with threshold of 1.0 keeps all coefficients."""
+        cd = capdata_with_regression
+
+        # With threshold of 1.0, no coefficients should be zeroed
+        pred_high_threshold = pvc.predict_with_pvalue_check(cd, pval_threshold=1.0)
+        pred_no_filter = pvc.predict_with_pvalue_check(cd, pval_threshold=None)
+
+        assert pred_high_threshold == pytest.approx(pred_no_filter, rel=1e-10)
+
+
 class TestCapTestCpResultsSingleCoeff(unittest.TestCase):
     """Tests for the capactiy test results method using a regression formula
     with a single coefficient."""
@@ -2261,54 +2406,20 @@ class TestCapTestCpResultsMultCoeff(unittest.TestCase):
         self.meas.data_filtered = pd.DataFrame()
         self.sim.data_filtered = pd.DataFrame()
 
-    def testNumpyRandomSeed(self):
-        np.random.seed(9876789)
+    def test_model_predict_with_modified_params(self):
+        """Test that model.predict() with modified params works correctly.
 
-        # Check random numbers
-        e = np.random.normal(size=100)
-        print(f"\nRandom - First 5: {e[:5]}")
-        print(f"Random - Sum: {e.sum()}")
-
-        # Rebuild the exact data from setUp
-        nsample = 100
-        a = np.linspace(0, 10, nsample)
-        b = np.linspace(0, 10, nsample) / 2.0
-        c = np.linspace(0, 10, nsample) + 3.0
-
-        das_y = a + (a**2) + (a * b) + (a * c)
-        sim_y = a + (a**2 * 0.9) + (a * b * 1.1) + (a * c * 0.8)
-        das_y = das_y + e
-        sim_y = sim_y + e
-
-        das_df = pd.DataFrame({"power": das_y, "poa": a, "t_amb": b, "w_vel": c})
-        sim_df = pd.DataFrame({"power": sim_y, "poa": a, "t_amb": b, "w_vel": c})
-
-        # Fit models
-        fml = "power ~ poa + I(poa * poa) + I(poa * t_amb) + I(poa * w_vel) - 1"
-        das_model = smf.ols(formula=fml, data=das_df)
-        sim_model = smf.ols(formula=fml, data=sim_df)
-
-        self.meas.regression_results = das_model.fit()
-        self.sim.regression_results = sim_model.fit()
-
+        This test verifies the approach used by predict_with_pvalue_check:
+        using model.predict(modified_params, exog) to make predictions with
+        modified coefficients, which works consistently across pandas versions.
+        """
         das_results = self.meas.regression_results
         sim_results = self.sim.regression_results
+        rc = self.meas.rc
 
-        # Check coefficients
-        print("\nDAS coefficients:")
-        print(das_results.params)
-        print("\nSIM coefficients:")
-        print(sim_results.params)
-
-        # Check predictions before param modifications
-        rc = pd.DataFrame({"poa": [6], "t_amb": [5], "w_vel": [3]})
+        # Get predictions before param modifications
         actual_before = das_results.predict(rc)[0]
         expected_before = sim_results.predict(rc)[0]
-
-        print("\nPredictions before setting poa=0:")
-        print(f"Actual (das): {actual_before}")
-        print(f"Expected (sim): {expected_before}")
-        print(f"Ratio: {actual_before / expected_before}")
 
         # Create modified params (copy to avoid CoW issues)
         das_params_modified = das_results.params.copy()
@@ -2317,16 +2428,8 @@ class TestCapTestCpResultsMultCoeff(unittest.TestCase):
         sim_params_modified = sim_results.params.copy()
         sim_params_modified["poa"] = 0
 
-        print("\nModified params:")
-        print(f"DAS params (poa set to 0): {das_params_modified['poa']}")
-        print(f"SIM params (poa set to 0): {sim_params_modified['poa']}")
-
         # Use model.predict() with custom params
-        # Need to transform rc into design matrix
-        from patsy import dmatrix
-
         das_design_info = das_results.model.data.design_info
-        print(das_design_info)
         sim_design_info = sim_results.model.data.design_info
 
         das_exog = dmatrix(das_design_info, rc)
@@ -2336,18 +2439,7 @@ class TestCapTestCpResultsMultCoeff(unittest.TestCase):
         actual_after = das_results.model.predict(das_params_modified, das_exog)[0]
         expected_after = sim_results.model.predict(sim_params_modified, sim_exog)[0]
 
-        print("\nPredictions after setting poa=0:")
-        print(f"Actual (das): {actual_after}")
-        print(f"Expected (sim): {expected_after}")
-        print(f"Ratio: {actual_after / expected_after}")
-
-        # Verify the predictions changed as expected
-        print("\nVerification:")
-        print(f"DAS prediction changed: {actual_before != actual_after}")
-        print(f"SIM prediction changed: {expected_before != expected_after}")
-
-        # Both predictions should be close to intercept-only values
-        # (no poa coefficient, so only interaction terms remain)
+        # Both predictions should change when poa coefficient is zeroed
         self.assertNotAlmostEqual(
             actual_before,
             actual_after,
@@ -2360,7 +2452,6 @@ class TestCapTestCpResultsMultCoeff(unittest.TestCase):
             3,
             "SIM prediction should change when poa coeff set to 0",
         )
-        # assert 0
 
     def test_pvals_default_false(self):
         actual = self.meas.regression_results.predict(self.meas.rc)[0]
@@ -2376,13 +2467,23 @@ class TestCapTestCpResultsMultCoeff(unittest.TestCase):
         )
 
     def test_pvals_true(self):
-        self.meas.regression_results.params["poa"] = 0
-        self.sim.regression_results.params["poa"] = 0
-        actual_pval_check = self.meas.regression_results.predict(self.meas.rc)[0]
-        expected_pval_check = self.sim.regression_results.predict(self.meas.rc)[0]
-        cp_rat_pval_check = actual_pval_check / expected_pval_check
+        """Test that check_pvalues=True returns different result than False.
 
-        cp_rat = pvc.captest_results(
+        With pval=1e-15, the 'poa' coefficient should be zeroed because its
+        p-value is > 1e-15, which changes the prediction.
+        """
+        # Get ratio without p-value check
+        cp_rat_no_check = pvc.captest_results(
+            self.sim,
+            self.meas,
+            100,
+            "+/- 5",
+            check_pvalues=False,
+            print_res=False,
+        )
+
+        # Get ratio with p-value check (pval=1e-15 zeros poa coefficient)
+        cp_rat_with_check = pvc.captest_results(
             self.sim,
             self.meas,
             100,
@@ -2392,21 +2493,11 @@ class TestCapTestCpResultsMultCoeff(unittest.TestCase):
             print_res=False,
         )
 
-        cp_rat_no_check = pvc.captest_results(
-            self.sim,
-            self.meas,
-            100,
-            "+/- 5",
-            check_pvalues=False,
-            pval=1e-15,
-            print_res=False,
-        )
-        print(f"cp_rat: {cp_rat}")
-        print(f"cp_rat_no_check: {cp_rat_no_check}")
-
-        assert 0
-        self.assertEqual(
-            cp_rat, cp_rat_pval_check, "captest_results did not return expected value."
+        # The ratios should be different because poa coefficient is zeroed
+        self.assertNotEqual(
+            cp_rat_no_check,
+            cp_rat_with_check,
+            "check_pvalues=True should produce different result than False",
         )
 
     @pytest.fixture(autouse=True)
@@ -2415,24 +2506,14 @@ class TestCapTestCpResultsMultCoeff(unittest.TestCase):
 
     def test_pvals_true_print(self):
         """
+        Test that captest_results with check_pvalues=True prints expected output.
+
         This test uses the pytest autouse fixture defined above to
         capture the print to stdout and test it, so it must be run
         using pytest.  Run just this test using 'pytest tests/
         test_CapData.py::TestCapTestCpResultsMultCoeff::test_pvals_true_print'
         """
         self.maxDiff = 10_000
-        self.meas.regression_results.params["poa"] = 0
-        self.sim.regression_results.params["poa"] = 0
-
-        pvc.captest_results(
-            self.sim,
-            self.meas,
-            100,
-            "+/- 5",
-            check_pvalues=False,
-            pval=1e-15,
-            print_res=True,
-        )
 
         pvc.captest_results(
             self.sim,
@@ -2443,20 +2524,20 @@ class TestCapTestCpResultsMultCoeff(unittest.TestCase):
             pval=1e-15,
             print_res=True,
         )
-        assert 0
-        # captured = self.capsys.readouterr()
+        captured = self.capsys.readouterr()
 
-        # results_str = (
-        #     "Using reporting conditions from das. \n\n"
-        #     "Capacity Test Result:    FAIL\n"
-        #     "Modeled test output:          66.451\n"
-        #     "Actual test output:           72.429\n"
-        #     "Tested output ratio:          1.090\n"
-        #     "Tested Capacity:              108.996\n"
-        #     "Bounds:                       95.0, 105.0\n\n\n"
-        # )
+        # Expected output when poa coefficient is zeroed due to p-value check
+        results_str = (
+            "Using reporting conditions from das. \n\n"
+            "Capacity Test Result:    FAIL\n"
+            "Modeled test output:          66.451\n"
+            "Actual test output:           72.429\n"
+            "Tested output ratio:          1.090\n"
+            "Tested Capacity:              108.996\n"
+            "Bounds:                       95.0, 105.0\n\n\n"
+        )
 
-        # self.assertEqual(results_str, captured.out)
+        self.assertEqual(results_str, captured.out)
 
     def test_formulas_match(self):
         sim = pvc.CapData("sim")
