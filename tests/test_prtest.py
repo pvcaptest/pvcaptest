@@ -1,8 +1,4 @@
-import os
-import collections
-import unittest
 import pytest
-import pytz
 import numpy as np
 import pandas as pd
 
@@ -17,7 +13,7 @@ To run a specific test:
 pytest tests/test_CapData.py::TestCapDataEmpty::test_capdata_empty
 """
 
-ix = pd.date_range(start="1/1/2021 12:00", freq="H", periods=3)
+ix = pd.date_range(start="1/1/2021 12:00", freq="h", periods=3)
 
 ix_5min = pd.date_range(start="1/1/2021 12:00", freq="5min", periods=3)
 
@@ -76,7 +72,7 @@ class TestTempCorrectPower:
         assert pytest.approx(corr_power, 0.3) == 11.019
 
     def test_math_series_power(self):
-        ix = pd.date_range(start="1/1/2021 12:00", freq="H", periods=3)
+        ix = pd.date_range(start="1/1/2021 12:00", freq="h", periods=3)
         power = pd.Series([10, 20, 15], index=ix)
         corr_power = pr.temp_correct_power(power, -0.37, 50)
         assert pytest.approx(corr_power.values, 0.3) == [11.019, 22.038, 16.528]
@@ -96,7 +92,7 @@ class TestBackOfModuleTemp:
         assert pr.back_of_module_temp(800, 30, 3) == pytest.approx(48.1671)
 
     def test_series_inputs(self):
-        ix = pd.date_range(start="1/1/2021 12:00", freq="H", periods=3)
+        ix = pd.date_range(start="1/1/2021 12:00", freq="h", periods=3)
         poa = pd.Series([805, 810, 812], index=ix)
         temp_amb = pd.Series([26, 27, 27.5], index=ix)
         wind = pd.Series([0.5, 1, 2.5], index=ix)
@@ -132,7 +128,7 @@ class TestCellTemp:
         assert pr.cell_temp(30, 850) == pytest.approx(32.55)
 
     def test_series_inputs(self):
-        ix = pd.date_range(start="1/1/2021 12:00", freq="H", periods=3)
+        ix = pd.date_range(start="1/1/2021 12:00", freq="h", periods=3)
         poa = pd.Series([805, 810, 812], index=ix)
         temp_bom = pd.Series([26, 27, 27.5], index=ix)
 
@@ -160,7 +156,7 @@ class TestCellTemp:
 
 class TestAvgTypCellTemp:
     def test_math(self):
-        ix = pd.date_range(start="1/1/2021 12:00", freq="H", periods=3)
+        ix = pd.date_range(start="1/1/2021 12:00", freq="h", periods=3)
         poa = pd.Series([805, 810, 812], index=ix)
         cell_temp = pd.Series([26, 27, 27.5], index=ix)
 
@@ -192,7 +188,7 @@ class TestCheckPerfRatioInputs:
 
     def test_poa_ac_energy_index_match(self):
         """Raise warning if indices of poa and ac_energy do not match."""
-        ix_poa = pd.date_range(start="1/1/2021 13:00", freq="H", periods=3)
+        ix_poa = pd.date_range(start="1/1/2021 13:00", freq="h", periods=3)
         ac_energy = pd.Series([90, 95, 97], index=ix)
         poa = pd.Series([805, 810, 812], index=ix_poa)
         with pytest.warns(UserWarning):
@@ -201,7 +197,7 @@ class TestCheckPerfRatioInputs:
 
     def test_avail_index_match(self):
         """Raise warning if index of availability does not match poa."""
-        ix_availability = pd.date_range(start="1/1/2021 13:00", freq="H", periods=3)
+        ix_availability = pd.date_range(start="1/1/2021 13:00", freq="h", periods=3)
         ac_energy = pd.Series([90, 95, 97], index=ix)
         poa = pd.Series([805, 810, 812], index=ix)
         avail = pd.Series([0.9, 1, 0.95], index=ix_availability)
@@ -370,14 +366,15 @@ class TestPerfRatioTempCorrNREL:
 
 class TestPrResults:
     """Test the print statements of the print_pr_result method of the PerfRatio class."""
+
     def test_passing_test(self, capsys):
         """Test that the print statement is correct for a passing test."""
         perf_ratio = pr.PrResults(pr=0.8, expected_pr=0.78)
         perf_ratio.print_pr_result()
         captured = capsys.readouterr()
         assert captured.out == (
-                "The test is PASSING with a measured PR of 80.00, "
-                "which is 2.00 above the expected PR of 78.00\n"
+            "The test is PASSING with a measured PR of 80.00, "
+            "which is 2.00 above the expected PR of 78.00\n"
         )
 
     def test_failing_test(self, capsys):
@@ -386,6 +383,6 @@ class TestPrResults:
         perf_ratio.print_pr_result()
         captured = capsys.readouterr()
         assert captured.out == (
-                "The test is FAILING with a measured PR of 78.00, "
-                "which is 2.00 below the expected PR of 80.00\n"
+            "The test is FAILING with a measured PR of 78.00, "
+            "which is 2.00 below the expected PR of 80.00\n"
         )

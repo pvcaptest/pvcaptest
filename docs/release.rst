@@ -8,7 +8,18 @@ Versioning
 
 pvcaptest follows `semantic versioning <https://semver.org/>`__.
 
-pvcaptest uses `Versioneer <https://github.com/warner/python-versioneer>`__ to set the version from git tags on the master branch.
+pvcaptest uses `setuptools-scm <https://github.com/pypa/setuptools_scm>`__ to automatically derive the version from git tags. The version is dynamically generated at build time and reflects the current git state.
+
+Version format:
+
+- Tagged commit ``v0.9.0`` → version ``0.9.0``
+- After tag, uncommitted changes → ``0.9.0.post0.dev1+dirty``
+- 3 commits after tag → ``0.9.0.post0.dev3+g1234abc``
+
+Access the version in code::
+
+    import captest
+    print(captest.__version__)  # Uses importlib.metadata
 
 Git Workflow
 ------------
@@ -22,6 +33,31 @@ The pvcaptest project follows the git workflow / branching strategy as described
 - Development work should occur on feature branch on a fork of the upstream organization repository under the contributor's github profile.
 
 This approach is based on the strategy described by Mark Mikofski in his blog post, `Winning Workflow <https://poquitopicante.blogspot.com/2016/10/winning-workflow.html>`__.
+
+Development Workflow with uv
+-----------------------------
+
+The project uses `uv <https://github.com/astral-sh/uv>`__ for dependency management and development workflows.
+
+Install dependencies::
+
+    uv sync                 # Install core dependencies
+    uv sync --all-extras    # Install all optional dependencies
+
+Run commands in the environment::
+
+    uv run python script.py
+    uv run pytest
+
+Add/remove dependencies::
+
+    uv add package-name
+    uv remove package-name
+
+Build distributions::
+
+    uv build
+
 
 Testing
 -------

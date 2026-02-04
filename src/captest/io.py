@@ -47,7 +47,7 @@ def load_excel_column_groups(path):
     dict
         Dictionary mapping column group names to lists of column names.
     """
-    df = pd.read_excel(path, header=None).ffill(axis='index')
+    df = pd.read_excel(path, header=None).ffill(axis="index")
     return df.groupby(0)[1].apply(list).to_dict()
 
 
@@ -129,14 +129,17 @@ def load_pvsyst(
     # 1/1/1990 0:00. The strftime format specified won't load the excel modified dates
     # so these are caught by checking for consistent length and reformatted
     if not all(dates.str.len() == 14):
-        date_parts = dates.str.split(' ').str[0].str.split('/')
-        time_parts = dates.str.split(' ').str[1].str.split(':')
+        date_parts = dates.str.split(" ").str[0].str.split("/")
+        time_parts = dates.str.split(" ").str[1].str.split(":")
         dates = (
-            date_parts.str[0].str.zfill(2) + '/' +
-            date_parts.str[1].str.zfill(2) + '/' +
-            '90 ' +
-            time_parts.str[0].str.zfill(2) + ':' +
-            time_parts.str[1]
+            date_parts.str[0].str.zfill(2)
+            + "/"
+            + date_parts.str[1].str.zfill(2)
+            + "/"
+            + "90 "
+            + time_parts.str[0].str.zfill(2)
+            + ":"
+            + time_parts.str[1]
         )
     try:
         # mm/dd/yy hh:mm, lower case y gives
@@ -144,20 +147,18 @@ def load_pvsyst(
         dt_index = pd.to_datetime(dates, format="%m/%d/%y %H:%M")
     except ValueError:
         warnings.warn(
-            'Dates are not in month/day/year format. '
-            'Trying day/month/year format.'
+            "Dates are not in month/day/year format. Trying day/month/year format."
         )
         dt_index = pd.to_datetime(dates, format="%d/%m/%y %H:%M")
     pvraw.index = dt_index
     pvraw.drop("date", axis=1, inplace=True)
     pvraw = pvraw.rename(columns={"T Amb": "T_Amb"}).rename(columns={"TAmb": "T_Amb"})
 
-
     cd = CapData(name)
     pvraw.index.name = "Timestamp"
     cd.data = pvraw.copy()
-    cd.data['index'] = cd.data.index.to_series().apply(
-        lambda x: x.strftime('%m/%d/%Y %H %M')
+    cd.data["index"] = cd.data.index.to_series().apply(
+        lambda x: x.strftime("%m/%d/%Y %H %M")
     )
     if egrid_unit_adj_factor is not None:
         cd.data["E_Grid"] = cd.data["E_Grid"] / egrid_unit_adj_factor
@@ -191,16 +192,16 @@ def file_reader(path, **kwargs):
     pandas DataFrame
     """
     default_kwargs = {
-        'index_col': 0,
-        'parse_dates': True,
-        'skip_blank_lines': True,
-        'low_memory': False,
+        "index_col": 0,
+        "parse_dates": True,
+        "skip_blank_lines": True,
+        "low_memory": False,
     }
     for key, value in default_kwargs.items():
         kwargs.setdefault(key, value)
     encodings = ["utf-8", "latin1", "iso-8859-1", "cp1252"]
     for encoding in encodings:
-        kwargs['encoding'] = encoding
+        kwargs["encoding"] = encoding
         try:
             data_file = pd.read_csv(
                 path,
@@ -215,7 +216,7 @@ def file_reader(path, **kwargs):
     else:
         data_file.dropna(how="all", axis=0, inplace=True)
     if data_file.index.equals(pd.Index(np.arange(len(data_file.index)))):
-        kwargs['index_col'] = 1
+        kwargs["index_col"] = 1
         data_file = pd.read_csv(
             path,
             **kwargs,
@@ -231,7 +232,7 @@ def file_reader(path, **kwargs):
             except ValueError:
                 continue
         header = list(np.arange(header_end))
-        kwargs.setdefault('header', header)
+        kwargs.setdefault("header", header)
         data_file = pd.read_csv(
             path,
             **kwargs,
@@ -400,27 +401,26 @@ class DataLoader:
             for file in self.files_to_load:
                 try:
                     if verbose:
-                        print('trying to load {}'.format(file))
+                        print("trying to load {}".format(file))
                     self.loaded_files[file.stem] = self.file_reader(file, **kwargs)
                     if verbose:
-                        print('    loaded      {}'.format(file))
+                        print("    loaded      {}".format(file))
                 except Exception as err:
                     if self.failed_to_load is None:
                         self.failed_to_load = []
                     self.failed_to_load.append(file)
-                    print('  **FAILED to load {}'.format(file))
+                    print("  **FAILED to load {}".format(file))
                     print(
-                        '  To review full stack traceback run \n'
-                        '  meas.data_loader.file_reader(meas.data_loader'
-                        '.failed_to_load[{}])'.format(failed_to_load_count)
+                        "  To review full stack traceback run \n"
+                        "  meas.data_loader.file_reader(meas.data_loader"
+                        ".failed_to_load[{}])".format(failed_to_load_count)
                     )
                     if print_errors:
                         print(err)
                     failed_to_load_count += 1
                     continue
             if len(self.loaded_files) == 0:
-                warnings.warn(
-                    "No files were loaded. Check that file_reader is working")
+                warnings.warn("No files were loaded. Check that file_reader is working")
             elif len(self.loaded_files) > 1:
                 (
                     self.loaded_files,
@@ -542,7 +542,7 @@ def load_data(
             cd.column_groups = cg.ColumnGroups(util.read_json(group_columns))
         elif (p.suffix == ".yml") or (p.suffix == ".yaml"):
             cd.column_groups = cg.ColumnGroups(util.read_yaml(group_columns))
-        elif (p.suffix == '.xlsx') or (p.suffix == '.xls'):
+        elif (p.suffix == ".xlsx") or (p.suffix == ".xls"):
             cd.column_groups = cg.ColumnGroups(load_excel_column_groups(group_columns))
     if site is not None:
         if isinstance(site, str):
@@ -554,10 +554,10 @@ def load_data(
                     site = util.read_yaml(site)
                 cd.site = copy.deepcopy(site)
         if isinstance(site, dict):
-            cd.data = csky(cd.data, loc=site['loc'], sys=site['sys'])
+            cd.data = csky(cd.data, loc=site["loc"], sys=site["sys"])
             cd.data_filtered = cd.data.copy()
-            cd.column_groups['irr-poa-clear_sky'] = ['poa_mod_csky']
-            cd.column_groups['irr-ghi-clear_sky'] = ['ghi_mod_csky']
+            cd.column_groups["irr-poa-clear_sky"] = ["poa_mod_csky"]
+            cd.column_groups["irr-ghi-clear_sky"] = ["ghi_mod_csky"]
     cd.trans_keys = list(cd.column_groups.keys())
     if column_groups_template:
         cd.data_columns_to_excel()

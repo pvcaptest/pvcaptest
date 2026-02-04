@@ -1,17 +1,12 @@
 import os
 import csv
-import shutil
 from io import StringIO
-import collections
 import unittest
 import pytest
-import warnings
-import pytz
 from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from captest.io import file_reader
 
 from captest import capdata as pvc
 from captest import util
@@ -23,10 +18,12 @@ from captest import (
     DataLoader,
 )
 
-class TestLoadExcelColumnGroups():
+
+class TestLoadExcelColumnGroups:
     """
     Tests function that loads an excel file into a column group dictionary.
     """
+
     def test_load_excel_column_groups(self):
         """
         Tests that the function loads the excel file into a dictionary.
@@ -36,10 +33,11 @@ class TestLoadExcelColumnGroups():
             "./tests/data/example_measured_data_column_groups.xlsx"
         )
         assert isinstance(column_groups, dict)
-        assert column_groups['irr-ghi-pyran'] == [
-            'met1_ghi_pyranometer', 'met2_ghi_pyranometer'
+        assert column_groups["irr-ghi-pyran"] == [
+            "met1_ghi_pyranometer",
+            "met2_ghi_pyranometer",
         ]
-        assert column_groups['-mtr-'] == ['meter_power']
+        assert column_groups["-mtr-"] == ["meter_power"]
 
 
 class TestLoadDataColumnGrouping:
@@ -207,9 +205,9 @@ class TestFileReader:
         ).to_csv(test_csv)
         test_csv.seek(0)
         df_str = test_csv.getvalue()
-        if os.name == 'nt':
+        if os.name == "nt":
             df_with_blank_row = df_str[0:21] + ",,\r\n" + df_str[21:]
-            with open(csv_path, "w", newline='') as f:
+            with open(csv_path, "w", newline="") as f:
                 f.write(df_with_blank_row)
         else:
             df_with_blank_row = df_str[0:20] + ",,\n" + df_str[20:]
@@ -231,11 +229,11 @@ class TestFileReader:
 
     def test_ae_headers_override_header_arg(self):
         """Four rows of headers, no blank rows, header in first column on third row."""
-        loaded_data = io.file_reader("./tests/data/example_meas_data_aeheaders.csv", header=3)
-        assert isinstance(loaded_data, pd.DataFrame)
-        assert loaded_data.columns[0] == (
-            "W/m^2"
+        loaded_data = io.file_reader(
+            "./tests/data/example_meas_data_aeheaders.csv", header=3
         )
+        assert isinstance(loaded_data, pd.DataFrame)
+        assert loaded_data.columns[0] == ("W/m^2")
         assert isinstance(loaded_data.index, pd.DatetimeIndex)
 
     def test_load_das(self):
@@ -296,7 +294,8 @@ class TestLoadPVsyst:
     def test_load_pvsyst_semicolon_sep(self):
         """Test loading pvsyst output with mm/dd/yy; Hour dates."""
         pvsyst = load_pvsyst(
-                "./tests/data/pvsyst_example_HourlyRes_2_semicolon.csv", sep=";")
+            "./tests/data/pvsyst_example_HourlyRes_2_semicolon.csv", sep=";"
+        )
         assert isinstance(pvsyst, pvc.CapData)
         assert 8760 == pvsyst.data.shape[0]
         assert isinstance(pvsyst.data.index, pd.DatetimeIndex)
@@ -312,17 +311,19 @@ class TestLoadPVsyst:
     def test_semicolon_sep_warning(self):
         """Test trying to load a semicolon csv file fails with a warning."""
         with pytest.raises(KeyError):
-            with pytest.warns(UserWarning, match=(
-                "No 'date' column found in the PVsyst data. This may be due to "
-                "the separator being a semicolon ';' rather than a comma ','. "
-                "If this is the case, try passing sep=';' when calling load_pvsyst. "
-                "Otherwise the date column may actually be missing. Exception:"
-            )):
-                pvsyst = load_pvsyst(
-                    "./tests/data/pvsyst_example_HourlyRes_2_semicolon.csv")
+            with pytest.warns(
+                UserWarning,
+                match=(
+                    "No 'date' column found in the PVsyst data. This may be due to "
+                    "the separator being a semicolon ';' rather than a comma ','. "
+                    "If this is the case, try passing sep=';' when calling load_pvsyst. "
+                    "Otherwise the date column may actually be missing. Exception:"
+                ),
+            ):
+                load_pvsyst("./tests/data/pvsyst_example_HourlyRes_2_semicolon.csv")
 
     def test_load_pvsyst_after_excel_open(self):
-        """Test loading pvsyst output with m/d/yyyy h:mm dates. 
+        """Test loading pvsyst output with m/d/yyyy h:mm dates.
 
         Date format is default if csv is opened and saved in excel.
         """
@@ -357,11 +358,8 @@ class TestLoadPVsyst:
         }
 
     def test_date_day_month_year_after_excel_open(self):
-        """Test loading day first pvsyst output after saving in excel.
-        """
-        pvsyst = load_pvsyst(
-                "./tests/data/pvsyst_example_day_month_year_xls_dates.csv"
-        )
+        """Test loading day first pvsyst output after saving in excel."""
+        pvsyst = load_pvsyst("./tests/data/pvsyst_example_day_month_year_xls_dates.csv")
         assert isinstance(pvsyst, pvc.CapData)
         assert 8760 == pvsyst.data.shape[0]
         assert isinstance(pvsyst.data.index, pd.DatetimeIndex)
@@ -375,21 +373,23 @@ class TestLoadPVsyst:
         }
 
     def test_all_input_date_formats_loaded_to_equal_datetime_indices(self):
-        dt = load_pvsyst('./tests/data/pvsyst_example_HourlyRes_2.CSV')
-        dtx = load_pvsyst('./tests/data/pvsyst_example_HourlyRes_2_xls_dates.csv')
-        dmy = load_pvsyst('./tests/data/pvsyst_example_day_month_year.csv')
-        dmyx = load_pvsyst('./tests/data/pvsyst_example_day_month_year_xls_dates.csv')
+        dt = load_pvsyst("./tests/data/pvsyst_example_HourlyRes_2.CSV")
+        dtx = load_pvsyst("./tests/data/pvsyst_example_HourlyRes_2_xls_dates.csv")
+        dmy = load_pvsyst("./tests/data/pvsyst_example_day_month_year.csv")
+        dmyx = load_pvsyst("./tests/data/pvsyst_example_day_month_year_xls_dates.csv")
 
         assert dt.data.index.equals(dtx.data.index)
         assert dt.data.index.equals(dmy.data.index)
         assert dt.data.index.equals(dmyx.data.index)
 
     def test_date_day_month_year_warning(self):
-        with pytest.warns(UserWarning, match=(
-            "Dates are not in month/day/year format. "
-            "Trying day/month/year format."
-        )):
-            pvsyst = load_pvsyst("./tests/data/pvsyst_example_day_month_year.csv")
+        with pytest.warns(
+            UserWarning,
+            match=(
+                "Dates are not in month/day/year format. Trying day/month/year format."
+            ),
+        ):
+            load_pvsyst("./tests/data/pvsyst_example_day_month_year.csv")
 
     def test_scale_egrid(self):
         pvsyst = load_pvsyst(
@@ -426,7 +426,7 @@ class TestDataLoader:
         Also, check sorting of filenames.
         """
         for fname in ["b.csv", "a.csv", "c.csv"]:
-            with open(tmp_path / fname, "w") as f:
+            with open(tmp_path / fname, "w"):
                 pass
         dl = DataLoader(tmp_path)
         dl.set_files_to_load()
@@ -442,7 +442,7 @@ class TestDataLoader:
         Also, check sorting of filenames.
         """
         for fname in ["2023-04-02.csv", "2023-04-01.csv", "2023-04-03.csv"]:
-            with open(tmp_path / fname, "w") as f:
+            with open(tmp_path / fname, "w"):
                 pass
         dl = DataLoader(tmp_path)
         dl.set_files_to_load()
@@ -455,7 +455,7 @@ class TestDataLoader:
     def test_set_files_to_load_not_all_csv(self, tmp_path):
         """Test that files with the wrong extension are not loaded."""
         for fname in ["a.csv", "b.parquet", "c.csv"]:
-            with open(tmp_path / fname, "w") as f:
+            with open(tmp_path / fname, "w"):
                 pass
         dl = DataLoader(tmp_path)
         dl.set_files_to_load()
@@ -467,7 +467,7 @@ class TestDataLoader:
     def test_set_files_to_load_no_files(self, tmp_path):
         """Test for warning if an empty directory is passed."""
         for fname in ["a.html", "b.pdf"]:
-            with open(tmp_path / fname, "w") as f:
+            with open(tmp_path / fname, "w"):
                 pass
         dl = DataLoader(tmp_path)
         with pytest.warns(
@@ -664,11 +664,11 @@ class TestDataLoader:
                 ),
             ).to_csv(csv_path)
         f1_rows = []
-        with open(tmp_path / 'file_1.csv', newline='') as csvfile:
+        with open(tmp_path / "file_1.csv", newline="") as csvfile:
             reader = csv.reader(csvfile)
             for row in reader:
                 f1_rows.append(row)
-        with open(tmp_path / 'file_1.csv', 'w', newline='') as csvfileout:
+        with open(tmp_path / "file_1.csv", "w", newline="") as csvfileout:
             writer = csv.writer(csvfileout)
             for i, r in enumerate(f1_rows):
                 if i == 5:
@@ -682,10 +682,10 @@ class TestDataLoader:
         captured = capsys.readouterr()
         assert isinstance(dl.data, pd.DataFrame)
         assert len(dl.failed_to_load) == 1
-        assert dl.failed_to_load[0] == tmp_path / 'file_1.csv'
-        assert 'Error tokenizing data' in captured.out
-        assert 'trying to load' in captured.out
-        assert '**FAILED to load' in captured.out
+        assert dl.failed_to_load[0] == tmp_path / "file_1.csv"
+        assert "Error tokenizing data" in captured.out
+        assert "trying to load" in captured.out
+        assert "**FAILED to load" in captured.out
 
     def test_load_specific_files(self, tmp_path):
         """
@@ -724,8 +724,7 @@ class TestDataLoader:
         csv_path = tmp_path / "file_1.csv"
         dl = DataLoader(csv_path)
         with pytest.warns(
-            UserWarning,
-            match='No directory or file found at .*'
+            UserWarning, match="No directory or file found at .*"
         ) as record:
             dl.load()
         for warning in record:
@@ -736,10 +735,9 @@ class TestDataLoader:
         """
         Test load method when `path` attribute is a directory that doesn't exist.
         """
-        dl = DataLoader('./not_a_directory')
+        dl = DataLoader("./not_a_directory")
         with pytest.warns(
-            UserWarning,
-            match='No directory or file found at .*'
+            UserWarning, match="No directory or file found at .*"
         ) as record:
             dl.load()
         for warning in record:
@@ -794,8 +792,8 @@ class TestLoadDataFunction:
             path="./tests/data/example_measured_data.csv",
             column_groups_template=True,
         )
-        assert (cd.data_loader.path.parent / 'column_groups.xlsx').exists()
-        os.remove(cd.data_loader.path.parent / 'column_groups.xlsx')
+        assert (cd.data_loader.path.parent / "column_groups.xlsx").exists()
+        os.remove(cd.data_loader.path.parent / "column_groups.xlsx")
 
     def test_kwargs_pass_to_read_csv(self, tmp_path):
         csv_path = tmp_path / "first_two_cols_ints_data.csv"
@@ -849,6 +847,7 @@ class TestLoadDataFunction:
         assert "poa_mod_csky" in cd.data.columns
         assert "poa_mod_csky" in cd.data_filtered.columns
         assert isinstance(cd.site, dict)
+
 
 class TestLoadDataMethods(unittest.TestCase):
     """Test for load data methods without setup."""
