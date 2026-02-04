@@ -33,4 +33,5 @@ jobs:
       - name: Smoke test (source distribution)
         run: uv run --isolated --no-project --with dist/*.tar.gz tests/smoke_test.py
       - name: Publish
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
         run: uv publish
