@@ -1,5 +1,6 @@
 import collections
 
+
 class ColumnGroups(collections.UserDict):
     def __setitem__(self, key, value):
         # key = (key.replace('-', '_')
@@ -9,42 +10,73 @@ class ColumnGroups(collections.UserDict):
 
     def __repr__(self):
         """Print `column_groups` dictionary with nice formatting."""
-        output = ''
+        output = ""
         for grp_id, col_list in self.data.items():
-            output += grp_id + ':\n'
+            output += grp_id + ":\n"
             for col in col_list:
-                output += ' ' * 4 + col + '\n'
+                output += " " * 4 + col + "\n"
         return output
 
-# The search strings for types cannot be duplicated across types.
-type_defs = collections.OrderedDict([
-    ('irr', ['irradiance', 'irr', 'plane of array', 'poa', 'ghi',
-              'global', 'glob', 'w/m^2', 'w/m2', 'w/m', 'w/']),
-    ('temp', ['temperature', 'temp', 'degrees', 'deg', 'ambient',
-               'amb', 'cell temperature', 'TArray']),
-    ('wind', ['wind', 'speed']),
-    ('pf', ['power factor', 'factor', 'pf']),
-    ('op_state', ['operating state', 'state', 'op', 'status']),
-    ('real_pwr', ['real power', 'ac power', 'e_grid']),
-    ('shade', ['fshdbm', 'shd', 'shade']),
-    ('pvsyt_losses', ['IL Pmax', 'IL Pmin', 'IL Vmax', 'IL Vmin']),
-    ('index', ['index']),
-])
 
-sub_type_defs = collections.OrderedDict([
-    ('ghi', ['sun2', 'global horizontal', 'ghi', 'global', 'GlobHor']),
-    ('poa', ['sun', 'plane of array', 'poa', 'GlobInc']),
-    ('amb', ['TempF', 'ambient', 'amb']),
-    ('mod', ['Temp1', 'module', 'mod', 'TArray']),
-    ('mtr', ['revenue meter', 'rev meter', 'billing meter', 'meter']),
-    ('inv', ['inverter', 'inv']),
-])
+# The search strings for types cannot be duplicated across types.
+type_defs = collections.OrderedDict(
+    [
+        (
+            "irr",
+            [
+                "irradiance",
+                "irr",
+                "plane of array",
+                "poa",
+                "ghi",
+                "global",
+                "glob",
+                "w/m^2",
+                "w/m2",
+                "w/m",
+                "w/",
+            ],
+        ),
+        (
+            "temp",
+            [
+                "temperature",
+                "temp",
+                "degrees",
+                "deg",
+                "ambient",
+                "amb",
+                "cell temperature",
+                "TArray",
+            ],
+        ),
+        ("wind", ["wind", "speed"]),
+        ("pf", ["power factor", "factor", "pf"]),
+        ("op_state", ["operating state", "state", "op", "status"]),
+        ("real_pwr", ["real power", "ac power", "e_grid"]),
+        ("shade", ["fshdbm", "shd", "shade"]),
+        ("pvsyt_losses", ["IL Pmax", "IL Pmin", "IL Vmax", "IL Vmin"]),
+        ("index", ["index"]),
+    ]
+)
+
+sub_type_defs = collections.OrderedDict(
+    [
+        ("ghi", ["sun2", "global horizontal", "ghi", "global", "GlobHor"]),
+        ("poa", ["sun", "plane of array", "poa", "GlobInc"]),
+        ("amb", ["TempF", "ambient", "amb"]),
+        ("mod", ["Temp1", "module", "mod", "TArray"]),
+        ("mtr", ["revenue meter", "rev meter", "billing meter", "meter"]),
+        ("inv", ["inverter", "inv"]),
+    ]
+)
 
 irr_sensors_defs = {
-    'ref_cell': ['reference cell', 'reference', 'ref', 'referance', 'pvel'],
-    'pyran': ['pyranometer', 'pyran'],
-    'clear_sky': ['csky']
+    "ref_cell": ["reference cell", "reference", "ref", "referance", "pvel"],
+    "pyran": ["pyranometer", "pyran"],
+    "clear_sky": ["csky"],
 }
+
 
 def series_type(series, type_defs):
     """
@@ -78,7 +110,8 @@ def series_type(series, type_defs):
                 continue
             else:
                 return key
-    return ''
+    return ""
+
 
 def group_columns(data):
     """
@@ -110,7 +143,7 @@ def group_columns(data):
 
     col_indices = []
     for typ, sub_typ, irr_typ in zip(col_types, sub_types, irr_types):
-        col_indices.append('_'.join([typ, sub_typ, irr_typ]))
+        col_indices.append("_".join([typ, sub_typ, irr_typ]))
 
     names = []
     for new_name, old_name in zip(col_indices, data.columns.tolist()):
@@ -125,6 +158,6 @@ def group_columns(data):
     for name in set(cols):
         start = col_indices.index(name)
         count = col_indices.count(name)
-        trans[name] = orig_names_sorted[start:start + count]
+        trans[name] = orig_names_sorted[start : start + count]
 
     return ColumnGroups(trans)

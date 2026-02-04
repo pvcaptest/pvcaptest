@@ -1,8 +1,4 @@
-import os
-import collections
-import unittest
 import pytest
-import pytz
 import numpy as np
 import pandas as pd
 
@@ -370,14 +366,15 @@ class TestPerfRatioTempCorrNREL:
 
 class TestPrResults:
     """Test the print statements of the print_pr_result method of the PerfRatio class."""
+
     def test_passing_test(self, capsys):
         """Test that the print statement is correct for a passing test."""
         perf_ratio = pr.PrResults(pr=0.8, expected_pr=0.78)
         perf_ratio.print_pr_result()
         captured = capsys.readouterr()
         assert captured.out == (
-                "The test is PASSING with a measured PR of 80.00, "
-                "which is 2.00 above the expected PR of 78.00\n"
+            "The test is PASSING with a measured PR of 80.00, "
+            "which is 2.00 above the expected PR of 78.00\n"
         )
 
     def test_failing_test(self, capsys):
@@ -386,6 +383,6 @@ class TestPrResults:
         perf_ratio.print_pr_result()
         captured = capsys.readouterr()
         assert captured.out == (
-                "The test is FAILING with a measured PR of 78.00, "
-                "which is 2.00 below the expected PR of 80.00\n"
+            "The test is FAILING with a measured PR of 78.00, "
+            "which is 2.00 below the expected PR of 80.00\n"
         )
