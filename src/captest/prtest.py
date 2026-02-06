@@ -3,7 +3,6 @@ import warnings
 import numpy as np
 import pandas as pd
 import param
-from scipy import stats
 
 from captest import capdata
 
@@ -79,10 +78,7 @@ def temp_correct_power(power, power_temp_coeff, cell_temp, base_temp=25):
     type matches `power`
         Power corrected for temperature.
     """
-    corr_power = (
-        power /
-        (1 + ((power_temp_coeff / 100) * (cell_temp - base_temp)))
-    )
+    corr_power = power / (1 + ((power_temp_coeff / 100) * (cell_temp - base_temp)))
     return corr_power
 
 
@@ -201,8 +197,7 @@ def perf_ratio_inputs_ok(ac_energy, dc_nameplate, poa, availability=1):
     elif isinstance(availability, pd.Series):
         if not availability.index.equals(poa.index):
             warnings.warn(
-                "Index of availability must match the index of "
-                "the poa and ac_energy."
+                "Index of availability must match the index of the poa and ac_energy."
             )
             return False
         else:
@@ -212,7 +207,13 @@ def perf_ratio_inputs_ok(ac_energy, dc_nameplate, poa, availability=1):
 
 
 def perf_ratio(
-    ac_energy, dc_nameplate, poa, unit_adj=1, degradation=0, year=1, availability=1,
+    ac_energy,
+    dc_nameplate,
+    poa,
+    unit_adj=1,
+    degradation=0,
+    year=1,
+    availability=1,
 ):
     """Calculate performance ratio.
 
@@ -383,9 +384,7 @@ class PrResults(param.Parameterized):
 
     dc_nameplate = param.Number(
         bounds=(0, None),
-        doc=(
-            "Summation of nameplate ratings (W) for all installed modules" " of system."
-        ),
+        doc=("Summation of nameplate ratings (W) for all installed modules of system."),
     )
     pr = param.Number(doc="Performance ratio result decimal fraction.")
     timestep = param.Tuple(doc="Timestep of series.")
@@ -396,8 +395,7 @@ class PrResults(param.Parameterized):
     results_data = param.ClassSelector(pd.DataFrame)
 
     def print_pr_result(self):
-        """Print summary of PR result - passing / failing and by how much
-        """
+        """Print summary of PR result - passing / failing and by how much"""
         if self.pr >= self.expected_pr:
             print(
                 "The test is PASSING with a measured PR of {:.2f}, "

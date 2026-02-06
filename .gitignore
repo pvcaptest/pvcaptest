@@ -92,6 +92,7 @@ celerybeat-schedule
 .venv
 venv/
 ENV/
+uv.lock
 
 # Spyder project settings
 .spyderproject
@@ -111,3 +112,6 @@ ENV/
 
 # vscode
 /.vscode
+
+# setuptools-scm generated version file
+src/captest/_version.py
