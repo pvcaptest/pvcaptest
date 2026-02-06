@@ -10,11 +10,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Migrated from setup.py to modern pyproject.toml with [project] section
 - Added uv for dependency management and development workflows
 - Updated version access to use `importlib.metadata.version()`
-- Updated `numpy` version constraint to `<2.4.0` for compatibility
+- Updated `numpy` version constraint to `<2.4.0` for compatibility, temporarily
 - Updated `param` version constraint to `<2.0` for compatibility
+- Updated `pandas` version constraint to `<3.0` for compatibility, temporarily
 - Updated development status classifier to "4 - Beta"
 - Simplified license metadata format in pyproject.toml
 - Moved testing and documentation dependencies to dependency-groups
+- Updated read the docs configuration to use uv
 
 ### Removed
 - setup.py (all configuration moved to pyproject.toml)
@@ -26,6 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Modern pyproject.toml with complete project metadata
 - Just command runner (justfile) with development recipes
 - Just recipes for testing package builds and version checking
+- Just recipe for building docs
 - MAINTAINER.md documentation for project maintainers
 
 [0.13.2]: https://github.com/pvcaptest/pvcaptest/compare/v0.13.1...v0.13.2
