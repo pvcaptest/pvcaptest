@@ -39,6 +39,8 @@ OSX / Linux:
 
 - Open a command line (Type command + space to open Spotlight and type terminal and open your default terminal app) and copy and paste the commands and hit enter.
 
+After installing miniforge, you may need to restart your terminal before running the commands below. You can verify that miniforge is installed by running `conda --version` in your terminal.
+
 
 ### Installing pvcaptest
 
@@ -75,7 +77,7 @@ Retrieving notices: ...working... done
 
 Try running this command in your terminal as a quick check that pvcaptest did install correctly:
 
-`python -c 'import captest; print(captest.__version__)`
+`python -c "import captest; print(captest.__version__)"`
 
 You may see some warning messages, but at the bottom you should see a version number.You should have the latest version installed; `0.13.3` or later. You can check what the most recent release is on [pypi](https://pypi.org/project/captest/#history).
 
