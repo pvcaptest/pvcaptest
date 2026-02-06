@@ -51,3 +51,7 @@ test-install python-ver="3.12":
 # Check current version of package
 ver:
 	uv run python -c "import captest; print(captest.__version__)"
+
+# Build docs with sphinx-build
+docs:
+	uv run sphinx-build -M html ./docs/ ./docs/_build/
