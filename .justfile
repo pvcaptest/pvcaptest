@@ -1,10 +1,8 @@
 set dotenv-load # loads env variables from .env
-set shell := ["zsh", "-c"]
 
 # Delete dist folder and uv build
 build:
-	rm -r dist/
-	uv build
+	uv build --clear
 
 # Run build and then publish to testpypi
 publish-to-testpypi: build
