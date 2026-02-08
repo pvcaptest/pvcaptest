@@ -50,6 +50,10 @@ dev = [
     {include-group = "test"},
     {include-group = "docs"},
 ]
+notebook = [
+    "captest[optional]",
+    "notebook", # will install jupyter lab and nbconvert
+]
 test = [
     "coveralls",
     "pre-commit>=4.5.1",

@@ -80,7 +80,7 @@ Maintainer will:
 
 - checkout master branch
 - merge release branch into master
-- tag master branch (this will trigger versioneer to update version)
+- tag master branch, setuptools-scm will update version from git tag
 - push updates and tag to github
 - delete the release branch
 

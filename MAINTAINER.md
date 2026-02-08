@@ -9,6 +9,7 @@ This project is using [just](https://just.systems/man/en/introduction.html) to p
 Install just with `uv tool install rust-just` or see the [packages](https://just.systems/man/en/packages.html) for other options.
 
 ### Just notes
+- Run `just` commaonds from the project root directory
 - `just --list` shows available recipes
 - recipes are stored in `.justfile` in the project root directory
 

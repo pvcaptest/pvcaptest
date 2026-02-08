@@ -1,4 +1,7 @@
 pvcaptest
+=========
+
+What is pvcaptest?
 ==================
 
 pvcaptest is an open source python package created to facilitate
@@ -16,47 +19,120 @@ without installing anything.
 Installation
 ============
 
-These instructions assume that you are new to using conda and python, if
-that is not the case skip to the last section for users familiar with
-conda and pip.
+With Conda
+----------
 
-The recommended method to install pvcaptest is to create a conda
-environment for pvcaptest. Installing Anaconda or miniconda will install
-both python and conda. There is no need to install python separately.
+These instructions assume that you are new to python and managing
+virtual environments to isolate pvcaptest and its dependencies from the
+rest of your operating system. If you are not sure what that means,
+these instructions (using miniforge) are for you!
 
-**Easiest Option:**
+Install Miniforge
+~~~~~~~~~~~~~~~~~
 
-1. Download and install the `anaconda distribution <https://www.anaconda.com/products/individual>`__. Follow the default installation settings.
-2. On Windows go to the start menu and open the Anaconda prompt under the newly installed Anaconda program. On OSX or Linux open a terminal window.
-3. Install pvcaptest by typing the command ``conda install -c conda-forge pvcaptest`` and pressing enter. The ``-c conda-forge`` option tells conda to install pvcaptest from the `conda forge channel <https://conda-forge.org/#about>`__.
+The first step to using pvcaptest is to install pvcaptest and Jupyter
+into an isolated python environment. These directions guide you through
+the steps to use conda to do that.
 
-This will install the pvcaptest package in the base environment created when Anaconda is installed. This should work and provide you with jupyter notebook and jupyer lab to run pvcaptest in. If you think you will use your Anaconda installation to create and maintain additional environments, the following process for creating a stand alone option is likely a better option.
+Miniforge will install conda, but with the default source for packages
+set to conda-forge.
 
-**Better long term option:**
+1. Go to the `Miniforge github
+   page <https://github.com/conda-forge/miniforge>`__ to download
+   miniforge. Pick the correct installation option for your operating
+   system and follow the directions.
 
-1. If you do not already have it installed, download and install the `anaconda distribution <https://www.anaconda.com/products/individual>`__ or miniconda.
-2. Go to the `project github page <https://github.com/pvcaptest/pvcaptest>`__ and download the project source to obtain a copy of the ``environment.yml`` file. Click the green code button and click ‘Download ZIP’.
-3. On Windows go to the start menu and open the Anaconda prompt under the newly installed Anaconda program. On OSX or Linux open a terminal window. Note the path in the prompt for the next step. On Windows this should be something like ``C:\Users\username\``.
-4. Unzip and move the ``environment.yml`` file to the folder identified by the path from the previous step.
-5. In your Anaconda prompt or terminal type ``conda env create -f environment.yml`` and hit enter. Wait for a few seconds while conda works to solve the environment. It should ask you if you want to proceed to install new packages including pvcaptest. Type ``y`` enter to proceed and wait for conda to finish installing pvcaptest and the other packages.
-6. Once the installation is complete conda will print out a command for activating the new environment. Run that command, which should be like ``conda activate captest_env``.
+Windows:
 
+- Use the default options and the .exe installer.
 
-The environment created will include jupyter lab and notebook for you to use pvcaptest in. You can start these using the commands ``jupyter lab`` or ``jupyter notebook``.
+OSX / Linux:
+
+- Open a command line (Type command + space to open Spotlight and type
+  terminal and open your default terminal app) and copy and paste the
+  commands and hit enter.
+
+Installing pvcaptest
+~~~~~~~~~~~~~~~~~~~~
+
+Open a command line, which we will use to run the conda commands
+required to install pvcaptest.
+
+- Windows: Type miniforge into your search bar and select the Miniforge
+  Prompt app, which should be the first option.
+
+- OSX: Type command + space to open Spotlight and type terminal and open
+  your default terminal app.
+
+Now we can use conda to create a new conda environment and install
+pvcaptest, its dependencies, and Jupyter. Copy and paste the following
+command into the command line and hit enter:
+
+``conda create --name pvcaptest python=3.12 pvcaptest notebook``
 
 See the `conda
-documentation <https://docs.conda.io/projects/conda/en/latest/user-guide/tasks/manage-environments.html#creating-an-environment-from-an-environment-yml-file>`__
-for more details on using conda to create and manage environments.
+documentation <https://docs.conda.io/projects/conda/en/latest/user-guide/tasks/manage-environments.html>`__
+for managing environments for more information on what that command is
+doing.
 
-Install for users familiar with conda and pip:
-----------------------------------------------
+Once the installation finishes, you should see a message similar to the
+one below. The installation process should run for 5-10 minutes, but it
+will depend on your computer specs and internet speed.
 
-Conda install into an existing environment:
+\```Preparing transaction: done Verifying transaction: done Executing
+transaction: done # # To activate this environment, use # # $ conda
+activate pvcaptest # # To deactivate an active environment, use # # $
+conda deactivate
 
-``conda install -c conda-forge pvcaptest``
+Retrieving notices: …working… done \``\`
 
-If you prefer, you can pip install pvcaptest, but the recommended
-approach is to use the conda package.
+**Activate the environment using the command provded.**
+
+Try running this command in your terminal as a quick check that
+pvcaptest did install correctly:
+
+``python -c 'import captest; print(captest.__version__)``
+
+You may see some warning messages, but at the bottom you should see a
+version number.You should have the latest version installed; ``0.13.3``
+or later. You can check what the most recent release is on
+`pypi <https://pypi.org/project/captest/#history>`__.
+
+Congratulations! You now have pvcaptest installed in an isolated conda
+environment.
+
+Run ``jupyter lab`` which will open jupyter lab in your default browser.
+You can now use pvcaptest in jupyter lab.
+
+You may want to either navigate to the folder containing your project
+files in the terminal before running ``jupyter lab`` or store your
+project files in a location you can easily navigate to in jupyter lab’s
+file browser.
+
+With uv - Contributors
+----------------------
+
+Using uv is the preferred method for contributors setting up a
+development installation as of v0.13.3. See
+`MAINTAINER.md <MAINTAINER.md>`__ for additional details, specifically
+the section on just.
+
+Install
+`uv <https://docs.astral.sh/uv/getting-started/installation/#__tabbed_1_1>`__
+and clone your fork of the repository.
+
+The just recipes (commands) use ``uv run ...`` to run development
+workflow commands (e.g., ``uv run --python 3.12 pytest tests/``) and
+``uv run`` will ensure a venv with the necessary dependencies is used.
+
+With pip
+--------
+
+``pip install captest``
+
+or with optional dependencies:
+
+``pip install captest[optional]``
 
 **Note: The conda package is named pvcaptest and the pip package is
 named captest. The project is moving to consistent use of the pvcaptest

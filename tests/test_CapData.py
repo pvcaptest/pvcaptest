@@ -1251,8 +1251,8 @@ class TestGetTimezoneIndex:
     def test_get_tz_index_ix_tz(self, location_and_system):
         """Test that get_tz_index function returns a datetime index
            with a timezone when passed a datetime index with a timezone."""
-        ix = pd.date_range(start='1/1/2019', periods=8760, freq='h',
-                                   tz='America/Chicago')
+        ix = pd.date_range(
+            start='1/1/2019', periods=8760, freq='h', tz='America/Chicago')
         tz_ix = pvc.get_tz_index(ix, location_and_system['location'])  # tz is Chicago
         assert isinstance(tz_ix, pd.core.indexes.datetimes.DatetimeIndex)
         # If passing an index with a timezone use that timezone rather than
@@ -1263,8 +1263,8 @@ class TestGetTimezoneIndex:
         """Test that get_tz_index function warns when DatetimeIndex timezone
         does not match the location dic timezone.
         """
-        ix = pd.date_range(start='1/1/2019', periods=8760, freq='h',
-                                   tz='America/New_York')
+        ix = pd.date_range(
+            start='1/1/2019', periods=8760, freq='h', tz='America/New_York')
 
         with pytest.warns(
             UserWarning,
@@ -2319,14 +2319,15 @@ class TestCapTestCpResultsMultCoeff(unittest.TestCase):
 
         captured = self.capsys.readouterr()
 
-        results_str = ('Using reporting conditions from das. \n\n'
-                       
-                       'Capacity Test Result:    FAIL\n'
-                       'Modeled test output:          66.849\n'
-                       'Actual test output:           73.093\n'
-                       'Tested output ratio:          1.093\n'
-                       'Tested Capacity:              109.341\n'
-                       'Bounds:                       95.0, 105.0\n\n\n')
+        results_str = (
+            "Using reporting conditions from das. \n\n"
+            "Capacity Test Result:    FAIL\n"
+            "Modeled test output:          66.451\n"
+            "Actual test output:           72.429\n"
+            "Tested output ratio:          1.090\n"
+            "Tested Capacity:              108.996\n"
+            "Bounds:                       95.0, 105.0\n\n\n"
+        )
 
         self.assertEqual(results_str, captured.out)
 

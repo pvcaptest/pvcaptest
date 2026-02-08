@@ -1,10 +1,8 @@
 set dotenv-load # loads env variables from .env
-set shell := ["zsh", "-c"]
 
 # Delete dist folder and uv build
 build:
-	rm -r dist/
-	uv build
+	uv build --clear
 
 # Run build and then publish to testpypi
 publish-to-testpypi: build
@@ -51,3 +49,7 @@ test-install python-ver="3.12":
 # Check current version of package
 ver:
 	uv run python -c "import captest; print(captest.__version__)"
+
+# Build docs with sphinx-build
+docs:
+	uv run sphinx-build -M html ./docs/ ./docs/_build/
