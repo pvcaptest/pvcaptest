@@ -70,7 +70,7 @@ class TestTopLevelFuncs(unittest.TestCase):
         df_cpy = df.copy()
         bool_array = []
         for val in rng:
-            np_perc = np.percentile(rng, val, interpolation="nearest")
+            np_perc = np.percentile(rng, val, method="nearest")
             wrap_perc = df.agg(pvc.perc_wrap(val)).values[0]
             bool_array.append(np_perc == wrap_perc)
         self.assertTrue(

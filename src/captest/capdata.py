@@ -372,7 +372,7 @@ def perc_wrap(p):
     """Wrap numpy percentile function for use in rep_cond method."""
 
     def numpy_percentile(x):
-        return np.percentile(x.T, p, interpolation="nearest")
+        return np.percentile(x.T, p, method="nearest")
 
     return numpy_percentile
 
