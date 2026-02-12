@@ -1,5 +1,6 @@
 import os
 import csv
+import re
 from io import StringIO
 import unittest
 import pytest
@@ -192,7 +193,8 @@ class TestFileReader:
         ).to_csv(csv_path)
 
         with pytest.warns(
-            UserWarning, match=f"There is no data in the file {csv_path}"
+            UserWarning,
+            match=f"There is no data in the file {re.escape(str(csv_path))}",
         ):
             loaded_data = io.file_reader(csv_path)
 
