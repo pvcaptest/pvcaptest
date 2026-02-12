@@ -317,14 +317,14 @@ def wrap_seasons(df, freq):
         Need to review if BQ is the correct offset alias vs BQS or QS.
     """
     check_freqs = [
-        "BQ-JAN",
-        "BQ-FEB",
-        "BQ-APR",
-        "BQ-MAY",
-        "BQ-JUL",
-        "BQ-AUG",
-        "BQ-OCT",
-        "BQ-NOV",
+        "BQE-JAN",
+        "BQE-FEB",
+        "BQE-APR",
+        "BQE-MAY",
+        "BQE-JUL",
+        "BQE-AUG",
+        "BQE-OCT",
+        "BQE-NOV",
     ]
     month_int = {
         "JAN": 1,

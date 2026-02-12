@@ -80,7 +80,7 @@ def pvsyst():
         skiprows=9,
         encoding="latin1",
     ).iloc[1:, :]
-    df["Timestamp"] = pd.to_datetime(df["date"])
+    df["Timestamp"] = pd.to_datetime(df["date"], format="%m/%d/%y %H:%M")
     df = df.set_index("Timestamp", drop=True)
     df = df.drop(columns=["date"]).astype(np.float64)
     df.rename(columns={"T Amb": "T_Amb"}, inplace=True)

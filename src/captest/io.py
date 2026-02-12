@@ -309,7 +309,7 @@ class DataLoader:
         """Combine the DataFrames of `loaded_files` into a single DataFrame.
 
         Checks if the columns of each DataFrame in `loaded_files` matches. If they do
-        all match, then they will be combined along vertically along the index.
+        all match, then they will be combined vertically along the index.
 
         If they do not match, then they will be combined by creating a datetime index
         that begins with the earliest datetime in all the indices to the latest datetime
@@ -330,10 +330,10 @@ class DataLoader:
             [pair[0].equals(pair[1]) for pair in combinations(all_indices, 2)]
         )
         if columns_match and not indices_match:
-            data = pd.concat(self.loaded_files.values(), axis="index")
+            data = pd.concat(self.loaded_files.values(), axis="index", sort=True)
         elif columns_match and indices_match:
             warnings.warn("Some columns contain overlapping indices.")
-            data = pd.concat(self.loaded_files.values(), axis="index")
+            data = pd.concat(self.loaded_files.values(), axis="index", sort=True)
         else:
             joined_columns = pd.Index(
                 set([item for cols in all_columns for item in cols])
