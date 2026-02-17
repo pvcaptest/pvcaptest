@@ -1,5 +1,6 @@
 import os
 import csv
+import re
 from io import StringIO
 import unittest
 import pytest
@@ -190,8 +191,13 @@ class TestFileReader:
             },
             index=pd.date_range(start="8/1/22", periods=20, freq="1min"),
         ).to_csv(csv_path)
-        loaded_data = io.file_reader(csv_path)
-        print(loaded_data)
+
+        with pytest.warns(
+            UserWarning,
+            match=f"There is no data in the file {re.escape(str(csv_path))}",
+        ):
+            loaded_data = io.file_reader(csv_path)
+
         assert loaded_data.isna().all().all()
 
     def test_double_headers_with_blank(self, tmp_path):
@@ -220,7 +226,8 @@ class TestFileReader:
 
     def test_ae_headers(self):
         """Four rows of headers, no blank rows, header in first column on third row."""
-        loaded_data = io.file_reader("./tests/data/example_meas_data_aeheaders.csv")
+        with pytest.warns():
+            loaded_data = io.file_reader("./tests/data/example_meas_data_aeheaders.csv")
         assert isinstance(loaded_data, pd.DataFrame)
         assert loaded_data.columns[0] == (
             "Example Project_Weather Station 1 (Standard w/ POA GHI)_Weather Station 1 (Standard w/ POA GHI), Sun_W/m^2"
@@ -229,9 +236,10 @@ class TestFileReader:
 
     def test_ae_headers_override_header_arg(self):
         """Four rows of headers, no blank rows, header in first column on third row."""
-        loaded_data = io.file_reader(
-            "./tests/data/example_meas_data_aeheaders.csv", header=3
-        )
+        with pytest.warns():
+            loaded_data = io.file_reader(
+                "./tests/data/example_meas_data_aeheaders.csv", header=3
+            )
         assert isinstance(loaded_data, pd.DataFrame)
         assert loaded_data.columns[0] == ("W/m^2")
         assert isinstance(loaded_data.index, pd.DatetimeIndex)
@@ -254,7 +262,8 @@ class TestFileReader:
                 "met1_poa2": np.arange(20, 40),
             },
         ).to_csv(csv_path)
-        loaded_data = io.file_reader(csv_path)
+        with pytest.warns():
+            loaded_data = io.file_reader(csv_path)
         assert isinstance(loaded_data, pd.DataFrame)
 
     def test_pass_index_col_kwarg(self, tmp_path):
@@ -344,7 +353,13 @@ class TestLoadPVsyst:
         """Test converting date column to a datetime when the date format is
         day/month/year.
         """
-        pvsyst = load_pvsyst("./tests/data/pvsyst_example_day_month_year.csv")
+        with pytest.warns(
+            UserWarning,
+            match=(
+                "Dates are not in month/day/year format. Trying day/month/year format."
+            ),
+        ):
+            pvsyst = load_pvsyst("./tests/data/pvsyst_example_day_month_year.csv")
         assert isinstance(pvsyst, pvc.CapData)
         assert 8760 == pvsyst.data.shape[0]
         assert isinstance(pvsyst.data.index, pd.DatetimeIndex)
@@ -359,7 +374,15 @@ class TestLoadPVsyst:
 
     def test_date_day_month_year_after_excel_open(self):
         """Test loading day first pvsyst output after saving in excel."""
-        pvsyst = load_pvsyst("./tests/data/pvsyst_example_day_month_year_xls_dates.csv")
+        with pytest.warns(
+            UserWarning,
+            match=(
+                "Dates are not in month/day/year format. Trying day/month/year format."
+            ),
+        ):
+            pvsyst = load_pvsyst(
+                "./tests/data/pvsyst_example_day_month_year_xls_dates.csv"
+            )
         assert isinstance(pvsyst, pvc.CapData)
         assert 8760 == pvsyst.data.shape[0]
         assert isinstance(pvsyst.data.index, pd.DatetimeIndex)
@@ -375,21 +398,26 @@ class TestLoadPVsyst:
     def test_all_input_date_formats_loaded_to_equal_datetime_indices(self):
         dt = load_pvsyst("./tests/data/pvsyst_example_HourlyRes_2.CSV")
         dtx = load_pvsyst("./tests/data/pvsyst_example_HourlyRes_2_xls_dates.csv")
-        dmy = load_pvsyst("./tests/data/pvsyst_example_day_month_year.csv")
-        dmyx = load_pvsyst("./tests/data/pvsyst_example_day_month_year_xls_dates.csv")
-
-        assert dt.data.index.equals(dtx.data.index)
-        assert dt.data.index.equals(dmy.data.index)
-        assert dt.data.index.equals(dmyx.data.index)
-
-    def test_date_day_month_year_warning(self):
         with pytest.warns(
             UserWarning,
             match=(
                 "Dates are not in month/day/year format. Trying day/month/year format."
             ),
         ):
-            load_pvsyst("./tests/data/pvsyst_example_day_month_year.csv")
+            dmy = load_pvsyst("./tests/data/pvsyst_example_day_month_year.csv")
+        with pytest.warns(
+            UserWarning,
+            match=(
+                "Dates are not in month/day/year format. Trying day/month/year format."
+            ),
+        ):
+            dmyx = load_pvsyst(
+                "./tests/data/pvsyst_example_day_month_year_xls_dates.csv"
+            )
+
+        assert dt.data.index.equals(dtx.data.index)
+        assert dt.data.index.equals(dmy.data.index)
+        assert dt.data.index.equals(dmyx.data.index)
 
     def test_scale_egrid(self):
         pvsyst = load_pvsyst(
@@ -853,7 +881,11 @@ class TestLoadDataMethods(unittest.TestCase):
     """Test for load data methods without setup."""
 
     def test_source_alsoenergy(self):
-        das_1 = load_data(path="./tests/data/col_naming_examples/ae_site1.csv")
+        with pytest.warns(
+            UserWarning,
+            match=r"^Could not infer format, so each element will be parsed",
+        ):
+            das_1 = load_data(path="./tests/data/col_naming_examples/ae_site1.csv")
         col_names1 = [
             "ae_site_1_Elkor Production Meter_Elkor Production Meter, PowerFactor_Unnamed: 1_level_3",
             "ae_site_1_Elkor Production Meter_Elkor Production Meter, KW_kW",
@@ -867,8 +899,11 @@ class TestLoadDataMethods(unittest.TestCase):
             "Column names are not expected value for ae_site1",
         )
 
-        das_2 = load_data(path="./tests/data/col_naming_examples/ae_site2.csv")
-        print(das_2.data.columns)
+        with pytest.warns(
+            UserWarning,
+            match=r"^Could not infer format, so each element will be parsed",
+        ):
+            das_2 = load_data(path="./tests/data/col_naming_examples/ae_site2.csv")
         col_names2 = [
             "ae_site_2_Acuvim II Meter (Customer)_Acuvim II Meter (Customer), PowerFactor_PF",
             "ae_site_2_Acuvim II Meter (Customer)_Acuvim II Meter (Customer), KW_kW",

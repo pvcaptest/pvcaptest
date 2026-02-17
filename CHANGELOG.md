@@ -5,6 +5,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Changed
+- Removed upper version limits for numpy, pandas, and param dependencies
+- Replaced use of deprecated `copy` kwarg removed in numpy 2.4
+- Removed use of pytz package and refactored timezone handling
+
+### Fixed
+- p-value checking for pandas 2 and 3 compatibility
+- param 2.0 deprecation for passing positional arg to ClassSelector
+- Various deprecation warnings in tests
+- Errors due to pandas 3.0 API changes, compatability for copy-on-write changes
 
 [0.13.3]: https://github.com/pvcaptest/pvcaptest/compare/v0.13.2...v0.13.3
 ## [0.13.3] - 2026-02-06

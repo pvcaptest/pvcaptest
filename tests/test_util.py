@@ -4,7 +4,7 @@ import pandas as pd
 
 from captest import util
 
-ix = pd.date_range(start="1/1/2021 12:00", freq="H", periods=3)
+ix = pd.date_range(start="1/1/2021 12:00", freq="h", periods=3)
 
 ix_5min = pd.date_range(start="1/1/2021 12:00", freq="5min", periods=3)
 

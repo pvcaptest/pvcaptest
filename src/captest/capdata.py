@@ -15,7 +15,6 @@ import copy
 from functools import wraps
 from itertools import combinations
 import warnings
-import pytz
 import importlib
 
 # anaconda distribution defaults
@@ -24,6 +23,7 @@ import pandas as pd
 
 # anaconda distribution defaults
 # statistics and machine learning imports
+from patsy import dmatrix
 import statsmodels.formula.api as smf
 
 # from sklearn.covariance import EllipticEnvelope
@@ -317,14 +317,14 @@ def wrap_seasons(df, freq):
         Need to review if BQ is the correct offset alias vs BQS or QS.
     """
     check_freqs = [
-        "BQ-JAN",
-        "BQ-FEB",
-        "BQ-APR",
-        "BQ-MAY",
-        "BQ-JUL",
-        "BQ-AUG",
-        "BQ-OCT",
-        "BQ-NOV",
+        "BQE-JAN",
+        "BQE-FEB",
+        "BQE-APR",
+        "BQE-MAY",
+        "BQE-JUL",
+        "BQE-AUG",
+        "BQE-OCT",
+        "BQE-NOV",
     ]
     month_int = {
         "JAN": 1,
@@ -372,7 +372,7 @@ def perc_wrap(p):
     """Wrap numpy percentile function for use in rep_cond method."""
 
     def numpy_percentile(x):
-        return np.percentile(x.T, p, interpolation="nearest")
+        return np.percentile(x.T, p, method="nearest")
 
     return numpy_percentile
 
@@ -685,7 +685,13 @@ class ReportingIrradiance(param.Parameterized):
         flt_df = filter_irr(self.df, self.irr_col, low, high, ref_val=irr_RC)
         self.irr_rc = irr_RC
         self.poa_flt = poa_flt
-        self.total_pts = poa_flt.loc[self.irr_rc, "total_pts"]
+        total_pts_value = poa_flt.loc[self.irr_rc, "total_pts"]
+        # Handle case where .loc returns a Series instead of scalar
+        self.total_pts = (
+            total_pts_value.iloc[0]
+            if isinstance(total_pts_value, pd.Series)
+            else total_pts_value
+        )
 
         return (irr_RC, flt_df)
 
@@ -931,11 +937,10 @@ def pvlib_location(loc):
         loc = {'latitude': float,
                'longitude': float,
                'altitude': float/int,
-               'tz': str, int, float, or pytz.timezone, default 'UTC'}
+               'tz': str, int, float, default 'UTC'}
         See
         http://en.wikipedia.org/wiki/List_of_tz_database_time_zones
         for a list of valid time zones.
-        pytz.timezone objects will be converted to strings.
         ints and floats must be in hours from UTC.
 
     Returns
@@ -1008,18 +1013,22 @@ def get_tz_index(time_source, loc):
 
     Parameters
     ----------
-    time_source : dataframe or DatetimeIndex
-        If passing a dataframe the index of the dataframe will be used.  If the
-        index does not have a timezone the timezone will be set using the
+    time_source : Dataframe, Series, or DatetimeIndex
+        If passing a Dataframe or Series, the index of the dataframe will be used.
+        If the index does not have a timezone, the timezone will be set using the
         timezone in the passed loc dictionary. If passing a DatetimeIndex with
-        a timezone it will be returned directly. If passing a DatetimeIndex
-        without a timezone the timezone in the timezone dictionary will be
-        used.
+        a timezone, it will be returned directly. If passing a DatetimeIndex
+        without a timezone, the timezone will be set using the timezone in the passed
+        loc dictionary.
 
     Returns
     -------
     DatetimeIndex with timezone
     """
+    if isinstance(time_source, pd.core.series.Series) or isinstance(
+        time_source, pd.core.frame.DataFrame
+    ):
+        time_source = time_source.index
     if isinstance(time_source, pd.core.indexes.datetimes.DatetimeIndex):
         if time_source.tz is None:
             time_source = time_source.tz_localize(
@@ -1027,26 +1036,13 @@ def get_tz_index(time_source, loc):
             )
             return time_source
         else:
-            if pytz.timezone(loc["tz"]) != time_source.tz:
+            if loc["tz"] != str(time_source.tz):
                 warnings.warn(
-                    "Passed a DatetimeIndex with a timezone that "
+                    "The DatetimeIndex of time_source has a timezone that "
                     "does not match the timezone in the loc dict. "
-                    "Using the timezone of the DatetimeIndex."
+                    "Using the timezone of the time_source DatetimeIndex."
                 )
             return time_source
-    elif isinstance(time_source, pd.core.frame.DataFrame):
-        if time_source.index.tz is None:
-            return time_source.index.tz_localize(
-                loc["tz"], ambiguous="infer", nonexistent="NaT"
-            )
-        else:
-            if pytz.timezone(loc["tz"]) != time_source.index.tz:
-                warnings.warn(
-                    "Passed a DataFrame with a timezone that "
-                    "does not match the timezone in the loc dict. "
-                    "Using the timezone of the DataFrame."
-                )
-            return time_source.index
 
 
 def csky(time_source, loc=None, sys=None, concat=True, output="both"):
@@ -1068,11 +1064,10 @@ def csky(time_source, loc=None, sys=None, concat=True, output="both"):
         loc = {'latitude': float,
                'longitude': float,
                'altitude': float/int,
-               'tz': str, int, float, or pytz.timezone, default 'UTC'}
+               'tz': str, int, float, default 'UTC'}
         See
         http://en.wikipedia.org/wiki/List_of_tz_database_time_zones
         for a list of valid time zones.
-        pytz.timezone objects will be converted to strings.
         ints and floats must be in hours from UTC.
     sys : dict
         Dictionary of keywords required to create a pvlib
@@ -1221,6 +1216,47 @@ def determine_pass_or_fail(cap_ratio, tolerance, nameplate):
         warnings.warn("Sign must be '-', '+/-', or '-/+'.")
 
 
+def predict_with_pvalue_check(cd, rc=None, pval_threshold=0.05):
+    """
+    Make prediction with optional p-value filtering of coefficients.
+
+    Uses model.predict() with custom params to ensure consistent behavior
+    across pandas 2.x and 3.0+ (avoids Copy-on-Write issues).
+
+    Parameters
+    ----------
+    cd : CapData
+        Instance of CapData with:
+        - regression_results attribute (fitted statsmodels results)
+        - rc attribute (reporting conditions DataFrame), used if rc param is None
+    rc : DataFrame, optional
+        Reporting conditions DataFrame. If None, uses cd.rc.
+    pval_threshold : float, default 0.05
+        If provided, coefficients with p-value > threshold are set to zero
+        before making the prediction. Set to None to skip pval check.
+
+    Returns
+    -------
+    float
+        Predicted value at reporting conditions.
+    """
+    results = cd.regression_results
+    if rc is None:
+        rc = cd.rc
+    # Copy params to avoid modifying original
+    modified_params = results.params.copy()
+    # Zero out coefficients with p-values above threshold
+    if pval_threshold is not None:
+        for key, pval in results.pvalues.items():
+            if pval > pval_threshold:
+                modified_params[key] = 0
+    # Create design matrix from reporting conditions
+    design_info = results.model.data.design_info
+    exog = dmatrix(design_info, rc)
+    # Predict using model.predict with custom params
+    return results.model.predict(modified_params, exog)[0]
+
+
 def captest_results(
     sim, das, nameplate, tolerance, check_pvalues=False, pval=0.05, print_res=True
 ):
@@ -1256,25 +1292,18 @@ def captest_results(
     and the measured data divided by the capacity calculated from the reporting
     conditions and the simulated data.
     """
-    sim_int = sim.copy()
-    das_int = das.copy()
+    if sim.regression_formula != das.regression_formula:
+        return warnings.warn("CapData objects do not have the same regression formula.")
 
-    if sim_int.regression_formula != das_int.regression_formula:
-        return warnings.warn("CapData objects do not have the sameregression formula.")
-
-    if check_pvalues:
-        for cd in [sim_int, das_int]:
-            for key, val in cd.regression_results.pvalues.items():
-                if val > pval:
-                    cd.regression_results.params[key] = 0
-
-    rc = pick_attr(sim_int, das_int, "rc")
+    rc_result = pick_attr(sim, das, "rc")
     if print_res:
-        print("Using reporting conditions from {}. \n".format(rc[1]))
-    rc = rc[0]
+        print("Using reporting conditions from {}. \n".format(rc_result[1]))
+    rc = rc_result[0]
 
-    actual = das_int.regression_results.predict(rc)[0]
-    expected = sim_int.regression_results.predict(rc)[0]
+    # Use predict_with_pvalue_check for consistent behavior across pandas versions
+    pval_threshold = pval if check_pvalues else None
+    actual = predict_with_pvalue_check(das, rc=rc, pval_threshold=pval_threshold)
+    expected = predict_with_pvalue_check(sim, rc=rc, pval_threshold=pval_threshold)
     cap_ratio = actual / expected
     if cap_ratio < 0.01:
         cap_ratio *= 1000
@@ -3004,7 +3033,7 @@ class CapData(object):
             )
 
         if w_vel is not None:
-            RCs_df["w_vel"][0] = w_vel
+            RCs_df.loc[0, "w_vel"] = w_vel
 
         if freq is not None:
             # wrap_seasons passes df through unchanged unless freq is one of
