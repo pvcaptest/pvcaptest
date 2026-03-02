@@ -503,3 +503,78 @@ def add_custom_plot(name, column_groups, group_tags, column_tags):
     """
     column_groups[name] = group_tag_overlay(group_tags, column_tags)
     return column_groups
+
+
+def get_resid_exog_frame(cd):
+    """
+    Get a DataFrame of residuals and exogenous variables from a CapData object.
+
+    Parameters
+    ----------
+    cd : captest.CapData
+        The CapData object.
+
+    Returns
+    -------
+    pd.DataFrame
+        DataFrame with residuals and exogenous variables.
+    """
+    exog_names = cd.regression_results.model.exog_names
+    meas_resid_exog = (
+        pd.concat(
+            [
+                cd.regression_results.resid.rename("resid"),
+                pd.DataFrame(
+                    cd.regression_results.model.exog,
+                    columns=exog_names,
+                    index=cd.data_filtered.index,
+                ),
+            ],
+            axis=1,
+        )
+        .rename_axis(index="Timestamp")
+        .reset_index()
+    )
+    meas_resid_exog["source"] = cd.name
+    return exog_names, meas_resid_exog
+
+
+def residual_plot(cd1, cd2):
+    """
+    Create overlayed residual plots for two CapData objects.
+
+    Parameters
+    ----------
+    cd1 : captest.CapData
+        The first CapData object.
+    cd2 : captest.CapData
+        The second CapData object.
+
+    Returns
+    -------
+    hv.Layout
+        A scatter plot of regression parameter vs residuals for each regression parameter.
+        Each plot is an overlay of a plot from generated from `cd1` and `cd2`.
+    """
+    cd1_exog_names, cd1_resid_exog = get_resid_exog_frame(cd1)
+    cd2_exog_names, cd2_resid_exog = get_resid_exog_frame(cd2)
+
+    resid_plots = []
+    for exog_id in cd1_exog_names:
+        cd1_plot = (
+            hv.Scatter(cd1_resid_exog, [exog_id], ["resid", "Timestamp", "source"])
+            .redim(x=exog_id)
+            .relabel(cd1_resid_exog["source"][0])
+        )
+        cd2_plot = (
+            hv.Scatter(cd2_resid_exog, [exog_id], ["resid", "Timestamp", "source"])
+            .redim(x=exog_id)
+            .relabel(cd2_resid_exog["source"][0])
+        )
+        resid_plots.append(cd1_plot * cd2_plot)
+
+    resid_layout = hv.Layout(resid_plots).opts(
+        opts.Overlay(width=500, height=500), opts.Scatter(tools=["hover"])
+    )
+
+    return resid_layout
