@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Plotting function `residual_plot` to create plots of residuals vs regression
 parameters. 
 - `load_data` can be used with the default `file_reader` to load csv files from an S3 bucket.
-Requires new optional packages s3fs and s3path.
+Requires the new optional dependency `s3fs`.
 
 [0.13.4]: https://github.com/pvcaptest/pvcaptest/compare/v0.13.3...v0.13.4
 ## [0.13.4] - 2026-02-17

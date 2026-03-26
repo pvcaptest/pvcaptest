@@ -7,7 +7,7 @@ import pytest
 from pathlib import Path
 import numpy as np
 import pandas as pd
-from s3path import S3Path
+from upath import UPath
 
 
 from captest import capdata as pvc
@@ -451,16 +451,12 @@ class TestDataLoader:
 
     def test_s3_path_to_dir(self):
         """
-        Checks that paths beginning with 's3://' are converted to S3Path objects.
-        Checks that the 's3://' prefix is replaced with '/'.
-        Checks that flag is set to indicate that the path is an S3 path.
-        Flag is used to add 's3://' prefix back to path when passing to file_reader
-        which uses pd.read_csv.
+        Checks that paths beginning with 's3://' are converted to UPath objects
+        and the 's3://' protocol prefix is preserved.
         """
         dl = DataLoader("s3://bucket/data/")
-        assert isinstance(dl.path, S3Path)
-        assert dl.path == S3Path("/bucket/data")
-        assert dl.path_s3
+        assert isinstance(dl.path, UPath)
+        assert str(dl.path) == "s3://bucket/data"
 
     def test_set_files_to_load(self, tmp_path):
         """
@@ -695,6 +691,7 @@ class TestDataLoader:
         of io.file_reader with csv files stored in an S3 bucket.
 
         Have tested against actual files and worked as expected.
+        UPath with s3fs handles S3 paths transparently.
         """
         pass
 

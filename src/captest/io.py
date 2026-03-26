@@ -16,23 +16,7 @@ from captest.capdata import csky
 from captest import columngroups as cg
 from captest import util
 
-import importlib
-
-# check for availability of optional S3Path package
-s3path_spec = importlib.util.find_spec("s3path")
-s3fs_spec = importlib.util.find_spec("s3fs")
-if (s3path_spec is not None) and (s3fs_spec is not None):
-    from s3path import S3Path
-elif (s3path_spec is None) and (s3fs_spec is not None):
-    warnings.warn(
-        "Found s3fs package. The s3path package is also required to load data from S3."
-    )
-elif (s3path_spec is not None) and (s3fs_spec is None):
-    warnings.warn(
-        "Found s3path package. The s3fs package is also required to load data from S3."
-    )
-elif (s3path_spec is None) and (s3fs_spec is None):
-    warnings.warn("The s3fs and s3path packages are required to load data from S3.")
+from upath import UPath
 
 
 def flatten_multi_index(columns):
@@ -265,6 +249,9 @@ def file_reader(path, **kwargs):
 class DataLoader:
     """
     Class to load SCADA data and return a CapData object.
+
+    Supports loading from local filesystems and S3 buckets. The optional``s3fs``
+    package must be installed for S3 support.
     """
 
     path: str = "./data/"
@@ -276,14 +263,8 @@ class DataLoader:
 
     def __setattr__(self, key, value):
         if key == "path":
-            if not isinstance(value, str):
-                value = str(value)
-            if value.startswith("s3://"):
-                value = S3Path(value.replace("s3://", "/"))
-                self.path_s3 = True
-            else:
-                value = Path(value)
-                self.path_s3 = False
+            if not isinstance(value, UPath):
+                value = UPath(value)
         super().__setattr__(key, value)
 
     def set_files_to_load(self, extension="csv"):
@@ -382,7 +363,8 @@ class DataLoader:
 
         Set `path` to the path to a file to load a single file. Set `path` to the path
         to a directory of files to load all the files in the directory ending in "csv".
-        Or, set `files_to_load` to a list of specific files to load.
+        Or, set `files_to_load` to a list of specific files to load. Paths may be local
+        filesystem paths or S3 URIs (e.g. ``s3://bucket/path/``).
 
         Multiple files will be joined together and may include files with different
         column headings. When multiple files with matching column headings are loaded,
@@ -417,7 +399,7 @@ class DataLoader:
             Resulting DataFrame of data is stored to the `data` attribute.
         """
         if self.path.is_file():
-            self.data = self.file_reader(self.path, **kwargs)
+            self.data = self.file_reader(str(self.path), **kwargs)
         elif self.path.is_dir():
             if self.files_to_load is None:
                 self.set_files_to_load(extension=extension)
@@ -426,21 +408,10 @@ class DataLoader:
             for file in self.files_to_load:
                 try:
                     if verbose:
-                        if self.path_s3:
-                            print("trying to load s3://{}".format(file))
-                        else:
-                            print("trying to load {}".format(file))
-                    if self.path_s3:
-                        self.loaded_files[file.stem] = self.file_reader(
-                            "s3://" + str(file)[1:], **kwargs
-                        )
-                    else:
-                        self.loaded_files[file.stem] = self.file_reader(file, **kwargs)
+                        print("trying to load {}".format(file))
+                    self.loaded_files[file.stem] = self.file_reader(str(file), **kwargs)
                     if verbose:
-                        if self.path_s3:
-                            print("    loaded      s3://{}".format(file))
-                        else:
-                            print("    loaded      {}".format(file))
+                        print("    loaded      {}".format(file))
                 except Exception as err:
                     if self.failed_to_load is None:
                         self.failed_to_load = []
@@ -510,6 +481,7 @@ def load_data(
     ----------
     path : str
         Path to either a single file to load or a directory of files to load.
+        Supports local paths and S3 URIs (e.g. ``s3://bucket/path/``).
     group_columns : function or str, default columngroups.group_columns
         Function to use to group the columns of the loaded data. Function should accept
         a DataFrame and return a dictionary with keys that are ids and values that are
