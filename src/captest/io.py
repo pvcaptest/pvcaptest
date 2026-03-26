@@ -16,6 +16,24 @@ from captest.capdata import csky
 from captest import columngroups as cg
 from captest import util
 
+import importlib
+
+# check for availability of optional S3Path package
+s3path_spec = importlib.util.find_spec("s3path")
+s3fs_spec = importlib.util.find_spec("s3fs")
+if (s3path_spec is not None) and (s3fs_spec is not None):
+    from s3path import S3Path
+elif (s3path_spec is None) and (s3fs_spec is not None):
+    warnings.warn(
+        "Found s3fs package. The s3path package is also required to load data from S3."
+    )
+elif (s3path_spec is not None) and (s3fs_spec is None):
+    warnings.warn(
+        "Found s3path package. The s3fs package is also required to load data from S3."
+    )
+elif (s3path_spec is None) and (s3fs_spec is None):
+    warnings.warn("The s3fs and s3path packages are required to load data from S3.")
+
 
 def flatten_multi_index(columns):
     return ["_".join(col_name) for col_name in columns.to_list()]
@@ -258,7 +276,14 @@ class DataLoader:
 
     def __setattr__(self, key, value):
         if key == "path":
-            value = Path(value)
+            if not isinstance(value, str):
+                value = str(value)
+            if value.startswith("s3://"):
+                value = S3Path(value.replace("s3://", "/"))
+                self.path_s3 = True
+            else:
+                value = Path(value)
+                self.path_s3 = False
         super().__setattr__(key, value)
 
     def set_files_to_load(self, extension="csv"):
@@ -351,7 +376,7 @@ class DataLoader:
         data = data.apply(pd.to_numeric, errors="coerce")
         return data
 
-    def load(self, extension="csv", verbose=True, print_errors=False, **kwargs):
+    def load(self, extension="csv", verbose=True, raise_errors=False, **kwargs):
         """
         Load file(s) of timeseries data from SCADA / DAS systems.
 
@@ -380,7 +405,7 @@ class DataLoader:
             it was loaded or states it failed to load. Is only relevant if `path` is
             set to a directory not a file. Set to False to not print out any file
             loading status.
-        print_errors : bool, default False
+        raise_errors : bool, default False
             Set to true to print error if file fails to load.
         **kwargs
             Are passed through to the file_reader callable, which by default will pass
@@ -401,10 +426,21 @@ class DataLoader:
             for file in self.files_to_load:
                 try:
                     if verbose:
-                        print("trying to load {}".format(file))
-                    self.loaded_files[file.stem] = self.file_reader(file, **kwargs)
+                        if self.path_s3:
+                            print("trying to load s3://{}".format(file))
+                        else:
+                            print("trying to load {}".format(file))
+                    if self.path_s3:
+                        self.loaded_files[file.stem] = self.file_reader(
+                            "s3://" + str(file)[1:], **kwargs
+                        )
+                    else:
+                        self.loaded_files[file.stem] = self.file_reader(file, **kwargs)
                     if verbose:
-                        print("    loaded      {}".format(file))
+                        if self.path_s3:
+                            print("    loaded      s3://{}".format(file))
+                        else:
+                            print("    loaded      {}".format(file))
                 except Exception as err:
                     if self.failed_to_load is None:
                         self.failed_to_load = []
@@ -415,8 +451,8 @@ class DataLoader:
                         "  meas.data_loader.file_reader(meas.data_loader"
                         ".failed_to_load[{}])".format(failed_to_load_count)
                     )
-                    if print_errors:
-                        print(err)
+                    if raise_errors:
+                        raise err
                     failed_to_load_count += 1
                     continue
             if len(self.loaded_files) == 0:
