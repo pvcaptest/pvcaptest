@@ -764,6 +764,58 @@ class TestDataLoader:
             pd.date_range(start="8/3/22", periods=20, freq="1min")
         )
 
+    def test_load_skip_dir_load(self, tmp_path):
+        """Test load with skip_dir_load=True passes the directory path to file_reader."""
+        csv_path = tmp_path / "file_1.csv"
+        pd.DataFrame(
+            {
+                "met1_poa1": np.arange(0, 20),
+                "met1_poa2": np.arange(20, 40),
+            },
+            index=pd.date_range(start="8/1/22", periods=20, freq="1min"),
+        ).to_csv(csv_path)
+
+        def custom_reader(path, **kwargs):
+            files = sorted(Path(path).glob("*.csv"))
+            return pd.concat(
+                [pd.read_csv(f, index_col=0, parse_dates=True) for f in files]
+            )
+
+        dl = DataLoader(tmp_path)
+        dl.file_reader = custom_reader
+        dl.load(skip_dir_load=True)
+        assert isinstance(dl.data, pd.DataFrame)
+        assert dl.data.shape == (20, 2)
+
+    def test_load_raise_errors(self, tmp_path):
+        """Test that raise_errors=True re-raises exceptions from file_reader."""
+        for i in range(1, 3):
+            csv_path = tmp_path / ("file_" + str(i) + ".csv")
+            csv_path.write_text("bad,data\n")
+
+        def bad_reader(path, **kwargs):
+            raise ValueError("intentional failure")
+
+        dl = DataLoader(tmp_path)
+        dl.file_reader = bad_reader
+        with pytest.raises(ValueError, match="intentional failure"):
+            dl.load(raise_errors=True)
+
+    def test_load_no_files_loaded_warning(self, tmp_path):
+        """Test warning when all files fail to load."""
+        for i in range(1, 3):
+            csv_path = tmp_path / ("file_" + str(i) + ".csv")
+            csv_path.write_text("bad,data\n")
+
+        def bad_reader(path, **kwargs):
+            raise ValueError("intentional failure")
+
+        dl = DataLoader(tmp_path)
+        dl.file_reader = bad_reader
+        with pytest.raises(UnboundLocalError):
+            with pytest.warns(UserWarning, match="No files were loaded"):
+                dl.load(raise_errors=False)
+
     def test_load_specific_file_doesnt_exist(self, tmp_path):
         """
         Test load method when `path` attribute is pointing to a file that doesn't exist.
