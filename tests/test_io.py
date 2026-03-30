@@ -812,9 +812,9 @@ class TestDataLoader:
 
         dl = DataLoader(tmp_path)
         dl.file_reader = bad_reader
-        with pytest.raises(UnboundLocalError):
-            with pytest.warns(UserWarning, match="No files were loaded"):
-                dl.load(raise_errors=False)
+        with pytest.warns(UserWarning, match="No files loaded"):
+            dl.load(raise_errors=False)
+        assert dl.data is None
 
     def test_load_specific_file_doesnt_exist(self, tmp_path):
         """
