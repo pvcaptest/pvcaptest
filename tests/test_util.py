@@ -81,5 +81,26 @@ class TestReindexDatetime:
         (df_reindexed, missing_intervals, str) = util.reindex_datetime(df)
         assert df_reindexed.shape[0] == 10
 
-    def test_isinstance_str(self):
-        assert isinstance("test string", str)
+    def test_drops_duplicate_indices(self):
+        """
+        Check that duplicate indices are dropped before reindexing.
+
+        Use Nov 3, 2025 which has the 1AM hour repeated due to daylight saving time.
+        """
+        df = pd.DataFrame(
+            {"a": [1, 2, 3, 4, 5, 6]},
+            index=pd.to_datetime(
+                [
+                    "2025-11-03 00:00",
+                    "2025-11-03 01:00",
+                    "2025-11-03 01:00",
+                    "2025-11-03 02:00",
+                    "2025-11-03 03:00",
+                    "2025-11-03 04:00",
+                ]
+            ),
+        )
+        with pytest.warns(UserWarning):
+            (df_reindexed, missing_intervals, freq_str) = util.reindex_datetime(df)
+        assert df_reindexed.index.is_unique
+        assert df_reindexed.shape[0] == 5

@@ -281,8 +281,13 @@ class DataLoader:
                 )
             )
 
-    def _reindex_loaded_files(self):
+    def reindex_loaded_files(self, verbose=False):
         """Reindex files to ensure no missing indices and find frequency for each file.
+
+        Parameters
+        ----------
+        verbose : bool, default False
+            Set to True for more detailed output.
 
         Returns
         -------
@@ -296,8 +301,12 @@ class DataLoader:
         reindexed_dfs = {}
         file_frequencies = []
         for name, file in self.loaded_files.items():
+            if verbose:
+                print("-" * 40)
+                print(name)
             current_file, missing_intervals, freq_str = util.reindex_datetime(
                 file,
+                file_name=name,
                 report=False,
             )
             reindexed_dfs[name] = current_file
@@ -311,7 +320,7 @@ class DataLoader:
 
         return reindexed_dfs, common_freq, file_frequencies
 
-    def _join_files(self):
+    def join_files(self):
         """Combine the DataFrames of `loaded_files` into a single DataFrame.
 
         Checks if the columns of each DataFrame in `loaded_files` matches. If they do
@@ -439,15 +448,21 @@ class DataLoader:
                         raise err
                     failed_to_load_count += 1
                     continue
+            if verbose:
+                print("=" * 40)
+                print("File loading complete")
             if len(self.loaded_files) == 0:
                 warnings.warn("No files were loaded. Check that file_reader is working")
             elif len(self.loaded_files) > 1:
+                if verbose:
+                    print("=" * 40)
+                    print("Reindexing each file loaded and joining them.")
                 (
                     self.loaded_files,
                     self.common_freq,
                     self.file_frequencies,
-                ) = self._reindex_loaded_files()
-                data = self._join_files()
+                ) = self.reindex_loaded_files(verbose=verbose)
+                data = self.join_files()
             elif len(self.loaded_files) == 1:
                 data = list(self.loaded_files.values())[0]
             data.index.name = "Timestamp"
