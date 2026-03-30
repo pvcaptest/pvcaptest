@@ -530,7 +530,7 @@ class TestDataLoader:
             "day2": day2,
             "day3": day3,
         }
-        reix_dfs, common_freq, file_frequencies = dl._reindex_loaded_files()
+        reix_dfs, common_freq, file_frequencies = dl.reindex_loaded_files()
         assert common_freq == "60min"
         assert file_frequencies == ["60min", "5min", "60min"]
 
@@ -549,7 +549,7 @@ class TestDataLoader:
             "day2": day2,
         }
         dl.common_freq = "60min"
-        data = dl._join_files()
+        data = dl.join_files()
         print(data)
         print(data.info())
         assert data.shape == (48, 2)
@@ -573,7 +573,7 @@ class TestDataLoader:
         }
         dl.common_freq = "60min"
         with pytest.warns(UserWarning):
-            data = dl._join_files()
+            data = dl.join_files()
         assert data.shape == (48, 2)
 
     def test_join_files_different_headers(self):
@@ -591,7 +591,7 @@ class TestDataLoader:
             "day2": day2,
         }
         dl.common_freq = "60min"
-        data = dl._join_files()
+        data = dl.join_files()
         assert data.shape == (24, 4)
         assert data.isna().sum().sum() == 0
         assert data.dtypes["a"] == "int64"
@@ -614,7 +614,7 @@ class TestDataLoader:
             "day2": day2,
         }
         dl.common_freq = "60min"
-        data = dl._join_files()
+        data = dl.join_files()
         assert data.shape == (48, 4)
         assert data.loc["1/2/22"][["a", "b"]].isna().sum().sum() == 48
         assert data.loc["1/1/22"][["c", "d"]].isna().sum().sum() == 48
@@ -639,7 +639,7 @@ class TestDataLoader:
             "day2": day2,
         }
         dl.common_freq = "60min"
-        data = dl._join_files()
+        data = dl.join_files()
         assert data.shape == (48, 3)
         assert data.index[0] == pd.to_datetime("1/1/22")
         assert data.index[-1] == pd.to_datetime("1/2/22 23:00")
