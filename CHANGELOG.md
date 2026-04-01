@@ -6,6 +6,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Added
+- `perf_ratio_temp_corr_nrel` accepts measured back-of-module temperature via
+`temp_bom` parameter, skipping the BOM calculation from ambient temp and wind.
+- `perf_ratio_temp_corr_nrel` accepts `single_irr_weighted_temp` parameter to
+use a single irradiance-weighted cell temperature for the correction.
 - Plotting function `residual_plot` to create plots of residuals vs regression
 parameters. 
 - `load_data` can be used with the default `file_reader` to load csv files from an S3 bucket.
