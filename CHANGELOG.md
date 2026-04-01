@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 parameters. 
 - `load_data` can be used with the default `file_reader` to load csv files from an S3 bucket.
 Requires the new optional dependency `s3fs`.
+- `agg_sensors` method verbose option, which prints summary of aggregations.
 
 ### Changed
 - `DataLoader.load` now has a `summary` parameter (default `True`) that controls
