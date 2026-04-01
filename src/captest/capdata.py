@@ -2754,9 +2754,7 @@ class CapData(object):
             return df_out
 
     @update_summary
-    def filter_clearsky(
-        self, window_length=20, ghi_col=None, inplace=True, keep_clear=True, **kwargs
-    ):
+    def filter_clearsky(self, ghi_col=None, inplace=True, keep_clear=True, **kwargs):
         """
         Use pvlib detect_clearsky to remove periods with unstable irradiance.
 
@@ -2768,11 +2766,8 @@ class CapData(object):
         as ghi and modeled ghi.  Issues warning if there is no modeled ghi
         data, or the measured ghi data has not been aggregated.
 
-        Parameters:
-        window_length : int, default 20
-            Length of sliding time window in minutes. Must be greater than 2
-            periods. Default of 20 works well for 5 minute data intervals.
-            pvlib default of 10 minutes works well for 1min data.
+        Parameters
+        ----------
         ghi_col : str, default None
             The name of a column name of measured GHI data. Overrides default
             attempt to automatically identify a column of GHI data.
@@ -2783,8 +2778,12 @@ class CapData(object):
         keep_clear : bool, default True
             Set to False to keep cloudy periods.
         **kwargs
-            kwargs are passed to pvlib detect_clearsky.  See pvlib
-            documentation for details.
+            Passed to pvlib `detect_clearsky`. By default `infer_limits` is set
+            to True, which automatically determines appropriate thresholds
+            (including window length) based on the data's sample interval.
+            Pass `infer_limits=False` and `window_length=<int>` to manually
+            control the detection parameters. See pvlib documentation for all
+            available parameters.
         """
         if "ghi_mod_csky" not in self.data_filtered.columns:
             return warnings.warn(
@@ -2821,16 +2820,17 @@ class CapData(object):
         else:
             meas_ghi = self.data_filtered[ghi_col]
 
+        kwargs.setdefault("infer_limits", True)
         clear_per = detect_clearsky(
-            meas_ghi,
-            self.data_filtered["ghi_mod_csky"],
-            meas_ghi.index,
-            window_length,
+            measured=meas_ghi,
+            clearsky=self.data_filtered["ghi_mod_csky"],
+            times=meas_ghi.index,
             **kwargs,
         )
         if not any(clear_per):
             return warnings.warn(
-                "No clear periods detected. Try increasing the window length."
+                "No clear periods detected. Try adjusting detect_clearsky "
+                "parameters via kwargs."
             )
 
         if keep_clear:
