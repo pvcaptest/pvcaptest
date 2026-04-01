@@ -1594,6 +1594,38 @@ class TestAggSensors:
         meas.agg_sensors()
         assert isinstance(meas.pre_agg_cols, pd.Index)
 
+    def test_verbose_false_no_aggregation_output(self, meas, capsys):
+        """Default verbose=False should not print aggregation details."""
+        meas.agg_sensors(agg_map={"irr_poa_pyran": "mean"})
+        captured = capsys.readouterr()
+        assert "Aggregating the below columns" not in captured.out
+
+    def test_verbose_prints_columns_when_lte_10(self, meas, capsys):
+        """Verbose should print each column name when group has <= 10 columns."""
+        meas.agg_sensors(agg_map={"irr_poa_pyran": "mean"}, verbose=True)
+        captured = capsys.readouterr()
+        assert "Aggregating the below columns using mean function" in captured.out
+        assert "irr_poa_pyran_mean_agg" in captured.out
+        assert "    met1_poa_pyranometer" in captured.out
+        assert "    met2_poa_pyranometer" in captured.out
+
+    def test_verbose_prints_group_name_when_gt_10(self, meas, capsys):
+        """Verbose should print only the group name when group has > 10 columns."""
+        # Add extra columns to make the group have > 10 members
+        extra_cols = [f"extra_poa_{i}" for i in range(10)]
+        for col in extra_cols:
+            meas.data[col] = meas.data["met1_poa_pyranometer"]
+        meas.data_filtered = meas.data.copy()
+        meas.column_groups["irr_poa_pyran"] = (
+            meas.column_groups["irr_poa_pyran"] + extra_cols
+        )
+        meas.agg_sensors(agg_map={"irr_poa_pyran": "mean"}, verbose=True)
+        captured = capsys.readouterr()
+        assert "Aggregating the below columns using mean function" in captured.out
+        assert "Aggregating all columns of the irr_poa_pyran group" in captured.out
+        # Individual column names should NOT be printed
+        assert "    met1_poa_pyranometer" not in captured.out
+
 
 class TestFilterSensors:
     def test_perc_diff_none(self, meas):
