@@ -8,6 +8,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Plotting function `residual_plot` to create plots of residuals vs regression
 parameters. 
+- `load_data` can be used with the default `file_reader` to load csv files from an S3 bucket.
+Requires the new optional dependency `s3fs`.
+
+### Changed
+- `DataLoader.load` now has a `summary` parameter (default `True`) that controls
+file loading status output. `verbose` default changed from `True` to `False` and
+now enables both summary output and detailed reindexing information.
+- `DataLoader._reindex_loaded_files` and `DataLoader._join_files` renamed to
+`reindex_loaded_files` and `join_files` (public API).
+- `load_data` now skips sort, drop_duplicates, and reindex when no data is loaded
+and issues a warning instead of raising an error.
+- Failed-to-load troubleshooting message now includes kwargs passed to `file_reader`.
+
+### Fixed
+- `DataLoader.load` no longer raises `UnboundLocalError` when all files fail to
+load; sets `data` to `None` and issues a warning.
+- `reindex_datetime` now handles duplicate indices by dropping duplicates and
+warning instead of raising a `ValueError`.
 
 [0.13.4]: https://github.com/pvcaptest/pvcaptest/compare/v0.13.3...v0.13.4
 ## [0.13.4] - 2026-02-17

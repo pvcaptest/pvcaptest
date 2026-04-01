@@ -24,8 +24,12 @@ Generally, the first step to conducting a capacity test is to load data from the
 - The data is in a comma-separated value (CSV) file(s) (other file tye can be used).
 - The data is in a "wide" format, with each column representing a different measurement and each row a different time.
 - The first column of the data contains date time information that can be parsed by pandas.
-- If loading separate files, the files areall csv files.
+- If loading separate files, the files are all csv files.
 - If you are loading separate files, the row and column indexes do NOT need to match.
+
+.. note::
+
+    Loading data from S3 buckets is supported by passing an ``s3://`` URI as the ``path`` argument to :py:func:`~captest.io.load_data` or :py:class:`~captest.io.DataLoader`. The ``s3fs`` package must be installed for S3 support. For example: ``load_data(path="s3://my-bucket/data/")``.
 
 :py:func:`~captest.io.load_data` does a few things in addition to loading the data that are required for functionality of many of the CapData methods like :py:meth:`~captest.capdata.CapData.agg_sensors`, :py:attr:`~captest.capdata.CapData.loc` and :py:attr:`~captest.capdata.CapData.floc`, and the plotting methods and to clean up minor issues in the raw data:
 

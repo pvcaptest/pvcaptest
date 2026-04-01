@@ -16,6 +16,8 @@ from captest.capdata import csky
 from captest import columngroups as cg
 from captest import util
 
+from upath import UPath
+
 
 def flatten_multi_index(columns):
     return ["_".join(col_name) for col_name in columns.to_list()]
@@ -247,6 +249,9 @@ def file_reader(path, **kwargs):
 class DataLoader:
     """
     Class to load SCADA data and return a CapData object.
+
+    Supports loading from local filesystems and S3 buckets. The optional``s3fs``
+    package must be installed for S3 support.
     """
 
     path: str = "./data/"
@@ -258,7 +263,8 @@ class DataLoader:
 
     def __setattr__(self, key, value):
         if key == "path":
-            value = Path(value)
+            if not isinstance(value, UPath):
+                value = UPath(value)
         super().__setattr__(key, value)
 
     def set_files_to_load(self, extension="csv"):
@@ -275,8 +281,13 @@ class DataLoader:
                 )
             )
 
-    def _reindex_loaded_files(self):
+    def reindex_loaded_files(self, verbose=False):
         """Reindex files to ensure no missing indices and find frequency for each file.
+
+        Parameters
+        ----------
+        verbose : bool, default False
+            Set to True for more detailed output.
 
         Returns
         -------
@@ -290,8 +301,12 @@ class DataLoader:
         reindexed_dfs = {}
         file_frequencies = []
         for name, file in self.loaded_files.items():
+            if verbose:
+                print("-" * 40)
+                print(name)
             current_file, missing_intervals, freq_str = util.reindex_datetime(
                 file,
+                file_name=name,
                 report=False,
             )
             reindexed_dfs[name] = current_file
@@ -305,7 +320,7 @@ class DataLoader:
 
         return reindexed_dfs, common_freq, file_frequencies
 
-    def _join_files(self):
+    def join_files(self):
         """Combine the DataFrames of `loaded_files` into a single DataFrame.
 
         Checks if the columns of each DataFrame in `loaded_files` matches. If they do
@@ -351,13 +366,22 @@ class DataLoader:
         data = data.apply(pd.to_numeric, errors="coerce")
         return data
 
-    def load(self, extension="csv", verbose=True, print_errors=False, **kwargs):
+    def load(
+        self,
+        extension="csv",
+        summary=True,
+        verbose=False,
+        raise_errors=False,
+        skip_dir_load=False,
+        **kwargs,
+    ):
         """
         Load file(s) of timeseries data from SCADA / DAS systems.
 
         Set `path` to the path to a file to load a single file. Set `path` to the path
         to a directory of files to load all the files in the directory ending in "csv".
-        Or, set `files_to_load` to a list of specific files to load.
+        Or, set `files_to_load` to a list of specific files to load. Paths may be local
+        filesystem paths or S3 URIs (e.g. ``s3://bucket/path/``).
 
         Multiple files will be joined together and may include files with different
         column headings. When multiple files with matching column headings are loaded,
@@ -375,13 +399,20 @@ class DataLoader:
             Change the extension to allow loading different filetypes. Must also set
             the `file_reader` attribute to a function that will read that type of file.
             Do not include a period ".".
-        verbose : bool, default True
+        summary : bool, default True
             By default prints path of each file attempted to load and then confirmation
             it was loaded or states it failed to load. Is only relevant if `path` is
             set to a directory not a file. Set to False to not print out any file
             loading status.
-        print_errors : bool, default False
-            Set to true to print error if file fails to load.
+        verbose : bool, default False
+            Prints same output as if summary were True (sets summary True) and prints
+            details of reindexing each file after loading.
+        raise_errors : bool, default False
+            Set to true to raise error if file fails to load.
+        skip_dir_load : bool, default False
+            Set to True to pass a custom file_reader that handles multiple files. This will
+            skip the parsing of files in a directory and pass the path to the directory and kwargs
+            to the file_reader function.
         **kwargs
             Are passed through to the file_reader callable, which by default will pass
             them on to pandas.read_csv.
@@ -391,47 +422,64 @@ class DataLoader:
         None
             Resulting DataFrame of data is stored to the `data` attribute.
         """
+        if verbose:
+            summary = True
         if self.path.is_file():
             self.data = self.file_reader(self.path, **kwargs)
-        elif self.path.is_dir():
+        elif self.path.is_dir() and skip_dir_load:
+            self.data = self.file_reader(self.path, **kwargs)
+        elif self.path.is_dir() and not skip_dir_load:
             if self.files_to_load is None:
                 self.set_files_to_load(extension=extension)
             self.loaded_files = dict()
             failed_to_load_count = 0
             for file in self.files_to_load:
                 try:
-                    if verbose:
+                    if summary:
                         print("trying to load {}".format(file))
-                    self.loaded_files[file.stem] = self.file_reader(file, **kwargs)
-                    if verbose:
+                    self.loaded_files[file.stem] = self.file_reader(str(file), **kwargs)
+                    if summary:
                         print("    loaded      {}".format(file))
                 except Exception as err:
                     if self.failed_to_load is None:
                         self.failed_to_load = []
                     self.failed_to_load.append(file)
+                    str_kwargs = ", ".join(f"{k}={v}" for k, v in kwargs.items())
                     print("  **FAILED to load {}".format(file))
                     print(
                         "  To review full stack traceback run \n"
                         "  meas.data_loader.file_reader(meas.data_loader"
-                        ".failed_to_load[{}])".format(failed_to_load_count)
+                        ".failed_to_load[{}], {})".format(
+                            failed_to_load_count, str_kwargs
+                        )
                     )
-                    if print_errors:
-                        print(err)
+                    if raise_errors:
+                        raise err
                     failed_to_load_count += 1
                     continue
+            if summary:
+                print("=" * 40)
+                print("File loading complete")
             if len(self.loaded_files) == 0:
                 warnings.warn("No files were loaded. Check that file_reader is working")
             elif len(self.loaded_files) > 1:
+                if verbose:
+                    print("=" * 40)
+                    print("Reindexing each file loaded and joining them.")
                 (
                     self.loaded_files,
                     self.common_freq,
                     self.file_frequencies,
-                ) = self._reindex_loaded_files()
-                data = self._join_files()
+                ) = self.reindex_loaded_files(verbose=verbose)
+                data = self.join_files()
             elif len(self.loaded_files) == 1:
                 data = list(self.loaded_files.values())[0]
-            data.index.name = "Timestamp"
-            self.data = data
+            try:
+                data.index.name = "Timestamp"
+                self.data = data
+            except UnboundLocalError:
+                warnings.warn("No files loaded. Data attribute set to None.")
+                self.data = None
         else:
             warnings.warn("No directory or file found at {}".format(self.path))
 
@@ -452,6 +500,7 @@ def load_data(
     path,
     group_columns=cg.group_columns,
     file_reader=file_reader,
+    skip_dir_load=False,
     name="meas",
     sort=True,
     drop_duplicates=True,
@@ -474,6 +523,7 @@ def load_data(
     ----------
     path : str
         Path to either a single file to load or a directory of files to load.
+        Supports local paths and S3 URIs (e.g. ``s3://bucket/path/``).
     group_columns : function or str, default columngroups.group_columns
         Function to use to group the columns of the loaded data. Function should accept
         a DataFrame and return a dictionary with keys that are ids and values that are
@@ -488,6 +538,10 @@ def load_data(
         Function to use to load an individual file. By default will use the built in
         `file_reader` function to try to load csv files. If passing a function to read
         other filetypes, the kwargs should include the filetype extension e.g. 'parquet'.
+    skip_dir_load : bool, default False
+        Set to True to pass a custom file_reader that handles multiple files. This will
+        skip the parsing of files in a directory by DataLoader.load and allow the function
+        passed to file_reader to handle multiple files in a directory.
     name : str
         Identifier that will be assigned to the returned CapData instance.
     sort : bool, default True
@@ -513,25 +567,33 @@ def load_data(
     verbose : bool, default False
         Set to True to print status of file loading.
     **kwargs
-        Passed to `DataLoader.load`, which passes them to the `file_reader` function.
-        The default `file_reader` function passes them to pandas.read_csv.
+        Passed to `DataLoader.load`. Any kwargs not used by `DataLoader.load` are
+        passed to the `file_reader` function, which by default passes
+        them to pandas.read_csv. `DataLoader.load` accepts a summary kwarg to show files
+        loaded from a directory without reindexing status shown when verbose is set to
+        True.
     """
     dl = DataLoader(
         path=path,
         file_reader=file_reader,
     )
-    dl.load(verbose=verbose, **kwargs)
-
-    if sort:
-        dl.sort_data()
-    if drop_duplicates:
-        dl.drop_duplicate_rows()
-    if reindex:
-        dl.reindex()
+    dl.load(verbose=verbose, skip_dir_load=skip_dir_load, **kwargs)
 
     cd = CapData(name)
-    cd.data = dl.data.copy()
-    cd.data_filtered = cd.data.copy()
+    if dl.data is not None:
+        if sort:
+            dl.sort_data()
+        if drop_duplicates:
+            dl.drop_duplicate_rows()
+        if reindex:
+            dl.reindex()
+        cd.data = dl.data.copy()
+        cd.data_filtered = cd.data.copy()
+    else:
+        warnings.warn(
+            "Data attribute is None. Skipping sort, drop_duplicates, and reindex"
+        )
+
     cd.data_loader = dl
     # group columns
     if callable(group_columns):

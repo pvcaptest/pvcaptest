@@ -1,3 +1,4 @@
+import warnings
 import re
 import json
 import yaml
@@ -55,7 +56,7 @@ def get_common_timestep(data, units="m", string_output=True):
         return freq
 
 
-def reindex_datetime(data, report=False):
+def reindex_datetime(data, file_name=None, report=False):
     """
     Find dataframe index frequency and reindex to add any missing intervals.
 
@@ -65,6 +66,8 @@ def reindex_datetime(data, report=False):
     ----------
     data : DataFrame
         DataFrame to be reindexed.
+    file_name : str, default None
+        Name of file being reindexed. Used for warning message.
 
     Returns
     -------
@@ -76,7 +79,18 @@ def reindex_datetime(data, report=False):
 
     freq_str = get_common_timestep(data, string_output=True)
     full_ix = pd.date_range(start=df.index[0], end=df.index[-1], freq=freq_str)
-    df = df.reindex(index=full_ix)
+    try:
+        df = df.reindex(index=full_ix)
+    except ValueError:
+        duplicated = df.index.duplicated()
+        dropped_indices = df[duplicated].index
+        # warning prints out of order in jupyter lab but not ipython, jupyter lab issue
+        warnings.warn(
+            f"Dropping duplicate indices from {file_name} before reindexing: {dropped_indices}",
+            UserWarning,
+        )
+        df = df[~duplicated]  # drop rows with duplicate indices before reindexing
+        df = df.reindex(index=full_ix)
     df_index_length = df.shape[0]
     missing_intervals = df_index_length - data_index_length
 

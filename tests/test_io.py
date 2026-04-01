@@ -7,6 +7,7 @@ import pytest
 from pathlib import Path
 import numpy as np
 import pandas as pd
+from upath import UPath
 
 
 from captest import capdata as pvc
@@ -448,6 +449,15 @@ class TestDataLoader:
         assert isinstance(dl.path, Path)
         assert dl.path == Path("./data/data_for_yyyy-mm-dd.csv")
 
+    def test_s3_path_to_dir(self):
+        """
+        Checks that paths beginning with 's3://' are converted to UPath objects
+        and the 's3://' protocol prefix is preserved.
+        """
+        dl = DataLoader("s3://bucket/data/")
+        assert isinstance(dl.path, UPath)
+        assert str(dl.path) == "s3://bucket/data"
+
     def test_set_files_to_load(self, tmp_path):
         """
         Test that file paths for given extension are stored to list.
@@ -520,7 +530,7 @@ class TestDataLoader:
             "day2": day2,
             "day3": day3,
         }
-        reix_dfs, common_freq, file_frequencies = dl._reindex_loaded_files()
+        reix_dfs, common_freq, file_frequencies = dl.reindex_loaded_files()
         assert common_freq == "60min"
         assert file_frequencies == ["60min", "5min", "60min"]
 
@@ -539,7 +549,7 @@ class TestDataLoader:
             "day2": day2,
         }
         dl.common_freq = "60min"
-        data = dl._join_files()
+        data = dl.join_files()
         print(data)
         print(data.info())
         assert data.shape == (48, 2)
@@ -563,7 +573,7 @@ class TestDataLoader:
         }
         dl.common_freq = "60min"
         with pytest.warns(UserWarning):
-            data = dl._join_files()
+            data = dl.join_files()
         assert data.shape == (48, 2)
 
     def test_join_files_different_headers(self):
@@ -581,7 +591,7 @@ class TestDataLoader:
             "day2": day2,
         }
         dl.common_freq = "60min"
-        data = dl._join_files()
+        data = dl.join_files()
         assert data.shape == (24, 4)
         assert data.isna().sum().sum() == 0
         assert data.dtypes["a"] == "int64"
@@ -604,7 +614,7 @@ class TestDataLoader:
             "day2": day2,
         }
         dl.common_freq = "60min"
-        data = dl._join_files()
+        data = dl.join_files()
         assert data.shape == (48, 4)
         assert data.loc["1/2/22"][["a", "b"]].isna().sum().sum() == 48
         assert data.loc["1/1/22"][["c", "d"]].isna().sum().sum() == 48
@@ -629,7 +639,7 @@ class TestDataLoader:
             "day2": day2,
         }
         dl.common_freq = "60min"
-        data = dl._join_files()
+        data = dl.join_files()
         assert data.shape == (48, 3)
         assert data.index[0] == pd.to_datetime("1/1/22")
         assert data.index[-1] == pd.to_datetime("1/2/22 23:00")
@@ -669,11 +679,21 @@ class TestDataLoader:
                 ),
             ).to_csv(csv_path)
         dl = DataLoader(tmp_path)
-        dl.load()
+        dl.load(raise_errors=True)
         # print(dl.data.info())
         print(dl.data)
         assert isinstance(dl.data, pd.DataFrame)
         assert dl.data.shape == (60, 2)
+
+    def test_load_all_files_from_s3_bucket(self):
+        """
+        Should create a test that mocks AWS resources to test DataLoader.load use
+        of io.file_reader with csv files stored in an S3 bucket.
+
+        Have tested against actual files and worked as expected.
+        UPath with s3fs handles S3 paths transparently.
+        """
+        pass
 
     def test_load_all_files_in_directory_one_fails_to_load(self, tmp_path, capsys):
         """
@@ -706,12 +726,11 @@ class TestDataLoader:
                     writer.writerow(r)
         print(tmp_path)
         dl = DataLoader(tmp_path)
-        dl.load(print_errors=True)
+        dl.load(raise_errors=False)
         captured = capsys.readouterr()
         assert isinstance(dl.data, pd.DataFrame)
         assert len(dl.failed_to_load) == 1
         assert dl.failed_to_load[0] == tmp_path / "file_1.csv"
-        assert "Error tokenizing data" in captured.out
         assert "trying to load" in captured.out
         assert "**FAILED to load" in captured.out
 
@@ -744,6 +763,58 @@ class TestDataLoader:
         assert dl.loaded_files["file_3"].index.equals(
             pd.date_range(start="8/3/22", periods=20, freq="1min")
         )
+
+    def test_load_skip_dir_load(self, tmp_path):
+        """Test load with skip_dir_load=True passes the directory path to file_reader."""
+        csv_path = tmp_path / "file_1.csv"
+        pd.DataFrame(
+            {
+                "met1_poa1": np.arange(0, 20),
+                "met1_poa2": np.arange(20, 40),
+            },
+            index=pd.date_range(start="8/1/22", periods=20, freq="1min"),
+        ).to_csv(csv_path)
+
+        def custom_reader(path, **kwargs):
+            files = sorted(Path(path).glob("*.csv"))
+            return pd.concat(
+                [pd.read_csv(f, index_col=0, parse_dates=True) for f in files]
+            )
+
+        dl = DataLoader(tmp_path)
+        dl.file_reader = custom_reader
+        dl.load(skip_dir_load=True)
+        assert isinstance(dl.data, pd.DataFrame)
+        assert dl.data.shape == (20, 2)
+
+    def test_load_raise_errors(self, tmp_path):
+        """Test that raise_errors=True re-raises exceptions from file_reader."""
+        for i in range(1, 3):
+            csv_path = tmp_path / ("file_" + str(i) + ".csv")
+            csv_path.write_text("bad,data\n")
+
+        def bad_reader(path, **kwargs):
+            raise ValueError("intentional failure")
+
+        dl = DataLoader(tmp_path)
+        dl.file_reader = bad_reader
+        with pytest.raises(ValueError, match="intentional failure"):
+            dl.load(raise_errors=True)
+
+    def test_load_no_files_loaded_warning(self, tmp_path):
+        """Test warning when all files fail to load."""
+        for i in range(1, 3):
+            csv_path = tmp_path / ("file_" + str(i) + ".csv")
+            csv_path.write_text("bad,data\n")
+
+        def bad_reader(path, **kwargs):
+            raise ValueError("intentional failure")
+
+        dl = DataLoader(tmp_path)
+        dl.file_reader = bad_reader
+        with pytest.warns(UserWarning, match="No files loaded"):
+            dl.load(raise_errors=False)
+        assert dl.data is None
 
     def test_load_specific_file_doesnt_exist(self, tmp_path):
         """
