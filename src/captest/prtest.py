@@ -353,7 +353,6 @@ def perf_ratio_temp_corr_nrel(
     timestep = get_common_timestep(poa, units="h", string_output=False)
     timestep_str = get_common_timestep(poa, units="h", string_output=True)
 
-
     if temp_bom is None:
         temp_bom = back_of_module_temp(poa, temp_amb, wind_speed, module_type, racking)
     temp_cell = cell_temp(temp_bom, poa, module_type, racking)

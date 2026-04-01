@@ -365,7 +365,7 @@ class TestPerfRatioTempCorrNREL:
         assert isinstance(perf_ratio.timestep[1], str)
         assert perf_ratio.dc_nameplate == dc_nameplate
         assert isinstance(perf_ratio.results_data, pd.DataFrame)
-    
+
     def test_pr_meas_bom(self):
         """Test a short series of data for a hypothetical system.
 
@@ -394,10 +394,37 @@ class TestPerfRatioTempCorrNREL:
         assert isinstance(perf_ratio.timestep[1], str)
         assert perf_ratio.dc_nameplate == dc_nameplate
         assert isinstance(perf_ratio.results_data, pd.DataFrame)
-    
+
+    def test_pr_meas_bom_single_irr_weighted_temp(self):
+        """Test single_irr_weighted_temp=True uses irradiance-weighted cell temp."""
+        ac_energy = pd.Series([80_000, 90_000, 95_000], index=ix)
+        poa = pd.Series([850, 900, 1000], index=ix)
+        dc_nameplate = 120_000
+        temp_bom = pd.Series([30, 32, 34], index=ix)
+        pr_default = pr.perf_ratio_temp_corr_nrel(
+            ac_energy,
+            dc_nameplate,
+            poa,
+            power_temp_coeff=-0.37,
+            temp_bom=temp_bom,
+        )
+        pr_weighted = pr.perf_ratio_temp_corr_nrel(
+            ac_energy,
+            dc_nameplate,
+            poa,
+            power_temp_coeff=-0.37,
+            temp_bom=temp_bom,
+            single_irr_weighted_temp=True,
+        )
+        assert pr_weighted.pr <= 1
+        assert pr_weighted.pr > 0
+        # Using a single weighted temp should produce a different result
+        assert pr_weighted.pr != pytest.approx(pr_default.pr, abs=1e-10)
+        assert isinstance(pr_weighted.results_data, pd.DataFrame)
+
     def test_pr_meas_bom_and_amb(self):
         """Test a short series of data for a hypothetical system.
-        
+
         Providing too many inputs - BOM temp and amb temp plus wind speed.
 
         System specs:
@@ -427,6 +454,7 @@ class TestPerfRatioTempCorrNREL:
         assert isinstance(perf_ratio.timestep[1], str)
         assert perf_ratio.dc_nameplate == dc_nameplate
         assert isinstance(perf_ratio.results_data, pd.DataFrame)
+
 
 class TestPrResults:
     """Test the print statements of the print_pr_result method of the PerfRatio class."""
