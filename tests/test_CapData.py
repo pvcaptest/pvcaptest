@@ -2106,9 +2106,26 @@ class TestCskyFilter:
         for i, col in enumerate(nrel_clear_sky.data_filtered.columns):
             assert col == nrel_clear_sky.data.columns[i]
 
-    # def test_no_clear_sky(self, nrel_clear_sky):
-    #    with pytest.warns(UserWarning):
-    #        nrel_clear_sky.filter_clearsky(window_length=2)
+    def test_infer_limits_default(self, nrel_clear_sky):
+        """Verify infer_limits=True is passed to detect_clearsky by default."""
+        with unittest.mock.patch(
+            "captest.capdata.detect_clearsky", wraps=pvc.detect_clearsky
+        ) as mock_detect:
+            nrel_clear_sky.filter_clearsky()
+            mock_detect.assert_called_once()
+            _, call_kwargs = mock_detect.call_args
+            assert call_kwargs["infer_limits"] is True
+
+    def test_kwargs_passed_to_detect_clearsky(self, nrel_clear_sky):
+        """Verify user can override infer_limits and pass window_length."""
+        with unittest.mock.patch(
+            "captest.capdata.detect_clearsky", wraps=pvc.detect_clearsky
+        ) as mock_detect:
+            nrel_clear_sky.filter_clearsky(infer_limits=False, window_length=30)
+            mock_detect.assert_called_once()
+            _, call_kwargs = mock_detect.call_args
+            assert call_kwargs["infer_limits"] is False
+            assert call_kwargs["window_length"] == 30
 
 
 class TestFilterMissing:

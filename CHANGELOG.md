@@ -23,10 +23,17 @@ and issues a warning instead of raising an error.
 - Failed-to-load troubleshooting message now includes kwargs passed to `file_reader`.
 
 ### Fixed
+- `filter_clearsky` positional arg bug where `window_length` was passed as
+`infer_limits` to pvlib's `detect_clearsky`.
 - `DataLoader.load` no longer raises `UnboundLocalError` when all files fail to
 load; sets `data` to `None` and issues a warning.
 - `reindex_datetime` now handles duplicate indices by dropping duplicates and
 warning instead of raising a `ValueError`.
+
+### Changed
+- `filter_clearsky` no longer accepts `window_length` as a direct parameter. It
+now defaults to `infer_limits=True` (pvlib recommended, Reno 2016). Pass
+`window_length` and other pvlib `detect_clearsky` parameters via `**kwargs`.
 
 [0.13.4]: https://github.com/pvcaptest/pvcaptest/compare/v0.13.3...v0.13.4
 ## [0.13.4] - 2026-02-17
