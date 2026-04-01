@@ -318,7 +318,7 @@ def perf_ratio_temp_corr_nrel(
     single_irr_weighted_temp : bool, default False
         Set to True to calculate a single irradiance weighted temperature to use
         when temperature correcting the power. Some contract language calls for this
-        but it does not the calculation defined in the NREL paper.
+        but it does not follow the calculation defined in the NREL paper.
     temp_amb : Series
         Ambient temperature (degrees C) measurements.
     wind_speed : Series
