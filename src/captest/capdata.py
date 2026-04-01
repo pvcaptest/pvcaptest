@@ -2190,15 +2190,15 @@ class CapData(object):
             agg_names[group_id] = col_name
             if verbose:
                 print(
-                    'Aggregating the below columns using {} function.  New column name: {}:'.format(
+                    "Aggregating the below columns using {} function.  New column name: {}:".format(
                         agg_func, col_name
                     )
                 )
                 if len(columns_to_aggregate.columns) <= 10:
                     for col in columns_to_aggregate.columns:
-                        print('    ' + col)
+                        print("    " + col)
                 elif len(columns_to_aggregate.columns) > 10:
-                    print('   Aggregating all columns of the {} group'.format(group_id))
+                    print("   Aggregating all columns of the {} group".format(group_id))
 
         dfs_to_concat.append(self.data)
         # write over data and data_filtered attributes
