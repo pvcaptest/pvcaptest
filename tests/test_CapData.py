@@ -2046,6 +2046,15 @@ class TestFilterOutliersAndPower:
         meas.filter_power(500_000, percent=None, columns="power_inv", inplace=True)
         assert meas.data_filtered.shape[0] == 1138
 
+    def test_filter_power_column_group_with_nan(self, meas):
+        """NaN values in a multi-column power group should not cause row removal."""
+        # Introduce NaN in one inverter column
+        meas.data_filtered.iloc[0, meas.data.columns.get_loc("inv1_power")] = np.nan
+        meas.data_filtered.iloc[1, meas.data.columns.get_loc("inv2_power")] = np.nan
+        meas.filter_power(500_000, percent=None, columns="power_inv", inplace=True)
+        # Rows with NaN should still be present (NaN < threshold is treated as True)
+        assert meas.data_filtered.shape[0] == 1138
+
     def test_filter_power_columns_not_str(self, meas):
         with pytest.warns(UserWarning):
             meas.filter_power(500_000, percent=None, columns=1, inplace=True)

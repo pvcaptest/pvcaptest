@@ -25,6 +25,8 @@ and issues a warning instead of raising an error.
 ### Fixed
 - `filter_clearsky` positional arg bug where `window_length` was passed as
 `infer_limits` to pvlib's `detect_clearsky`.
+- `filter_power` no longer incorrectly removes rows with NaN values when
+filtering on a multi-column power group.
 - `DataLoader.load` no longer raises `UnboundLocalError` when all files fail to
 load; sets `data` to `None` and issues a warning.
 - `reindex_datetime` now handles duplicate indices by dropping duplicates and
