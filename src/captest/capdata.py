@@ -2640,7 +2640,9 @@ class CapData(object):
             return warnings.warn("columns must be None or a string.")
 
         if multiple_columns:
-            filtered_power_bool = power_data.apply(lambda x: all(x < power), axis=1)
+            filtered_power_bool = power_data.apply(
+                lambda x: all(x.le(power, fill_value=True)), axis=1
+            )
         else:
             filtered_power_bool = power_data["power"] < power
 
