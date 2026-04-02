@@ -1493,7 +1493,64 @@ class TestGetRegCols:
         assert meas.data["irr_poa_pyran_mean_agg"].iloc[100] == df["poa"].iloc[100]
 
 
+class TestCapDataHelperMethods:
+    def test_rename_cols(self, meas):
+        meas.rename_cols({"met1_poa_pyranometer": "poa_new_name"})
+        assert "poa_new_name" in meas.data.columns
+        assert "poa_new_name" in meas.data_filtered.columns
+        assert "poa_new_name" in meas.column_groups["irr_poa_pyran"]
+
+
+class TestExpandAggMap:
+    """Test the expand_agg_map method of the CapData class."""
+
+    def test_expand_agg_map(self, cd_nested_col_groups):
+        """Test the example from the docstring showing nested aggregation map expansion."""
+        cd = cd_nested_col_groups
+
+        # Input aggregation map with nested structure
+        agg_map = {
+            "irr_ghi": "mean",
+            "irr_poa": {"irr_poa_met1": "mean", "irr_poa_met2": "mean"},
+        }
+
+        # Expected expanded map
+        expected_expanded_map = {
+            "irr_ghi": "mean",
+            "irr_poa_met1": "mean",
+            "irr_poa_met2": "mean",
+            "irr_poa_aggs": "mean",
+        }
+
+        # Call the method
+        expanded_map, rename_map, subgroup_rename_map = cd.expand_agg_map(agg_map)
+
+        # Verify the expanded map matches expected (order independent)
+        assert set(expanded_map.keys()) == set(expected_expanded_map.keys())
+        for key in expected_expanded_map:
+            assert expanded_map[key] == expected_expanded_map[key]
+
+        # Verify the column groups were updated correctly
+        assert cd.column_groups["irr_poa_aggs"] == [
+            "irr_poa_met1_mean_agg",
+            "irr_poa_met2_mean_agg",
+        ]
+
+
 class TestAggSensors:
+    def test_agg_group(self, meas):
+        agg_result, col_name = meas.agg_group("irr_poa_pyran", "mean")
+        assert "irr_poa_pyran_mean_agg" == col_name
+        assert isinstance(agg_result, pd.DataFrame)
+        exp_mean = (
+            meas.data[meas.column_groups["irr_poa_pyran"]]
+            .mean(axis=1)
+            .rename("irr_poa_pyran_mean_agg")
+            .to_frame()
+        )
+        assert exp_mean.shape == agg_result.shape
+        assert exp_mean.equals(agg_result)
+
     def test_agg_map_none(self, meas):
         """Test default behaviour when no agg_map is passed."""
         meas.agg_sensors()
@@ -1604,14 +1661,13 @@ class TestAggSensors:
         """Verbose should print each column name when group has <= 10 columns."""
         meas.agg_sensors(agg_map={"irr_poa_pyran": "mean"}, verbose=True)
         captured = capsys.readouterr()
-        assert "Aggregating the below columns using mean function" in captured.out
+        assert "Aggregating the below columns using the mean function" in captured.out
         assert "irr_poa_pyran_mean_agg" in captured.out
         assert "    met1_poa_pyranometer" in captured.out
         assert "    met2_poa_pyranometer" in captured.out
 
     def test_verbose_prints_group_name_when_gt_10(self, meas, capsys):
         """Verbose should print only the group name when group has > 10 columns."""
-        # Add extra columns to make the group have > 10 members
         extra_cols = [f"extra_poa_{i}" for i in range(10)]
         for col in extra_cols:
             meas.data[col] = meas.data["met1_poa_pyranometer"]
@@ -1621,10 +1677,114 @@ class TestAggSensors:
         )
         meas.agg_sensors(agg_map={"irr_poa_pyran": "mean"}, verbose=True)
         captured = capsys.readouterr()
-        assert "Aggregating the below columns using mean function" in captured.out
+        assert "Aggregating the below columns using the mean function" in captured.out
         assert "Aggregating all columns of the irr_poa_pyran group" in captured.out
-        # Individual column names should NOT be printed
         assert "    met1_poa_pyranometer" not in captured.out
+
+    def test_agg_subgroups_expanded_map(self, cd_nested_col_groups):
+        """
+        Proof of concept test of idea to implement aggregating sub
+        groups of sensors with agg_sensors by recursively traversing
+        the original agg map, expanding it, sorting it, and adding
+        the intermediate column groupings to the column groups.
+        """
+        cd = cd_nested_col_groups
+        cd.column_groups["irr_poa_aggs"] = [
+            "irr_poa_met1_mean_agg",
+            "irr_poa_met2_mean_agg",
+        ]
+        cd.agg_sensors(
+            agg_map={
+                "irr_poa": "mean",
+                "irr_poa_met1": "mean",
+                "irr_poa_met2": "mean",
+                "irr_poa_aggs": "mean",
+            }
+        )
+        cd.rename_cols({"irr_poa_aggs_mean_agg": "irr_poa_mean_agg"})
+        # test that all aggregated columns exist
+        for agg_col in [
+            "irr_poa_mean_agg",
+            "irr_poa_met1_mean_agg",
+            "irr_poa_met2_mean_agg",
+        ]:
+            assert agg_col in cd.data.columns
+
+    def test_agg_subgroups(self, cd_nested_col_groups, capsys):
+        cd = cd_nested_col_groups
+        cd.regression_cols["poa"] = "irr_poa"
+        cd.agg_sensors(
+            agg_map={
+                "irr_poa": {"irr_poa_met1": "mean", "irr_poa_met2": "mean"},
+                "irr_rpoa": {"irr_rpoa_met1": "mean", "irr_rpoa_met2": "mean"},
+            },
+            verbose=True,
+        )
+
+        # Check stdout from agg_sensors
+        captured = capsys.readouterr()
+        expected_output = [
+            "Aggregating the below columns using the mean function. New column name: irr_poa_met1_mean_agg:",
+            "    met1_poa1_pyranometer",
+            "    met1_poa2_pyranometer",
+            "Aggregating the below columns using the mean function. New column name: irr_poa_met2_mean_agg:",
+            "    met2_poa1_pyranometer",
+            "    met2_poa2_pyranometer",
+            "Aggregating the below columns using the mean function. New column name: irr_poa_mean_agg:",
+            "    irr_poa_met1_mean_agg",
+            "    irr_poa_met2_mean_agg",
+            "Aggregating the below columns using the mean function. New column name: irr_rpoa_met1_mean_agg:",
+            "    met1_rpoa1_pyranometer",
+            "    met1_rpoa2_pyranometer",
+            "    met1_rpoa3_pyranometer",
+            "Aggregating the below columns using the mean function. New column name: irr_rpoa_met2_mean_agg:",
+            "    met2_rpoa1_pyranometer",
+            "    met2_rpoa2_pyranometer",
+            "    met2_rpoa3_pyranometer",
+            "Aggregating the below columns using the mean function. New column name: irr_rpoa_mean_agg:",
+            "    irr_rpoa_met1_mean_agg",
+            "    irr_rpoa_met2_mean_agg",
+        ]
+        for expected_line, actual_line in zip(
+            expected_output, captured.out.splitlines()
+        ):
+            assert expected_line == actual_line
+        # Check that the expected columns exist
+        expected_columns = [
+            "irr_poa_mean_agg",
+            "irr_poa_met1_mean_agg",
+            "irr_poa_met2_mean_agg",
+            "irr_rpoa_mean_agg",
+            "irr_rpoa_met1_mean_agg",
+            "irr_rpoa_met2_mean_agg",
+        ]
+        for agg_col in expected_columns:
+            assert agg_col in cd.data.columns
+
+        # Check regression column mapping
+        assert cd.regression_cols["poa"] == "irr_poa_mean_agg"
+
+        # Check that average of subgroup averages is as expected
+        expected_mean = (
+            cd.data["irr_poa_met1_mean_agg"] + cd.data["irr_poa_met2_mean_agg"]
+        ) / 2
+        assert expected_mean.equals(cd.data["irr_poa_mean_agg"])
+
+        # Check that column_groups were updated correctly
+        assert "agg" in cd.column_groups.keys()
+        assert cd.column_groups["agg"] == [
+            "irr_poa_met1_mean_agg",
+            "irr_poa_met2_mean_agg",
+            "irr_poa_mean_agg",
+            "irr_rpoa_met1_mean_agg",
+            "irr_rpoa_met2_mean_agg",
+            "irr_rpoa_mean_agg",
+        ]
+
+        # check that aggs CapData attributes are created
+        for agg_col in expected_columns:
+            assert hasattr(cd, "aggs_" + agg_col)
+            assert getattr(cd, "aggs_" + agg_col).equals(cd.data[agg_col].to_frame())
 
 
 class TestFilterSensors:
@@ -2833,6 +2993,33 @@ class TestPlotDashboard:
         assert isinstance(dboard[0], pn.pane.holoviews.HoloViews)
         assert isinstance(dboard[1], pn.layout.base.Column)
         assert isinstance(dboard[2], pn.layout.base.Column)
+
+
+class TestCreateColumnGroupAttributes:
+    """
+    Test the create_column_group_attributes method of the CapData class.
+
+    Checks the following:
+    - an attribute is created for each key of self.column_groups
+    - the attributes return the correct view of the data
+    """
+
+    def test_column_group_attributes(self, meas):
+        """Test that column group attributes are created and return correct data."""
+        # Create the column group attributes
+        meas.create_column_group_attributes()
+
+        # Check that an attribute exists for each key in column_groups
+        for group_key in meas.column_groups.keys():
+            assert hasattr(meas, group_key), f"Attribute {group_key} not created"
+
+            # Get the data view using the attribute
+            attr_data = getattr(meas, group_key)
+            # Get the expected data using loc indexer
+            expected_data = meas.loc[group_key]
+
+            # Check that the attribute returns the correct data
+            pd.testing.assert_frame_equal(attr_data, expected_data)
 
 
 if __name__ == "__main__":

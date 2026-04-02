@@ -1,0 +1,34 @@
+{
+    "irr_poa": [
+        "met1_poa1_pyranometer",
+        "met1_poa2_pyranometer",
+        "met2_poa1_pyranometer",
+        "met2_poa2_pyranometer"
+    ],
+    "irr_poa_met1": [
+        "met1_poa1_pyranometer",
+        "met1_poa2_pyranometer"
+    ],
+    "irr_poa_met2": [
+        "met2_poa1_pyranometer",
+        "met2_poa2_pyranometer"
+    ],
+    "irr_rpoa": [
+        "met1_rpoa1_pyranometer",
+        "met1_rpoa2_pyranometer",
+        "met1_rpoa3_pyranometer",
+        "met2_rpoa1_pyranometer",
+        "met2_rpoa2_pyranometer",
+        "met2_rpoa3_pyranometer"
+    ],
+    "irr_rpoa_met1": [
+        "met1_rpoa1_pyranometer",
+        "met1_rpoa2_pyranometer",
+        "met1_rpoa3_pyranometer"
+    ],
+    "irr_rpoa_met2": [
+        "met2_rpoa1_pyranometer",
+        "met2_rpoa2_pyranometer",
+        "met2_rpoa3_pyranometer"
+    ]
+}

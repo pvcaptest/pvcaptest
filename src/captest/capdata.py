@@ -1662,6 +1662,42 @@ class CapData(object):
         self.loc = LocIndexer(self)
         self.floc = FilteredLocIndexer(self)
 
+    def create_column_group_attributes(self):
+        """Create callable attributes for each column group that return data views.
+
+        For each key in self.column_groups, creates an attribute on the instance
+        that when called returns a view of the data for that column group using
+        the loc indexer functionality.
+        """
+        for grp_id in self.column_groups.keys():
+
+            def make_getter(key):
+                def getter(self):
+                    return self.loc[key]
+
+                return getter
+
+            # Create the property and set it on the instance
+            setattr(self.__class__, grp_id, property(make_getter(grp_id)))
+
+    def create_agg_attributes(self):
+        """Create callable attributes for each aggregated column that return data views.
+
+        For each column in self.column_groups['agg'], creates an attribute on the instance
+        that when called returns a view of the data for that column group using
+        the loc indexer functionality.
+        """
+        for grp_id in self.column_groups["agg"]:
+
+            def make_getter(key):
+                def getter(self):
+                    return self.loc[key]
+
+                return getter
+
+            # Create the property and set it on the instance
+            setattr(self.__class__, "aggs_" + grp_id, property(make_getter(grp_id)))
+
     def set_regression_cols(self, power="", poa="", t_amb="", w_vel=""):
         """
         Create a dictionary linking the regression variables to data.
@@ -1735,6 +1771,20 @@ class CapData(object):
                     continue
         self.data.drop(columns, axis=1, inplace=True)
         self.data_filtered.drop(columns, axis=1, inplace=True)
+
+    def rename_cols(self, column_map):
+        """
+        Rename columns in `data`, `data_filtered`, and `column_groups`.
+
+        Parameters
+        ----------
+        column_map : dict
+            Dictionary mapping old column names to new column names.
+        """
+        self.data.rename(columns=column_map, inplace=True)
+        self.data_filtered.rename(columns=column_map, inplace=True)
+        for key, value in self.column_groups.items():
+            self.column_groups[key] = [column_map.get(col, col) for col in value]
 
     def get_reg_cols(self, reg_vars=None, filtered_data=True):
         """
@@ -2119,6 +2169,123 @@ class CapData(object):
         else:
             return poa_cols[0]
 
+    def agg_group(self, group_id, agg_func, verbose=True, rename_map=None):
+        """
+        Aggregate columns in a group.
+
+        Parameters
+        ----------
+        group_id : str
+            Key from `column_groups` attribute.
+        agg_func : str or callable
+            Aggregation function to apply.
+        verbose : bool, default True
+            Set to True to print the columns that have been aggregated, the
+            aggregation function used, and the new column name. If the group being
+            aggregated has more than 10 columns, only the group name will be printed.
+        """
+        columns_to_aggregate = self.loc[group_id]
+        agg_result = columns_to_aggregate.agg(agg_func, axis=1)
+        if isinstance(agg_func, str):
+            col_name = group_id + "_" + agg_func + "_agg"
+        else:
+            col_name = group_id + "_" + agg_func.__name__ + "_agg"
+        agg_result = agg_result.rename(col_name).to_frame()
+        if verbose:
+            col_name_to_print = copy.copy(col_name)
+            if rename_map is not None and col_name in rename_map.keys():
+                col_name_to_print = rename_map[col_name]
+            print(
+                "Aggregating the below columns using the {} function. New column name: {}:".format(
+                    agg_func, col_name_to_print
+                )
+            )
+            if len(columns_to_aggregate.columns) <= 10:
+                for col in columns_to_aggregate.columns:
+                    print("    " + col)
+            elif len(columns_to_aggregate.columns) > 10:
+                print("   Aggregating all columns of the {} group".format(group_id))
+        return (agg_result, col_name)
+
+    def expand_agg_map(self, agg_map):
+        """
+        Traverses, expands, and sorts the agg_map.
+
+        If a value of `agg_map` is a dictionary, the items in that dictionary are
+        added to the returned expanded agg_map at the top level. Also, the following
+        steps are completed to aggregate the subgroups:
+        - The `column_groups` attribute is updated to add a new group with the aggregated
+        columns from the subgroups.
+        - This new group is added to the expanded returned agg_map after the subgroup
+        aggregations.
+        - The resulting aggregation of the subgroups is renamed.
+
+        For example, given the following `agg_map`:
+        ```python
+        agg_map = {
+            'irr_ghi': 'mean',
+            'irr_poa': {
+                'irr_poa_met1': 'mean',
+                'irr_poa_met2': 'mean'
+            },
+        }
+        ```
+        The returned expanded `agg_map` would be:
+        ```python
+        agg_map = {
+            'irr_ghi': 'mean',
+            'irr_poa_met1': 'mean',
+            'irr_poa_met2': 'mean',
+            'irr_poa_aggs': 'mean',
+        }
+
+        and the column_groups attribute would be updated to add the group:
+        'irr_poa_aggs': ['irr_poa_met1_mean_agg', 'irr_poa_met2_mean_agg']
+
+        The column resulting from aggregating the "irr_poa_aggs" group would be
+        "irr_poa_aggs_mean_agg", which is renamed to "irr_poa_mean_agg".
+
+        Parameters
+        ----------
+        agg_map : dict
+            Dictionary specifying aggregations to be performed on
+            the specified groups from the `column_groups` attribute.
+
+        Returns
+        -------
+        agg_map : dict
+        """
+        expanded_map = {}
+        rename_map = {}
+        subgroup_rename_map = {}
+
+        # First pass: expand nested dictionaries and collect subgroup info
+        for key, value in agg_map.items():
+            if isinstance(value, dict):
+                # Add the subgroup entries to the expanded map
+                for sub_key, sub_value in value.items():
+                    expanded_map[sub_key] = sub_value
+
+                # Create a new group for the aggregated subgroups
+                aggs_key = f"{key}_aggs"
+                agg_columns = [
+                    f"{sub_key}_{sub_value}_agg" for sub_key, sub_value in value.items()
+                ]
+                self.column_groups[aggs_key] = agg_columns
+
+                # Add the aggs key to the expanded map
+                expanded_map[aggs_key] = value[
+                    next(iter(value))
+                ]  # Use same agg function as subgroups
+                rename_map[f"{aggs_key}_mean_agg"] = (
+                    f"{key}_{value[next(iter(value))]}_agg"
+                )
+                subgroup_rename_map[key] = f"{key}_{value[next(iter(value))]}_agg"
+            else:
+                expanded_map[key] = value
+
+        return expanded_map, rename_map, subgroup_rename_map
+
     def agg_sensors(self, agg_map=None, verbose=False):
         """
         Aggregate measurments of the same variable from different sensors.
@@ -2150,6 +2317,8 @@ class CapData(object):
         -----
         This method is intended to be used before any filtering methods are applied.
         Filtering steps applied when this method is used will be lost.
+
+        This method modifies the `data`, `data_filtered`, and `regression_cols` attributes.
         """
         if not len(self.summary) == 0:
             warnings.warn(
@@ -2174,48 +2343,54 @@ class CapData(object):
                 self.regression_cols["w_vel"]: "mean",
             }
 
-        dfs_to_concat = []
         agg_names = {}
+        # print('Original agg map')
+        # print(agg_map)
+        agg_map, rename_map, subgroup_rename_map = self.expand_agg_map(agg_map)
+        # print('Expanded agg map')
+        # print(agg_map)
+        # print('Subgroup rename map')
+        # print(subgroup_rename_map)
         for group_id, agg_func in agg_map.items():
-            columns_to_aggregate = self.loc[group_id]
-            if columns_to_aggregate.shape[1] == 1:
+            if self.loc[group_id].shape[1] == 1:
                 continue
-            agg_result = columns_to_aggregate.agg(agg_func, axis=1).to_frame()
-            if isinstance(agg_func, str):
-                col_name = group_id + "_" + agg_func + "_agg"
-            else:
-                col_name = group_id + "_" + agg_func.__name__ + "_agg"
-            agg_result.rename(columns={agg_result.columns[0]: col_name}, inplace=True)
-            dfs_to_concat.append(agg_result)
+            agg_result, col_name = self.agg_group(
+                group_id, agg_func, verbose=verbose, rename_map=rename_map
+            )
+            self.data = pd.concat([agg_result, self.data], axis=1)
             agg_names[group_id] = col_name
-            if verbose:
-                print(
-                    "Aggregating the below columns using {} function.  New column name: {}:".format(
-                        agg_func, col_name
-                    )
-                )
-                if len(columns_to_aggregate.columns) <= 10:
-                    for col in columns_to_aggregate.columns:
-                        print("    " + col)
-                elif len(columns_to_aggregate.columns) > 10:
-                    print("   Aggregating all columns of the {} group".format(group_id))
-
-        dfs_to_concat.append(self.data)
-        # write over data and data_filtered attributes
-        self.data = pd.concat(dfs_to_concat, axis=1)
         self.data_filtered = self.data.copy()
 
+        # print('Agg names')
+        # print(agg_names)
+        # print('Renamer')
+        # print(rename_map)
+        self.rename_cols(rename_map)
         # update regression_cols attribute
         for reg_var, trans_group in self.regression_cols.items():
             if self.loc[reg_var].shape[1] == 1:
                 continue
-            if trans_group in agg_names.keys():
+            elif trans_group in agg_names.keys():
                 print(
                     "Regression variable '{}' has been remapped: '{}' to '{}'".format(
                         reg_var, trans_group, agg_names[trans_group]
                     )
                 )
                 self.regression_cols[reg_var] = agg_names[trans_group]
+            elif trans_group in subgroup_rename_map.keys():
+                print(
+                    "Regression variable '{}' has been remapped: '{}' to '{}".format(
+                        reg_var, trans_group, subgroup_rename_map[trans_group]
+                    )
+                )
+                self.regression_cols[reg_var] = subgroup_rename_map[trans_group]
+        # update column_groups attribute
+        self.column_groups["agg"] = [
+            rename_map[name] if name in rename_map.keys() else name
+            for name in agg_names.values()
+        ]
+        self.create_column_group_attributes()
+        self.create_agg_attributes()
 
     def data_columns_to_excel(self, sort_by_reversed_names=True):
         """
