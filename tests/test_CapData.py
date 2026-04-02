@@ -1661,7 +1661,7 @@ class TestAggSensors:
         """Verbose should print each column name when group has <= 10 columns."""
         meas.agg_sensors(agg_map={"irr_poa_pyran": "mean"}, verbose=True)
         captured = capsys.readouterr()
-        assert "Aggregating the below columns using mean function" in captured.out
+        assert "Aggregating the below columns using the mean function" in captured.out
         assert "irr_poa_pyran_mean_agg" in captured.out
         assert "    met1_poa_pyranometer" in captured.out
         assert "    met2_poa_pyranometer" in captured.out
@@ -1677,7 +1677,7 @@ class TestAggSensors:
         )
         meas.agg_sensors(agg_map={"irr_poa_pyran": "mean"}, verbose=True)
         captured = capsys.readouterr()
-        assert "Aggregating the below columns using mean function" in captured.out
+        assert "Aggregating the below columns using the mean function" in captured.out
         assert "Aggregating all columns of the irr_poa_pyran group" in captured.out
         assert "    met1_poa_pyranometer" not in captured.out
 

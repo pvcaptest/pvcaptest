@@ -21,7 +21,7 @@ def test_cd_nested_col_groups_fixture(cd_nested_col_groups):
     expected_end = expected_start + pd.Timedelta(days=2)
     assert cd.data.index[0] == expected_start
     assert cd.data.index[-1] == expected_end
-    assert cd.data.index.freq == "5T"
+    assert cd.data.index.freq == "5min"
 
     # Check that all columns from column groups exist in data
     all_expected_columns = []

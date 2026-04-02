@@ -189,7 +189,7 @@ def cd_nested_col_groups():
     # Create datetime index for 2 days at 5min intervals
     start_time = pd.Timestamp("2023-01-01")
     end_time = start_time + pd.Timedelta(days=2)
-    datetime_index = pd.date_range(start_time, end_time, freq="5T")
+    datetime_index = pd.date_range(start_time, end_time, freq="5min")
 
     # Get all column names from column groups
     all_columns = []
