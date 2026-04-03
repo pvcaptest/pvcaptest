@@ -45,6 +45,8 @@ just docs                     # build HTML docs with sphinx-build
 - uv is available system wide
 - ruff is available system wide
 - just is available system wide
+- The Github CLI is available to use. When directed use it to create and monitor PRs
+  or other Github functionality as requeted..
 
 ## Code quality guidelines
 ### Code Style
