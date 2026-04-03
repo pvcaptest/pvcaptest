@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to Claude Code (claude.ai/code) or other coding agents when working with code in this repository.
 
 ## Overview
 
@@ -26,6 +26,7 @@ just fmt                      # ruff format all files
 # Tests
 just test                     # full suite (Python 3.12)
 just test-wo-warnings         # full suite without warnings
+just test-wo-warnings 3.13    # specify python version for tests
 just test-cov                 # full suite with HTML coverage report
 just test-module test_io.py   # single test module
 
@@ -60,7 +61,7 @@ just docs                     # build HTML docs with sphinx-build
 ### Documentation
 - Include docstrings for all public functions, classes, and methods.
 - Document parameters, return values, and exceptions raised.
-- Keep comments and docstrings up-to-date when modifying code.
+- You MUST keep comments and docstrings up-to-date when modifying code.
 
 ### Error handling
 - Never use bare `except:` clauses; catch specific exceptions.
