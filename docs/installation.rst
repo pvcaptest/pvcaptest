@@ -112,8 +112,8 @@ With uv - Contributors
 
 Using uv is the preferred method for contributors setting up a
 development installation as of v0.13.3. See
-`MAINTAINER.md <MAINTAINER.md>`__ for additional details, specifically
-the section on just.
+`MAINTAINER.md <https://github.com/pvcaptest/pvcaptest/blob/848c6c3b05867cd7af7a17cd76424dc2f8b4c376/MAINTAINER.md>`__ 
+for additional details, specifically the section on just.
 
 Install
 `uv <https://docs.astral.sh/uv/getting-started/installation/#__tabbed_1_1>`__
