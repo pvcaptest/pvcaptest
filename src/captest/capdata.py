@@ -1950,6 +1950,7 @@ class CapData(object):
         default_groups=plotting.DEFAULT_GROUPS,
         width=1500,
         height=250,
+        plot_defaults_path=None,
         **kwargs,
     ):
         """
@@ -1970,6 +1971,12 @@ class CapData(object):
         using regular expressions. Adding a text id in the box and clicking Update will
         add the current overlay to the list of groups on the Layout tab.
 
+        NOTE: If a plot defaults JSON file exists in the current working directory, the
+        default groups will be read from that file. The file is named
+        ``plot_defaults_{self.name}.json`` to avoid conflicts when multiple CapData
+        objects are used in the same session. Columns in the file that are no longer
+        present in the data are ignored with a warning.
+
         Parameters
         ----------
         combine : dict, optional
@@ -1979,10 +1986,13 @@ class CapData(object):
         default_groups : list of str, optional
             List of regex strings to use to identify default groups to plot. See the
             `plotting.find_default_groups` function for more details.
-        group_width : int, optional
+        width : int, optional
             The width of the plots on the Groups tab.
-        group_height : int, optional
+        height : int, optional
             The height of the plots on the Groups tab.
+        plot_defaults_path : str or Path, optional
+            Path to the plot defaults JSON file. Overrides the default naming scheme.
+            When None, defaults to ``./plot_defaults_{self.name}.json``.
         **kwargs : optional
             Additional keyword arguments are passed to the options of the scatter plot.
 
@@ -1996,6 +2006,7 @@ class CapData(object):
             default_groups=default_groups,
             group_width=width,
             group_height=height,
+            plot_defaults_path=plot_defaults_path,
             **kwargs,
         )
 
