@@ -39,7 +39,19 @@ and issues a warning instead of raising an error.
 now defaults to `infer_limits=True` (pvlib recommended, Reno 2016). Pass
 `window_length` and other pvlib `detect_clearsky` parameters via `**kwargs`.
 
+### Added
+- `CapData.plot()` and `plotting.plot()` accept a `plot_defaults_path` parameter
+to explicitly specify the path to the plot defaults JSON file.
+
 ### Fixed
+- `CapData.plot()` now reads and writes a per-instance defaults file named
+`plot_defaults_{name}.json` instead of the shared `plot_defaults.json`, preventing
+conflicts when multiple `CapData` objects are used in the same session (issue #117).
+- Columns listed in the plot defaults file that are no longer present in the data
+are ignored with a `UserWarning` rather than causing an error. If all stored columns
+are missing, the dashboard falls back to auto-detected default groups (issue #115).
+- Fixed inaccurate docstring note: the plot defaults file is resolved relative to
+the current working directory, not the calling file's directory.
 - `filter_clearsky` positional arg bug where `window_length` was passed as
 `infer_limits` to pvlib's `detect_clearsky`.
 - `filter_power` no longer incorrectly removes rows with NaN values when

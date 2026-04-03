@@ -1,3 +1,4 @@
+import json
 import os
 import copy
 import collections
@@ -2993,6 +2994,50 @@ class TestPlotDashboard:
         assert isinstance(dboard[0], pn.pane.holoviews.HoloViews)
         assert isinstance(dboard[1], pn.layout.base.Column)
         assert isinstance(dboard[2], pn.layout.base.Column)
+
+    def test_plot_defaults_path_with_valid_columns(self, meas, tmp_path, recwarn):
+        """Defaults file with valid columns is loaded without column warnings."""
+        some_columns = list(meas.data.columns[:2])
+        defaults_file = tmp_path / "defaults.json"
+        defaults_file.write_text(json.dumps([some_columns]))
+        dboard = meas.plot(plot_defaults_path=defaults_file)
+        column_warnings = [
+            w
+            for w in recwarn.list
+            if "not found in the data" in str(w.message)
+            or "No valid columns" in str(w.message)
+        ]
+        assert len(column_warnings) == 0
+        assert isinstance(dboard, pn.layout.tabs.Tabs)
+
+    def test_plot_defaults_path_warns_on_missing_columns(self, meas, tmp_path):
+        """Defaults file with some missing columns emits a warning, plots valid ones."""
+        valid_col = list(meas.data.columns[:1])
+        defaults_file = tmp_path / "defaults.json"
+        defaults_file.write_text(json.dumps([valid_col + ["nonexistent_column"]]))
+        with pytest.warns(UserWarning, match="nonexistent_column"):
+            dboard = meas.plot(plot_defaults_path=defaults_file)
+        assert isinstance(dboard, pn.layout.tabs.Tabs)
+
+    def test_plot_defaults_path_all_missing_falls_back_to_default_groups(
+        self, meas, tmp_path
+    ):
+        """Defaults file with only missing columns warns and falls back to default groups."""
+        defaults_file = tmp_path / "defaults.json"
+        defaults_file.write_text(
+            json.dumps([["nonexistent_col_1", "nonexistent_col_2"]])
+        )
+        with pytest.warns(UserWarning):
+            dboard = meas.plot(plot_defaults_path=defaults_file)
+        assert isinstance(dboard, pn.layout.tabs.Tabs)
+
+    def test_per_capdata_defaults_file_uses_cd_name(self, meas, tmp_path, monkeypatch):
+        """CapData.plot() reads from plot_defaults_{name}.json in the CWD."""
+        monkeypatch.chdir(tmp_path)
+        some_columns = list(meas.data.columns[:2])
+        (tmp_path / "plot_defaults_meas.json").write_text(json.dumps([some_columns]))
+        dboard = meas.plot()
+        assert isinstance(dboard, pn.layout.tabs.Tabs)
 
 
 class TestCreateColumnGroupAttributes:

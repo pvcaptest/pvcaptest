@@ -1,6 +1,7 @@
 from pathlib import Path
 import copy
 import json
+import re
 import warnings
 import itertools
 from functools import partial
@@ -357,16 +358,20 @@ def plot(
     default_groups=DEFAULT_GROUPS,
     group_width=1500,
     group_height=250,
+    plot_defaults_path=None,
     **kwargs,
 ):
     """
     Create plotting dashboard.
 
-    NOTE: If a 'plot_defaults.json' file exists in the same directory as the file this
-    function is called from called, then the default groups will be read from that file
-    instead of using the `default_groups` argument. Delete or manually edit the file to
-    change the default groups. Use the `default_groups` or manually edit the file to
-    control the order of the plots.
+    NOTE: If a plot defaults JSON file exists in the current working directory, the
+    default groups will be read from that file instead of using the `default_groups`
+    argument. When a `cd` (CapData) object is provided, the file is named
+    ``plot_defaults_{cd.name}.json`` to avoid conflicts between multiple CapData objects
+    in the same session. Otherwise the file is named ``plot_defaults.json``. Use the
+    `plot_defaults_path` argument to override the path. Delete or manually edit the
+    file to change the default groups. Columns in the file that are no longer present
+    in the data are ignored with a warning.
 
     Parameters
     ----------
@@ -387,6 +392,11 @@ def plot(
         The width of the plots on the Groups tab.
     group_height : int, optional
         The height of the plots on the Groups tab.
+    plot_defaults_path : str or Path, optional
+        Path to the plot defaults JSON file. Overrides the default naming scheme.
+        When None and `cd` is provided, defaults to
+        ``./plot_defaults_{cd.name}.json``. When None and `cd` is not provided,
+        defaults to ``./plot_defaults.json``.
     **kwargs : optional
         Pass additional keyword arguments to the holoviews options of the scatter plot
         on the 'Scatter' tab.
@@ -394,6 +404,14 @@ def plot(
     if cd is not None:
         data = cd.data
         cg = cd.column_groups
+    # determine path for plot defaults file
+    if plot_defaults_path is not None:
+        defaults_path = Path(plot_defaults_path)
+    elif cd is not None:
+        safe_name = re.sub(r"[^\w\-]", "_", cd.name)
+        defaults_path = Path(f"./plot_defaults_{safe_name}.json")
+    else:
+        defaults_path = Path("./plot_defaults.json")
     # make sure data is numeric
     data = data.apply(pd.to_numeric, errors="coerce")
     bool_columns = data.select_dtypes(include="bool").columns
@@ -469,14 +487,36 @@ def plot(
     )
 
     def set_defaults(event):
-        with open("./plot_defaults.json", "w") as file:
+        with open(defaults_path, "w") as file:
             json.dump(main_ms.value, file)
 
     plots_to_layout.on_click(set_defaults)
 
     # setup default groups
-    if Path("./plot_defaults.json").exists():
-        default_tags = read_json("./plot_defaults.json")
+    if defaults_path.exists():
+        default_tags = read_json(str(defaults_path))
+        valid_columns = set(data.columns)
+        filtered_tags = []
+        missing_columns = []
+        for tag_group in default_tags:
+            valid_group_tags = [t for t in tag_group if t in valid_columns]
+            missing_columns.extend(t for t in tag_group if t not in valid_columns)
+            if valid_group_tags:
+                filtered_tags.append(valid_group_tags)
+        if missing_columns:
+            warnings.warn(
+                f"The following columns from {defaults_path.name} were not found "
+                f"in the data and will be ignored: {missing_columns}"
+            )
+        if filtered_tags:
+            default_tags = filtered_tags
+        else:
+            warnings.warn(
+                f"No valid columns found in {defaults_path.name}. "
+                "Falling back to default groups."
+            )
+            default_groups = find_default_groups(list(cg_layout.keys()), default_groups)
+            default_tags = [cg_layout.get(grp, []) for grp in default_groups]
     else:
         default_groups = find_default_groups(list(cg_layout.keys()), default_groups)
         default_tags = [cg_layout.get(grp, []) for grp in default_groups]

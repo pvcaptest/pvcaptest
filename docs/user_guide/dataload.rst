@@ -131,11 +131,19 @@ The `Layout` tab allows creating a column of plots like the `Groups` tab by sele
 
 .. image:: ../_images/dboard_layout.png
 
-The button labeled "Set plots to current layout" above the list of groups can be used to replace the figure shown on the `Groups` tab with the current figure on the `Layout` tab. This will save a ``plot_defaults.json`` file in the current working directory that will be used to set the default groups for the `Groups` tab when the :py:meth:`~captest.capdata.CapData.plot` method is called. You will need to rerun the ``plot`` method to see the new defaults.
+The button labeled "Set plots to current layout" above the list of groups can be used to replace the figure shown on the `Groups` tab with the current figure on the `Layout` tab. This will save a ``plot_defaults_{name}.json`` file (where ``name`` is the :py:attr:`~captest.capdata.CapData.name` attribute of the :py:class:`~captest.capdata.CapData` instance, e.g. ``plot_defaults_das.json``) in the current working directory. This file is read automatically the next time :py:meth:`~captest.capdata.CapData.plot` is called. You will need to rerun the ``plot`` method to see the new defaults.
+
+Using a per-instance filename prevents conflicts when multiple :py:class:`~captest.capdata.CapData` objects (e.g. ``das`` and ``sim``) are used in the same notebook session — each object reads and writes its own defaults file.
+
+The ``plot_defaults_path`` argument can be passed to :py:meth:`~captest.capdata.CapData.plot` to override the default path.
 
 .. note::
 
-    The ``plots_defaults.json`` file will override the ``default_groups`` argument. If you want to use the ``default_groups`` argument, you will need to delete the ``plot_defaults.json`` file.
+    The defaults file overrides the ``default_groups`` argument. To revert to auto-detected defaults, delete the file or pass ``plot_defaults_path`` pointing to a non-existent path.
+
+.. note::
+
+    If the data has changed since the defaults file was saved and some stored column names no longer exist, those columns are silently dropped with a :py:class:`UserWarning`. If no valid columns remain, the dashboard falls back to auto-detected default groups.
 
 
 Overlay Tab
