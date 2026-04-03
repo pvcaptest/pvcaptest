@@ -11,10 +11,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `perf_ratio_temp_corr_nrel` accepts `single_irr_weighted_temp` parameter to
 use a single irradiance-weighted cell temperature for the correction.
 - Plotting function `residual_plot` to create plots of residuals vs regression
-parameters. 
+parameters.
 - `load_data` can be used with the default `file_reader` to load csv files from an S3 bucket.
 Requires the new optional dependency `s3fs`.
 - `agg_sensors` method verbose option, which prints summary of aggregations.
+- Column groups are now accessible as attributes of `CapData` instances (e.g.,
+`cd.poa` returns the data for the `poa` group). Attributes are created
+automatically when `load_data` is called or when
+`CapData.create_column_group_attributes()` is called manually.
+- `CapData.rename_cols()` method to rename columns consistently across `data`,
+`data_filtered`, and `column_groups`.
+- `agg_sensors` supports nested subgroup aggregation: pass a dictionary as the
+value for a group in `agg_map` to first aggregate subgroups and then aggregate
+the subgroup results. Aggregated columns are added to a new `"agg"` key in
+`column_groups` and are accessible as `CapData` attributes prefixed with `aggs_`.
 
 ### Changed
 - `DataLoader.load` now has a `summary` parameter (default `True`) that controls
@@ -25,6 +35,9 @@ now enables both summary output and detailed reindexing information.
 - `load_data` now skips sort, drop_duplicates, and reindex when no data is loaded
 and issues a warning instead of raising an error.
 - Failed-to-load troubleshooting message now includes kwargs passed to `file_reader`.
+- `filter_clearsky` no longer accepts `window_length` as a direct parameter. It
+now defaults to `infer_limits=True` (pvlib recommended, Reno 2016). Pass
+`window_length` and other pvlib `detect_clearsky` parameters via `**kwargs`.
 
 ### Fixed
 - `filter_clearsky` positional arg bug where `window_length` was passed as
@@ -35,11 +48,8 @@ filtering on a multi-column power group.
 load; sets `data` to `None` and issues a warning.
 - `reindex_datetime` now handles duplicate indices by dropping duplicates and
 warning instead of raising a `ValueError`.
-
-### Changed
-- `filter_clearsky` no longer accepts `window_length` as a direct parameter. It
-now defaults to `infer_limits=True` (pvlib recommended, Reno 2016). Pass
-`window_length` and other pvlib `detect_clearsky` parameters via `**kwargs`.
+- `filter_irr` no longer uses pandas `query()`, fixing a compatibility error
+with pandas v2.2.3.
 
 [0.13.4]: https://github.com/pvcaptest/pvcaptest/compare/v0.13.3...v0.13.4
 ## [0.13.4] - 2026-02-17

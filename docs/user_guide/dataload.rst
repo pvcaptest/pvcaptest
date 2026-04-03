@@ -78,6 +78,8 @@ For example, the first two groups from the Complete Capacity Test example are sh
 
 The :py:class:`~captest.columngroups.ColumnGroups` class provides some convenient features: nice display of the groupings for review and groups as attributes. Having group id as attributes allows groups of columns to be easily accessed using tab completion in Jupyter notebook.
 
+In addition, when data is loaded with :py:func:`~captest.io.load_data`, each column group is also accessible as an attribute directly on the :py:class:`~captest.capdata.CapData` instance. For example, if there is a group with the key ``poa``, it can be accessed as ``cd.poa``, which returns the corresponding columns of :py:attr:`data` as a DataFrame. This enables tab-completion in Jupyter notebooks for quick exploration of the data. The same behaviour can be enabled on a manually constructed :py:class:`~captest.capdata.CapData` instance by calling :py:meth:`~captest.capdata.CapData.create_column_group_attributes`.
+
 Due to the very wide range of conventions for naming in DAS / SCADA systems, the default approach to grouping columns often fails to return a satisfactory grouping of the columns. This can be addressed by providing an explicit mapping of column group ids to column names in an external file. To do this the path to the file should be passed to ``group_columns``. Excel, JSON, and YAML files are all options. JSON and Yaml must parse to a python dictionary with keys that are string ids of the groups and values that are lists of column names.
 
 When using an excel file the first column should contain the group ids and the second column should contain all the column headings. The group names do not need to repeated. There should be no header row in the excel file. The most convenient way to create an Excel file specifying the groupings is to run :py:meth:`~captest.io.load_data` twice:
@@ -162,7 +164,22 @@ Aggregating Sensors
 -------------------
 :py:meth:`~captest.capdata.CapData.agg_sensors` can be used to aggregate data from multiple sensors into a single column. This is useful when there are multiple sensors for a given measurement. Any combination of groups of columns and aggregation functions can be passed. By default the groups of columns assigned to the ``power``, ``poa``, ``t_amb``, and ``w_vel`` keys in the :py:attr:`regression_cols` attribute are aggregated by summing the power and averaging the POA irradiance, ambient temperature, and wind speed columns.
 
-:py:meth:`~captest.capdata.CapData.agg_sensors` adds the resulting aggregated columns to the :py:attr:`data` and :py:attr:`data_filtered` dataframes. If :py:attr:`regression_cols` included a group of columns that was aggregated, :py:attr:`regression_cols` is updated to map the regression term to the aggregated column.
+:py:meth:`~captest.capdata.CapData.agg_sensors` adds the resulting aggregated columns to the :py:attr:`data` and :py:attr:`data_filtered` dataframes. If :py:attr:`regression_cols` included a group of columns that was aggregated, :py:attr:`regression_cols` is updated to map the regression term to the aggregated column. After aggregation, all aggregated columns are also stored under the ``"agg"`` key in :py:attr:`column_groups` and are accessible as :py:class:`~captest.capdata.CapData` attributes prefixed with ``aggs_`` (e.g., ``cd.aggs_irr_poa_mean_agg``).
+
+:py:meth:`~captest.capdata.CapData.agg_sensors` also supports nested subgroup aggregation. If a value in ``agg_map`` is itself a dictionary, its keys are treated as subgroups to aggregate first, and the results are then aggregated together. This is useful when sensors are grouped by met station before being combined into a single representative value. For example:
+
+.. code-block:: Python
+
+    cd.agg_sensors(
+        agg_map={
+            'irr_poa': {
+                'irr_poa_met1': 'mean',
+                'irr_poa_met2': 'mean',
+            },
+        }
+    )
+
+This first averages the sensors in ``irr_poa_met1`` and ``irr_poa_met2`` separately, then averages those two results to produce ``irr_poa_mean_agg``.
 
 For example, if the :py:attr:`regression_cols` attribute was set to the following:
 
