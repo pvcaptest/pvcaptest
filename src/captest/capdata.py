@@ -384,9 +384,8 @@ def perc_bounds(percent_filter):
     Parameters
     ----------
     percent_filter : float or tuple, default None
-        Percentage or tuple of percentages used to filter around reporting
-        irradiance in the irr_rc_balanced function.  Required argument when
-        irr_bal is True.
+        Percentage or tuple of percentages used to filter around the reporting
+        irradiance. Required when ``irr_bal`` is True in ``rep_cond``.
 
     Returns
     -------
@@ -3179,12 +3178,15 @@ class CapData(object):
         Parameters
         ----------
         irr_bal: boolean, default False
-            If true, uses the irr_rc_balanced function to determine the
-            reporting conditions. Replaces the calculations specified by func
-            with or without freq.
-        percent_filter : Int, default 20
-            Percentage as integer used to filter around reporting
-            irradiance in the irr_rc_balanced function.
+            If True, uses `ReportingIrradiance` to determine the reporting
+            irradiance. Replaces the calculations specified by ``func``
+            with or without ``freq``. When ``irr_bal`` is True, the reporting
+            temperature and wind speed are the means of the data within the
+            balanced irradiance band.
+        percent_filter : int, default 20
+            Percentage used to define the irradiance band around the reporting
+            irradiance when ``irr_bal`` is True. Has no effect when
+            ``irr_bal`` is False.
         func: callable, string, dictionary, or list of string/callables
             Determines how the reporting condition is calculated.
             Default is a dictionary poa - 60th numpy_percentile, t_amb - mean
@@ -3196,9 +3198,8 @@ class CapData(object):
             for reporting condition calculation. Ex '60D' for 60 Days or
             'MS' for months start.
         w_vel: int
-            If w_vel is not none, then wind reporting condition will be set to
-            value specified for predictions. Does not affect output unless pred
-            is True and irr_bal is True.
+            If not None, overrides the calculated wind speed reporting
+            condition with this value.
         inplace: bool, True by default
             When true updates object rc parameter, when false returns
             dicitionary of reporting conditions.
@@ -3207,7 +3208,7 @@ class CapData(object):
             intervals. See pandas Grouper doucmentation for details. Default is
             left labeled and left closed.
         rc_kwargs : dict
-            Passed to the irr_rc_balanced function if `irr_bal` is set to True.
+            Passed to `ReportingIrradiance` if ``irr_bal`` is True.
 
         Returns
         -------
@@ -3297,11 +3298,10 @@ class CapData(object):
             reporting irradiance for that group.  The data groups are
             determined from the reporting irradiance attribute.
         percent_filter : float or int or tuple, default 20
-            Percentage or tuple of percentages used to filter around reporting
-            irradiance in the irr_rc_balanced function.  Required argument when
-            irr_bal is True.
-            Tuple option allows specifying different percentage for above and
-            below reporting irradiance. (below, above)
+            Percentage or tuple of percentages used to filter each time-period
+            group of data around the group's reporting irradiance.
+            Tuple option allows specifying different percentage for below and
+            above the reporting irradiance: (below, above).
         **kwargs
             NOTE: Should match kwargs used to calculate reporting conditions.
             Passed to filter_grps which passes on to pandas Grouper to control
