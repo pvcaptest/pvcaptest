@@ -115,3 +115,6 @@ uv.lock
 
 # setuptools-scm generated version file
 src/captest/_version.py
+
+# claude
+.claude/settings.local.json
