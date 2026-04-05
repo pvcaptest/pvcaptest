@@ -1,6 +1,6 @@
 ---
 name: unit-tests
-description: Write unit tests for pvcaptest (captest) features and bug fixes. Use this skill whenever the user asks to write tests, add test coverage, do TDD, test a new feature, or test a bug fix — even if they just say "write tests for this" or "make sure this is covered". The skill detects the situation automatically: if no uncommitted changes exist, it follows TDD by writing failing tests first; if changes are already written, it reviews the implementation, checks testability, writes covering tests, and verifies coverage on the new code only.
+description: Write unit tests for pvcaptest (captest) features and bug fixes. Use this skill whenever the user asks to write tests, add test coverage, do TDD, test a new feature, or test a bug fix — even if they just say "write tests for this" or "make sure this is covered". The skill detects the situation automatically, if no uncommitted changes exist, it follows TDD by writing failing tests first; if changes are already written, it reviews the implementation, checks testability, writes covering tests, and verifies coverage on the new code only.
 ---
 
 # Unit Tests (pvcaptest)
