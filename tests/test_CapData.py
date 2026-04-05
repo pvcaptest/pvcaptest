@@ -1025,6 +1025,22 @@ class TestCapDataCopy:
         assert meas_copy.pre_agg_trans == meas.pre_agg_trans
         assert meas_copy.pre_agg_reg_trans == meas.pre_agg_reg_trans
 
+    def test_copy_column_groups_is_independent(self, pvsyst):
+        """Verify mutating column_groups on the copy does not affect the original."""
+        pvsyst_copy = pvsyst.copy()
+        first_key = next(iter(pvsyst_copy.column_groups))
+        pvsyst_copy.column_groups[first_key].append("new_col")
+        assert "new_col" not in pvsyst.column_groups[first_key]
+
+    def test_drop_cols_on_copy_does_not_affect_original(self, pvsyst):
+        """Verify drop_cols on the copy leaves the original column_groups unchanged."""
+        col_to_drop = "IL Pmax"
+        original_group = list(pvsyst.column_groups["pvsyt_losses--"])
+        pvsyst_copy = pvsyst.copy()
+        pvsyst_copy.drop_cols([col_to_drop])
+        assert col_to_drop not in pvsyst_copy.column_groups["pvsyt_losses--"]
+        assert pvsyst.column_groups["pvsyt_losses--"] == original_group
+
 
 class TestCapDataMethodsSim:
     """Test for top level irr_rc_balanced function."""
