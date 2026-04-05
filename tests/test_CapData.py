@@ -2190,6 +2190,36 @@ class TestFilterOutliersAndPower:
         with pytest.warns(UserWarning):
             meas.filter_outliers()
 
+    def test_filter_outliers_warns_and_succeeds_when_nans_present(self, pvsyst):
+        """filter_outliers warns and auto-removes NaN rows in poa/power before fitting."""
+        pvsyst.data_filtered.iloc[
+            0, pvsyst.data_filtered.columns.get_loc("GlobInc")
+        ] = np.nan
+        pvsyst.data_filtered.iloc[1, pvsyst.data_filtered.columns.get_loc("E_Grid")] = (
+            np.nan
+        )
+        initial_rows = pvsyst.data_filtered.shape[0]
+
+        with pytest.warns(UserWarning, match="missing values"):
+            pvsyst.filter_outliers()
+
+        assert pvsyst.data_filtered.shape[0] < initial_rows
+        assert pvsyst.data_filtered[["GlobInc", "E_Grid"]].isna().sum().sum() == 0
+
+    def test_filter_outliers_nan_records_filter_missing_in_summary(self, pvsyst):
+        """When filter_outliers auto-calls filter_missing, both are recorded in summary."""
+        pvsyst.data_filtered.iloc[
+            0, pvsyst.data_filtered.columns.get_loc("GlobInc")
+        ] = np.nan
+
+        with pytest.warns(UserWarning):
+            pvsyst.filter_outliers()
+
+        filter_names = [ix[1] for ix in pvsyst.summary_ix]
+        assert filter_names.index("filter_missing") < filter_names.index(
+            "filter_outliers"
+        )
+
     def test_filter_power_defaults(self, meas):
         meas.filter_power(5_000_000, percent=None, columns=None, inplace=True)
         assert meas.data_filtered.shape[0] == 1289

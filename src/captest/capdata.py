@@ -2727,6 +2727,14 @@ class CapData(object):
                 "aggregate_sensors before using "
                 "filter_outliers."
             )
+        if XandY.isna().any().any():
+            warnings.warn(
+                "Poa and/or power columns contain missing values. "
+                "Calling filter_missing on poa and power columns before continuing "
+                "with filter_outliers."
+            )
+            self.filter_missing(columns=XandY.columns.tolist())
+            XandY = self.floc[["poa", "power"]]
         X1 = XandY.values
 
         if "support_fraction" not in kwargs.keys():
@@ -3033,22 +3041,27 @@ class CapData(object):
 
     @update_summary
     def filter_missing(self, columns=None):
-        """
-        Drops time intervals with missing data for specified columns.
-
-        By default drops intervals which have missing data in the columns defined
-        by `regression_cols`.
+        """Removes any rows where the regression columns contain missing data (NaNs).
 
         Parameters
         ----------
         columns : list, default None
-            Subset of columns to check for missing data.
+            Subset of columns to apply dropna. By default uses the regression columns
+            identified in the regression_cols attribute.
+
+        Returns
+        -------
+        None
+            Modifies `data_filtered` attribute.
         """
         if columns is None:
-            columns = list(self.regression_cols.values())
-        df_reg_vars = self.data_filtered[columns]
-        ix = df_reg_vars.dropna().index
-        self.data_filtered = self.data_filtered.loc[ix, :]
+            self.data_filtered = self.data_filtered.loc[
+                self.floc["regcols"].dropna().index, :
+            ]
+        else:
+            self.data_filtered = self.data_filtered.loc[
+                self.floc[columns].dropna().index, :
+            ]
 
     def filter_op_state(self, op_state, mult_inv=None, inplace=True):
         """
