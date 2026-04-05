@@ -1732,7 +1732,7 @@ class CapData(object):
         cd_c.name = copy.copy(self.name)
         cd_c.data = self.data.copy()
         cd_c.data_filtered = self.data_filtered.copy()
-        cd_c.column_groups = copy.copy(self.column_groups)
+        cd_c.column_groups = copy.deepcopy(self.column_groups)
         cd_c.regression_cols = copy.copy(self.regression_cols)
         cd_c.summary_ix = copy.copy(self.summary_ix)
         cd_c.summary = copy.copy(self.summary)
