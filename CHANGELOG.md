@@ -38,6 +38,8 @@ and issues a warning instead of raising an error.
 - `filter_clearsky` no longer accepts `window_length` as a direct parameter. It
 now defaults to `infer_limits=True` (pvlib recommended, Reno 2016). Pass
 `window_length` and other pvlib `detect_clearsky` parameters via `**kwargs`.
+- `filter_missing` refactored to use the `floc` indexer; the `columns` parameter
+now accepts column group keys in addition to column names.
 
 ### Added
 - `CapData.plot()` and `plotting.plot()` accept a `plot_defaults_path` parameter
@@ -54,6 +56,9 @@ are missing, the dashboard falls back to auto-detected default groups (issue #11
 the current working directory, not the calling file's directory.
 - `filter_clearsky` positional arg bug where `window_length` was passed as
 `infer_limits` to pvlib's `detect_clearsky`.
+- `filter_outliers` now detects NaN values in the poa and power columns before
+fitting the EllipticEnvelope. A `UserWarning` is issued and `filter_missing` is
+automatically called on those columns; both are recorded in the filter summary.
 - `filter_power` no longer incorrectly removes rows with NaN values when
 filtering on a multi-column power group.
 - `DataLoader.load` no longer raises `UnboundLocalError` when all files fail to

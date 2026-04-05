@@ -2727,6 +2727,14 @@ class CapData(object):
                 "aggregate_sensors before using "
                 "filter_outliers."
             )
+        if XandY.isna().any().any():
+            warnings.warn(
+                "Poa and/or power columns contain missing values. "
+                "Calling filter_missing on poa and power columns before continuing "
+                "with filter_outliers."
+            )
+            self.filter_missing(columns=XandY.columns.tolist())
+            XandY = self.floc[["poa", "power"]]
         X1 = XandY.values
 
         if "support_fraction" not in kwargs.keys():
