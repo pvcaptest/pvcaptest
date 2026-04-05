@@ -46,6 +46,12 @@ now accepts column group keys in addition to column names.
 to explicitly specify the path to the plot defaults JSON file.
 
 ### Fixed
+- Removed stale references to the removed ``irr_rc_balanced`` function from
+  docstrings of ``perc_bounds``, ``rep_cond``, and ``predict_capacities``.
+  These now reference ``ReportingIrradiance``, the class that replaced it.
+- ``rep_cond`` docstring now documents that when ``irr_bal=True``, the
+  reporting temperature and wind speed are the means of the data within the
+  balanced irradiance band.
 - `CapData.plot()` now reads and writes a per-instance defaults file named
 `plot_defaults_{name}.json` instead of the shared `plot_defaults.json`, preventing
 conflicts when multiple `CapData` objects are used in the same session (issue #117).
