@@ -5,6 +5,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+
+[0.14.0]: https://github.com/pvcaptest/pvcaptest/compare/v0.13.4...v0.14.0
+## [0.14.0] - 2026-04-06
 ### Added
 - `perf_ratio_temp_corr_nrel` accepts measured back-of-module temperature via
 `temp_bom` parameter, skipping the BOM calculation from ambient temp and wind.
@@ -25,6 +28,8 @@ automatically when `load_data` is called or when
 value for a group in `agg_map` to first aggregate subgroups and then aggregate
 the subgroup results. Aggregated columns are added to a new `"agg"` key in
 `column_groups` and are accessible as `CapData` attributes prefixed with `aggs_`.
+- `CapData.plot()` and `plotting.plot()` accept a `plot_defaults_path` parameter
+to explicitly specify the path to the plot defaults JSON file.
 
 ### Changed
 - `DataLoader.load` now has a `summary` parameter (default `True`) that controls
@@ -40,10 +45,6 @@ now defaults to `infer_limits=True` (pvlib recommended, Reno 2016). Pass
 `window_length` and other pvlib `detect_clearsky` parameters via `**kwargs`.
 - `filter_missing` refactored to use the `floc` indexer; the `columns` parameter
 now accepts column group keys in addition to column names.
-
-### Added
-- `CapData.plot()` and `plotting.plot()` accept a `plot_defaults_path` parameter
-to explicitly specify the path to the plot defaults JSON file.
 
 ### Fixed
 - Removed stale references to the removed ``irr_rc_balanced`` function from
