@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 [0.14.0]: https://github.com/pvcaptest/pvcaptest/compare/v0.13.4...v0.14.0
-## [0.14.0] - 2026-04-06
+## [0.14.0] - 2026-04-07
 ### Added
 - `perf_ratio_temp_corr_nrel` accepts measured back-of-module temperature via
 `temp_bom` parameter, skipping the BOM calculation from ambient temp and wind.
