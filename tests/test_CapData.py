@@ -1696,19 +1696,19 @@ class TestAggSensors:
         """Default verbose=False should not print aggregation details."""
         meas.agg_sensors(agg_map={"irr_poa_pyran": "mean"})
         captured = capsys.readouterr()
-        assert "Aggregating the below columns" not in captured.out
+        assert "Aggregating the below" not in captured.out
 
     def test_verbose_prints_columns_when_lte_10(self, meas, capsys):
         """Verbose should print each column name when group has <= 10 columns."""
         meas.agg_sensors(agg_map={"irr_poa_pyran": "mean"}, verbose=True)
         captured = capsys.readouterr()
-        assert "Aggregating the below columns using the mean function" in captured.out
+        assert "Aggregating the below 2 columns of the irr_poa_pyran group using the mean function" in captured.out
         assert "irr_poa_pyran_mean_agg" in captured.out
         assert "    met1_poa_pyranometer" in captured.out
         assert "    met2_poa_pyranometer" in captured.out
 
     def test_verbose_prints_group_name_when_gt_10(self, meas, capsys):
-        """Verbose should print only the group name when group has > 10 columns."""
+        """Verbose shows first 3 and last 3 column names with ellipsis when > 10 cols."""
         extra_cols = [f"extra_poa_{i}" for i in range(10)]
         for col in extra_cols:
             meas.data[col] = meas.data["met1_poa_pyranometer"]
@@ -1716,11 +1716,22 @@ class TestAggSensors:
         meas.column_groups["irr_poa_pyran"] = (
             meas.column_groups["irr_poa_pyran"] + extra_cols
         )
+        all_cols = meas.column_groups["irr_poa_pyran"]  # 12 total
         meas.agg_sensors(agg_map={"irr_poa_pyran": "mean"}, verbose=True)
         captured = capsys.readouterr()
-        assert "Aggregating the below columns using the mean function" in captured.out
-        assert "Aggregating all columns of the irr_poa_pyran group" in captured.out
-        assert "    met1_poa_pyranometer" not in captured.out
+        assert "OUTPUT TRUNCATED - Aggregating the below 12 columns of the irr_poa_pyran group using the mean function" in captured.out
+        # First 3 columns should be listed
+        for col in all_cols[:3]:
+            assert f"    {col}" in captured.out
+        # Ellipsis separates the head from the tail
+        assert "    ..." in captured.out
+        # Last 3 columns should be listed
+        for col in all_cols[-3:]:
+            assert f"    {col}" in captured.out
+        # A middle column should not appear
+        assert f"    {all_cols[5]}" not in captured.out
+        # Old single-line group message should not appear
+        assert "Aggregating all columns of the irr_poa_pyran group" not in captured.out
 
     def test_agg_subgroups_expanded_map(self, cd_nested_col_groups):
         """
@@ -1762,34 +1773,20 @@ class TestAggSensors:
             verbose=True,
         )
 
-        # Check stdout from agg_sensors
+        # Check stdout from agg_sensors: verify each group header and its columns appear.
         captured = capsys.readouterr()
-        expected_output = [
-            "Aggregating the below columns using the mean function. New column name: irr_poa_met1_mean_agg:",
-            "    met1_poa1_pyranometer",
-            "    met1_poa2_pyranometer",
-            "Aggregating the below columns using the mean function. New column name: irr_poa_met2_mean_agg:",
-            "    met2_poa1_pyranometer",
-            "    met2_poa2_pyranometer",
-            "Aggregating the below columns using the mean function. New column name: irr_poa_mean_agg:",
-            "    irr_poa_met1_mean_agg",
-            "    irr_poa_met2_mean_agg",
-            "Aggregating the below columns using the mean function. New column name: irr_rpoa_met1_mean_agg:",
-            "    met1_rpoa1_pyranometer",
-            "    met1_rpoa2_pyranometer",
-            "    met1_rpoa3_pyranometer",
-            "Aggregating the below columns using the mean function. New column name: irr_rpoa_met2_mean_agg:",
-            "    met2_rpoa1_pyranometer",
-            "    met2_rpoa2_pyranometer",
-            "    met2_rpoa3_pyranometer",
-            "Aggregating the below columns using the mean function. New column name: irr_rpoa_mean_agg:",
-            "    irr_rpoa_met1_mean_agg",
-            "    irr_rpoa_met2_mean_agg",
-        ]
-        for expected_line, actual_line in zip(
-            expected_output, captured.out.splitlines()
-        ):
-            assert expected_line == actual_line
+        for group_id, col_name, cols in [
+            ("irr_poa_met1", "irr_poa_met1_mean_agg", ["met1_poa1_pyranometer", "met1_poa2_pyranometer"]),
+            ("irr_poa_met2", "irr_poa_met2_mean_agg", ["met2_poa1_pyranometer", "met2_poa2_pyranometer"]),
+            ("irr_poa_aggs", "irr_poa_mean_agg", ["irr_poa_met1_mean_agg", "irr_poa_met2_mean_agg"]),
+            ("irr_rpoa_met1", "irr_rpoa_met1_mean_agg", ["met1_rpoa1_pyranometer", "met1_rpoa2_pyranometer", "met1_rpoa3_pyranometer"]),
+            ("irr_rpoa_met2", "irr_rpoa_met2_mean_agg", ["met2_rpoa1_pyranometer", "met2_rpoa2_pyranometer", "met2_rpoa3_pyranometer"]),
+            ("irr_rpoa_aggs", "irr_rpoa_mean_agg", ["irr_rpoa_met1_mean_agg", "irr_rpoa_met2_mean_agg"]),
+        ]:
+            assert group_id in captured.out
+            assert col_name in captured.out
+            for col in cols:
+                assert f"    {col}" in captured.out
         # Check that the expected columns exist
         expected_columns = [
             "irr_poa_mean_agg",
@@ -1841,6 +1838,66 @@ class TestAggSensors:
         # Should be one column which will return a series not a DataFrame
         assert len(set(meas.data.columns)) == len(meas.data.columns)
         assert isinstance(meas.data["irr_poa_pyran_mean_agg"], pd.Series)
+
+
+class TestAggGroupCutoff:
+    """Tests for the cutoff parameter of agg_group verbose output."""
+
+    def _add_extra_cols_to_group(self, meas, n, group_id="irr_poa_pyran"):
+        """Add n synthetic columns to a group and return the full updated column list."""
+        extra_cols = [f"extra_poa_{i}" for i in range(n)]
+        for col in extra_cols:
+            meas.data[col] = meas.data["met1_poa_pyranometer"]
+        meas.data_filtered = meas.data.copy()
+        meas.column_groups[group_id] = meas.column_groups[group_id] + extra_cols
+        return meas.column_groups[group_id]
+
+    def test_verbose_exactly_at_default_cutoff_shows_all_columns(self, meas, capsys):
+        """All columns are listed when count equals the default cutoff of 10."""
+        all_cols = self._add_extra_cols_to_group(meas, 8)  # 2 original + 8 extra = 10
+        meas.agg_group("irr_poa_pyran", "mean", verbose=True)
+        captured = capsys.readouterr()
+        for col in all_cols:
+            assert f"    {col}" in captured.out
+        assert "    ..." not in captured.out
+
+    def test_verbose_above_default_cutoff_shows_first_and_last_three(self, meas, capsys):
+        """First 3 and last 3 column names appear with ellipsis when count > 10."""
+        all_cols = self._add_extra_cols_to_group(meas, 10)  # 2 + 10 = 12
+        meas.agg_group("irr_poa_pyran", "mean", verbose=True)
+        captured = capsys.readouterr()
+        for col in all_cols[:3]:
+            assert f"    {col}" in captured.out
+        assert "    ..." in captured.out
+        for col in all_cols[-3:]:
+            assert f"    {col}" in captured.out
+
+    def test_verbose_above_default_cutoff_excludes_middle_columns(self, meas, capsys):
+        """Columns between the first 3 and last 3 are not printed when truncated."""
+        all_cols = self._add_extra_cols_to_group(meas, 10)  # 2 + 10 = 12
+        meas.agg_group("irr_poa_pyran", "mean", verbose=True)
+        captured = capsys.readouterr()
+        assert f"    {all_cols[5]}" not in captured.out
+
+    def test_verbose_custom_cutoff_shows_all_at_boundary(self, meas, capsys):
+        """All columns are listed when count equals a custom cutoff value."""
+        all_cols = self._add_extra_cols_to_group(meas, 2)  # 2 + 2 = 4
+        meas.agg_group("irr_poa_pyran", "mean", verbose=True, cutoff=4)
+        captured = capsys.readouterr()
+        for col in all_cols:
+            assert f"    {col}" in captured.out
+        assert "    ..." not in captured.out
+
+    def test_verbose_custom_cutoff_truncates_above_boundary(self, meas, capsys):
+        """Truncation triggers at the custom cutoff, not the default of 10."""
+        all_cols = self._add_extra_cols_to_group(meas, 4)  # 2 + 4 = 6, cutoff=4
+        meas.agg_group("irr_poa_pyran", "mean", verbose=True, cutoff=4)
+        captured = capsys.readouterr()
+        for col in all_cols[:3]:
+            assert f"    {col}" in captured.out
+        assert "    ..." in captured.out
+        for col in all_cols[-3:]:
+            assert f"    {col}" in captured.out
 
 
 class TestFilterSensors:

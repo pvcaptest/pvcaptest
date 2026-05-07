@@ -877,7 +877,7 @@ class TestSetup:
             sim=sim_cd_default,
         )  # from_params uses verbose default (True).
         captured = capsys.readouterr()
-        assert "Aggregating the below columns" in captured.out
+        assert "Aggregating the below" in captured.out
 
     def test_setup_verbose_false_silent(self, meas_cd_default, sim_cd_default, capsys):
         capt = CapTest(
@@ -887,7 +887,7 @@ class TestSetup:
         )
         capt.setup(verbose=False)
         captured = capsys.readouterr()
-        assert "Aggregating the below columns" not in captured.out
+        assert "Aggregating the below" not in captured.out
 
     def test_setup_applies_rep_conditions_override(
         self, meas_cd_default, sim_cd_default

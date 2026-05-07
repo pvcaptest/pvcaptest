@@ -1918,7 +1918,8 @@ class CapData(object):
             return poa_cols[0]
 
     def agg_group(
-        self, group_id, agg_func, verbose=True, rename_map=None, inplace=True
+        self, group_id, agg_func, verbose=True, rename_map=None, inplace=True,
+        cutoff=10
     ):
         """
         Aggregate columns in a group.
@@ -1931,8 +1932,12 @@ class CapData(object):
             Aggregation function to apply.
         verbose : bool, default True
             Set to True to print the columns that have been aggregated, the
-            aggregation function used, and the new column name. If the group being
-            aggregated has more than 10 columns, only the group name will be printed.
+            aggregation function used, and the new column name.
+        cutoff : int, default 10
+            Maximum number of columns to list individually when ``verbose=True``.
+            When the group contains more columns than this value, the first three
+            and last three column names are printed with an ellipsis in between.
+            Increase this value to see more columns listed individually.
         """
         columns_to_aggregate = self.loc[group_id]
         agg_result = columns_to_aggregate.agg(agg_func, axis=1)
@@ -1943,16 +1948,28 @@ class CapData(object):
             col_name_to_print = copy.copy(col_name)
             if rename_map is not None and col_name in rename_map.keys():
                 col_name_to_print = rename_map[col_name]
+            cols = list(columns_to_aggregate.columns)
+            col_qty = len(cols)
+            if col_qty > cutoff:
+                truncated_warning = 'OUTPUT TRUNCATED - '
+            else:
+                truncated_warning = ''
             print(
-                "Aggregating the below columns using the {} function. New column name: {}:".format(
-                    agg_func, col_name_to_print
+                "{}Aggregating the below {} columns of the {} group using the {} function. New column name: {}:".format(
+                    truncated_warning, col_qty, group_id, agg_func, col_name_to_print
                 )
             )
-            if len(columns_to_aggregate.columns) <= 10:
-                for col in columns_to_aggregate.columns:
+            if col_qty <= cutoff:
+                for col in cols:
                     print("    " + col)
-            elif len(columns_to_aggregate.columns) > 10:
-                print("   Aggregating all columns of the {} group".format(group_id))
+                print("\n")
+            else:
+                for col in cols[:3]:
+                    print("    " + col)
+                print("    ...")
+                for col in cols[-3:]:
+                    print("    " + col)
+                print("\n")
         if inplace:
             self.data[col_name] = agg_result
             return col_name
