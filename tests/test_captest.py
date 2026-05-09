@@ -506,9 +506,9 @@ class TestFromYaml:
     def test_from_yaml_forwards_meas_loader_kwarg(self, tmp_path, meas_cd_default):
         """A programmatic meas_loader passed to from_yaml wins over the default.
 
-        Downstream wrappers (e.g. perfactory) drive yaml-based construction
-        but need to inject their own measured-data loader because loader
-        callables cannot be represented in yaml.
+        Downstream wrappers drive yaml-based construction but need to inject
+        their own measured-data loader because loader callables cannot be
+        represented in yaml.
         """
         text = "captest:\n  test_setup: e2848_default\n  meas_path: ./meas.csv\n"
         p = self._write(tmp_path, text)
@@ -546,9 +546,9 @@ class TestFromYaml:
 class TestFromMapping:
     """Direct construction from an already-parsed sub-mapping dict.
 
-    Downstream wrappers (e.g. perfactory) mutate the captest sub-mapping
-    in memory -- applying project-specific defaults, promoting fields,
-    absolutizing paths -- before constructing the ``CapTest``.
+    Downstream wrappers mutate the captest sub-mapping in memory --
+    applying project-specific defaults, promoting fields, absolutizing
+    paths -- before constructing the ``CapTest``.
     ``from_mapping`` exposes this handoff directly, avoiding a tempfile
     round-trip through ``from_yaml``. The post-parse pipeline shared with
     ``from_yaml`` (unknown-key detection, overrides flattening,
@@ -736,9 +736,9 @@ class TestFromMapping:
 class TestLoadConfigPublicExport:
     """``load_config`` is a public helper on the ``captest`` package root.
 
-    Downstream wrappers (notably perfactory's ``load_captest``) parse the
-    captest sub-mapping via this helper, apply project-specific defaults,
-    and then hand off to ``CapTest.from_params``. Keeping this helper
+    Downstream wrappers parse the captest sub-mapping via this helper,
+    apply project-specific defaults, and then hand off to
+    ``CapTest.from_params``. Keeping this helper
     publicly importable from the package root (not just the submodule) is
     part of the public API contract.
     """
@@ -772,9 +772,9 @@ class TestLoadConfigPublicExport:
     def test_absent_optional_keys_are_absent_not_none(self, tmp_path):
         """Post-condition for downstream ``dict.setdefault``: absent keys stay absent.
 
-        Perfactory and similar wrappers rely on ``setdefault`` to inject
-        conventional values; that breaks if ``load_config`` stamps missing
-        optional keys as ``None``.
+        Downstream wrappers rely on ``setdefault`` to inject conventional
+        values; that breaks if ``load_config`` stamps missing optional keys
+        as ``None``.
         """
         p = tmp_path / "cfg.yaml"
         p.write_text("captest:\n  test_setup: e2848_default\n  ac_nameplate: 1000\n")
