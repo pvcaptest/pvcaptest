@@ -10,6 +10,7 @@ instance together and exposes the cross-CapData comparison methods
 """
 
 # standard library imports
+import difflib
 import re
 import copy
 from functools import wraps
@@ -1918,8 +1919,7 @@ class CapData(object):
             return poa_cols[0]
 
     def agg_group(
-        self, group_id, agg_func, verbose=True, rename_map=None, inplace=True,
-        cutoff=10
+        self, group_id, agg_func, verbose=True, rename_map=None, inplace=True, cutoff=10
     ):
         """
         Aggregate columns in a group.
@@ -1940,6 +1940,19 @@ class CapData(object):
             Increase this value to see more columns listed individually.
         """
         columns_to_aggregate = self.loc[group_id]
+        if columns_to_aggregate is None:
+            close_matches = difflib.get_close_matches(
+                group_id, self.column_groups.keys(), n=3, cutoff=0.6
+            )
+            suggestion = (
+                f" Did you mean one of: {', '.join(close_matches)}?"
+                if close_matches
+                else ""
+            )
+            raise KeyError(
+                f"Group '{group_id}' was not found in column_groups, "
+                f"regression_cols, or the columns of CapData.data.{suggestion}"
+            )
         agg_result = columns_to_aggregate.agg(agg_func, axis=1)
         col_name = util.get_agg_column_name(group_id, agg_func)
         self.column_groups.setdefault("agg", []).append(col_name)
@@ -1951,9 +1964,9 @@ class CapData(object):
             cols = list(columns_to_aggregate.columns)
             col_qty = len(cols)
             if col_qty > cutoff:
-                truncated_warning = 'OUTPUT TRUNCATED - '
+                truncated_warning = "OUTPUT TRUNCATED - "
             else:
-                truncated_warning = ''
+                truncated_warning = ""
             print(
                 "{}Aggregating the below {} columns of the {} group using the {} function. New column name: {}:".format(
                     truncated_warning, col_qty, group_id, agg_func, col_name_to_print
