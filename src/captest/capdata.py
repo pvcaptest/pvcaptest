@@ -1918,8 +1918,50 @@ class CapData(object):
         else:
             return poa_cols[0]
 
+    def _get_group(self, group_id):
+        """Look up a column group by id and return the corresponding DataFrame.
+
+        Parameters
+        ----------
+        group_id : str
+            Key from `column_groups`, `regression_cols`, or a column name in
+            `data`.
+
+        Returns
+        -------
+        pd.DataFrame
+
+        Raises
+        ------
+        KeyError
+            If `group_id` is not found. Includes fuzzy close-match suggestions
+            when available.
+        """
+        result = self.loc[group_id]
+        if result is None:
+            close_matches = difflib.get_close_matches(
+                group_id, self.column_groups.keys(), n=3, cutoff=0.6
+            )
+            suggestion = (
+                f" Did you mean one of: {', '.join(close_matches)}?"
+                if close_matches
+                else ""
+            )
+            raise KeyError(
+                f"Group '{group_id}' was not found in column_groups, "
+                f"regression_cols, or the columns of CapData.data.{suggestion}"
+            )
+        return result
+
     def agg_group(
-        self, group_id, agg_func, verbose=True, rename_map=None, inplace=True, cutoff=10
+        self,
+        group_id,
+        agg_func,
+        verbose=True,
+        rename_map=None,
+        inplace=True,
+        cutoff=10,
+        columns=None,
     ):
         """
         Aggregate columns in a group.
@@ -1938,21 +1980,15 @@ class CapData(object):
             When the group contains more columns than this value, the first three
             and last three column names are printed with an ellipsis in between.
             Increase this value to see more columns listed individually.
+        columns : pd.DataFrame or None, default None
+            Pre-fetched DataFrame of columns to aggregate. When provided the
+            lookup via ``self._get_group`` is skipped. Intended for internal use
+            by ``agg_sensors`` to avoid a redundant lookup.
         """
-        columns_to_aggregate = self.loc[group_id]
-        if columns_to_aggregate is None:
-            close_matches = difflib.get_close_matches(
-                group_id, self.column_groups.keys(), n=3, cutoff=0.6
-            )
-            suggestion = (
-                f" Did you mean one of: {', '.join(close_matches)}?"
-                if close_matches
-                else ""
-            )
-            raise KeyError(
-                f"Group '{group_id}' was not found in column_groups, "
-                f"regression_cols, or the columns of CapData.data.{suggestion}"
-            )
+        if columns is None:
+            columns_to_aggregate = self._get_group(group_id)
+        else:
+            columns_to_aggregate = columns
         agg_result = columns_to_aggregate.agg(agg_func, axis=1)
         col_name = util.get_agg_column_name(group_id, agg_func)
         self.column_groups.setdefault("agg", []).append(col_name)
@@ -2137,7 +2173,8 @@ class CapData(object):
                         )
                     )
                 continue
-            if self.loc[group_id].shape[1] == 1:
+            columns = self._get_group(group_id)
+            if columns.shape[1] == 1:
                 continue
             agg_result, col_name = self.agg_group(
                 group_id,
@@ -2145,6 +2182,7 @@ class CapData(object):
                 verbose=verbose,
                 rename_map=rename_map,
                 inplace=False,
+                columns=columns,
             )
             self.data = pd.concat([agg_result, self.data], axis=1)
             agg_names[group_id] = col_name

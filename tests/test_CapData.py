@@ -1590,11 +1590,30 @@ class TestExpandAggMap:
 
 
 class TestAggSensors:
+    def test_get_group_valid_group_id_returns_dataframe(self, meas):
+        """_get_group returns the expected DataFrame for a valid group_id."""
+        result = meas._get_group("irr_poa_pyran")
+        expected = meas.data[meas.column_groups["irr_poa_pyran"]]
+        assert isinstance(result, pd.DataFrame)
+        assert result.equals(expected)
+
+    def test_get_group_invalid_group_id_raises_key_error(self, meas):
+        """_get_group raises a KeyError that names the missing group_id."""
+        missing_id = "irr_poa_pyran_typo"
+        with pytest.raises(KeyError, match=missing_id):
+            meas._get_group(missing_id)
+
     def test_agg_group_invalid_group_id_raises_key_error(self, meas):
         """KeyError naming the missing group_id is raised when it is not found."""
         missing_id = "irr_poa_pyran_typo"
         with pytest.raises(KeyError, match=missing_id):
             meas.agg_group(missing_id, "mean")
+
+    def test_agg_sensors_invalid_group_id_raises_key_error(self, meas):
+        """KeyError naming the missing group_id is raised when it is not found in agg_map."""
+        missing_id = "irr_poa_pyran_typo"
+        with pytest.raises(KeyError, match=missing_id):
+            meas.agg_sensors(agg_map={missing_id: "mean"})
 
     def test_agg_group(self, meas):
         agg_result, col_name = meas.agg_group("irr_poa_pyran", "mean", inplace=False)
