@@ -8,7 +8,7 @@ Running an ASTM E2848 capacity test with `pvcaptest` today requires orchestratin
 
 - Binds the measured and modeled `CapData` instances together.
 - Holds test-level configuration (test period, irradiance bounds, nameplate, tolerance, etc.) as a single source of truth that flows down to both `CapData` instances and, in the future, their filters.
-- Is driven by a yaml config so tests are reproducible and shareable across GUI, `perfactory`, and pure-Python entry points.
+- Is driven by a yaml config so tests are reproducible and shareable across different entry points.
 - Abstracts common regression-equation "setups" (default E2848, bifacial e-total, bifacial temperature-corrected power) so alternate regression formulas and their required calc params + matching scatter plots are selectable by name.
 
 This spec adds a new `CapTest` class in a new module, defines a `TEST_SETUPS` registry of regression presets, moves the functions that compare two `CapData` instances onto the new class, refactors `CapData.scatter`/`CapData.scatter_hv` to be formula-agnostic, and surfaces the remaining places in `CapData` that still assume the default ASTM E2848 regression equation so they can be addressed as follow-up work.
@@ -104,8 +104,8 @@ Calc-params scalars (propagated to both `CapData` instances at `setup()`):
 
 Data-loader injection (used by `from_params` / `from_yaml` when a path is supplied; callables are programmatic-only and never serialized to yaml):
 
-- `meas_loader: param.Callable(default=None)` — called as `meas_loader(meas_path, **(meas_load_kwargs or {}))` to build `self.meas`. Default resolution when `None` is `captest.io.load_data`. Projects with bespoke loaders (e.g. `perfactory.io.load_data`, which reads partitioned parquet with a different signature) set this to their own callable at construction time.
-- `meas_load_kwargs: param.Dict(default=None)` — extra kwargs splatted into `meas_loader`. Plain dicts so they CAN be written to yaml (e.g. perfactory's `period`, `groups_to_load`, `column_groups_path`).
+- `meas_loader: param.Callable(default=None)` — called as `meas_loader(meas_path, **(meas_load_kwargs or {}))` to build `self.meas`. Default resolution when `None` is `captest.io.load_data`. Projects with bespoke loaders set this to their own callable at construction time.
+- `meas_load_kwargs: param.Dict(default=None)` — extra kwargs splatted into `meas_loader`. Plain dicts so they CAN be written to yaml.
 - `sim_loader: param.Callable(default=None)` — same as `meas_loader` but default resolution is `captest.io.load_pvsyst`.
 - `sim_load_kwargs: param.Dict(default=None)` — same shape as `meas_load_kwargs`.
 
@@ -396,10 +396,10 @@ Project- or contract-specific variations of a preset are typically handled via t
 
 ## 7. YAML schema
 
-All `CapTest` configuration lives under a single top-level key (default `"captest"`), so the same yaml file can hold other project-level data (perfactory's `loc`, `system`, `client`, etc.) without collision. The sub-key name is parametrizable so one file can hold multiple captest sections (e.g. `captest_e2848`, `captest_bifi`) — enabling different flavors of the capacity test to be run against the same project file. Unknown keys inside the captest sub-mapping raise on load; unknown keys at the file top level are ignored.
+All `CapTest` configuration lives under a single top-level key (default `"captest"`), so the same yaml file can hold other project-level data without collision. The sub-key name is parametrizable so one file can hold multiple captest sections (e.g. `captest_e2848`, `captest_bifi`) — enabling different flavors of the capacity test to be run against the same project file. Unknown keys inside the captest sub-mapping raise on load; unknown keys at the file top level are ignored.
 
 ```yaml
-# Project-level keys (ignored by CapTest; may be consumed by perfactory or others).
+# Project-level keys (ignored by CapTest; may be consumed by other tooling).
 client: barnhart
 loc:    {latitude: 42.28, longitude: -84.65, altitude: 294, tz: America/Detroit}
 system: {albedo: 0.2, axis_azimuth: 180, axis_tilt: 0, max_angle: 60, gcr: 0.315, backtrack: true}
@@ -455,7 +455,7 @@ captest:
   # Loader kwargs (used when meas_path / sim_path are set). Plain dicts are fine
   # in yaml. Loader callables (meas_loader, sim_loader) are programmatic-only.
   meas_load_kwargs:
-    # Example: perfactory's load_data uses `period` and `groups_to_load`.
+    # Example custom loader kwargs:
     period: {start_day: "2026-03-26", end_day: "2026-04-12"}
     groups_to_load: [irr_poa, irr_rpoa, temp_amb, wind_speed, real_pwr_mtr]
   sim_load_kwargs: {}

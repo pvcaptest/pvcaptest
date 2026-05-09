@@ -1111,8 +1111,8 @@ class CapTest(param.Parameterized):
             Programmatic-only loader callables that override the default
             resolution (``captest.io.load_data`` / ``captest.io.load_pvsyst``).
             Supplied here because loader callables cannot be represented in
-            yaml. Useful for project wrappers (e.g. perfactory) that drive
-            yaml-based construction but need their own measured-data loader.
+            yaml. Useful for downstream wrappers that drive yaml-based
+            construction but need a custom measured-data loader.
             When ``None`` the default resolution applies.
 
         Returns
@@ -1135,12 +1135,12 @@ class CapTest(param.Parameterized):
     ):
         """Construct a CapTest from an already-parsed captest sub-mapping.
 
-        Direct-handoff constructor used by downstream wrappers (e.g.
-        perfactory's ``load_captest``) that mutate the captest sub-mapping
-        in memory -- applying project-specific defaults, promoting fields,
-        injecting paths -- before asking captest to validate and build the
-        ``CapTest``. Exposes the same validate-and-construct pipeline that
-        ``from_yaml`` runs after reading the file, without the file read.
+        Direct-handoff constructor used by downstream wrappers that mutate
+        the captest sub-mapping in memory -- applying project-specific
+        defaults, promoting fields, injecting paths -- before asking captest
+        to validate and build the ``CapTest``. Exposes the same
+        validate-and-construct pipeline that ``from_yaml`` runs after
+        reading the file, without the file read.
 
         Parameters
         ----------
