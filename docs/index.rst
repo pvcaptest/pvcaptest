@@ -33,13 +33,6 @@ Contents
    installation
    user_guide/index
    examples
+   source/api_reference/index
    changelog
    release
-
-
-
-Indices and tables
-==================
-
-* :ref:`genindex`
-* :ref:`modindex`
