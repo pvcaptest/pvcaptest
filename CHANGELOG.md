@@ -6,87 +6,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Added
-- New `ScatterPlot` and `ScatterBifiPowerTc` classes in `captest.plotting`
-that power the shipped scatter callables (`scatter_default`, `scatter_etotal`,
-`scatter_bifi_power_tc`). Both are `param.Parameterized` with `view()`
-methods decorated with `@param.depends`, so they drop directly into a
-`panel` dashboard.
-- New `split_day` / `split_time` / `am_color` / `pm_color` /
-`am_marker` / `pm_marker` keyword arguments on the shipped scatter
-callables (forwarded by `CapTest.scatter_plots`). Renders morning and
-afternoon points as two overlaid scatters with distinct glyphs. When
-`split_time` is `None`, the boundary is detected from clear-sky GHI via
-the new `captest.util.detect_solar_noon` helper, falling back to `12:30`
-with a warning.
-- New `tc_power` / `tc_mode` / `tc_power_calc` / `tc_force_recompute`
-keyword arguments on the shipped scatter callables. When `tc_power=True`,
-the scatter swaps to a temperature-corrected power y-axis (or adds a
-second panel / overlay, per `tc_mode`). The calculation is isolated from
-`process_regression_columns` and only adds a `power_tc_plot` column to
-`cd.data` / `cd.data_filtered`. `captest.plotting.DEFAULT_TC_POWER_CALC`
-is tuned for measured DAS data; sim-side users pass an explicit
-`tc_power_calc` dict.
-- New `timeseries` keyword argument on the shipped scatter callables.
-Pairs the principal scatter with a linked timeseries panel so selections
-propagate between the two. Raises `ValueError` when combined with
-`tc_mode='add_panel'`.
-- New `captest.plotting.add_am_pm_dim`, `captest.plotting.calc_tc_power_column`,
-and `captest.util.detect_solar_noon` composable helpers reusable outside
-the `ScatterPlot` flow (e.g. in notebooks or downstream wrappers).
-- New `CapTest` class (`captest.captest.CapTest`) — a `param.Parameterized`
-container that binds a measured and a modeled `CapData` together, holds every
-test-level setting (regression formula, reporting-conditions recipe, filter
-bounds, nameplate, tolerance, calc-params scalars), and drives the full
-capacity-test workflow from a single object.
-- New `TEST_SETUPS` registry of named regression presets shipped with
-pvcaptest. Four presets ship: `e2848_default` (default ASTM E2848),
-`bifi_e2848_etotal` (bifacial ASTM with `e_total` driver),
-`bifi_power_tc` (temperature-corrected bifacial `power ~ poa + rpoa`), and
-`e2848_spec_corrected_poa` (ASTM with a First Solar spectral-correction factor
-applied to POA irradiance).
-- New `captest.calcparams` primitives for the First Solar spectral-correction
-flow described in the notebook that motivated the port:
-`apparent_zenith`, `apparent_zenith_pvsyst` (handles the PVsyst half-hour
-timestamp shift internally), `absolute_airmass`,
-`precipitable_water_gueymard`, `scale`, `spectral_factor_firstsolar`,
-`multiply`, and the named alias `poa_spec_corrected`.
-- New `CapTest.spectral_module_type` parameter (default `'cdte'`) that
-propagates onto both `CapData` instances at `setup()` so the module type is
-auto-injected into `spectral_factor_firstsolar`. The kwarg is named
-`spectral_module_type` to avoid collision with the `module_type` kwarg used
-by `bom_temp` and `cell_temp`, which expects values like
-`'glass_cell_poly'`.
-- `CapTest.setup()` now auto-propagates `meas.site` onto `sim.site` when the
-sim CapData has no site set, converting the tz to the nearest fixed-offset
-`Etc/GMT±N` string (PVsyst data is not DST-aware). Emits a `UserWarning`
-describing the conversion. Users who want a specific sim site can set
-`sim.site = {...}` before calling `setup()`.
 - New `captest.captest` module. Exports `CapTest`, `TEST_SETUPS`, the three
 scatter callables `scatter_default`, `scatter_etotal`, `scatter_bifi_power_tc`,
 and the helpers `perc_wrap`, `print_results`, `highlight_pvals`,
 `load_config`, `resolve_test_setup`, `validate_test_setup`.
+- New `CapTest` class (`captest.captest.CapTest`) — Binds a measured and a modeled
+`CapData` together, holds every test-level setting (regression formula,
+reporting-conditions recipe, filter bounds, nameplate, tolerance, calc-params scalars),
+and drives the full capacity-test workflow from a single object.
+- New `TEST_SETUPS` registry of named regression presets shipped with
+pvcaptest. Four presets ship: `e2848_default` (default ASTM E2848),
+`bifi_e2848_etotal` (bifacial ASTM with `e_total`),
+`bifi_power_tc` (temperature-corrected bifacial `power ~ poa + rpoa`), and
+`e2848_spec_corrected_poa` (ASTM with a spectral-correction factor
+applied to POA irradiance).
+- New calcparams module with simple functions that return calculated regressors.
+E.g., the `e_total` function calculates total POA irradiance from front and rear
+POA.
+- New `captest.calcparams` functions for spectrally corrected irradiance tests:
+`apparent_zenith`, `apparent_zenith_pvsyst` (handles the PVsyst half-hour
+timestamp shift internally), `absolute_airmass`,
+`precipitable_water_gueymard`, `scale`, `spectral_factor_firstsolar`,
+`multiply`, and the named alias `poa_spec_corrected`.
+- New `captest.calcparams` functions to support the default `TEST_SETUPS`: `e_total`,
+`rpoa_pvsyst`, `avg_typ_cell_temp`, `cell_temp`, `bom_temp`, `power_temp_correct`.
 - `CapTest.from_yaml` / `CapTest.to_yaml` for a curated round-trip through a
-yaml config file. The top-level `key` is parametrizable so one file can hold
-multiple captest sections (e.g. `captest_e2848`, `captest_bifi`).
-- `"perc_N"` string shorthand in yaml `rep_conditions.func` values.
-`from_yaml` resolves these to `perc_wrap(N)` callables at load time;
-`to_yaml` emits them back as `"perc_N"` strings for round-trip.
-- Documentation: new user-guide page `user_guide/captest` covering
-construction, setup, the canonical filter → `rep_cond` → `fit_regression` →
-`captest_results` workflow, overrides, and yaml round-trip.
-- `CapTest.rep_irr_filter_low` and `CapTest.rep_irr_filter_high` read-only
-properties derived from `CapTest.rep_irr_filter` as `1 - rep_irr_filter` and
-`1 + rep_irr_filter`. They update automatically whenever `rep_irr_filter` is
-reassigned. Pass them as the `low` / `high` arguments to `CapData.filter_irr`
-(with `ref_val='self_val'`) to filter around the reporting irradiance.
+yaml config file. 
+- New `ScatterPlot` and `ScatterBifiPowerTc` classes in `captest.plotting`
+that are used with the shipped scatter callables (`scatter_default`, `scatter_etotal`,
+`scatter_bifi_power_tc`). 
+- POA vs power scatter plots can be split so morning and afternoon points are a 
+different color or different marker (glyph).
+- POA vs power scatter plot function includes kwargs to switch between plotting
+raw power or temperature corrected power.
+- Documentation: new user-guide page `user_guide/captest` describing use of CapTest class.
 
 ### Changed
 - `CapData.filter_time` now defaults ``end`` to the last timestamp of
 ``data_filtered`` when only ``start`` is provided without ``days``, and
 defaults ``start`` to the first timestamp of ``data_filtered`` when only
-``end`` is provided without ``days``. Previously both cases issued a
-``UserWarning`` and returned without filtering.
-- **Breaking:** the module-level cross-`CapData` helpers
+``end`` is provided without ``days``. 
+- **Breaking:** the module-level cross-`CapData` functions
 `capdata.captest_results`, `capdata.captest_results_check_pvalues`,
 `capdata.pick_attr`, `capdata.get_summary(*args)`,
 `capdata.overlay_scatters`, `capdata.determine_pass_or_fail`, and
@@ -97,24 +57,13 @@ defaults ``start`` to the first timestamp of ``data_filtered`` when only
 parameter on `CapTest`. Single-CapData `cd.get_summary()` is unchanged.
 - **Breaking:** `CapData.rep_cond` and `CapData.rep_cond_freq` are now
 formula-agnostic: they derive rhs variables from `regression_formula` via
-`util.parse_regression_formula`. The `func='E2939'` string sentinel has been
-removed. Pass a plain dict mapping rhs variable names to aggregation
-functions (e.g. `{'poa': perc_wrap(60), 't_amb': 'mean', 'w_vel': 'mean'}`),
-or omit `func` for the `{var: 'mean' for var in rhs}` fallback. The
-responsibility for supplying the right `df.agg()` dict now lives on each
-`TEST_SETUPS` preset's `rep_conditions` entry.
+`util.parse_regression_formula`. 
 - `CapData.scatter` and `CapData.scatter_hv` are now formula-agnostic thin
 wrappers: they resolve the y (lhs) and x (first rhs) columns from
 `regression_formula` rather than hardcoding `"power"` and `"poa"`. For
 non-default regression presets prefer `CapTest.scatter_plots`, which picks
 the correct scatter callable (single or multi-panel) from the resolved
 preset.
-
-### Fixed
-- Fixed `tc_power=True` scatter plots so `power_tc_plot` is populated from
-the temperature-corrected `power_temp_correct` calculation instead of raw
-aggregated power. Custom `tc_power_calc` dictionaries now raise `ValueError`
-unless they define a top-level `power` calculation tuple.
 
 ### Convention
 - The left-hand-side key of the regression formula is always `"power"`
