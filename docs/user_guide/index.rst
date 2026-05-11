@@ -5,7 +5,7 @@ User Guide
 ..  toctree::
     :maxdepth: 2
 
-    dataload
-    bifacial
     captest
+    dataload
     custom_test_setups
+    bifacial

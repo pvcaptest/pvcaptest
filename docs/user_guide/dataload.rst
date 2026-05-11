@@ -1,7 +1,7 @@
 .. _dataload:
 
-Overview
-========
+CapData Workflow
+================
 The core functionality of pvcaptest is provided by the :py:class:`~captest.capdata.CapData` class, which is a wrapper around two pandas DataFrames, :py:attr:`data` and :py:attr:`data_filtered`. The :py:attr:`data` DataFrame holds the unfiltered data and the :py:attr:`data_filtered` DataFrame is a copy of the data that the :py:class:`~captest.capdata.CapData` filtering methods modify. :py:meth:`~captest.capdata.CapData.reset_filter` can be used to reset the :py:attr:`data_filtered` DataFrame to the unfiltered data. The :py:meth:`~captest.capdata.CapData.fit_regression` method is used to fit the regression equation stored in :py:attr:`regression_formula` to the filtered data. 
 
 Conducting a capacity tests with pvcaptest involves the following steps:

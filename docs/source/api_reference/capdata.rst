@@ -3,7 +3,7 @@
 CapData
 =======
 
-The :py:class:`~captest.capdata.CapData` class is the primary interface for
+The :py:class:`~captest.capdata.CapData` class is the core interface for
 capacity testing. It holds raw and filtered data, column group mappings, filter
 history, and regression results.
 
@@ -11,6 +11,25 @@ history, and regression results.
    :toctree: generated/
 
    capdata.CapData
+
+Setup
+-----
+
+Methods that must be called after loading data and before filtering or
+fitting a regression. Use :meth:`~captest.capdata.CapData.set_regression_cols`
+to map regression terms to column names or column group ids, then call
+:meth:`~captest.capdata.CapData.process_regression_columns` to validate and
+prepare those mappings. :meth:`~captest.capdata.CapData.custom_param` adds a
+column of derived values (e.g. temperature-corrected power or spectral
+corrections) directly to the :py:class:`~captest.capdata.CapData` instance;
+see :doc:`calcparams` for the available calculation functions.
+
+.. autosummary::
+   :toctree: generated/
+
+   capdata.CapData.set_regression_cols
+   capdata.CapData.process_regression_columns
+   capdata.CapData.custom_param
 
 Data Management
 ---------------
@@ -20,15 +39,12 @@ Methods for inspecting, renaming, copying, and exporting data.
 .. autosummary::
    :toctree: generated/
 
-   capdata.CapData.set_regression_cols
    capdata.CapData.get_reg_cols
    capdata.CapData.review_column_groups
    capdata.CapData.copy
    capdata.CapData.empty
    capdata.CapData.drop_cols
    capdata.CapData.rename_cols
-   capdata.CapData.process_regression_columns
-   capdata.CapData.custom_param
 
 Aggregation
 -----------

@@ -1427,6 +1427,10 @@ class CapData(object):
         """
         Create a dictionary linking the regression variables to data.
 
+        As of v0.15.0 prefer using a predefined test setup that includes
+        a regression column dictionary or assigning a dictionary to the
+        `regression_cols` attribute directly.
+
         Links the independent regression variables to the appropriate
         translation keys or a column name may be used to specify a
         single column of data.

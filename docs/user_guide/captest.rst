@@ -1,7 +1,7 @@
 .. _captest:
 
-CapTest
-=======
+CapTest Workflow
+================
 :py:class:`~captest.captest.CapTest` is a convenient way to keep the measured
 data, modeled data, test settings, and comparison plots together for one
 capacity test. It is useful when you want one object to represent the test you
@@ -23,10 +23,10 @@ helps with the pieces that are repeated from project to project:
 - Reading and writing the test setup from a yaml file, which can be helpful
   when you want a repeatable project record.
 
-For users coming from spreadsheet-based calculations, a ``CapTest`` object is
-similar to a workbook that keeps the key tabs and assumptions for one test in a
-single place. The raw measured data and PVsyst data remain in the associated
-``CapData`` objects, while the test-level assumptions are stored on ``CapTest``.
+A ``CapTest`` object is keeps the test level requirements (e.g., minimum irradiance
+and test tolerance) for the test in a single place. The raw measured data and PVsyst
+data remain in the associated ``CapData`` objects, while the test-level assumptions
+are stored on ``CapTest``.
 
 When to use CapTest
 -------------------
