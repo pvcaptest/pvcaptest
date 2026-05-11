@@ -8,3 +8,4 @@ User Guide
     dataload
     bifacial
     captest
+    custom_test_setups
