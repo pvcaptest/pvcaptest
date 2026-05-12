@@ -4,11 +4,9 @@ CapTest Workflow
 ================
 :py:class:`~captest.captest.CapTest` is a convenient way to keep the measured
 data, modeled data, test settings, and comparison plots together for one
-capacity test. It is useful when you want one object to represent the test you
-are working on, rather than separately passing the measured and modeled
-:py:class:`~captest.capdata.CapData` objects into each comparison function.
+capacity test.
 
-The workflow is still the same workflow described in :ref:`dataload`: load the
+The general workflow is still the same workflow described in :ref:`dataload`: load the
 data, review the column groups, filter the measured and modeled data, calculate
 reporting conditions, fit regressions, and compare the results. ``CapTest``
 helps with the pieces that are repeated from project to project:
@@ -23,22 +21,29 @@ helps with the pieces that are repeated from project to project:
 - Reading and writing the test setup from a yaml file, which can be helpful
   when you want a repeatable project record.
 
-A ``CapTest`` object is keeps the test level requirements (e.g., minimum irradiance
+A ``CapTest`` object keeps the test level requirements (e.g., minimum irradiance
 and test tolerance) for the test in a single place. The raw measured data and PVsyst
 data remain in the associated ``CapData`` objects, while the test-level assumptions
 are stored on ``CapTest``.
 
 When to use CapTest
 -------------------
+Almost always! The goal of the CapTest class is to streamline conducting tests whose
+regression equation includes regressors that are values calculated from the data
+available, like :math:`E_{Total}` for a bifacial test. 
+
+If there is not a test setup available that fits the regression equation you are using,
+then you can create your own test setup and, if necessary, functions to create the
+calculated parameters. See the :ref:`custom_test_setups` section for details on this
+process. Also, please open an issue on Github to request adding a new test setup!
+
 The examples in :ref:`dataload` use :py:class:`~captest.capdata.CapData`
-directly. That is still a good approach, especially while learning pvcaptest or
-while working through a non-standard analysis.
+directly. That workflow is mostly unchanged and may be helpful while learning pvcaptest or while working through a non-standard analysis.
 
 ``CapTest`` becomes more helpful when:
 
-- You have both measured and modeled data for the same test.
 - You want to use one of the standard regression setups without manually
-  assigning all regression columns.
+  assigning a regression columns dictionary and then calling ``process_regression_columns`` to recursively process it.
 - You want one place to store project-level assumptions such as AC nameplate,
   tolerance, bifaciality, and filter settings.
 - You plan to save the test setup in a yaml file and re-run it later.
@@ -52,8 +57,26 @@ Choosing a test setup
 ---------------------
 The ``test_setup`` value tells pvcaptest which regression equation and default
 measured/model column mappings to use. These setups are intended to cover common
-capacity-test cases without requiring users to write a regression formula from
-scratch.
+capacity-test cases without requiring users to create one.
+
+A test setup is a named preset that bundles everything needed to configure
+the regression for a capacity test. Each setup defines:
+
+- **Regression formula** — the model equation, such as the standard ASTM E2848
+  four-term formula or the bifacial temperature-corrected power formula.
+- **Measured column mappings** (``reg_cols_meas``) — which measured data columns
+  map to each regression variable, how multiple sensors are aggregated (sum or
+  mean), and any calculated columns required by the setup (e.g. ``e_total``,
+  ``power_temp_correct``).
+- **Modeled column mappings** (``reg_cols_sim``) — the corresponding PVsyst output
+  columns and any calculated columns for the modeled side.
+- **Default reporting conditions** — how each regression variable is aggregated to
+  compute reporting conditions (e.g. 60th-percentile POA, mean ambient temperature
+  and wind speed).
+- **Scatter plot function** — the plotting callable matched to the regression
+  formula, used by :py:meth:`~captest.captest.CapTest.scatter_plots`.
+
+See :ref:`custom_test_setups` for additional details and example.
 
 The built-in options are:
 
@@ -95,8 +118,39 @@ The built-in options are:
 
 Creating a CapTest
 ------------------
-A :py:class:`~captest.captest.CapTest` can be created from data that has already
-been loaded, from file paths, or from a yaml file.
+A :py:class:`~captest.captest.CapTest` can be created from from file paths, data
+that has already been loaded, or from a yaml file. The ``from_params`` options is
+recommended for typical usage of pvcaptest to interactivley run a test in a
+Jupyter notebook.
+
+From data paths
+~~~~~~~~~~~~~~~
+If you provide paths to your data, ``CapTest`` will load the data for you using the
+`io.load_data` and the `io.load_pvsyst` functions to create two instances of `CapData`
+and assign them to the returned `CapTest` instance.
+
+.. code-block:: Python
+
+    ct = CapTest.from_params(
+        test_setup='bifi_e2848_etotal',
+        meas_path='./data/measured/',
+        sim_path='./data/pvsyst_results.csv',
+        bifaciality=0.15,
+        ac_nameplate=6_000_000,
+        test_tolerance='- 4',
+        meas_load_kwargs={
+            'group_columns': './path-to/column_groups.xlsx',
+        },
+    )
+
+Measured data is loaded with :py:func:`~captest.io.load_data`, and modeled data
+is loaded with :py:func:`~captest.io.load_pvsyst`. Extra loading options can be
+passed with ``meas_load_kwargs`` and ``sim_load_kwargs``.
+
+.. note::
+
+   You will likely need / want to include meas_load_kwargs to load your
+   column grouping from a file. See the examples.
 
 From loaded data
 ~~~~~~~~~~~~~~~~
@@ -117,31 +171,17 @@ If you have already loaded the measured and modeled data, pass the two
         ac_nameplate=6_000_000,
         test_tolerance='- 4',
     )
+    ct.setup()
+
+.. note::
+
+    Note, the last line that calls ``setup()``. When manually constructing a 
+    CapTest object as shown here this is a necessary step. See :ref:`what-setup-does`.
 
 The measured data is then available as ``ct.meas`` and the modeled data is
 available as ``ct.sim``. Both are regular ``CapData`` objects, so the filtering,
 plotting, reporting-condition, and regression methods used elsewhere in the
 User Guide still apply.
-
-From data paths
-~~~~~~~~~~~~~~~
-``CapTest`` can also load the data for you. This is useful when you want the
-same object to store the data paths and the test settings.
-
-.. code-block:: Python
-
-    ct = CapTest.from_params(
-        test_setup='bifi_e2848_etotal',
-        meas_path='./data/measured/',
-        sim_path='./data/pvsyst_results.csv',
-        bifaciality=0.15,
-        ac_nameplate=6_000_000,
-        test_tolerance='- 4',
-    )
-
-Measured data is loaded with :py:func:`~captest.io.load_data`, and modeled data
-is loaded with :py:func:`~captest.io.load_pvsyst`. Extra loading options can be
-passed with ``meas_load_kwargs`` and ``sim_load_kwargs``.
 
 From yaml
 ~~~~~~~~~
@@ -193,6 +233,7 @@ setup and the temperature-corrected power setup.
     ct_etotal = CapTest.from_yaml('./project.yaml', key='captest_bifi_etotal')
     ct_power_tc = CapTest.from_yaml('./project.yaml', key='captest_bifi_power_tc')
 
+.. _what_setup_does
 What setup does
 ---------------
 When ``CapTest`` has both measured and modeled data, it prepares each
