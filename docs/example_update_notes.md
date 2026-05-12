@@ -3,4 +3,3 @@ complete_capacity_test.ipynb
 - small cleanup improvement to filter_irr - the ref_val kwarg now accepts the more clear string "rep_irr" and the actual reporting irradiance value is included in the summary when running get_summary method
 - Functions comparing across two instances of CapData have been moved to CapTest methods - e.g. `capdata.get_summary` and `capdata.captest_results_check_pvalues`
 - Calculating reporting conditions for multiple time periods (e.g., monthly) moved out of `rep_cond` to `rep_cond_freq`
-- 
