@@ -12,6 +12,14 @@ captest.capdata module
    :undoc-members:
    :show-inheritance:
 
+captest.captest module
+----------------------
+
+.. automodule:: captest.captest
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 captest.columngroups module
 ---------------------------
 
@@ -40,6 +48,14 @@ captest.util module
 -------------------
 
 .. automodule:: captest.util
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+captest.calcparams module
+-------------------------
+
+.. automodule:: captest.calcparams
    :members:
    :undoc-members:
    :show-inheritance:

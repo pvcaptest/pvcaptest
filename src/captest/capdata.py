@@ -1,21 +1,23 @@
 """
 Provides the CapData class and supporting functions.
 
-The CapData class provides methods for loading, filtering, and regressing solar
-data.  A capacity test following the ASTM standard can be performed using a
-CapData object for the measured data and a seperate CapData object for the
-modeled data. The get_summary and captest_results functions accept two CapData
-objects as arguments and provide a summary of the data filtering steps and
-the results of the capacity test, respectively.
+The CapData class provides methods for loading, filtering, and regressing
+solar data. A capacity test following the ASTM E2848 standard is orchestrated
+by ``captest.CapTest``, which binds a measured and a modeled ``CapData``
+instance together and exposes the cross-CapData comparison methods
+(``captest_results``, ``get_summary``, ``overlay_scatters``,
+``residual_plot``, ``determine_pass_or_fail``).
 """
 
 # standard library imports
+import difflib
 import re
 import copy
 from functools import wraps
 from itertools import combinations
 import warnings
 import importlib
+import inspect
 
 # anaconda distribution defaults
 import numpy as np
@@ -167,6 +169,9 @@ def update_summary(func):
             )
 
         ret_val = func(self, *args, **kwargs)
+
+        if kwargs.get("ref_val") in ("rep_irr", "self_val") and self.rc is not None:
+            kwargs = {**kwargs, "ref_val": float(self.rc["poa"].iloc[0])}
 
         arg_str = args.__repr__()
         lst = arg_str.split(",")
@@ -366,15 +371,6 @@ def wrap_seasons(df, freq):
         return df
     else:
         return df
-
-
-def perc_wrap(p):
-    """Wrap numpy percentile function for use in rep_cond method."""
-
-    def numpy_percentile(x):
-        return np.percentile(x.T, p, method="nearest")
-
-    return numpy_percentile
 
 
 def perc_bounds(percent_filter):
@@ -1142,74 +1138,6 @@ def csky(time_source, loc=None, sys=None, concat=True, output="both"):
         return csky_df
 
 
-def get_summary(*args):
-    """
-    Return summary dataframe of filtering steps for multiple CapData objects.
-
-    See documentation for the CapData.get_summary method for additional
-    details.
-    """
-    summaries = [cd.get_summary() for cd in args]
-    return pd.concat(summaries)
-
-
-def pick_attr(sim, das, name):
-    """Check for conflict between attributes of two CapData objects."""
-    sim_attr = getattr(sim, name)
-    das_attr = getattr(das, name)
-    if sim_attr is None and das_attr is None:
-        warn_str = "{} must be set for either sim or das".format(name)
-        return warnings.warn(warn_str)
-    elif sim_attr is None and das_attr is not None:
-        return (das_attr, "das")
-    elif sim_attr is not None and das_attr is None:
-        return (sim_attr, "sim")
-    elif sim_attr is not None and das_attr is not None:
-        warn_str = "{} found for sim and das set {} to None for one of the two".format(
-            name, name
-        )
-        return warnings.warn(warn_str)
-
-
-def determine_pass_or_fail(cap_ratio, tolerance, nameplate):
-    """
-    Determine a pass/fail result from a capacity ratio and test tolerance.
-
-    Parameters
-    ----------
-    cap_ratio : float
-        Ratio of the measured data regression result to the simulated data
-        regression result.
-    tolerance : str
-        String representing error band.  Ex. '+/- 3' or '- 5'
-        There must be space between the sign and number. Number is
-        interpreted as a percent.  For example, 5 percent is 5 not 0.05.
-    nameplate : numeric
-        Nameplate rating of the PV plant.
-
-    Returns
-    -------
-    tuple of boolean and string
-        True for a passing test and false for a failing test.
-        Limits for passing and failing test.
-    """
-    sign = tolerance.split(sep=" ")[0]
-    error = float(tolerance.split(sep=" ")[1]) / 100
-
-    nameplate_plus_error = nameplate * (1 + error)
-    nameplate_minus_error = nameplate * (1 - error)
-
-    if sign == "+/-" or sign == "-/+":
-        return (
-            round(np.abs(1 - cap_ratio), ndigits=6) <= error,
-            str(nameplate_minus_error) + ", " + str(nameplate_plus_error),
-        )
-    elif sign == "-":
-        return (cap_ratio >= 1 - error, str(nameplate_minus_error) + ", None")
-    else:
-        warnings.warn("Sign must be '-', '+/-', or '-/+'.")
-
-
 def predict_with_pvalue_check(cd, rc=None, pval_threshold=0.05):
     """
     Make prediction with optional p-value filtering of coefficients.
@@ -1251,183 +1179,6 @@ def predict_with_pvalue_check(cd, rc=None, pval_threshold=0.05):
     return results.model.predict(modified_params, exog)[0]
 
 
-def captest_results(
-    sim, das, nameplate, tolerance, check_pvalues=False, pval=0.05, print_res=True
-):
-    """
-    Print a summary indicating if system passed or failed capacity test.
-
-    NOTE: Method will try to adjust for 1000x differences in units.
-
-    Parameters
-    ----------
-    sim : CapData
-        CapData object for simulated data.
-    das : CapData
-        CapData object for measured data.
-    nameplate : numeric
-        Nameplate rating of the PV plant.
-    tolerance : str
-        String representing error band.  Ex. +/- 3', '- 5'
-        There must be space between the sign and number. Number is
-        interpreted as a percent.  For example, 5 percent is 5 not 0.05.
-    check_pvalues : boolean, default False
-        Set to true to check p values for each coefficient.  If p values is
-        greater than pval, then the coefficient is set to zero.
-    pval : float, default 0.05
-        p value to use as cutoff.  Regresion coefficients with a p value
-        greater than pval will be set to zero.
-    print_res : boolean, default True
-        Set to False to prevent printing results.
-
-    Returns
-    -------
-    Capacity test ratio - the capacity calculated from the reporting conditions
-    and the measured data divided by the capacity calculated from the reporting
-    conditions and the simulated data.
-    """
-    if sim.regression_formula != das.regression_formula:
-        return warnings.warn("CapData objects do not have the same regression formula.")
-
-    rc_result = pick_attr(sim, das, "rc")
-    if print_res:
-        print("Using reporting conditions from {}. \n".format(rc_result[1]))
-    rc = rc_result[0]
-
-    # Use predict_with_pvalue_check for consistent behavior across pandas versions
-    pval_threshold = pval if check_pvalues else None
-    actual = predict_with_pvalue_check(das, rc=rc, pval_threshold=pval_threshold)
-    expected = predict_with_pvalue_check(sim, rc=rc, pval_threshold=pval_threshold)
-    cap_ratio = actual / expected
-    if cap_ratio < 0.01:
-        cap_ratio *= 1000
-        actual *= 1000
-        warnings.warn(
-            "Capacity ratio and actual capacity multiplied by 1000"
-            " because the capacity ratio was less than 0.01."
-        )
-    capacity = nameplate * cap_ratio
-
-    if print_res:
-        test_passed = determine_pass_or_fail(cap_ratio, tolerance, nameplate)
-        print_results(
-            test_passed, expected, actual, cap_ratio, capacity, test_passed[1]
-        )
-
-    return cap_ratio
-
-
-def print_results(test_passed, expected, actual, cap_ratio, capacity, bounds):
-    """Print formatted results of capacity test."""
-    if test_passed[0]:
-        print("{:<30s}{}".format("Capacity Test Result:", "PASS"))
-    else:
-        print("{:<25s}{}".format("Capacity Test Result:", "FAIL"))
-
-    print(
-        "{:<30s}{:0.3f}".format("Modeled test output:", expected)
-        + "\n"
-        + "{:<30s}{:0.3f}".format("Actual test output:", actual)
-        + "\n"
-        + "{:<30s}{:0.3f}".format("Tested output ratio:", cap_ratio)
-        + "\n"
-        + "{:<30s}{:0.3f}".format("Tested Capacity:", capacity)
-    )
-
-    print("{:<30s}{}\n\n".format("Bounds:", test_passed[1]))
-
-
-def highlight_pvals(s):
-    """Highlight vals greater than or equal to 0.05 in a Series yellow."""
-    is_greaterthan = s >= 0.05
-    return ["background-color: yellow" if v else "" for v in is_greaterthan]
-
-
-def captest_results_check_pvalues(
-    sim, das, nameplate, tolerance, print_res=False, **kwargs
-):
-    """
-    Print a summary of the capacity test results.
-
-    Capacity ratio is the capacity calculated from the reporting conditions
-    and the measured data divided by the capacity calculated from the reporting
-    conditions and the simulated data.
-
-    The tolerance is applied to the capacity test ratio to determine if the
-    test passes or fails.
-
-    Parameters
-    ----------
-    sim : CapData
-        CapData object for simulated data.
-    das : CapData
-        CapData object for measured data.
-    nameplate : numeric
-        Nameplate rating of the PV plant.
-    tolerance : str
-        String representing error band.  Ex. '+ 3', '+/- 3', '- 5'
-        There must be space between the sign and number. Number is
-        interpreted as a percent.  For example, 5 percent is 5 not 0.05.
-    print_res : boolean, default True
-        Set to False to prevent printing results.
-    **kwargs
-        kwargs are passed to captest_results.  See documentation for
-        captest_results for options. check_pvalues is set in this method,
-        so do not pass again.
-
-    Prints:
-    Capacity ratio without setting parameters with high p-values to zero.
-    Capacity ratio after setting paramters with high p-values to zero.
-    P-values for simulated and measured regression coefficients.
-    Regression coefficients (parameters) for simulated and measured data.
-    """
-    das_pvals = das.regression_results.pvalues
-    sim_pvals = sim.regression_results.pvalues
-    das_params = das.regression_results.params
-    sim_params = sim.regression_results.params
-
-    df_pvals = pd.DataFrame([das_pvals, sim_pvals, das_params, sim_params])
-    df_pvals = df_pvals.transpose()
-    df_pvals.rename(
-        columns={0: "das_pvals", 1: "sim_pvals", 2: "das_params", 3: "sim_params"},
-        inplace=True,
-    )
-
-    cap_ratio = captest_results(
-        sim,
-        das,
-        nameplate,
-        tolerance,
-        print_res=print_res,
-        check_pvalues=False,
-        **kwargs,
-    )
-    cap_ratio_check_pvalues = captest_results(
-        sim,
-        das,
-        nameplate,
-        tolerance,
-        print_res=print_res,
-        check_pvalues=True,
-        **kwargs,
-    )
-
-    cap_ratio_rounded = np.round(cap_ratio, decimals=4) * 100
-    cap_ratio_check_pvalues_rounded = (
-        np.round(cap_ratio_check_pvalues, decimals=4) * 100
-    )
-
-    result_str = "{:.3f}% - Cap Ratio"
-    print(result_str.format(cap_ratio_rounded))
-
-    result_str_pval_check = "{:.3f}% - Cap Ratio after pval check"
-    print(result_str_pval_check.format(cap_ratio_check_pvalues_rounded))
-
-    return df_pvals.style.format("{:20,.5f}").apply(
-        highlight_pvals, subset=["das_pvals", "sim_pvals"]
-    )
-
-
 def run_test(cd, steps):
     """
     Apply a list of capacity test steps to a given CapData object.
@@ -1450,39 +1201,6 @@ def run_test(cd, steps):
     """
     for step in steps:
         step[0](cd, *step[1], **step[2])
-
-
-def overlay_scatters(measured, expected, expected_label="PVsyst"):
-    """
-    Plot labeled overlay scatter of final filtered measured and simulated data.
-
-    Parameters
-    ----------
-    measured : Overlay
-        Holoviews overlay scatter plot produced from CapData object used to
-        calculate reporting conditions.
-    expected : Overlay
-        Holoviews overlay scatter plot produced from CapData object not used to
-        calculate reporting conditions.
-    rcs_from_meas : bool
-        If rest was run calculating reporting conditions from measured or
-        simulated data.
-
-    Returns
-    -------
-    Overlay scatter plot of remaining data after filtering from measured and
-    simulated data.
-    """
-    meas_last_filter_scatter = getattr(
-        measured.Scatter, measured.Scatter.children[-1]
-    ).relabel("Measured")
-    exp_last_filter_scatter = getattr(
-        expected.Scatter, expected.Scatter.children[-1]
-    ).relabel(expected_label)
-    overlay = (meas_last_filter_scatter * exp_last_filter_scatter).opts(
-        hv.opts.Overlay(legend_position="right")
-    )
-    return overlay
 
 
 def index_capdata(capdata, label, filtered=True):
@@ -1534,8 +1252,15 @@ def index_capdata(capdata, label, filtered=True):
                         col_or_grp, label
                     )
                 )
+                return None
         elif label in data.columns:
             selected_data = data.loc[:, label]
+        else:
+            warnings.warn(
+                'Label "{}" not found in column_groups keys, regression_cols keys, '
+                "or columns of CapData.data".format(label)
+            )
+            return None
         if isinstance(selected_data, pd.Series):
             return selected_data.to_frame()
         else:
@@ -1686,20 +1411,25 @@ class CapData(object):
         that when called returns a view of the data for that column group using
         the loc indexer functionality.
         """
-        for grp_id in self.column_groups["agg"]:
+        if "agg" in self.column_groups:
+            for grp_id in self.column_groups["agg"]:
 
-            def make_getter(key):
-                def getter(self):
-                    return self.loc[key]
+                def make_getter(key):
+                    def getter(self):
+                        return self.loc[key]
 
-                return getter
+                    return getter
 
-            # Create the property and set it on the instance
-            setattr(self.__class__, "aggs_" + grp_id, property(make_getter(grp_id)))
+                # Create the property and set it on the instance
+                setattr(self.__class__, "aggs_" + grp_id, property(make_getter(grp_id)))
 
     def set_regression_cols(self, power="", poa="", t_amb="", w_vel=""):
         """
         Create a dictionary linking the regression variables to data.
+
+        As of v0.15.0 prefer using a predefined test setup that includes
+        a regression column dictionary or assigning a dictionary to the
+        `regression_cols` attribute directly.
 
         Links the independent regression variables to the appropriate
         translation keys or a column name may be used to specify a
@@ -1750,26 +1480,28 @@ class CapData(object):
 
     def drop_cols(self, columns):
         """
-        Drop columns from CapData `data` and `column_groups`.
+        Drop columns from CapData `data`, `data_filtered`, and `column_groups`.
 
         Parameters
         ----------
-        Columns : list
-            List of columns to drop.
-
-        Todo
-        ----
-        Change to accept a string column name or list of strings
+        columns : str or list
+            Column name or list of column names to drop.
         """
-        for key, value in self.column_groups.items():
-            for col in columns:
+        if isinstance(columns, str):
+            columns = [columns]
+        for col in columns:
+            print(f"Removing following column: {col}")
+            for key, value in self.column_groups.items():
                 try:
                     value.remove(col)
                     self.column_groups[key] = value
+                    print("    Dropped from column grouping")
                 except ValueError:
                     continue
-        self.data.drop(columns, axis=1, inplace=True)
-        self.data_filtered.drop(columns, axis=1, inplace=True)
+            self.data.drop(col, axis=1, inplace=True)
+            print("    Dropped from data attribute")
+            self.data_filtered.drop(col, axis=1, inplace=True)
+            print("    Dropped from data filtered attribute")
 
     def rename_cols(self, column_map):
         """
@@ -1849,62 +1581,75 @@ class CapData(object):
 
     def scatter(self, filtered=True):
         """
-        Create scatter plot of irradiance vs power.
+        Create a matplotlib scatter plot of regression lhs vs. first rhs var.
+
+        Formula-agnostic: resolves the x and y columns from
+        ``self.regression_formula`` via ``util.parse_regression_formula``.
 
         Parameters
         ----------
-        filtered : bool, default true
-            Plots filtered data when true and all data when false.
+        filtered : bool, default True
+            Plots filtered data when True and all data when False.
+
+        Notes
+        -----
+        Prefer ``CapTest.scatter_plots`` for non-default regression presets;
+        it picks the right callable from ``TEST_SETUPS`` (single or multi-
+        panel) automatically.
         """
+        lhs, rhs = util.parse_regression_formula(self.regression_formula)
+        y_col, x_col = lhs[0], rhs[0]
         if filtered:
-            df = self.floc[["power", "poa"]]
+            df = self.floc[[y_col, x_col]]
         else:
-            df = self.loc[["power", "poa"]]
+            df = self.loc[[y_col, x_col]]
 
         if df.shape[1] != 2:
             return warnings.warn("Aggregate sensors before using this method.")
 
-        df = df.rename(columns={df.columns[0]: "power", df.columns[1]: "poa"})
-        plt = df.plot(kind="scatter", x="poa", y="power", title=self.name, alpha=0.2)
+        df = df.rename(columns={df.columns[0]: y_col, df.columns[1]: x_col})
+        plt = df.plot(kind="scatter", x=x_col, y=y_col, title=self.name, alpha=0.2)
         return plt
 
     def scatter_hv(self, timeseries=False, all_reg_columns=False):
         """
-        Create holoviews scatter plot of irradiance vs power.
+        Create a holoviews scatter plot of regression lhs vs. first rhs var.
 
-        Use holoviews opts magics in notebook cell before calling method to
-        adjust height and width of plots:
-
-        %%opts Scatter [height=200, width=400]
-        %%opts Curve [height=200, width=400]
+        Formula-agnostic thin wrapper around ``captest.captest.scatter_default``
+        (with additional timeseries-overlay support, which scatter_default does
+        not provide). For non-default regression presets prefer
+        ``CapTest.scatter_plots`` which picks the right callable (single or
+        multi-panel) from ``TEST_SETUPS``.
 
         Parameters
         ----------
-        timeseries : boolean, default False
-            True adds timeseries plot of the data linked to the scatter plot.
-            Points selected in teh scatter plot will be highlighted in the
-            timeseries plot.
-        all_reg_columns : boolean, default False
-            Set to True to include the data used in the regression in addition
-            to poa irradiance and power in the hover tooltip.
+        timeseries : bool, default False
+            If True, returns a layout with the scatter plot and a linked
+            timeseries plot of the lhs variable. Selecting points in the
+            scatter highlights them in the timeseries.
+        all_reg_columns : bool, default False
+            If True, includes every regression column in the scatter plot's
+            hover tooltip in addition to the x and y variables.
         """
+        lhs, rhs = util.parse_regression_formula(self.regression_formula)
+        y_col, x_col = lhs[0], rhs[0]
         df = self.get_reg_cols(filtered_data=True)
         df.index.name = "index"
-        df.reset_index(inplace=True)
-        vdims = ["power", "index"]
+        df = df.reset_index()
+        vdims = [y_col, "index"]
         if all_reg_columns:
-            vdims.extend(list(df.columns.difference(vdims)))
+            vdims.extend(list(df.columns.difference(vdims + [x_col])))
         hover = HoverTool(
             tooltips=[
                 ("datetime", "@index{%Y-%m-%d %H:%M}"),
-                ("poa", "@poa{0,0.0}"),
-                ("power", "@power{0,0.0}"),
+                (x_col, "@{" + x_col + "}{0,0.0}"),
+                (y_col, "@{" + y_col + "}{0,0.0}"),
             ],
             formatters={
                 "@index": "datetime",
             },
         )
-        poa_vs_kw = hv.Scatter(df, "poa", vdims).opts(
+        scatter = hv.Scatter(df, x_col, vdims).opts(
             size=5,
             tools=[hover, "lasso_select", "box_select"],
             legend_position="right",
@@ -1914,20 +1659,19 @@ class CapData(object):
             selection_line_color="red",
             yformatter=NumeralTickFormatter(format="0,0"),
         )
-        # layout_scatter = (poa_vs_kw).opts(opt_dict)
         if timeseries:
-            power_vs_time = hv.Scatter(df, "index", ["power", "poa"]).opts(
+            power_vs_time = hv.Scatter(df, "index", [y_col, x_col]).opts(
                 tools=[hover, "lasso_select", "box_select"],
                 height=400,
                 width=800,
                 selection_fill_color="red",
                 selection_line_color="red",
             )
-            power_col, poa_col = self.loc[["power", "poa"]].columns
-            power_vs_time_underlay = hv.Curve(
+            y_raw_col, x_raw_col = self.loc[[y_col, x_col]].columns
+            underlay = hv.Curve(
                 self.data.rename_axis("index", axis="index"),
                 "index",
-                [power_col, poa_col],
+                [y_raw_col, x_raw_col],
             ).opts(
                 tools=["lasso_select", "box_select"],
                 height=400,
@@ -1937,11 +1681,10 @@ class CapData(object):
                 line_alpha=0.4,
                 yformatter=NumeralTickFormatter(format="0,0"),
             )
-            layout_timeseries = poa_vs_kw + power_vs_time * power_vs_time_underlay
-            DataLink(poa_vs_kw, power_vs_time)
+            layout_timeseries = scatter + power_vs_time * underlay
+            DataLink(scatter, power_vs_time)
             return layout_timeseries.cols(1)
-        else:
-            return poa_vs_kw
+        return scatter
 
     def plot(
         self,
@@ -2179,7 +1922,51 @@ class CapData(object):
         else:
             return poa_cols[0]
 
-    def agg_group(self, group_id, agg_func, verbose=True, rename_map=None):
+    def _get_group(self, group_id):
+        """Look up a column group by id and return the corresponding DataFrame.
+
+        Parameters
+        ----------
+        group_id : str
+            Key from `column_groups`, `regression_cols`, or a column name in
+            `data`.
+
+        Returns
+        -------
+        pd.DataFrame
+
+        Raises
+        ------
+        KeyError
+            If `group_id` is not found. Includes fuzzy close-match suggestions
+            when available.
+        """
+        result = self.loc[group_id]
+        if result is None:
+            close_matches = difflib.get_close_matches(
+                group_id, self.column_groups.keys(), n=3, cutoff=0.6
+            )
+            suggestion = (
+                f" Did you mean one of: {', '.join(close_matches)}?"
+                if close_matches
+                else ""
+            )
+            raise KeyError(
+                f"Group '{group_id}' was not found in column_groups, "
+                f"regression_cols, or the columns of CapData.data.{suggestion}"
+            )
+        return result
+
+    def agg_group(
+        self,
+        group_id,
+        agg_func,
+        verbose=True,
+        rename_map=None,
+        inplace=True,
+        cutoff=10,
+        columns=None,
+    ):
         """
         Aggregate columns in a group.
 
@@ -2191,31 +1978,56 @@ class CapData(object):
             Aggregation function to apply.
         verbose : bool, default True
             Set to True to print the columns that have been aggregated, the
-            aggregation function used, and the new column name. If the group being
-            aggregated has more than 10 columns, only the group name will be printed.
+            aggregation function used, and the new column name.
+        cutoff : int, default 10
+            Maximum number of columns to list individually when ``verbose=True``.
+            When the group contains more columns than this value, the first three
+            and last three column names are printed with an ellipsis in between.
+            Increase this value to see more columns listed individually.
+        columns : pd.DataFrame or None, default None
+            Pre-fetched DataFrame of columns to aggregate. When provided the
+            lookup via ``self._get_group`` is skipped. Intended for internal use
+            by ``agg_sensors`` to avoid a redundant lookup.
         """
-        columns_to_aggregate = self.loc[group_id]
-        agg_result = columns_to_aggregate.agg(agg_func, axis=1)
-        if isinstance(agg_func, str):
-            col_name = group_id + "_" + agg_func + "_agg"
+        if columns is None:
+            columns_to_aggregate = self._get_group(group_id)
         else:
-            col_name = group_id + "_" + agg_func.__name__ + "_agg"
+            columns_to_aggregate = columns
+        agg_result = columns_to_aggregate.agg(agg_func, axis=1)
+        col_name = util.get_agg_column_name(group_id, agg_func)
+        self.column_groups.setdefault("agg", []).append(col_name)
         agg_result = agg_result.rename(col_name).to_frame()
         if verbose:
             col_name_to_print = copy.copy(col_name)
             if rename_map is not None and col_name in rename_map.keys():
                 col_name_to_print = rename_map[col_name]
+            cols = list(columns_to_aggregate.columns)
+            col_qty = len(cols)
+            if col_qty > cutoff:
+                truncated_warning = "OUTPUT TRUNCATED - "
+            else:
+                truncated_warning = ""
             print(
-                "Aggregating the below columns using the {} function. New column name: {}:".format(
-                    agg_func, col_name_to_print
+                "{}Aggregating the below {} columns of the {} group using the {} function. New column name: {}:".format(
+                    truncated_warning, col_qty, group_id, agg_func, col_name_to_print
                 )
             )
-            if len(columns_to_aggregate.columns) <= 10:
-                for col in columns_to_aggregate.columns:
+            if col_qty <= cutoff:
+                for col in cols:
                     print("    " + col)
-            elif len(columns_to_aggregate.columns) > 10:
-                print("   Aggregating all columns of the {} group".format(group_id))
-        return (agg_result, col_name)
+                print("\n")
+            else:
+                for col in cols[:3]:
+                    print("    " + col)
+                print("    ...")
+                for col in cols[-3:]:
+                    print("    " + col)
+                print("\n")
+        if inplace:
+            self.data[col_name] = agg_result
+            return col_name
+        else:
+            return (agg_result, col_name)
 
     def expand_agg_map(self, agg_map):
         """
@@ -2354,51 +2166,33 @@ class CapData(object):
             }
 
         agg_names = {}
-        # print('Original agg map')
-        # print(agg_map)
         agg_map, rename_map, subgroup_rename_map = self.expand_agg_map(agg_map)
-        # print('Expanded agg map')
-        # print(agg_map)
-        # print('Subgroup rename map')
-        # print(subgroup_rename_map)
         for group_id, agg_func in agg_map.items():
-            if self.loc[group_id].shape[1] == 1:
+            col_name = util.get_agg_column_name(group_id, agg_func)
+            if col_name in self.data.columns:
+                if verbose:
+                    print(
+                        "Skipping aggregation of {} as column {} already exists".format(
+                            group_id, col_name
+                        )
+                    )
+                continue
+            columns = self._get_group(group_id)
+            if columns.shape[1] == 1:
                 continue
             agg_result, col_name = self.agg_group(
-                group_id, agg_func, verbose=verbose, rename_map=rename_map
+                group_id,
+                agg_func,
+                verbose=verbose,
+                rename_map=rename_map,
+                inplace=False,
+                columns=columns,
             )
             self.data = pd.concat([agg_result, self.data], axis=1)
             agg_names[group_id] = col_name
         self.data_filtered = self.data.copy()
-
-        # print('Agg names')
-        # print(agg_names)
-        # print('Renamer')
-        # print(rename_map)
         self.rename_cols(rename_map)
-        # update regression_cols attribute
-        for reg_var, trans_group in self.regression_cols.items():
-            if self.loc[reg_var].shape[1] == 1:
-                continue
-            elif trans_group in agg_names.keys():
-                print(
-                    "Regression variable '{}' has been remapped: '{}' to '{}'".format(
-                        reg_var, trans_group, agg_names[trans_group]
-                    )
-                )
-                self.regression_cols[reg_var] = agg_names[trans_group]
-            elif trans_group in subgroup_rename_map.keys():
-                print(
-                    "Regression variable '{}' has been remapped: '{}' to '{}".format(
-                        reg_var, trans_group, subgroup_rename_map[trans_group]
-                    )
-                )
-                self.regression_cols[reg_var] = subgroup_rename_map[trans_group]
-        # update column_groups attribute
-        self.column_groups["agg"] = [
-            rename_map[name] if name in rename_map.keys() else name
-            for name in agg_names.values()
-        ]
+        self.agg_name_mapper = agg_names
         self.create_column_group_attributes()
         self.create_agg_attributes()
 
@@ -2448,9 +2242,10 @@ class CapData(object):
             Minimum value as fraction (0.8) or absolute 200 (W/m^2).
         high : float or int
             Max value as fraction (1.2) or absolute 800 (W/m^2).
-        ref_val : float or int or `self_val`
+        ref_val : float or int or 'rep_irr'
             Must provide arg when `low` and `high` are fractions.
-            Pass `self_val` to use the value in `self.rc`.
+            Pass ``'rep_irr'`` to use the reporting irradiance from ``self.rc``
+            (set by calling :meth:`rep_cond` first).
         col_name : str, default None
             Column name of irradiance data to filter.  By default uses the POA
             irradiance set in regression_cols attribute or average of the POA
@@ -2470,7 +2265,20 @@ class CapData(object):
             irr_col = col_name
 
         if ref_val == "self_val":
-            ref_val = self.rc["poa"][0]
+            ref_val = "rep_irr"
+
+        if ref_val == "rep_irr":
+            if self.rc is None:
+                raise ValueError(
+                    "ref_val='rep_irr' requires reporting conditions to be set. "
+                    "Call rep_cond() before calling filter_irr() with ref_val='rep_irr'."
+                )
+            if "poa" not in self.rc.columns:
+                raise ValueError(
+                    "ref_val='rep_irr' requires a 'poa' column in self.rc. "
+                    "The reporting conditions DataFrame does not have a 'poa' column."
+                )
+            ref_val = self.rc["poa"].iloc[0]
 
         df_flt = filter_irr(self.data_filtered, irr_col, low, high, ref_val=ref_val)
         if inplace:
@@ -2585,11 +2393,15 @@ class CapData(object):
         start : str or pd.Timestamp or None, default None
             Start date for data to be returned.  If a string is passed it must
             be in format that can be converted by pandas.to_datetime.  Not
-            required if test_date and days arguments are passed.
+            required if test_date and days arguments are passed.  If not
+            provided and days is also not provided, defaults to the first
+            timestamp in data_filtered.
         end : str or pd.Timestamp or None, default None
             End date for data to be returned.  If a string is passed it must
             be in format that can be converted by pandas.to_datetime.  Not
-            required if test_date and days arguments are passed.
+            required if test_date and days arguments are passed.  If not
+            provided and days is also not provided, defaults to the last
+            timestamp in data_filtered.
         drop : bool, default False
             Set to true to drop time period between `start` and `end` rather
             than keep it. Must supply `start` and `end` and `wrap_year` must
@@ -2626,7 +2438,9 @@ class CapData(object):
 
         if start is not None and end is None:
             if days is None:
-                return warnings.warn("Must specify end date or days.")
+                start = pd.to_datetime(start)
+                end = self.data_filtered.index[-1]
+                df_temp = self.data_filtered.loc[start:end, :]
             else:
                 start = pd.to_datetime(start)
                 end = start + pd.DateOffset(days=days)
@@ -2637,7 +2451,9 @@ class CapData(object):
 
         if start is None and end is not None:
             if days is None:
-                return warnings.warn("Must specify end date or days.")
+                end = pd.to_datetime(end)
+                start = self.data_filtered.index[0]
+                df_temp = self.data_filtered.loc[start:end, :]
             else:
                 end = pd.to_datetime(end)
                 start = end - pd.DateOffset(days=days)
@@ -3165,127 +2981,196 @@ class CapData(object):
         self,
         irr_bal=False,
         percent_filter=20,
+        front_poa="poa",
         w_vel=None,
-        inplace=True,
-        func={"poa": perc_wrap(60), "t_amb": "mean", "w_vel": "mean"},
-        freq=None,
-        grouper_kwargs={},
+        func=None,
         rc_kwargs={},
     ):
         """
-        Calculate reporting conditons.
+        Calculate reporting conditions for the current regression formula.
+
+        The calculation is formula-agnostic: the right-hand-side variables of
+        ``self.regression_formula`` drive which columns are aggregated. Always
+        writes the result to ``self.rc``.
 
         Parameters
         ----------
-        irr_bal: boolean, default False
+        irr_bal : bool, default False
             If True, uses `ReportingIrradiance` to determine the reporting
-            irradiance. Replaces the calculations specified by ``func``
-            with or without ``freq``. When ``irr_bal`` is True, the reporting
-            temperature and wind speed are the means of the data within the
+            irradiance (``front_poa``). When True, the other reporting
+            conditions are aggregated from the subset of data within the
             balanced irradiance band.
         percent_filter : int, default 20
             Percentage used to define the irradiance band around the reporting
             irradiance when ``irr_bal`` is True. Has no effect when
             ``irr_bal`` is False.
-        func: callable, string, dictionary, or list of string/callables
-            Determines how the reporting condition is calculated.
-            Default is a dictionary poa - 60th numpy_percentile, t_amb - mean
-                                          w_vel - mean
-            Can pass a string function ('mean') to calculate each reporting
-            condition the same way.
-        freq: str
-            String pandas offset alias to specify aggregation frequency
-            for reporting condition calculation. Ex '60D' for 60 Days or
-            'MS' for months start.
-        w_vel: int
+        front_poa : str, default 'poa'
+            Key in ``self.regression_cols`` whose column is used as the
+            irradiance driver when ``irr_bal`` is True.
+        w_vel : numeric or None
             If not None, overrides the calculated wind speed reporting
             condition with this value.
-        inplace: bool, True by default
-            When true updates object rc parameter, when false returns
-            dicitionary of reporting conditions.
-        grouper_kwargs : dict
-            Passed to pandas Grouper to control label and closed side of
-            intervals. See pandas Grouper doucmentation for details. Default is
-            left labeled and left closed.
+        func : dict, str, callable, or None, default None
+            Passed to ``df.agg(...)``. A dict maps rhs variable names to
+            aggregation functions (e.g. ``{'poa': perc_wrap(60), 't_amb':
+            'mean'}``). When None, defaults to ``{var: 'mean' for var in rhs}``
+            where ``rhs`` is derived from ``self.regression_formula``.
         rc_kwargs : dict
-            Passed to `ReportingIrradiance` if ``irr_bal`` is True.
+            Passed to ``ReportingIrradiance`` when ``irr_bal`` is True.
 
         Returns
         -------
-        dict
-            Returns a dictionary of reporting conditions if inplace=False
-            otherwise returns None.
-        pandas DataFrame
-            If pred=True, then returns a pandas dataframe of results.
+        None
+            Reporting conditions are stored on ``self.rc`` as a one-row
+            DataFrame. Use ``rep_cond_freq`` for seasonal/monthly outputs.
         """
-        df = self.floc[["poa", "t_amb", "w_vel"]]
-        df = df.rename(
-            columns={
-                df.columns[0]: "poa",
-                df.columns[1]: "t_amb",
-                df.columns[2]: "w_vel",
-            }
-        )
+        lhs, rhs = util.parse_regression_formula(self.regression_formula)
+        df = self.get_reg_cols(reg_vars=rhs)
+
+        if func is None:
+            func = {var: "mean" for var in rhs}
 
         RCs_df = pd.DataFrame(df.agg(func)).T
 
         if irr_bal:
+            if front_poa not in df.columns:
+                raise ValueError(
+                    f"front_poa={front_poa!r} is not a right-hand-side variable "
+                    f"of the regression formula."
+                )
             self.rc_tool = ReportingIrradiance(
                 df,
-                "poa",
+                front_poa,
                 percent_band=percent_filter,
                 **rc_kwargs,
             )
             results = self.rc_tool.get_rep_irr()
             flt_df = results[1]
-            temp_RC = flt_df["t_amb"].mean()
-            wind_RC = flt_df["w_vel"].mean()
-            RCs_df = pd.DataFrame(
-                {"poa": results[0], "t_amb": temp_RC, "w_vel": wind_RC}, index=[0]
-            )
+            RCs_df = pd.DataFrame(flt_df.agg(func)).T
+            RCs_df.loc[RCs_df.index[0], front_poa] = results[0]
 
-        if w_vel is not None:
-            RCs_df.loc[0, "w_vel"] = w_vel
+        if w_vel is not None and "w_vel" in RCs_df.columns:
+            RCs_df.loc[RCs_df.index[0], "w_vel"] = w_vel
 
-        if freq is not None:
+        print("Reporting conditions saved to rc attribute.")
+        print(RCs_df)
+        self.rc = RCs_df
+
+    def rep_cond_freq(
+        self,
+        irr_bal=False,
+        percent_filter=20,
+        front_poa="poa",
+        w_vel=None,
+        inplace=True,
+        func=None,
+        freq=None,
+        grouper_kwargs={},
+        rc_kwargs={},
+    ):
+        """
+        Calculate frequency-grouped reporting conditions.
+
+        Like ``rep_cond`` but aggregates within groups defined by ``freq``
+        (e.g. ``'MS'`` for month-start, ``'60D'`` for 60-day). Used for
+        seasonal or monthly reporting tests.
+
+        Parameters
+        ----------
+        irr_bal : bool, default False
+            See ``rep_cond``.
+        percent_filter : int, default 20
+            See ``rep_cond``.
+        front_poa : str, default 'poa'
+            See ``rep_cond``.
+        w_vel : numeric or None
+            See ``rep_cond``.
+        inplace : bool, default True
+            When True writes the multi-row RC DataFrame to ``self.rc``; when
+            False returns the DataFrame.
+        func : dict, str, callable, or None, default None
+            See ``rep_cond``.
+        freq : str or None
+            Pandas offset alias. ``None`` falls back to single-row ``rep_cond``
+            behavior.
+        grouper_kwargs : dict
+            Passed to ``pandas.Grouper``.
+        rc_kwargs : dict
+            Passed to ``ReportingIrradiance`` when ``irr_bal`` is True.
+
+        Returns
+        -------
+        DataFrame or None
+            Multi-row DataFrame of per-group reporting conditions when
+            ``inplace=False``. Otherwise stores on ``self.rc`` and returns
+            ``None``.
+        """
+        lhs, rhs = util.parse_regression_formula(self.regression_formula)
+        df = self.get_reg_cols(reg_vars=rhs)
+
+        if func is None:
+            func = {var: "mean" for var in rhs}
+
+        if freq is None:
+            # Degenerate case: act like rep_cond.
+            RCs_df = pd.DataFrame(df.agg(func)).T
+            if irr_bal:
+                if front_poa not in df.columns:
+                    raise ValueError(
+                        f"front_poa={front_poa!r} is not a right-hand-side variable "
+                        f"of the regression formula."
+                    )
+                self.rc_tool = ReportingIrradiance(
+                    df, front_poa, percent_band=percent_filter, **rc_kwargs
+                )
+                results = self.rc_tool.get_rep_irr()
+                flt_df = results[1]
+                RCs_df = pd.DataFrame(flt_df.agg(func)).T
+                RCs_df.loc[RCs_df.index[0], front_poa] = results[0]
+            if w_vel is not None and "w_vel" in RCs_df.columns:
+                RCs_df.loc[RCs_df.index[0], "w_vel"] = w_vel
+        else:
             # wrap_seasons passes df through unchanged unless freq is one of
-            # 'BQ-JAN', 'BQ-FEB', 'BQ-APR', 'BQ-MAY', 'BQ-JUL',
-            # 'BQ-AUG', 'BQ-OCT', 'BQ-NOV'
+            # 'BQE-JAN', 'BQE-FEB', 'BQE-APR', 'BQE-MAY', 'BQE-JUL',
+            # 'BQE-AUG', 'BQE-OCT', 'BQE-NOV'
             df = wrap_seasons(df, freq)
             df_grpd = df.groupby(pd.Grouper(freq=freq, **grouper_kwargs))
 
             if irr_bal:
+                if front_poa not in df.columns:
+                    raise ValueError(
+                        f"front_poa={front_poa!r} is not a right-hand-side variable "
+                        f"of the regression formula."
+                    )
                 ix = pd.DatetimeIndex(list(df_grpd.groups.keys()), freq=freq)
-                poa_RC = []
-                temp_RC = []
-                wind_RC = []
-                for name, month in df_grpd:
+                monthly_rcs = []
+                for grp_key, month in df_grpd:
                     self.rc_tool = ReportingIrradiance(
                         month,
-                        "poa",
+                        front_poa,
                         percent_band=percent_filter,
                         **rc_kwargs,
                     )
                     results = self.rc_tool.get_rep_irr()
-                    poa_RC.append(results[0])
                     flt_df = results[1]
-                    temp_RC.append(flt_df["t_amb"].mean())
-                    wind_RC.append(flt_df["w_vel"].mean())
-                RCs_df = pd.DataFrame(
-                    {"poa": poa_RC, "t_amb": temp_RC, "w_vel": wind_RC}, index=ix
-                )
+                    monthly_rc = pd.DataFrame(flt_df.agg(func)).T
+                    monthly_rc.index = [grp_key]
+                    monthly_rc.loc[grp_key, front_poa] = results[0]
+                    monthly_rcs.append(monthly_rc)
+                RCs_df = pd.concat(monthly_rcs)
+                RCs_df.index = ix
             else:
                 RCs_df = df_grpd.agg(func)
 
-            if w_vel is not None:
+            if w_vel is not None and "w_vel" in RCs_df.columns:
                 RCs_df["w_vel"] = w_vel
 
         if inplace:
             print("Reporting conditions saved to rc attribute.")
             print(RCs_df)
             self.rc = RCs_df
-        else:
-            return RCs_df
+            return None
+        return RCs_df
 
     def predict_capacities(self, irr_filter=True, percent_filter=20, **kwargs):
         """
@@ -3603,6 +3488,74 @@ class CapData(object):
         pd.DataFrame.from_dict(
             self.column_groups.data, orient="index"
         ).stack().to_frame().droplevel(1).to_excel(save_to, header=False)
+
+    def process_regression_columns(self, verbose=True):
+        """
+        Walk the regression column dictionary and calculate parameters.
+
+        See util.process_reg_cols for additional documentation.
+
+        Parameters
+        ----------
+        verbose : bool, default True
+            By default prints summary of aggregations and parameter calculations
+            performed while traversing the `regression_cols` dictionary.
+            Set to False to prevent all output.
+        """
+        if not len(self.summary) == 0:
+            warnings.warn(
+                "The data_filtered attribute has been overwritten "
+                "and previously applied filtering steps have been "
+                "lost.  It is recommended to use agg_sensors "
+                "before any filtering methods."
+            )
+        # reset summary data
+        self.summary_ix = []
+        self.summary = []
+
+        self.regression_cols_preprocess = copy.deepcopy(self.regression_cols)
+        util.process_reg_cols(self.regression_cols, cd=self, verbose=verbose)
+        self.data_filtered = self.data.copy()
+        self.create_column_group_attributes()
+        if "agg" in self.column_groups:
+            self.create_agg_attributes()
+
+    def custom_param(self, func, *args, **kwargs):
+        """Applies the function `func` with kwargs and adds result as new column to `data`.
+
+        Calculates and adds a new column to `data` using the function `func` with the
+        provided arguments and keyword arguments. See the functions in the calcparams
+        module for examples.
+
+        Called by `util.process_reg_cols` to add new columns to the `data` attribute
+        while recursively processing and updating the `regression_cols` attribute.
+
+        Parameters
+        ----------
+        func : function
+            Function that takes a DataFrame as its first argument and returns a Series.
+
+        Returns
+        -------
+        None
+            Adds a new column to the `data` attribute.
+        """
+        result = func.__name__
+        signature = inspect.signature(func)
+        for key in signature.parameters:
+            if key == "data":
+                continue
+            if key not in kwargs or kwargs[key] is None:
+                if key in self.column_groups.data.keys():
+                    raise ValueError(
+                        f"The kwarg {key} of the function {func.__name__} is also a "
+                        f"column groups id. "
+                        f"Change the name of the column group id or include the kwarg "
+                        f"in the CapData.regression_cols"
+                    )
+                if hasattr(self, key):
+                    kwargs[key] = getattr(self, key)
+        self.data[result] = func(self.data, *args, **kwargs)
 
 
 if __name__ == "__main__":

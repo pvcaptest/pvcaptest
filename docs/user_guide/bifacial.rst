@@ -4,6 +4,10 @@
 Bifacial Tests
 ==============
 
+
+.. note::
+   The manual approach described in this section can still be implemented, but the preferred approach to bifacial capacity testing as of v0.15.0 is to use one of the default test setups (`bifi_e2848_etotal` or `bifi_power_tc`) or write a `regression_columns` dictionary that will provide the calculated regressors when processed by `process_regression_columns`.
+
 This section discusses how pvcaptest can be used to conduct a capacity test for a project with bifacial modules.
 
 NREL Modified Bifacial Capacity Test

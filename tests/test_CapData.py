@@ -15,10 +15,13 @@ import pvlib
 import panel as pn
 
 from captest import capdata as pvc
+from captest import captest as captest_module
 from captest import columngroups as cg
 from captest import io
 from captest import (
+    CapTest,
     load_pvsyst,
+    calcparams,
 )
 
 data = np.arange(0, 1300, 54.167)
@@ -72,7 +75,7 @@ class TestTopLevelFuncs(unittest.TestCase):
         bool_array = []
         for val in rng:
             np_perc = np.percentile(rng, val, method="nearest")
-            wrap_perc = df.agg(pvc.perc_wrap(val)).values[0]
+            wrap_perc = df.agg(captest_module.perc_wrap(val)).values[0]
             bool_array.append(np_perc == wrap_perc)
         self.assertTrue(
             all(bool_array), "np.percentile wrapper gives different value than np perc"
@@ -267,7 +270,7 @@ class TestTopLevelFuncs(unittest.TestCase):
             power="real_pwr__", poa="irr_poa_", t_amb="temp_amb_", w_vel="wind__"
         )
         pvsyst.filter_irr(200, 800)
-        pvsyst.rep_cond(freq="MS")
+        pvsyst.rep_cond_freq(freq="MS")
         grps = pvsyst.data_filtered.groupby(pd.Grouper(freq="MS", label="left"))
         poa_col = pvsyst.column_groups[pvsyst.regression_cols["poa"]][0]
 
@@ -341,55 +344,59 @@ class TestTopLevelFuncs(unittest.TestCase):
 
     def test_determine_pass_or_fail(self):
         # Tolerance band around 100%
+        ct_pm = CapTest(test_tolerance="+/- 4", ac_nameplate=100)
         self.assertTrue(
-            pvc.determine_pass_or_fail(0.96, "+/- 4", 100)[0],
+            ct_pm.determine_pass_or_fail(0.96)[0],
             "Should pass, cp ratio equals bottom of tolerance.",
         )
         self.assertTrue(
-            pvc.determine_pass_or_fail(0.97, "+/- 4", 100)[0],
+            ct_pm.determine_pass_or_fail(0.97)[0],
             "Should pass, cp ratio above bottom of tolerance.",
         )
         self.assertTrue(
-            pvc.determine_pass_or_fail(1.03, "+/- 4", 100)[0],
+            ct_pm.determine_pass_or_fail(1.03)[0],
             "Should pass, cp ratio below top of tolerance.",
         )
         self.assertTrue(
-            pvc.determine_pass_or_fail(1.04, "+/- 4", 100)[0],
+            ct_pm.determine_pass_or_fail(1.04)[0],
             "Should pass, cp ratio equals top of tolerance.",
         )
         self.assertFalse(
-            pvc.determine_pass_or_fail(0.959, "+/- 4", 100)[0],
+            ct_pm.determine_pass_or_fail(0.959)[0],
             "Should fail, cp ratio below bottom of tolerance.",
         )
         self.assertFalse(
-            pvc.determine_pass_or_fail(1.041, "+/- 4", 100)[0],
+            ct_pm.determine_pass_or_fail(1.041)[0],
             "Should fail, cp ratio above top of tolerance.",
         )
         # Tolerance below 100%
+        ct_minus = CapTest(test_tolerance="- 4", ac_nameplate=100)
         self.assertTrue(
-            pvc.determine_pass_or_fail(0.96, "- 4", 100)[0],
+            ct_minus.determine_pass_or_fail(0.96)[0],
             "Should pass, cp ratio equals bottom of tolerance.",
         )
         self.assertTrue(
-            pvc.determine_pass_or_fail(0.97, "- 4", 100)[0],
+            ct_minus.determine_pass_or_fail(0.97)[0],
             "Should pass, cp ratio above bottom of tolerance.",
         )
         self.assertTrue(
-            pvc.determine_pass_or_fail(1.04, "- 4", 100)[0],
+            ct_minus.determine_pass_or_fail(1.04)[0],
             "Should pass, cp ratio above bottom of tolerance.",
         )
         self.assertFalse(
-            pvc.determine_pass_or_fail(0.959, "- 4", 100)[0],
+            ct_minus.determine_pass_or_fail(0.959)[0],
             "Should fail, cp ratio below bottom of tolerance.",
         )
         # test fractional tolerance
+        ct_frac = CapTest(test_tolerance="- 4.5", ac_nameplate=100)
         self.assertTrue(
-            pvc.determine_pass_or_fail(0.956, "- 4.5", 100)[0],
+            ct_frac.determine_pass_or_fail(0.956)[0],
             "Should pass, cp ratio above bottom of tolerance.",
         )
         # warn on incorrect tolerance spec
+        ct_bad = CapTest(test_tolerance="+ 4", ac_nameplate=100)
         with self.assertWarns(UserWarning):
-            pvc.determine_pass_or_fail(1.04, "+ 4", 100)
+            ct_bad.determine_pass_or_fail(1.04)
 
     @pytest.fixture(autouse=True)
     def _pass_fixtures(self, capsys):
@@ -403,7 +410,7 @@ class TestTopLevelFuncs(unittest.TestCase):
         test_CapData.py::TestTopLevelFuncs::test_print_results_pass'
         """
         test_passed = (True, "950, 1050")
-        pvc.print_results(test_passed, 1000, 970, 0.97, 970, test_passed[1])
+        captest_module.print_results(test_passed, 1000, 970, 0.97, 970, test_passed[1])
         captured = self.capsys.readouterr()
 
         results_str = (
@@ -425,7 +432,7 @@ class TestTopLevelFuncs(unittest.TestCase):
         test_CapData.py::TestTopLevelFuncs::test_print_results_pass'
         """
         test_passed = (False, "950, 1050")
-        pvc.print_results(test_passed, 1000, 940, 0.94, 940, test_passed[1])
+        captest_module.print_results(test_passed, 1000, 940, 0.94, 940, test_passed[1])
         captured = self.capsys.readouterr()
 
         results_str = (
@@ -631,13 +638,13 @@ class TestIndexCapdata:
         Test that passing the label `regcols` returns the columns of
         Capdata.data_filtered that are identified in `regression_cols`.
         """
-        meas.agg_sensors(
-            agg_map={
-                "irr_poa_pyran": "mean",
-                "temp_amb": "mean",
-                "wind": "mean",
-            }
-        )
+        meas.regression_cols = {
+            "power": "meter_power",
+            "poa": ("irr_poa_pyran", "mean"),
+            "temp_amb": ("temp_amb", "mean"),
+            "wind": ("wind", "mean"),
+        }
+        meas.process_regression_columns()
         meas.data_filtered = meas.data.iloc[0:10, :].copy()
         out = pvc.index_capdata(meas, "regcols", filtered=True)
         assert isinstance(out, pd.DataFrame)
@@ -683,7 +690,8 @@ class TestIndexCapdata:
         to map to the new aggregated column."""
         # filter data_filtered to make check of row count for filtered=False meaningful
         meas.data_filtered = meas.data.iloc[0:10, :].copy()
-        meas.agg_sensors(agg_map={"irr_poa_pyran": "mean"})
+        meas.regression_cols = {"poa": ("irr_poa_pyran", "mean")}
+        meas.process_regression_columns()
         out = pvc.index_capdata(meas, "poa", filtered=False)
         assert isinstance(out, pd.DataFrame)
         assert out.equals(meas.data["irr_poa_pyran_mean_agg"].to_frame())
@@ -748,7 +756,11 @@ class TestIndexCapdata:
         """
         # filter data_filtered to make check of row count for filtered=False meaningful
         meas.data_filtered = meas.data.iloc[0:10, :].copy()
-        meas.agg_sensors(agg_map={"irr_poa_pyran": "mean", "temp_amb": "mean"})
+        meas.regression_cols = {
+            "poa": ("irr_poa_pyran", "mean"),
+            "t_amb": ("temp_amb", "mean"),
+        }
+        meas.process_regression_columns()
         out = pvc.index_capdata(meas, ["poa", "t_amb"], filtered=False)
         assert isinstance(out, pd.DataFrame)
         assert out.equals(
@@ -769,6 +781,7 @@ class TestIndexCapdata:
         # filter data_filtered to make check of row count for filtered=False meaningful
         meas.data_filtered = meas.data.iloc[0:10, :].copy()
         meas.agg_sensors(agg_map={"irr_poa_pyran": "mean"})
+        meas.regression_cols = {"poa": "irr_poa_pyran_mean_agg", "t_amb": "temp_amb"}
         out = pvc.index_capdata(meas, ["poa", "t_amb"], filtered=False)
         assert isinstance(out, pd.DataFrame)
         assert out.equals(
@@ -873,13 +886,13 @@ class TestIndexCapdata:
         Test that passing the label `regcols` returns the columns of
         Capdata that are identified in `regression_cols`.
         """
-        meas.agg_sensors(
-            agg_map={
-                "irr_poa_pyran": "mean",
-                "temp_amb": "mean",
-                "wind": "mean",
-            }
-        )
+        meas.regression_cols = {
+            "power": "meter_power",
+            "poa": ("irr_poa_pyran", "mean"),
+            "temp_amb": ("temp_amb", "mean"),
+            "wind": ("wind", "mean"),
+        }
+        meas.process_regression_columns()
         meas.data_filtered = meas.data.iloc[0:10, :].copy()
         out = pvc.index_capdata(meas, "regcols", filtered=False)
         assert isinstance(out, pd.DataFrame)
@@ -894,6 +907,19 @@ class TestIndexCapdata:
             ]
         )
         assert out.shape[0] == 1440
+
+    def test_single_label_missing_key_warns(self, meas):
+        """Warn with the missing label when it is not found anywhere in the CapData.
+
+        A label that is not in `column_groups`, `regression_cols`, or the columns of
+        `data` should emit a warning that names the offending label rather than
+        raising `UnboundLocalError`.
+        """
+        meas.data_filtered = meas.data.iloc[0:10, :].copy()
+        missing_label = "nonexistent_column_group"
+        with pytest.warns(UserWarning, match=missing_label):
+            out = pvc.index_capdata(meas, missing_label, filtered=True)
+        assert out is None
 
 
 class TestLocAndFloc:
@@ -922,9 +948,8 @@ class TestIrrRcBalanced:
     def test_check_csv_output_exists(self, meas, tmp_path):
         """Check that function outputs a csv file when given a file path."""
         f = tmp_path / "output.csv"
-        print(meas.column_groups)
-        meas.agg_sensors(agg_map={"irr_poa_pyran": "mean"})
-        print(meas.regression_cols["poa"])
+        meas.regression_cols = {"poa": ("irr_poa_pyran", "mean")}
+        meas.process_regression_columns()
         rep_irr = pvc.ReportingIrradiance(
             df=meas.data,
             irr_col=meas.regression_cols["poa"],
@@ -1478,7 +1503,13 @@ class TestGetRegCols:
             meas.get_reg_cols()
 
     def test_all_coeffs(self, meas):
-        meas.agg_sensors()
+        meas.regression_cols = {
+            "power": "meter_power",
+            "poa": ("irr_poa_pyran", "mean"),
+            "t_amb": ("temp_amb", "mean"),
+            "w_vel": ("wind", "mean"),
+        }
+        meas.process_regression_columns()
         cols = ["power", "poa", "t_amb", "w_vel"]
         df = meas.get_reg_cols()
         assert len(df.columns) == 4
@@ -1493,12 +1524,16 @@ class TestGetRegCols:
         Test when agg_sensors resets regression_cols values to a mix of trans keys
         and column names.
         """
+        meas.regression_cols = {
+            "power": "meter_power",
+            "poa": ("irr_poa_pyran", "mean"),
+            "t_amb": ("temp_amb", "mean"),
+            "w_vel": ("wind", "mean"),
+        }
+        meas.process_regression_columns()
         meas.agg_sensors(
             agg_map={
                 "power_inv": "sum",
-                "irr_poa_pyran": "mean",
-                "temp_amb": "mean",
-                "wind": "mean",
             }
         )
         cols = ["poa", "power"]
@@ -1555,8 +1590,33 @@ class TestExpandAggMap:
 
 
 class TestAggSensors:
+    def test_get_group_valid_group_id_returns_dataframe(self, meas):
+        """_get_group returns the expected DataFrame for a valid group_id."""
+        result = meas._get_group("irr_poa_pyran")
+        expected = meas.data[meas.column_groups["irr_poa_pyran"]]
+        assert isinstance(result, pd.DataFrame)
+        assert result.equals(expected)
+
+    def test_get_group_invalid_group_id_raises_key_error(self, meas):
+        """_get_group raises a KeyError that names the missing group_id."""
+        missing_id = "irr_poa_pyran_typo"
+        with pytest.raises(KeyError, match=missing_id):
+            meas._get_group(missing_id)
+
+    def test_agg_group_invalid_group_id_raises_key_error(self, meas):
+        """KeyError naming the missing group_id is raised when it is not found."""
+        missing_id = "irr_poa_pyran_typo"
+        with pytest.raises(KeyError, match=missing_id):
+            meas.agg_group(missing_id, "mean")
+
+    def test_agg_sensors_invalid_group_id_raises_key_error(self, meas):
+        """KeyError naming the missing group_id is raised when it is not found in agg_map."""
+        missing_id = "irr_poa_pyran_typo"
+        with pytest.raises(KeyError, match=missing_id):
+            meas.agg_sensors(agg_map={missing_id: "mean"})
+
     def test_agg_group(self, meas):
-        agg_result, col_name = meas.agg_group("irr_poa_pyran", "mean")
+        agg_result, col_name = meas.agg_group("irr_poa_pyran", "mean", inplace=False)
         assert "irr_poa_pyran_mean_agg" == col_name
         assert isinstance(agg_result, pd.DataFrame)
         exp_mean = (
@@ -1567,6 +1627,16 @@ class TestAggSensors:
         )
         assert exp_mean.shape == agg_result.shape
         assert exp_mean.equals(agg_result)
+
+    def test_agg_group_groups_with_one_tag(self, meas_groups_with_one_tag):
+        """
+        Test when all groups passed in the agg_map only have one tag, so no
+        aggregation occurs.
+        """
+        meas_groups_with_one_tag.agg_sensors(
+            agg_map={"irr_poa_pyran": "mean", "irr_ghi_pyran": "mean"}
+        )
+        assert "agg" not in meas_groups_with_one_tag.column_groups
 
     def test_agg_map_none(self, meas):
         """Test default behaviour when no agg_map is passed."""
@@ -1595,18 +1665,6 @@ class TestAggSensors:
         assert meas.data_filtered.shape[0] == meas.data.shape[0]
         # Check for poa aggregation column
         assert "irr_poa_pyran_mean_agg" in meas.data_filtered.columns
-        assert meas.regression_cols["poa"] == "irr_poa_pyran_mean_agg"
-
-    def test_agg_map_update_regression_cols(self, meas):
-        meas.agg_sensors()
-        # Regression column for power should not be updated because there is only
-        # one power column.
-        assert meas.regression_cols["power"] == "meter_power"
-        # Regression columns for poa, amb temp, and wind should be updated to
-        # the aggregated columns from the column group ids.
-        assert meas.regression_cols["poa"] == "irr_poa_pyran_mean_agg"
-        assert meas.regression_cols["t_amb"] == "temp_amb_mean_agg"
-        assert meas.regression_cols["w_vel"] == "wind_mean_agg"
 
     def test_reset_summary(self, meas):
         meas.agg_sensors()
@@ -1619,7 +1677,7 @@ class TestAggSensors:
         orig_df = meas.data.copy()
 
         meas.agg_sensors()
-        meas.filter_irr(200, 500)
+        meas.filter_irr(200, 500, col_name="irr_poa_pyran_mean_agg")
         meas.reset_agg()
 
         # Dataframe should be the same as before aggregation
@@ -1647,15 +1705,6 @@ class TestAggSensors:
         ):
             meas.agg_sensors()
 
-    def test_regression_columns_not_in_column_groups(self, meas):
-        """Sould be able to aggregate columns if the regression columns includes
-        a column that is not in the column_groups attribute.
-        """
-        meas.data["irr_poa_total"] = meas.data.loc[:, "met1_poa_pyranometer"]
-        meas.regression_cols["poa"] = "irr_poa_total"
-        meas.agg_sensors(agg_map={"temp_amb": "mean"})
-        assert meas.regression_cols["t_amb"] == "temp_amb_mean_agg"
-
     def test_pre_agg_regression_dict_exists(self, meas):
         meas.agg_sensors()
         assert isinstance(meas.pre_agg_reg_trans, dict)
@@ -1672,19 +1721,22 @@ class TestAggSensors:
         """Default verbose=False should not print aggregation details."""
         meas.agg_sensors(agg_map={"irr_poa_pyran": "mean"})
         captured = capsys.readouterr()
-        assert "Aggregating the below columns" not in captured.out
+        assert "Aggregating the below" not in captured.out
 
     def test_verbose_prints_columns_when_lte_10(self, meas, capsys):
         """Verbose should print each column name when group has <= 10 columns."""
         meas.agg_sensors(agg_map={"irr_poa_pyran": "mean"}, verbose=True)
         captured = capsys.readouterr()
-        assert "Aggregating the below columns using the mean function" in captured.out
+        assert (
+            "Aggregating the below 2 columns of the irr_poa_pyran group using the mean function"
+            in captured.out
+        )
         assert "irr_poa_pyran_mean_agg" in captured.out
         assert "    met1_poa_pyranometer" in captured.out
         assert "    met2_poa_pyranometer" in captured.out
 
     def test_verbose_prints_group_name_when_gt_10(self, meas, capsys):
-        """Verbose should print only the group name when group has > 10 columns."""
+        """Verbose shows first 3 and last 3 column names with ellipsis when > 10 cols."""
         extra_cols = [f"extra_poa_{i}" for i in range(10)]
         for col in extra_cols:
             meas.data[col] = meas.data["met1_poa_pyranometer"]
@@ -1692,11 +1744,25 @@ class TestAggSensors:
         meas.column_groups["irr_poa_pyran"] = (
             meas.column_groups["irr_poa_pyran"] + extra_cols
         )
+        all_cols = meas.column_groups["irr_poa_pyran"]  # 12 total
         meas.agg_sensors(agg_map={"irr_poa_pyran": "mean"}, verbose=True)
         captured = capsys.readouterr()
-        assert "Aggregating the below columns using the mean function" in captured.out
-        assert "Aggregating all columns of the irr_poa_pyran group" in captured.out
-        assert "    met1_poa_pyranometer" not in captured.out
+        assert (
+            "OUTPUT TRUNCATED - Aggregating the below 12 columns of the irr_poa_pyran group using the mean function"
+            in captured.out
+        )
+        # First 3 columns should be listed
+        for col in all_cols[:3]:
+            assert f"    {col}" in captured.out
+        # Ellipsis separates the head from the tail
+        assert "    ..." in captured.out
+        # Last 3 columns should be listed
+        for col in all_cols[-3:]:
+            assert f"    {col}" in captured.out
+        # A middle column should not appear
+        assert f"    {all_cols[5]}" not in captured.out
+        # Old single-line group message should not appear
+        assert "Aggregating all columns of the irr_poa_pyran group" not in captured.out
 
     def test_agg_subgroups_expanded_map(self, cd_nested_col_groups):
         """
@@ -1738,34 +1804,52 @@ class TestAggSensors:
             verbose=True,
         )
 
-        # Check stdout from agg_sensors
+        # Check stdout from agg_sensors: verify each group header and its columns appear.
         captured = capsys.readouterr()
-        expected_output = [
-            "Aggregating the below columns using the mean function. New column name: irr_poa_met1_mean_agg:",
-            "    met1_poa1_pyranometer",
-            "    met1_poa2_pyranometer",
-            "Aggregating the below columns using the mean function. New column name: irr_poa_met2_mean_agg:",
-            "    met2_poa1_pyranometer",
-            "    met2_poa2_pyranometer",
-            "Aggregating the below columns using the mean function. New column name: irr_poa_mean_agg:",
-            "    irr_poa_met1_mean_agg",
-            "    irr_poa_met2_mean_agg",
-            "Aggregating the below columns using the mean function. New column name: irr_rpoa_met1_mean_agg:",
-            "    met1_rpoa1_pyranometer",
-            "    met1_rpoa2_pyranometer",
-            "    met1_rpoa3_pyranometer",
-            "Aggregating the below columns using the mean function. New column name: irr_rpoa_met2_mean_agg:",
-            "    met2_rpoa1_pyranometer",
-            "    met2_rpoa2_pyranometer",
-            "    met2_rpoa3_pyranometer",
-            "Aggregating the below columns using the mean function. New column name: irr_rpoa_mean_agg:",
-            "    irr_rpoa_met1_mean_agg",
-            "    irr_rpoa_met2_mean_agg",
-        ]
-        for expected_line, actual_line in zip(
-            expected_output, captured.out.splitlines()
-        ):
-            assert expected_line == actual_line
+        for group_id, col_name, cols in [
+            (
+                "irr_poa_met1",
+                "irr_poa_met1_mean_agg",
+                ["met1_poa1_pyranometer", "met1_poa2_pyranometer"],
+            ),
+            (
+                "irr_poa_met2",
+                "irr_poa_met2_mean_agg",
+                ["met2_poa1_pyranometer", "met2_poa2_pyranometer"],
+            ),
+            (
+                "irr_poa_aggs",
+                "irr_poa_mean_agg",
+                ["irr_poa_met1_mean_agg", "irr_poa_met2_mean_agg"],
+            ),
+            (
+                "irr_rpoa_met1",
+                "irr_rpoa_met1_mean_agg",
+                [
+                    "met1_rpoa1_pyranometer",
+                    "met1_rpoa2_pyranometer",
+                    "met1_rpoa3_pyranometer",
+                ],
+            ),
+            (
+                "irr_rpoa_met2",
+                "irr_rpoa_met2_mean_agg",
+                [
+                    "met2_rpoa1_pyranometer",
+                    "met2_rpoa2_pyranometer",
+                    "met2_rpoa3_pyranometer",
+                ],
+            ),
+            (
+                "irr_rpoa_aggs",
+                "irr_rpoa_mean_agg",
+                ["irr_rpoa_met1_mean_agg", "irr_rpoa_met2_mean_agg"],
+            ),
+        ]:
+            assert group_id in captured.out
+            assert col_name in captured.out
+            for col in cols:
+                assert f"    {col}" in captured.out
         # Check that the expected columns exist
         expected_columns = [
             "irr_poa_mean_agg",
@@ -1777,9 +1861,6 @@ class TestAggSensors:
         ]
         for agg_col in expected_columns:
             assert agg_col in cd.data.columns
-
-        # Check regression column mapping
-        assert cd.regression_cols["poa"] == "irr_poa_mean_agg"
 
         # Check that average of subgroup averages is as expected
         expected_mean = (
@@ -1802,6 +1883,86 @@ class TestAggSensors:
         for agg_col in expected_columns:
             assert hasattr(cd, "aggs_" + agg_col)
             assert getattr(cd, "aggs_" + agg_col).equals(cd.data[agg_col].to_frame())
+
+    def test_no_duplicating_agg_column(self, meas):
+        """Test that agg_sensors does not create duplicate aggregation columns
+        in CapData.data. Aggregation columns may already exist if
+        process_regression_columns was run first.
+        """
+        meas.data["irr_poa_pyran_mean_agg"] = meas.data[
+            [
+                "met1_poa_pyranometer",
+                "met2_poa_pyranometer",
+            ]
+        ].mean(axis=1)
+        meas.column_groups["agg"] = ["irr_poa_pyran_mean_agg"]
+        meas.agg_sensors(agg_map={"irr_poa_pyran": "mean"})
+        assert "irr_poa_pyran_mean_agg" in meas.data.columns
+        # Should be one column which will return a series not a DataFrame
+        assert len(set(meas.data.columns)) == len(meas.data.columns)
+        assert isinstance(meas.data["irr_poa_pyran_mean_agg"], pd.Series)
+
+
+class TestAggGroupCutoff:
+    """Tests for the cutoff parameter of agg_group verbose output."""
+
+    def _add_extra_cols_to_group(self, meas, n, group_id="irr_poa_pyran"):
+        """Add n synthetic columns to a group and return the full updated column list."""
+        extra_cols = [f"extra_poa_{i}" for i in range(n)]
+        for col in extra_cols:
+            meas.data[col] = meas.data["met1_poa_pyranometer"]
+        meas.data_filtered = meas.data.copy()
+        meas.column_groups[group_id] = meas.column_groups[group_id] + extra_cols
+        return meas.column_groups[group_id]
+
+    def test_verbose_exactly_at_default_cutoff_shows_all_columns(self, meas, capsys):
+        """All columns are listed when count equals the default cutoff of 10."""
+        all_cols = self._add_extra_cols_to_group(meas, 8)  # 2 original + 8 extra = 10
+        meas.agg_group("irr_poa_pyran", "mean", verbose=True)
+        captured = capsys.readouterr()
+        for col in all_cols:
+            assert f"    {col}" in captured.out
+        assert "    ..." not in captured.out
+
+    def test_verbose_above_default_cutoff_shows_first_and_last_three(
+        self, meas, capsys
+    ):
+        """First 3 and last 3 column names appear with ellipsis when count > 10."""
+        all_cols = self._add_extra_cols_to_group(meas, 10)  # 2 + 10 = 12
+        meas.agg_group("irr_poa_pyran", "mean", verbose=True)
+        captured = capsys.readouterr()
+        for col in all_cols[:3]:
+            assert f"    {col}" in captured.out
+        assert "    ..." in captured.out
+        for col in all_cols[-3:]:
+            assert f"    {col}" in captured.out
+
+    def test_verbose_above_default_cutoff_excludes_middle_columns(self, meas, capsys):
+        """Columns between the first 3 and last 3 are not printed when truncated."""
+        all_cols = self._add_extra_cols_to_group(meas, 10)  # 2 + 10 = 12
+        meas.agg_group("irr_poa_pyran", "mean", verbose=True)
+        captured = capsys.readouterr()
+        assert f"    {all_cols[5]}" not in captured.out
+
+    def test_verbose_custom_cutoff_shows_all_at_boundary(self, meas, capsys):
+        """All columns are listed when count equals a custom cutoff value."""
+        all_cols = self._add_extra_cols_to_group(meas, 2)  # 2 + 2 = 4
+        meas.agg_group("irr_poa_pyran", "mean", verbose=True, cutoff=4)
+        captured = capsys.readouterr()
+        for col in all_cols:
+            assert f"    {col}" in captured.out
+        assert "    ..." not in captured.out
+
+    def test_verbose_custom_cutoff_truncates_above_boundary(self, meas, capsys):
+        """Truncation triggers at the custom cutoff, not the default of 10."""
+        all_cols = self._add_extra_cols_to_group(meas, 4)  # 2 + 4 = 6, cutoff=4
+        meas.agg_group("irr_poa_pyran", "mean", verbose=True, cutoff=4)
+        captured = capsys.readouterr()
+        for col in all_cols[:3]:
+            assert f"    {col}" in captured.out
+        assert "    ..." in captured.out
+        for col in all_cols[-3:]:
+            assert f"    {col}" in captured.out
 
 
 class TestFilterSensors:
@@ -1921,41 +2082,47 @@ class TestRepCondNoFreq:
         nrel.rep_cond(w_vel=50)
         assert nrel.rc["w_vel"][0] == 50
 
-    def test_defaults_not_inplace(self, nrel):
-        df = nrel.rep_cond(inplace=False)
-        assert nrel.rc is None
-        assert isinstance(df, pd.core.frame.DataFrame)
-
-    def test_irr_bal_inplace(self, nrel):
+    def test_irr_bal(self, nrel):
         nrel.filter_irr(0.1, 2000)
         meas2 = nrel.copy()
         meas2.rep_cond()
         nrel.rep_cond(irr_bal=True, percent_filter=20)
         assert isinstance(nrel.rc, pd.core.frame.DataFrame)
-        assert nrel.rc["poa"][0] != meas2.rc["poa"][0]
+        assert nrel.rc["poa"].iloc[0] != meas2.rc["poa"].iloc[0]
 
-    def test_irr_bal_inplace_wvel(self, nrel):
+    def test_irr_bal_wvel(self, nrel):
         nrel.rep_cond(irr_bal=True, percent_filter=20, w_vel=50)
-        assert nrel.rc["w_vel"][0] == 50
+        assert nrel.rc["w_vel"].iloc[0] == 50
+
+    def test_custom_func_dict(self, nrel):
+        """Passing a func dict overrides the mean default per rhs variable."""
+        nrel.rep_cond(
+            func={
+                "poa": captest_module.perc_wrap(60),
+                "t_amb": "mean",
+                "w_vel": "mean",
+            }
+        )
+        assert isinstance(nrel.rc, pd.core.frame.DataFrame)
 
 
 class TestRepCondFreq:
     def test_monthly_no_irr_bal(self, pvsyst):
-        pvsyst.rep_cond(freq="ME")
+        pvsyst.rep_cond_freq(freq="ME")
         # Check that the rc attribute is a dataframe
         assert isinstance(pvsyst.rc, pd.core.frame.DataFrame)
         # Rep conditions dataframe should have 12 rows
         assert pvsyst.rc.shape[0] == 12
 
     def test_monthly_irr_bal(self, pvsyst):
-        pvsyst.rep_cond(freq="ME", irr_bal=True, percent_filter=20)
+        pvsyst.rep_cond_freq(freq="ME", irr_bal=True, percent_filter=20)
         # Check that the rc attribute is a dataframe
         assert isinstance(pvsyst.rc, pd.core.frame.DataFrame)
         # Rep conditions dataframe should have 12 rows
         assert pvsyst.rc.shape[0] == 12
 
     def test_seas_no_irr_bal(self, pvsyst):
-        pvsyst.rep_cond(freq="QE-DEC", irr_bal=False)
+        pvsyst.rep_cond_freq(freq="QE-DEC", irr_bal=False)
         # Check that the rc attribute is a dataframe
         assert isinstance(pvsyst.rc, pd.core.frame.DataFrame)
         # Rep conditions dataframe should have 4 rows
@@ -1964,7 +2131,7 @@ class TestRepCondFreq:
 
 class TestPredictCapacities:
     def test_monthly(self, pvsyst_irr_filter):
-        pvsyst_irr_filter.rep_cond(freq="MS")
+        pvsyst_irr_filter.rep_cond_freq(freq="MS")
         pred_caps = pvsyst_irr_filter.predict_capacities(
             irr_filter=True, percent_filter=20
         )
@@ -1979,7 +2146,9 @@ class TestPredictCapacities:
             "7/1/90":"7/31/90", :
         ]
         pvsyst_irr_filter.rep_cond()
-        pvsyst_irr_filter.filter_irr(0.8, 1.2, ref_val=pvsyst_irr_filter.rc["poa"][0])
+        pvsyst_irr_filter.filter_irr(
+            0.8, 1.2, ref_val=pvsyst_irr_filter.rc["poa"].iloc[0]
+        )
         df = pvsyst_irr_filter.floc["regcols"]
         rename = {
             df.columns[0]: "power",
@@ -1993,19 +2162,19 @@ class TestPredictCapacities:
         assert july_manual == pytest.approx(july_grpby)
 
     def test_no_irr_filter(self, pvsyst_irr_filter):
-        pvsyst_irr_filter.rep_cond(freq="ME")
+        pvsyst_irr_filter.rep_cond_freq(freq="ME")
         pred_caps = pvsyst_irr_filter.predict_capacities(irr_filter=False)
         assert isinstance(pred_caps, pd.core.frame.DataFrame)
         assert pred_caps.shape[0] == 12
 
     def test_rc_from_irrBal(self, pvsyst_irr_filter):
-        pvsyst_irr_filter.rep_cond(freq="ME", irr_bal=True, percent_filter=20)
+        pvsyst_irr_filter.rep_cond_freq(freq="ME", irr_bal=True, percent_filter=20)
         pred_caps = pvsyst_irr_filter.predict_capacities(irr_filter=False)
         assert isinstance(pred_caps, pd.core.frame.DataFrame)
         assert pred_caps.shape[0] == 12
 
     def test_seasonal_freq(self, pvsyst_irr_filter):
-        pvsyst_irr_filter.rep_cond(freq="QE-DEC")
+        pvsyst_irr_filter.rep_cond_freq(freq="QE-DEC")
         pred_caps = pvsyst_irr_filter.predict_capacities(
             irr_filter=True, percent_filter=20
         )
@@ -2062,8 +2231,36 @@ class TestFilterIrr:
     def test_refval_use_attribute(self, nrel):
         nrel.rc = pd.DataFrame({"poa": 500, "w_vel": 1, "t_amb": 20}, index=[0])
         pts_before = nrel.data_filtered.shape[0]
+        nrel.filter_irr(0.8, 1.2, ref_val="rep_irr", col_name=None, inplace=True)
+        assert nrel.data_filtered.shape[0] < pts_before
+
+    def test_refval_self_val_translation(self, nrel):
+        """'self_val' is silently translated to 'rep_irr' and filters correctly."""
+        nrel.rc = pd.DataFrame({"poa": 500, "w_vel": 1, "t_amb": 20}, index=[0])
+        pts_before = nrel.data_filtered.shape[0]
         nrel.filter_irr(0.8, 1.2, ref_val="self_val", col_name=None, inplace=True)
         assert nrel.data_filtered.shape[0] < pts_before
+
+    def test_refval_rep_irr_shows_in_summary(self, nrel):
+        """Resolved numeric value appears in summary, not the sentinel string."""
+        nrel.rc = pd.DataFrame({"poa": 500.0, "w_vel": 1, "t_amb": 20}, index=[0])
+        nrel.filter_irr(0.8, 1.2, ref_val="rep_irr")
+        summary = nrel.get_summary()
+        filter_args = summary["filter_arguments"].iloc[0]
+        assert "rep_irr" not in filter_args
+        assert "np." not in filter_args
+        assert "500" in filter_args
+
+    def test_refval_rep_irr_rc_none_raises(self, nrel):
+        """ValueError is raised when ref_val='rep_irr' and self.rc is None."""
+        with pytest.raises(ValueError, match="Call rep_cond\\(\\) before"):
+            nrel.filter_irr(0.8, 1.2, ref_val="rep_irr")
+
+    def test_refval_rep_irr_no_poa_col_raises(self, nrel):
+        """ValueError when self.rc exists but has no 'poa' column."""
+        nrel.rc = pd.DataFrame({"irr": 500, "w_vel": 1, "t_amb": 20}, index=[0])
+        with pytest.raises(ValueError, match="does not have a 'poa' column"):
+            nrel.filter_irr(0.8, 1.2, ref_val="rep_irr")
 
     def test_refval_withcol_notinplace(self, nrel):
         pts_before = nrel.data_filtered.shape[0]
@@ -2134,13 +2331,33 @@ class TestFilterTime:
         assert df.index[0] == pd.Timestamp(year=1990, month=2, day=1, hour=0)
         assert df.index[-1] == pd.Timestamp(year=1990, month=2, day=15, hour=00)
 
-    def test_start_no_days(self, pvsyst):
-        with pytest.warns(UserWarning):
-            pvsyst.filter_time(start="2/1/90")
+    def test_start_no_end_uses_last_timestamp(self, pvsyst):
+        """Verify that omitting end defaults to the last timestamp of data_filtered."""
+        last_ts = pvsyst.data_filtered.index[-1]
+        pvsyst.filter_time(start="2/1/90")
+        assert pvsyst.data_filtered.index[0] == pd.Timestamp(
+            year=1990, month=2, day=1, hour=0
+        )
+        assert pvsyst.data_filtered.index[-1] == last_ts
 
-    def test_end_no_days(self, pvsyst):
-        with pytest.warns(UserWarning):
-            pvsyst.filter_time(end="2/1/90")
+    def test_end_no_start_uses_first_timestamp(self, pvsyst):
+        """Verify that omitting start defaults to the first timestamp of data_filtered."""
+        first_ts = pvsyst.data_filtered.index[0]
+        pvsyst.filter_time(end="11/1/90")
+        assert pvsyst.data_filtered.index[0] == first_ts
+        assert pvsyst.data_filtered.index[-1] == pd.Timestamp(
+            year=1990, month=11, day=1, hour=0
+        )
+
+    def test_start_no_end_respects_prefilterd_boundary(self, pvsyst):
+        """Verify end default reflects data_filtered boundary after a prior filter."""
+        pvsyst.filter_time(start="1/1/90", end="6/30/90")
+        last_ts = pvsyst.data_filtered.index[-1]
+        pvsyst.filter_time(start="3/1/90")
+        assert pvsyst.data_filtered.index[0] == pd.Timestamp(
+            year=1990, month=3, day=1, hour=0
+        )
+        assert pvsyst.data_filtered.index[-1] == last_ts
 
     def test_test_date_no_days(self, pvsyst):
         with pytest.warns(UserWarning):
@@ -2567,7 +2784,10 @@ class TestCapTestCpResultsSingleCoeff(unittest.TestCase):
         self.sim.data_filtered = pd.DataFrame()
 
     def test_return(self):
-        res = pvc.captest_results(self.sim, self.meas, 100, "+/- 5", print_res=False)
+        ct = CapTest(test_tolerance="+/- 5", ac_nameplate=100)
+        ct.meas = self.meas
+        ct.sim = self.sim
+        res = ct.captest_results(print_res=False)
 
         self.assertIsInstance(res, float, "Returned value is not a tuple")
 
@@ -2618,10 +2838,12 @@ class TestCapTestCpResultsMultCoeffKwVsW(unittest.TestCase):
         expected = sim.regression_results.predict(meas.rc)[0]
         cp_rat_test_val = actual / expected
 
+        ct = CapTest(test_tolerance="+/- 5", ac_nameplate=100)
+        ct.meas = meas
+        ct.sim = sim
+
         with self.assertWarns(UserWarning):
-            cp_rat = pvc.captest_results(
-                sim, meas, 100, "+/- 5", check_pvalues=False, print_res=False
-            )
+            cp_rat = ct.captest_results(check_pvalues=False, print_res=False)
 
         self.assertAlmostEqual(
             cp_rat, cp_rat_test_val, 6, "captest_results did not return expected value."
@@ -2718,14 +2940,20 @@ class TestCapTestCpResultsMultCoeff(unittest.TestCase):
             "SIM prediction should change when poa coeff set to 0",
         )
 
+    def _build_ct(self):
+        """Helper returning a CapTest configured with the setUp meas/sim."""
+        ct = CapTest(test_tolerance="+/- 5", ac_nameplate=100)
+        ct.meas = self.meas
+        ct.sim = self.sim
+        return ct
+
     def test_pvals_default_false(self):
         actual = self.meas.regression_results.predict(self.meas.rc)[0]
         expected = self.sim.regression_results.predict(self.meas.rc)[0]
         cp_rat_test_val = actual / expected
 
-        cp_rat = pvc.captest_results(
-            self.sim, self.meas, 100, "+/- 5", check_pvalues=False, print_res=False
-        )
+        ct = self._build_ct()
+        cp_rat = ct.captest_results(check_pvalues=False, print_res=False)
 
         self.assertEqual(
             cp_rat, cp_rat_test_val, "captest_results did not return expected value."
@@ -2737,22 +2965,15 @@ class TestCapTestCpResultsMultCoeff(unittest.TestCase):
         With pval=1e-15, the 'poa' coefficient should be zeroed because its
         p-value is > 1e-15, which changes the prediction.
         """
+        ct = self._build_ct()
         # Get ratio without p-value check
-        cp_rat_no_check = pvc.captest_results(
-            self.sim,
-            self.meas,
-            100,
-            "+/- 5",
+        cp_rat_no_check = ct.captest_results(
             check_pvalues=False,
             print_res=False,
         )
 
         # Get ratio with p-value check (pval=1e-15 zeros poa coefficient)
-        cp_rat_with_check = pvc.captest_results(
-            self.sim,
-            self.meas,
-            100,
-            "+/- 5",
+        cp_rat_with_check = ct.captest_results(
             check_pvalues=True,
             pval=1e-15,
             print_res=False,
@@ -2780,20 +3001,20 @@ class TestCapTestCpResultsMultCoeff(unittest.TestCase):
         """
         self.maxDiff = 10_000
 
-        pvc.captest_results(
-            self.sim,
-            self.meas,
-            100,
-            "+/- 5",
+        ct = self._build_ct()
+        ct.captest_results(
             check_pvalues=True,
             pval=1e-15,
             print_res=True,
         )
         captured = self.capsys.readouterr()
 
-        # Expected output when poa coefficient is zeroed due to p-value check
+        # Expected output when poa coefficient is zeroed due to p-value check.
+        # CapTest picks reporting conditions from ``rep_cond_source`` (default
+        # 'meas'), so the output says "from meas." instead of the legacy
+        # module-level "from das.".
         results_str = (
-            "Using reporting conditions from das. \n\n"
+            "Using reporting conditions from meas. \n\n"
             "Capacity Test Result:    FAIL\n"
             "Modeled test output:          66.451\n"
             "Actual test output:           72.429\n"
@@ -2812,8 +3033,12 @@ class TestCapTestCpResultsMultCoeff(unittest.TestCase):
 
         sim.regression_formula = "power ~ poa + I(poa * poa) + I(poa * t_amb) - 1"
 
+        ct = CapTest(test_tolerance="+/- 5", ac_nameplate=100)
+        ct.meas = das
+        ct.sim = sim
+
         with self.assertWarns(UserWarning):
-            pvc.captest_results(sim, das, 100, "+/- 5", check_pvalues=True)
+            ct.captest_results(check_pvalues=True)
 
 
 class TestGetFilteringTable:
@@ -2903,7 +3128,6 @@ class TestPointsSummary:
             "sufficient points have been collected. 150.0 points required; "
             "1440 points collected\n"
         )
-
         assert results_str == captured.out
 
     def test_print_points_summary_fail(self, meas):
@@ -2974,9 +3198,13 @@ class TestScatterHv:
 
     def test_no_index_str_column_in_data(self, meas):
         "Check that plot function works when there is no index column in the data."
-        meas.agg_sensors(
-            agg_map={"irr_poa_pyran": "mean", "temp_amb": "mean", "wind": "mean"}
-        )
+        meas.regression_cols = {
+            "power": "meter_power",
+            "poa": ("irr_poa_pyran", "mean"),
+            "t_amb": ("temp_amb", "mean"),
+            "w_vel": ("wind", "mean"),
+        }
+        meas.process_regression_columns()
         assert "index" not in meas.data.columns
         plot = meas.scatter_hv()
         assert isinstance(plot, hv.element.chart.Scatter)
@@ -2985,9 +3213,13 @@ class TestScatterHv:
         """Test that the curve_timeseries method works. Shouldn't require `data` index
         to have a specific name.
         """
-        meas.agg_sensors(
-            agg_map={"irr_poa_pyran": "mean", "temp_amb": "mean", "wind": "mean"}
-        )
+        meas.regression_cols = {
+            "power": "meter_power",
+            "poa": ("irr_poa_pyran", "mean"),
+            "t_amb": ("temp_amb", "mean"),
+            "w_vel": ("wind", "mean"),
+        }
+        meas.process_regression_columns()
         assert "index" not in meas.data.columns
         assert meas.data.index.name is None
         plot = meas.scatter_hv(timeseries=True)
@@ -3002,9 +3234,13 @@ class TestScatterFilters:
         Test that the scatter_filters method of the CapData class returns a
         holoviews overlay object.
         """
-        meas.agg_sensors(
-            agg_map={"irr_poa_pyran": "mean", "temp_amb": "mean", "wind": "mean"}
-        )
+        meas.regression_cols = {
+            "power": "meter_power",
+            "poa": ("irr_poa_pyran", "mean"),
+            "t_amb": ("temp_amb", "mean"),
+            "w_vel": ("wind", "mean"),
+        }
+        meas.process_regression_columns()
         meas.filter_irr(200, 900)
         meas.filter_irr(400, 800)
         overlay = meas.scatter_filters()
@@ -3021,9 +3257,13 @@ class TestTimeseriesFilters:
         Test that the timeseries_filters method of the CapData class returns a
         holoviews overlay object.
         """
-        meas.agg_sensors(
-            agg_map={"irr_poa_pyran": "mean", "temp_amb": "mean", "wind": "mean"}
-        )
+        meas.regression_cols = {
+            "power": "meter_power",
+            "poa": ("irr_poa_pyran", "mean"),
+            "t_amb": ("temp_amb", "mean"),
+            "w_vel": ("wind", "mean"),
+        }
+        meas.process_regression_columns()
         meas.filter_irr(200, 900)
         meas.filter_irr(400, 800)
         overlay = meas.timeseries_filters()
@@ -3111,6 +3351,98 @@ class TestCreateColumnGroupAttributes:
 
             # Check that the attribute returns the correct data
             pd.testing.assert_frame_equal(attr_data, expected_data)
+
+
+class TestProcessRegressionColumns:
+    def test_e_total_reg_cols(self, meas):
+        meas.regression_cols = {
+            "e_total": (
+                calcparams.e_total,
+                {
+                    "poa": ("irr_poa_pyran", "mean"),
+                    "rpoa": ("irr_poa_pyran", "mean"),
+                },
+            )
+        }
+        meas.process_regression_columns()
+        assert "e_total" in meas.data.columns
+        assert "e_total" in meas.data_filtered.columns
+        assert meas.regression_cols == {"e_total": "e_total"}
+
+    def test_agg_amb_temp(self, meas):
+        meas.regression_cols = {"temp_amb": ("temp_amb", "mean")}
+        meas.process_regression_columns()
+        assert "temp_amb_mean_agg" in meas.data.columns
+        assert "temp_amb_mean_agg" in meas.data_filtered.columns
+        assert meas.regression_cols == {"temp_amb": "temp_amb_mean_agg"}
+
+    def test_power_tc_from_amb_temp(self, meas):
+        meas.power_temp_coeff = -0.32
+        meas.regression_cols = {
+            "power_tc": (
+                calcparams.power_temp_correct,
+                {
+                    "power": "meter_power",
+                    "cell_temp": (
+                        calcparams.cell_temp,
+                        {
+                            "bom": (
+                                calcparams.bom_temp,
+                                {
+                                    "poa": ("irr_poa_pyran", "mean"),
+                                    "temp_amb": ("temp_amb", "mean"),
+                                    "wind_speed": ("wind", "mean"),
+                                },
+                            ),
+                            "poa": ("irr_poa_pyran", "mean"),
+                        },
+                    ),
+                },
+            )
+        }
+        meas.process_regression_columns()
+        assert "power_temp_correct" in meas.data.columns
+        assert "power_temp_correct" in meas.data_filtered.columns
+        assert meas.regression_cols == {"power_tc": "power_temp_correct"}
+
+    def test_col_grp_id_conflict(self, meas):
+        """Expect ValueError when a kwarg name conflicts with a column-group ID.
+
+        Ommitted the temp_amb kwarg to calcparams.bom_temp here, which is the
+        overlapping kwarg and column group id. The column grouping used in this
+        test does not include a 'wind_speed' group, it is just 'wind'.
+        """
+        meas.regression_cols = {
+            "bom": (
+                calcparams.bom_temp,
+                {
+                    "poa": ("irr_poa_pyran", "mean"),
+                    "wind_speed": ("wind", "mean"),
+                },
+            )
+        }
+        with pytest.raises(
+            ValueError,
+            match=r"kwarg temp_amb.*bom_temp.*column groups id.*Change the name of.*",
+        ):
+            meas.process_regression_columns()
+
+    def test_pass_kwarg_value_in_regression_columns(self, meas):
+        """Check that a kwarg for a calcparams function passes through correctly"""
+        meas.regression_cols = {
+            "power_tc": (
+                calcparams.power_temp_correct,
+                {
+                    "power": "meter_power",
+                    "cell_temp": ("temp_amb", "mean"),
+                    "power_temp_coeff": -0.38,
+                },
+            )
+        }
+        meas.process_regression_columns()
+        assert "power_temp_correct" in meas.data.columns
+        assert "power_temp_correct" in meas.data_filtered.columns
+        assert meas.regression_cols == {"power_tc": "power_temp_correct"}
 
 
 if __name__ == "__main__":

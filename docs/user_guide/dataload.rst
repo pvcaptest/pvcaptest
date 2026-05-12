@@ -1,7 +1,7 @@
 .. _dataload:
 
-Overview
-========
+CapData Workflow
+================
 The core functionality of pvcaptest is provided by the :py:class:`~captest.capdata.CapData` class, which is a wrapper around two pandas DataFrames, :py:attr:`data` and :py:attr:`data_filtered`. The :py:attr:`data` DataFrame holds the unfiltered data and the :py:attr:`data_filtered` DataFrame is a copy of the data that the :py:class:`~captest.capdata.CapData` filtering methods modify. :py:meth:`~captest.capdata.CapData.reset_filter` can be used to reset the :py:attr:`data_filtered` DataFrame to the unfiltered data. The :py:meth:`~captest.capdata.CapData.fit_regression` method is used to fit the regression equation stored in :py:attr:`regression_formula` to the filtered data. 
 
 Conducting a capacity tests with pvcaptest involves the following steps:
@@ -158,10 +158,12 @@ The list of groups and tags can be filtered using regular expressions. The text 
 
 Residual Plots
 ~~~~~~~~~~~~~~
-:py:func:`~captest.plotting.residual_plot` creates overlay scatter plots of regression
-residuals versus each regression parameter for two :py:class:`~captest.capdata.CapData`
-instances — for example measured and simulated data. This makes it easy to visually
-compare how the two models differ across the range of each predictor variable.
+:py:meth:`~captest.captest.CapTest.residual_plot` creates overlay scatter plots of
+regression residuals versus each regression parameter for the measured and
+simulated :py:class:`~captest.capdata.CapData` instances bound to a
+:py:class:`~captest.captest.CapTest`. This makes it easy to visually compare how
+the two models differ across the range of each predictor variable. See
+:ref:`captest` for the full workflow.
 
 Identifying Regression Data
 ---------------------------
@@ -253,9 +255,11 @@ The :py:meth:`~captest.capdata.CapData.get_summary` method will return a summary
 
 Reporting conditions
 --------------------
-:py:meth:`~captest.capdata.CapData.rep_cond` can be used to calculate the reporting conditions. The reporting conditions are calculated for columns mapped to the :py:attr:`regression_col` terms ``poa``, ``t_amb``, and ``w_vel`` and are stored in the :py:attr:`rc` attribute.
+:py:meth:`~captest.capdata.CapData.rep_cond` can be used to calculate the reporting conditions. ``rep_cond`` is formula-agnostic: its right-hand-side variables are derived from :py:attr:`regression_formula` via :py:func:`~captest.util.parse_regression_formula`, so it supports any regression equation (not just the default ASTM E2848 formula). Results are stored in the :py:attr:`rc` attribute.
 
-Currently there is not functionality to calculate reporting conditions for other regression terms for cases where the default regression formula has been changed. But, the reporting conditions can be calculated manually and assigned to the :py:attr:`rc` attribute as a dataframe.
+The ``func`` argument is a dict mapping each right-hand-side variable name to an aggregation function (a pandas agg name or a callable). Omitting ``func`` falls back to ``{var: 'mean' for var in rhs}``. For percentile aggregations use :py:func:`~captest.captest.perc_wrap`, e.g. ``func={'poa': perc_wrap(60), 't_amb': 'mean', 'w_vel': 'mean'}``.
+
+When the test is driven through a :py:class:`~captest.captest.CapTest`, each preset in :py:data:`~captest.captest.TEST_SETUPS` supplies its own default ``rep_conditions`` dict and :py:meth:`~captest.captest.CapTest.rep_cond` forwards it automatically. See :ref:`captest`.
 
 The "Reporting Conditions and Predicted Capacities" example demonstrates the reporting condition functionality in more detail.
 
@@ -270,9 +274,9 @@ By default a summary showing the results of the regression is printed, similar t
 
 Results
 -------
-After loading, filtering and regressing measured and simulated data in two separate instances of :py:class:`~captest.capdata.CapData`, the results can be compared using the :py:func:`~captest.capdata.captest_results_check_pvalues`. This will provide a summary of the predicted power using the regression coefficients of each :py:class:`~captest.capdata.CapData` instance and the reporting conditions.
+After loading, filtering and regressing measured and simulated data in two separate instances of :py:class:`~captest.capdata.CapData`, the two instances are bound together in a :py:class:`~captest.captest.CapTest` and compared using :py:meth:`~captest.captest.CapTest.captest_results_check_pvalues`. This will provide a summary of the predicted power using the regression coefficients of each :py:class:`~captest.capdata.CapData` instance and the reporting conditions. See :ref:`captest` for construction and the full workflow.
 
-The results function will check and warn for potential issues:
+The results method will check and warn for potential issues:
 
 - The regression equations in the two :py:class:`~captest.capdata.CapData` instances are different.
 - Both :py:class:`~captest.capdata.CapData` instances have reporting conditions.

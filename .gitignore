@@ -118,3 +118,6 @@ src/captest/_version.py
 
 # claude
 .claude/settings.local.json
+
+# windsurf
+.windsurf/

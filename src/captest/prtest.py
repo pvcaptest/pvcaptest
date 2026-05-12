@@ -5,165 +5,8 @@ import pandas as pd
 import param
 
 from captest import capdata
-
-
-emp_heat_coeff = {
-    "open_rack": {
-        "glass_cell_glass": {"a": -3.47, "b": -0.0594, "del_tcnd": 3},
-        "glass_cell_poly": {"a": -3.56, "b": -0.0750, "del_tcnd": 3},
-        "poly_tf_steel": {"a": -3.58, "b": -0.1130, "del_tcnd": 3},
-    },
-    "close_roof_mount": {"glass_cell_glass": {"a": -2.98, "b": -0.0471, "del_tcnd": 1}},
-    "insulated_back": {"glass_cell_poly": {"a": -2.81, "b": -0.0455, "del_tcnd": 0}},
-}
-
-
-def get_common_timestep(data, units="m", string_output=True):
-    """
-    Get the most commonly occuring timestep of data as frequency string.
-    Parameters
-    ----------
-    data : Series or DataFrame
-        Data with a DateTimeIndex.
-    units : str, default 'm'
-        String representing date/time unit, such as (D)ay, (M)onth, (Y)ear,
-        (h)ours, (m)inutes, or (s)econds.
-    string_output : bool, default True
-        Set to False to return a numeric value.
-    Returns
-    -------
-    str
-        frequency string
-    """
-    units_abbrev = {
-        "D": "Day",
-        "M": "Months",
-        "Y": "Year",
-        "h": "hours",
-        "m": "minutes",
-        "s": "seconds",
-    }
-    common_timestep = data.index.to_series().diff().mode().values[0]
-    common_timestep_tdelta = common_timestep.astype("timedelta64[m]")
-    freq = common_timestep_tdelta / np.timedelta64(1, units)
-    if string_output:
-        return str(freq) + " " + units_abbrev[units]
-    else:
-        return freq
-
-
-def temp_correct_power(power, power_temp_coeff, cell_temp, base_temp=25):
-    """Apply temperature correction to PV power.
-
-    Divides `power` by the temperature correction, so low power values that
-    are above `base_temp` will be increased and high power values that are
-    below the `base_temp` will be decreased.
-
-    Parameters
-    ----------
-    power : numeric or Series
-        PV power (in watts) to correct to the `base_temp`.
-    power_temp_coeff : numeric
-        Module power temperature coefficient as percent per degree celsius.
-        Ex. -0.36
-    cell_temp : numeric or Series
-        Cell temperature (in Celsius) used to calculate temperature
-        differential from the `base_temp`.
-    base_temp : numeric, default 25
-        Base temperature (in Celsius) to correct power to. Default is the
-        STC of 25 degrees Celsius.
-
-    Returns
-    -------
-    type matches `power`
-        Power corrected for temperature.
-    """
-    corr_power = power / (1 + ((power_temp_coeff / 100) * (cell_temp - base_temp)))
-    return corr_power
-
-
-def back_of_module_temp(
-    poa, temp_amb, wind_speed, module_type="glass_cell_poly", racking="open_rack"
-):
-    """Calculate back of module temperature from measured weather data.
-
-    Calculate back of module temperature from POA irradiance, ambient
-    temperature, wind speed (at height of 10 meters), and empirically
-    derived heat transfer coefficients.
-
-    Equation from NREL Weather Corrected Performance Ratio Report.
-
-    Parameters
-    ----------
-    poa : numeric or Series
-        POA irradiance in W/m^2.
-    temp_amb : numeric or Series
-        Ambient temperature in degrees C.
-    wind_speed : numeric or Series
-        Measured wind speed (m/sec) corrected to measurement height of
-        10 meters.
-    module_type : str, default 'glass_cell_poly'
-        Any of glass_cell_poly, glass_cell_glass, or 'poly_tf_steel'.
-    racking: str, default 'open_rack'
-        Any of 'open_rack', 'close_roof_mount', or 'insulated_back'
-
-    Returns
-    -------
-    numeric or Series
-        Back of module temperatures.
-    """
-    a = emp_heat_coeff[racking][module_type]["a"]
-    b = emp_heat_coeff[racking][module_type]["b"]
-    return poa * np.exp(a + b * wind_speed) + temp_amb
-
-
-def cell_temp(bom, poa, module_type="glass_cell_poly", racking="open_rack"):
-    """Calculate cell temp from BOM temp, POA, and heat transfer coefficient.
-
-    Equation from NREL Weather Corrected Performance Ratio Report.
-
-    Parameters
-    ----------
-    bom : numeric or Series
-        Back of module temperature (degrees C). Strictly followin the NREL
-        procedure this value would be obtained from the `back_of_module_temp`
-        function.
-
-        Alternatively, a measured BOM temperature may be used.
-
-        Refer to p.7 of NREL Weather Corrected Performance Ratio Report.
-    poa : numeric or Series
-        POA irradiance in W/m^2.
-    module_type : str, default 'glass_cell_poly'
-        Any of glass_cell_poly, glass_cell_glass, or 'poly_tf_steel'.
-    racking: str, default 'open_rack'
-        Any of 'open_rack', 'close_roof_mount', or 'insulated_back'
-
-    Returns
-    -------
-    numeric or Series
-        Cell temperature(s).
-    """
-    return bom + (poa / 1000) * emp_heat_coeff[racking][module_type]["del_tcnd"]
-
-
-def avg_typ_cell_temp(poa, cell_temp):
-    """Calculate irradiance weighted cell temperature.
-
-    Parameters
-    ----------
-    poa : Series
-        POA irradiance (W/m^2).
-    cell_temp : Series
-        Cell temperature for each interval (degrees C).
-
-    Returns
-    -------
-    float
-        Average irradiance-weighted cell temperature.
-    """
-    return (poa * cell_temp).sum() / poa.sum()
-
+from captest import util
+from captest import calcparams
 
 """DIRECTLY BELOW DRAFT PR FUNCTION TO DO ALL VERSIONS OF CALC
 DECIDED TO BREAK INTO SMALLER FUNCTIONS, LEAVE TEMPORARILY"""
@@ -250,8 +93,8 @@ def perf_ratio(
     ):
         return
 
-    timestep = get_common_timestep(poa, units="h", string_output=False)
-    timestep_str = get_common_timestep(poa, units="h", string_output=True)
+    timestep = util.get_common_timestep(poa, units="h", string_output=False)
+    timestep_str = util.get_common_timestep(poa, units="h", string_output=True)
 
     expected_dc = (
         availability
@@ -350,16 +193,17 @@ def perf_ratio_temp_corr_nrel(
     Returns
     -------
     """
-    timestep = get_common_timestep(poa, units="h", string_output=False)
-    timestep_str = get_common_timestep(poa, units="h", string_output=True)
+    timestep = util.get_common_timestep(poa, units="h", string_output=False)
+    timestep_str = util.get_common_timestep(poa, units="h", string_output=True)
 
+    coeffs = calcparams.EMP_HEAT_COEFF[racking][module_type]
     if temp_bom is None:
-        temp_bom = back_of_module_temp(poa, temp_amb, wind_speed, module_type, racking)
-    temp_cell = cell_temp(temp_bom, poa, module_type, racking)
+        temp_bom = poa * np.exp(coeffs["a"] + coeffs["b"] * wind_speed) + temp_amb
+    temp_cell = temp_bom + (poa / 1000) * coeffs["del_tcnd"]
     if single_irr_weighted_temp:
-        temp_cell = avg_typ_cell_temp(poa, temp_cell)
-    dc_nameplate_temp_corr = temp_correct_power(
-        dc_nameplate, power_temp_coeff, temp_cell, base_temp=base_temp
+        temp_cell = (poa * temp_cell).sum() / poa.sum()
+    dc_nameplate_temp_corr = dc_nameplate / (
+        1 + ((power_temp_coeff / 100) * (temp_cell - base_temp))
     )
     # below is same as the perf_ratio function
     # move to a separate function?

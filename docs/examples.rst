@@ -8,5 +8,7 @@ Examples
 
    examples/complete_capacity_test
    examples/concise_capacity_test
+   examples/captest_class.ipynb
+   examples/captest_class_bifi.ipynb
    examples/clear_sky
    examples/reporting_conditions

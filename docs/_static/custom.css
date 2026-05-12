@@ -1,0 +1,4 @@
+/* Widen content area on notebook-generated example pages only */
+body:has(.nbinput) .wy-nav-content {
+    max-width: 1800px;
+}
