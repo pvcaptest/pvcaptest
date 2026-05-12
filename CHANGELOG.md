@@ -5,6 +5,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+
+[0.15.0]: https://github.com/pvcaptest/pvcaptest/compare/v0.14.0...v0.15.0
+## [0.15.0] - 2026-05-12
 ### Added
 - New `captest.captest` module. Exports `CapTest`, `TEST_SETUPS`, the three
 scatter callables `scatter_default`, `scatter_etotal`, `scatter_bifi_power_tc`,
