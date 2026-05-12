@@ -116,18 +116,41 @@ The built-in options are:
     ``test_setup='e2848_default'`` uses the standard ASTM E2848 setup, and
     ``test_setup='bifi_e2848_etotal'`` uses the total-irradiance bifacial setup.
 
+.. note:: 
+
+    Each built-in test setup maps its regression variables to specific
+    **column group IDs** — the string keys of the ``column_groups`` attribute.
+    The IDs hardcoded into the built-in setups are:
+
+    - ``irr_poa`` — front-side plane-of-array irradiance (all setups)
+    - ``irr_rpoa`` — rear-side plane-of-array irradiance
+      (``bifi_e2848_etotal``, ``bifi_power_tc``)
+    - ``real_pwr_mtr`` — AC power meter (all setups)
+    - ``temp_amb`` — ambient temperature (all setups)
+    - ``wind_speed`` — wind speed (all setups)
+    - ``humidity`` — relative humidity (``e2848_spec_corrected_poa`` only)
+    - ``pressure`` — station pressure (``e2848_spec_corrected_poa`` only)
+
+    .. warning::
+
+        If your data uses different column group IDs (for example because your
+        column-group YAML template assigns a different name to your irradiance
+        sensor), the built-in setup will not find the expected groups and the
+        regression will fail or use incorrect data. In that case you must either
+        rename the column groups in your data to match the IDs above, or supply
+        a fully custom ``reg_cols_meas`` that references your actual column
+        group IDs. See :ref:`custom_test_setups` for details.
+
 Creating a CapTest
 ------------------
 A :py:class:`~captest.captest.CapTest` can be created from from file paths, data
-that has already been loaded, or from a yaml file. The ``from_params`` options is
-recommended for typical usage of pvcaptest to interactivley run a test in a
-Jupyter notebook.
+that has already been loaded, or from a yaml file. Using ``from_params`` will create
+a CapTest object given file paths and is the option recommended for typical usage of
+pvcaptest to interactivley run a test in a Jupyter notebook.
 
 From data paths
 ~~~~~~~~~~~~~~~
-If you provide paths to your data, ``CapTest`` will load the data for you using the
-`io.load_data` and the `io.load_pvsyst` functions to create two instances of `CapData`
-and assign them to the returned `CapTest` instance.
+If you provide paths to your data, ``CapTest`` will load the data for you. 
 
 .. code-block:: Python
 
@@ -233,7 +256,7 @@ setup and the temperature-corrected power setup.
     ct_etotal = CapTest.from_yaml('./project.yaml', key='captest_bifi_etotal')
     ct_power_tc = CapTest.from_yaml('./project.yaml', key='captest_bifi_power_tc')
 
-.. _what_setup_does
+.. _what-setup-does:
 What setup does
 ---------------
 When ``CapTest`` has both measured and modeled data, it prepares each
@@ -269,21 +292,23 @@ After ``ct`` has been created, use ``ct.meas`` and ``ct.sim`` in the same way
 you would use separate ``CapData`` objects.
 
 The example below shows the general pattern. Actual filters should be selected
-to match the contract, test procedure, and data quality review.
+to match the contract and test procedure.
 
 .. code-block:: Python
-
+    
+    # measured filters
     ct.meas.filter_irr(ct.min_irr, ct.max_irr)
-    ct.sim.filter_irr(ct.min_irr, ct.max_irr)
-    ct.sim.filter_shade(fshdbm=ct.fshdbm)
-    ct.sim.filter_time(start='2026-03-26', end='2026-04-12')
-
+    ct.meas.filter_outliers()
     ct.rep_cond()
-
     ct.meas.fit_regression()
+
+    # simulated data filters
+    ct.sim.filter_time(start='2026-03-26', end='2026-04-12')
+    ct.sim.filter_irr(ct.min_irr, ct.max_irr)
+    ct.sim.filter_pvsyst()
     ct.sim.fit_regression()
 
-    cap_ratio = ct.captest_results()
+    cap_ratio = ct.captest_results_check_pvalues()
 
 :py:meth:`~captest.captest.CapTest.rep_cond` calculates reporting conditions
 using the selected setup's defaults. For the standard E2848 setup, POA is
@@ -301,11 +326,18 @@ After reporting conditions are calculated, it is common to apply a second,
 narrower irradiance filter around the reporting irradiance.
 ``ct.rep_irr_filter_low`` and ``ct.rep_irr_filter_high`` provide the lower and
 upper fractional bounds. With the default ``rep_irr_filter=0.2``, these values
-are ``0.8`` and ``1.2``.
+are ``0.8`` and ``1.2``. Using these attributes of the ``CapTest`` instance helps
+to apply these consistently in the filtering of the measured and simulated data.
 
 .. code-block:: Python
 
     ct.meas.filter_irr(
+        ct.rep_irr_filter_low,
+        ct.rep_irr_filter_high,
+        ref_val='rep_irr',
+    )
+
+    ct.sim.filter_irr(
         ct.rep_irr_filter_low,
         ct.rep_irr_filter_high,
         ref_val='rep_irr',
@@ -374,7 +406,10 @@ The marker and color styles can be adjusted with ``am_color``, ``pm_color``,
 Temperature-corrected power view
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Use ``tc_power=True`` to view temperature-corrected power on the y-axis for
-setups where raw power is used in the regression.
+setups where raw power is used in the regression. This plotting option can be used
+to review temperature-corrected power vs POA irradiance regardless of the presence
+of a temperature-corrected power term in the regression. This an independent calculation
+of temperature-corrected power for the plot.
 
 .. code-block:: Python
 
@@ -448,6 +483,8 @@ Custom setups
 Most users should start with one of the built-in setups. If a project requires
 a different regression equation, the setup can be customized by overriding the
 regression formula and the measured/model column mappings.
+
+See :ref:`custom_test_setups` for additional detail on the options.
 
 For small changes to a built-in setup, use ``overrides``. For example, a yaml
 file can change the reporting-condition calculation without redefining the
@@ -554,9 +591,3 @@ The corrected irradiance column is named ``poa_spec_corrected`` and is added
 to both ``ct.meas.data`` and ``ct.sim.data`` during setup. The regression then
 uses that corrected POA value in place of raw POA irradiance.
 
-.. note::
-
-    The measured-data timezone may need to be converted for the modeled side
-    because PVsyst timestamps are not daylight-savings-time aware. pvcaptest
-    handles the default conversion during setup and issues a warning describing
-    the timezone used for the modeled data.
