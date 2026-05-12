@@ -6,11 +6,21 @@ Sandia module temperature model.
 """
 
 import copy
+import importlib
 import warnings
 
 import numpy as np
-import pvlib
-from pvlib.location import Location
+
+pvlib_spec = importlib.util.find_spec("pvlib")
+if pvlib_spec is not None:
+    import pvlib
+    from pvlib.location import Location
+else:
+    warnings.warn(
+        "Functions that calculate solar position or spectral correction "
+        "(apparent_zenith, absolute_airmass, precipitable_water_gueymard, "
+        "spectral_factor_firstsolar) will not work without the pvlib package."
+    )
 
 # Global record surface-pressure extremes (mBar) used by
 # :func:`absolute_airmass` to sanity-check pressure inputs. Low: ~870 mBar
