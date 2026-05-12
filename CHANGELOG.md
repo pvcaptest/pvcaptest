@@ -20,6 +20,8 @@ pvcaptest. Four presets ship: `e2848_default` (default ASTM E2848),
 `bifi_power_tc` (temperature-corrected bifacial `power ~ poa + rpoa`), and
 `e2848_spec_corrected_poa` (ASTM with a spectral-correction factor
 applied to POA irradiance).
+- New ``process_regression_columns`` method on ``CapData``, which recursively walks
+the ``regression_cols`` dictionary. 
 - New calcparams module with simple functions that return calculated regressors.
 E.g., the `e_total` function calculates total POA irradiance from front and rear
 POA.
@@ -42,6 +44,8 @@ raw power or temperature corrected power.
 - Documentation: new user-guide page `user_guide/captest` describing use of CapTest class.
 
 ### Changed
+- **Breaking:** The ``agg_sensors`` method no longer updates the ``regression_cols``
+dictionary. This functionality has been moved to ``process_regression_columns``.
 - `CapData.filter_time` now defaults ``end`` to the last timestamp of
 ``data_filtered`` when only ``start`` is provided without ``days``, and
 defaults ``start`` to the first timestamp of ``data_filtered`` when only
@@ -55,6 +59,8 @@ defaults ``start`` to the first timestamp of ``data_filtered`` when only
 `ct.get_summary()`, `ct.overlay_scatters()`, `ct.determine_pass_or_fail()`,
 `ct.residual_plot()`). `pick_attr` is superseded by the `rep_cond_source`
 parameter on `CapTest`. Single-CapData `cd.get_summary()` is unchanged.
+- **Breaking:** The `CapData.rep_cond` method has had the calculation of reporting
+conditions for multiple time periods moved to a separate method - ``rep_cond_freq``.
 - **Breaking:** `CapData.rep_cond` and `CapData.rep_cond_freq` are now
 formula-agnostic: they derive rhs variables from `regression_formula` via
 `util.parse_regression_formula`. 
@@ -64,6 +70,8 @@ wrappers: they resolve the y (lhs) and x (first rhs) columns from
 non-default regression presets prefer `CapTest.scatter_plots`, which picks
 the correct scatter callable (single or multi-panel) from the resolved
 preset.
+- In ``filter_irr`` the string to use the reporting irradiance as the reference
+irradiance to filter around has been changed from ``rep_irr``.
 
 ### Convention
 - The left-hand-side key of the regression formula is always `"power"`
