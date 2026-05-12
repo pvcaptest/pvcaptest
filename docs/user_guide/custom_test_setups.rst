@@ -46,7 +46,7 @@ or nested calculated-column tuples:
     )
 
 Nesting is allowed to any depth. During
-:py:meth:`~captest.captest.CapTest.setup`, pvcaptest walks the tree bottom-up:
+:py:meth:`~captest.captest.CapTest.setup`, pvcaptest recursively walks the tree bottom-up:
 each ``(func, kwargs_dict)`` tuple creates a new column named
 ``func.__name__`` in ``CapData.data``, and that name is passed upward as input
 to any parent tuple.
