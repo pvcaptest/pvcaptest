@@ -195,8 +195,9 @@ def meas_cd_default():
     Column groups are renamed so the shipped ``e2848_default`` preset matches
     without extra overrides: ``real_pwr_mtr``, ``irr_poa``, ``temp_amb``,
     ``wind_speed``. A synthetic ``irr_rpoa`` group is added (scaled fraction
-    of the POA sensors) so the ``bifi_e2848_etotal`` and ``bifi_power_tc``
-    presets also resolve against this fixture without additional wiring.
+    of the POA sensors) so the ``bifi_e2848_etotal`` and
+    ``bifi_power_tc_calc_tbom`` presets also resolve against this fixture
+    without additional wiring.
     """
     cd = pvc.CapData("meas")
     df = pd.read_csv(
@@ -230,7 +231,8 @@ def sim_cd_default():
 
     Synthetic ``GlobBak`` and ``BackShd`` columns are added so presets that
     rely on ``rpoa_pvsyst(globbak=..., backshd=...)`` (``bifi_e2848_etotal``,
-    ``bifi_power_tc``) resolve without needing a new PVsyst export.
+    ``bifi_power_tc_meas_tbom``, ``bifi_power_tc_calc_tbom``) resolve without
+    needing a new PVsyst export.
     """
     cd = load_pvsyst(path="./tests/data/pvsyst_example_HourlyRes_2.CSV")
     cd.data["GlobBak"] = cd.data["GlobInc"] * 0.15
@@ -266,9 +268,9 @@ def ct_etotal(meas_cd_default, sim_cd_default):
 
 @pytest.fixture
 def ct_bifi_power_tc(meas_cd_default, sim_cd_default):
-    """CapTest for the bifi_power_tc preset with setup() run."""
+    """CapTest for the bifi_power_tc_calc_tbom preset with setup() run."""
     return CapTest.from_params(
-        test_setup="bifi_power_tc",
+        test_setup="bifi_power_tc_calc_tbom",
         meas=meas_cd_default,
         sim=sim_cd_default,
         ac_nameplate=6_000_000,

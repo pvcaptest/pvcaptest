@@ -98,10 +98,18 @@ The built-in options are:
     where :math:`\varphi` is the bifaciality factor. This is useful for the
     NREL modified bifacial approach described in :ref:`bifacial`.
 
-``bifi_power_tc``
+``bifi_power_tc_meas_tbom``
     Uses temperature-corrected power as the dependent variable and regresses it
-    against front and rear irradiance. This setup creates a two-panel scatter
-    plot so the front- and rear-side relationships can be reviewed separately.
+    against front and rear irradiance. Back-of-module temperature is taken
+    directly from field measurements and used to calculate cell temperature
+    via the Sandia PV Array Performance Model.
+
+``bifi_power_tc_calc_tbom``
+    Same regression as ``bifi_power_tc_meas_tbom`` but back-of-module
+    temperature is calculated from POA irradiance, ambient temperature, and
+    wind speed rather than measured directly. Both setups create a two-panel
+    scatter plot so the front- and rear-side relationships can be reviewed
+    separately.
 
 ``e2848_spec_corrected_poa``
     Uses the standard ASTM E2848 regression form, but applies a First Solar
@@ -124,7 +132,10 @@ The built-in options are:
 
     - ``irr_poa`` — front-side plane-of-array irradiance (all setups)
     - ``irr_rpoa`` — rear-side plane-of-array irradiance
-      (``bifi_e2848_etotal``, ``bifi_power_tc``)
+      (``bifi_e2848_etotal``, ``bifi_power_tc_meas_tbom``,
+      ``bifi_power_tc_calc_tbom``)
+    - ``temp_bom`` — back-of-module temperature
+      (``bifi_power_tc_meas_tbom`` only)
     - ``real_pwr_mtr`` — AC power meter (all setups)
     - ``temp_amb`` — ambient temperature (all setups)
     - ``wind_speed`` — wind speed (all setups)
@@ -245,7 +256,7 @@ setup and the temperature-corrected power setup.
       bifaciality: 0.15
 
     captest_bifi_power_tc:
-      test_setup: bifi_power_tc
+      test_setup: bifi_power_tc_calc_tbom
       meas_path: ./data/measured/
       sim_path: ./data/pvsyst.csv
       ac_nameplate: 6_000_000

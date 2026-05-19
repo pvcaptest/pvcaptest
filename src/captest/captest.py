@@ -555,6 +555,7 @@ def resolve_test_setup(name, overrides=None):
                 f"missing: {sorted(missing)}"
             )
         base = {
+            "description": overrides.get("description", ""),
             "reg_cols_meas": copy.deepcopy(overrides["reg_cols_meas"]),
             "reg_cols_sim": copy.deepcopy(overrides["reg_cols_sim"]),
             "reg_fml": overrides["reg_fml"],

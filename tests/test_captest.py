@@ -29,7 +29,9 @@ from captest.calcparams import (
 # whose required column_groups and site attributes are satisfied by the
 # default fixtures; otherwise add a dedicated fixture and a targeted test.
 _DEFAULT_FIXTURE_PRESETS = [
-    p for p in ct.TEST_SETUPS.keys() if p != "e2848_spec_corrected_poa"
+    p
+    for p in ct.TEST_SETUPS.keys()
+    if p not in {"e2848_spec_corrected_poa", "bifi_power_tc_meas_tbom"}
 ]
 
 
@@ -66,8 +68,8 @@ class TestTestSetupsRegistry:
         assert isinstance(meas_poa, tuple)
         assert meas_poa[0] is e_total
 
-    def test_bifi_power_tc_uses_power_temp_correct(self):
-        entry = ct.TEST_SETUPS["bifi_power_tc"]
+    def test_bifi_power_tc_calc_tbom_uses_power_temp_correct(self):
+        entry = ct.TEST_SETUPS["bifi_power_tc_calc_tbom"]
         meas_power = entry["reg_cols_meas"]["power"]
         assert isinstance(meas_power, tuple)
         assert meas_power[0] is power_temp_correct
@@ -928,7 +930,7 @@ class TestDownstreamPropagation:
         self, meas_cd_default, sim_cd_default
     ):
         capt = CapTest.from_params(
-            test_setup="bifi_power_tc",
+            test_setup="bifi_power_tc_calc_tbom",
             meas=meas_cd_default,
             sim=sim_cd_default,
             bifaciality=0.15,
@@ -949,7 +951,7 @@ class TestDownstreamPropagation:
         self, meas_cd_default, sim_cd_default
     ):
         capt = CapTest.from_params(
-            test_setup="bifi_power_tc",
+            test_setup="bifi_power_tc_calc_tbom",
             meas=meas_cd_default,
             sim=sim_cd_default,
             bifaciality=0.15,
