@@ -848,6 +848,7 @@ class TestSetup:
         resolved = ct_default._resolved_setup
         assert resolved is not None
         assert set(resolved.keys()) == {
+            "description",
             "reg_cols_meas",
             "reg_cols_sim",
             "reg_fml",

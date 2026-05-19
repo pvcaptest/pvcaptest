@@ -180,6 +180,11 @@ def scatter_bifi_power_tc(cd, **kwargs):
 
 TEST_SETUPS = {
     "e2848_default": {
+        "description": (
+            "Standard ASTM E2848 regression of AC power against front-side POA irradiance, "
+            "ambient temperature, and wind speed using the full four-term formula. "
+            "This is the default setup for monofacial capacity tests."
+        ),
         "reg_cols_meas": {
             "power": ("real_pwr_mtr", "sum"),
             "poa": ("irr_poa", "mean"),
@@ -206,6 +211,11 @@ TEST_SETUPS = {
         },
     },
     "bifi_e2848_etotal": {
+        "description": (
+            "Standard ASTM E2848 regression form with total effective irradiance replacing "
+            "front-side POA as the independent variable. Total irradiance is calculated as "
+            "E_Total = E_POA + E_Rear * bifaciality, following the NREL modified bifacial approach."
+        ),
         "reg_cols_meas": {
             "power": ("real_pwr_mtr", "sum"),
             "poa": (
@@ -246,7 +256,62 @@ TEST_SETUPS = {
             },
         },
     },
-    "bifi_power_tc": {
+    "bifi_power_tc_meas_tbom": {
+        "description": (
+            "The regression equation is temperature corrected power regressed against "
+            "front POA and rear POA. The back of module temperature is from field"
+            "measurements and the cell temperature is calculated using the Sandia PV Array "
+            "Performance Model from the POA irradiance and measured BOM temperature."
+            "Note that the PVsyst temperature correction uses the 'TArray' output variable."
+        ),
+        "reg_cols_meas": {
+            "power": (
+                power_temp_correct,
+                {
+                    "power": ("real_pwr_mtr", "sum"),
+                    "cell_temp": (
+                        cell_temp,
+                        {
+                            "poa": ("irr_poa", "mean"),
+                            "bom": ("temp_bom", "mean"),
+                        },
+                    ),
+                },
+            ),
+            "poa": ("irr_poa", "mean"),
+            "rpoa": ("irr_rpoa", "mean"),
+        },
+        "reg_cols_sim": {
+            "power": (
+                power_temp_correct,
+                {
+                    "power": "E_Grid",
+                    "cell_temp": "TArray",
+                },
+            ),
+            "poa": "GlobInc",
+            "rpoa": (rpoa_pvsyst, {"globbak": "GlobBak", "backshd": "BackShd"}),
+        },
+        "reg_fml": "power ~ poa + rpoa",
+        "scatter_plots": scatter_bifi_power_tc,
+        "rep_conditions": {
+            "irr_bal": False,
+            "percent_filter": 20,
+            "front_poa": "poa",
+            "func": {
+                "poa": perc_wrap(60),
+                "rpoa": "mean",
+            },
+        },
+    },
+    "bifi_power_tc_calc_tbom": {
+        "description": (
+            "The regression equation is temperature corrected power regressed against "
+            "front POA and rear POA. The back of module and cell temperature are "
+            "calculated using the Sandia PV Array Performance Model from the POA "
+            "irradiance, ambient temperature, and wind speed. Note that the PVsyst "
+            "temperature correction uses the 'TArray' output variable."
+        ),
         "reg_cols_meas": {
             "power": (
                 power_temp_correct,
@@ -295,6 +360,11 @@ TEST_SETUPS = {
         },
     },
     "e2848_spec_corrected_poa": {
+        "description": (
+            "Standard ASTM E2848 regression with a First Solar spectral correction applied to "
+            "front-side POA irradiance before fitting. Requires relative humidity and atmospheric"
+            "pressure on the measured side and precipitable water from the PVsyst output."
+        ),
         "reg_cols_meas": {
             "power": ("real_pwr_mtr", "sum"),
             "poa": (
@@ -373,7 +443,14 @@ TEST_SETUPS = {
 }
 
 _TEST_SETUP_REQUIRED_KEYS = frozenset(
-    {"reg_cols_meas", "reg_cols_sim", "reg_fml", "scatter_plots", "rep_conditions"}
+    {
+        "description",
+        "reg_cols_meas",
+        "reg_cols_sim",
+        "reg_fml",
+        "scatter_plots",
+        "rep_conditions",
+    }
 )
 
 
