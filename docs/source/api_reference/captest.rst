@@ -80,9 +80,9 @@ Standalone functions used alongside :py:class:`~captest.captest.CapTest`.
    :toctree: generated/
 
    captest.load_config
-   captest.validate_test_setup
-   captest.resolve_test_setup
-   captest.perc_wrap
+   captest.captest.validate_test_setup
+   captest.captest.resolve_test_setup
+   captest.captest.perc_wrap
 
 .. _test-setups:
 
@@ -127,5 +127,5 @@ The built-in presets are:
 
 ``e2848_spec_corrected_poa``
    Standard ASTM E2848 regression with a First Solar spectral correction applied
-   to front-side POA before fitting. Requires relative humidity and station
+   to front-side POA before fitting. Requires relative humidity and atmospheric
    pressure on the measured side and precipitable water from the PVsyst output.

@@ -362,7 +362,7 @@ TEST_SETUPS = {
     "e2848_spec_corrected_poa": {
         "description": (
             "Standard ASTM E2848 regression with a First Solar spectral correction applied to "
-            "front-side POA irradiance before fitting. Requires relative humidity and atmospheric"
+            "front-side POA irradiance before fitting. Requires relative humidity and atmospheric "
             "pressure on the measured side and precipitable water from the PVsyst output."
         ),
         "reg_cols_meas": {
