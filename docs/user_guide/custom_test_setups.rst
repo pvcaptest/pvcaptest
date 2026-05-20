@@ -61,7 +61,7 @@ Nesting is allowed to any depth. During
 each ``(func, kwargs_dict)`` tuple creates a new column named
 ``func.__name__`` in ``CapData.data``, and that name is passed upward as input
 to any parent tuple. For the example above, ``e_total`` is a callable (a function from
-the ``calcprams`` module) and processing this portion of the dictionary adds a column
+the ``calcparams`` module) and processing this portion of the dictionary adds a column
 to the ``data`` attribute with the name ``e_total``. Also, the dictionary is updated
 so that ``poa`` now points to ``e_total``.
 
@@ -193,8 +193,8 @@ these scalars onto both ``CapData`` instances during
 To override the auto-injected value for a specific node, include the scalar
 explicitly in that node's kwarg dict.
 
-This approach is recommended because it ensures values tha should be consistent between, 
-the measured data and simulated data, like ``bifacility``, match.
+This approach is recommended because it ensures values that should be consistent between
+the measured data and simulated data, like ``bifaciality``, match.
 
 Wiring a custom dict into CapTest
 ----------------------------------
