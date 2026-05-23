@@ -5,16 +5,31 @@ description: Create a GitHub pull request for the pvcaptest fork following proje
 
 # Create Pull Request (pvcaptest)
 
-This skill walks through creating a well-structured pull request for the pvcaptest fork. The repo has a fork/upstream layout — all PRs target `pvcaptest/pvcaptest:master`.
+This skill walks through creating a well-structured pull request for a pvcaptest fork. The repo has a fork/upstream layout — all PRs target `pvcaptest/pvcaptest:master`.
 
 ## Repository layout
 
-- Fork (working directory): `~/python/pvcaptest_bt-`
-  - `origin` → `git@github.com:bt-/pvcaptest.git`
-  - `upstream` → `git@github.com:pvcaptest/pvcaptest.git`
-- Local upstream clone: `~/python/pvcaptest/`
+The fork uses two remotes:
+- `origin` → contributor's personal fork on GitHub (e.g. `git@github.com:USERNAME/pvcaptest.git`)
+- `upstream` → `git@github.com:pvcaptest/pvcaptest.git`
 
-All git commands use the `g` shell alias. All recipe commands use `just`.
+All git commands use the standard `git` CLI. All recipe commands use `just`.
+
+---
+
+## Environment detection
+
+Before running any commands, resolve these two values and use them throughout the rest of the skill:
+
+```bash
+# Absolute path to the repo root
+REPO_ROOT=$(git rev-parse --show-toplevel)
+
+# GitHub username of the fork owner, parsed from the origin remote URL
+FORK_OWNER=$(git remote get-url origin | sed -E 's|.*[:/]([^/]+)/[^/]+(.git)?$|\1|')
+```
+
+Verify both values look correct before continuing.
 
 ---
 
@@ -34,7 +49,7 @@ If not installed or not authenticated, stop and guide the user accordingly.
 ### 1b. Check for uncommitted changes
 
 ```bash
-g -C ~/python/pvcaptest_bt- status --porcelain
+git -C "$REPO_ROOT" status --porcelain
 ```
 
 If output appears, stop. List the dirty files and ask the user to commit or stash before continuing.
@@ -42,7 +57,8 @@ If output appears, stop. List the dirty files and ask the user to commit or stas
 ### 1c. Check for an existing PR on this branch
 
 ```bash
-gh pr list --head $(g -C ~/python/pvcaptest_bt- branch --show-current) --repo pvcaptest/pvcaptest --json number,title,url
+BRANCH=$(git -C "$REPO_ROOT" branch --show-current)
+gh pr list --head "$BRANCH" --repo pvcaptest/pvcaptest --json number,title,url
 ```
 
 If a PR already exists, show the details and ask if the user wants to view it, push more commits to update it, or close it and open a new one. Only proceed with creation if there is no existing PR.
@@ -50,7 +66,7 @@ If a PR already exists, show the details and ask if the user wants to view it, p
 ### 1d. Verify we're not on master
 
 ```bash
-g -C ~/python/pvcaptest_bt- branch --show-current
+git -C "$REPO_ROOT" branch --show-current
 ```
 
 If the current branch is `master`, stop and ask the user to switch to or create a feature branch.
@@ -60,9 +76,9 @@ If the current branch is `master`, stop and ask the user to switch to or create 
 These must pass before opening a PR (run in order shown):
 
 ```bash
-just -f ~/python/pvcaptest_bt-/.justfile lint
-just -f ~/python/pvcaptest_bt-/.justfile fmt
-just -f ~/python/pvcaptest_bt-/.justfile test
+just -f "$REPO_ROOT/.justfile" lint
+just -f "$REPO_ROOT/.justfile" fmt
+just -f "$REPO_ROOT/.justfile" test
 ```
 
 If tests or linting fail, stop and report the failures. Do not proceed until they are resolved.
@@ -72,7 +88,7 @@ If tests or linting fail, stop and report the failures. Do not proceed until the
 Get the files changed on this branch relative to upstream:
 
 ```bash
-g -C ~/python/pvcaptest_bt- diff upstream/master...HEAD --name-only
+git -C "$REPO_ROOT" diff upstream/master...HEAD --name-only
 ```
 
 If any `src/captest/` Python files are changed but no `docs/` files appear in the diff, the docs likely haven't been updated. Ask the user: *"Source files changed but docs haven't been updated. Would you like to run the `docs-update` skill before creating the PR?"*
@@ -86,7 +102,7 @@ If any `src/captest/` Python files are changed but no `docs/` files appear in th
 ### 2a. Analyze commits on this branch
 
 ```bash
-g -C ~/python/pvcaptest_bt- log upstream/master..HEAD --oneline
+git -C "$REPO_ROOT" log upstream/master..HEAD --oneline
 ```
 
 Review these commits to understand the scope and intent of the changes.
@@ -94,26 +110,43 @@ Review these commits to understand the scope and intent of the changes.
 ### 2b. Review the diff summary
 
 ```bash
-g -C ~/python/pvcaptest_bt- diff upstream/master..HEAD --stat
+git -C "$REPO_ROOT" diff upstream/master..HEAD --stat
 ```
 
 This shows which files changed and helps identify the type of change (feature, fix, refactor, docs, etc.).
 
 ---
 
-## Step 3: Push the branch
+## Step 3: Push the branch to the fork
 
-Ensure all commits are pushed to the fork:
+The branch MUST be pushed to `origin` (the contributor's fork). NEVER push feature branches to `upstream` (`pvcaptest/pvcaptest`).
+
+First, confirm the branch already exists on the fork:
 
 ```bash
-g -C ~/python/pvcaptest_bt- push origin HEAD
+BRANCH=$(git -C "$REPO_ROOT" branch --show-current)
+git -C "$REPO_ROOT" ls-remote --heads origin "$BRANCH"
+```
+
+If the output is empty, the branch does not yet exist on the fork. Push it and set up tracking:
+
+```bash
+git -C "$REPO_ROOT" push -u origin HEAD
+```
+
+If the branch already exists on the fork, push any new commits:
+
+```bash
+git -C "$REPO_ROOT" push origin HEAD
 ```
 
 If the branch was rebased, use:
 
 ```bash
-g -C ~/python/pvcaptest_bt- push origin HEAD --force-with-lease
+git -C "$REPO_ROOT" push origin HEAD --force-with-lease
 ```
+
+After pushing, confirm the branch is present on the fork before continuing.
 
 ---
 
@@ -166,21 +199,27 @@ Skip `--draft` when tests pass and the work is complete.
 
 ## Step 5: Create the PR
 
+Always include `--head FORK_OWNER:BRANCH` to explicitly identify the fork branch as the source. Without this flag the `gh` CLI may interactively push the branch to the upstream repo instead of the fork.
+
 ```bash
+BRANCH=$(git -C "$REPO_ROOT" branch --show-current)
 gh pr create \
   --title "PR_TITLE" \
   --body "PR_BODY" \
   --base master \
+  --head "${FORK_OWNER}:${BRANCH}" \
   --repo pvcaptest/pvcaptest
 ```
 
 For a draft:
 
 ```bash
+BRANCH=$(git -C "$REPO_ROOT" branch --show-current)
 gh pr create \
   --title "PR_TITLE" \
   --body "PR_BODY" \
   --base master \
+  --head "${FORK_OWNER}:${BRANCH}" \
   --repo pvcaptest/pvcaptest \
   --draft
 ```
@@ -208,10 +247,11 @@ gh pr checks --repo pvcaptest/pvcaptest
 | Problem | What to do |
 |---|---|
 | No commits ahead of upstream/master | Ask if the user is on the right branch |
-| Branch not pushed to origin | Run `g -C ~/python/pvcaptest_bt- push -u origin HEAD` |
+| Branch not pushed to fork | Run `git -C "$REPO_ROOT" push -u origin HEAD` |
 | PR already exists | Show it; ask if they want to update or replace |
 | Tests failing | Fix failures before proceeding |
-| Merge conflicts with upstream | Guide through `g rebase upstream/master` |
+| Merge conflicts with upstream | Guide through `git -C "$REPO_ROOT" rebase upstream/master` |
+| Branch accidentally pushed to upstream | Close the PR, delete the upstream branch with `git -C "$REPO_ROOT" push upstream --delete BRANCH_NAME`, push to fork with `git -C "$REPO_ROOT" push -u origin HEAD`, then recreate the PR with the correct `--head` flag |
 
 ---
 
