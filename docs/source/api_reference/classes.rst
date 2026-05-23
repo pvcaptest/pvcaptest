@@ -9,8 +9,8 @@ configuring test parameters, and loading data.
 .. autosummary::
    :toctree: generated/
 
+   CapTest
    capdata.CapData
-   captest.CapTest
    io.DataLoader
    columngroups.ColumnGroups
    prtest.PrResults

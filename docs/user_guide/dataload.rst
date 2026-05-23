@@ -57,6 +57,8 @@ Internally, :py:func:`~captest.io.load_data` uses an instance of the :py:class:`
 
     If it is necessary to modify the :py:attr:`data` DataFrame to add columns or convert units, it best to do that immediately after loading the data. Followed by calling :py:meth:`~captest.capdata.CapData.reset_filters`, which will overwrite the :py:attr:`data_filtered` DataFrame with the modified :py:attr:`data` DataFrame.
 
+.. _col-grouping:
+
 Column grouping
 ---------------
 As mentioned above, much of the functionality of pvcaptest relies on the groupings of the columns of data by measurement type that is stored in :py:attr:`column_groups`, which is an instance of the :py:class:`~captest.columngroups.ColumnGroups` class, but can also be set to a standard python dictionary. :py:attr:`column_groups` maps a label for each group to a list of the column headings that are in each group. 

@@ -18,6 +18,7 @@ import yaml
 from captest import CapTest, captest as ct
 from captest.calcparams import (
     apparent_zenith_pvsyst,
+    cell_temp,
     e_total,
     poa_spec_corrected,
     power_temp_correct,
@@ -29,7 +30,9 @@ from captest.calcparams import (
 # whose required column_groups and site attributes are satisfied by the
 # default fixtures; otherwise add a dedicated fixture and a targeted test.
 _DEFAULT_FIXTURE_PRESETS = [
-    p for p in ct.TEST_SETUPS.keys() if p != "e2848_spec_corrected_poa"
+    p
+    for p in ct.TEST_SETUPS.keys()
+    if p not in {"e2848_spec_corrected_poa", "bifi_power_tc_meas_tbom"}
 ]
 
 
@@ -66,11 +69,24 @@ class TestTestSetupsRegistry:
         assert isinstance(meas_poa, tuple)
         assert meas_poa[0] is e_total
 
-    def test_bifi_power_tc_uses_power_temp_correct(self):
-        entry = ct.TEST_SETUPS["bifi_power_tc"]
+    def test_bifi_power_tc_calc_tbom_uses_power_temp_correct(self):
+        entry = ct.TEST_SETUPS["bifi_power_tc_calc_tbom"]
         meas_power = entry["reg_cols_meas"]["power"]
         assert isinstance(meas_power, tuple)
         assert meas_power[0] is power_temp_correct
+
+    def test_bifi_power_tc_meas_tbom_uses_measured_bom(self):
+        """meas-side BOM temp is a direct column-group ref, not a calc tuple."""
+        entry = ct.TEST_SETUPS["bifi_power_tc_meas_tbom"]
+        meas_power = entry["reg_cols_meas"]["power"]
+        assert isinstance(meas_power, tuple)
+        assert meas_power[0] is power_temp_correct
+        cell_temp_node = meas_power[1]["cell_temp"]
+        assert isinstance(cell_temp_node, tuple)
+        assert cell_temp_node[0] is cell_temp
+        # BOM temperature comes from field measurements (direct column-group ref).
+        bom_spec = cell_temp_node[1]["bom"]
+        assert bom_spec == ("temp_bom", "mean")
 
     def test_e2848_spec_corrected_poa_meas_tree_uses_spectral_factor(self):
         """The meas-side poa tree ends with spectral_factor_firstsolar."""
@@ -848,6 +864,7 @@ class TestSetup:
         resolved = ct_default._resolved_setup
         assert resolved is not None
         assert set(resolved.keys()) == {
+            "description",
             "reg_cols_meas",
             "reg_cols_sim",
             "reg_fml",
@@ -927,7 +944,7 @@ class TestDownstreamPropagation:
         self, meas_cd_default, sim_cd_default
     ):
         capt = CapTest.from_params(
-            test_setup="bifi_power_tc",
+            test_setup="bifi_power_tc_calc_tbom",
             meas=meas_cd_default,
             sim=sim_cd_default,
             bifaciality=0.15,
@@ -948,7 +965,7 @@ class TestDownstreamPropagation:
         self, meas_cd_default, sim_cd_default
     ):
         capt = CapTest.from_params(
-            test_setup="bifi_power_tc",
+            test_setup="bifi_power_tc_calc_tbom",
             meas=meas_cd_default,
             sim=sim_cd_default,
             bifaciality=0.15,
@@ -957,6 +974,23 @@ class TestDownstreamPropagation:
         sim_df = capt.sim.data
         first = sim_df.loc[sim_df["E_Grid"] > 0].iloc[0]
         expected = first["E_Grid"] / (1 + (-0.32 / 100) * (first["TArray"] - 35))
+        assert first["power_temp_correct"] == pytest.approx(expected)
+
+    def test_power_temp_coeff_flows_into_power_temp_correct_meas_tbom(
+        self, meas_cd_bom_temp, sim_cd_default
+    ):
+        """For meas_tbom preset, power_temp_coeff flows through to the sim side."""
+        capt = CapTest.from_params(
+            test_setup="bifi_power_tc_meas_tbom",
+            meas=meas_cd_bom_temp,
+            sim=sim_cd_default,
+            bifaciality=0.15,
+            power_temp_coeff=-0.5,
+            base_temp=25,
+        )
+        sim_df = capt.sim.data
+        first = sim_df.loc[sim_df["E_Grid"] > 0].iloc[0]
+        expected = first["E_Grid"] / (1 + (-0.5 / 100) * (first["TArray"] - 25))
         assert first["power_temp_correct"] == pytest.approx(expected)
 
 
@@ -1100,7 +1134,6 @@ class TestRepCondConvenience:
         preset_rc = ct.TEST_SETUPS["e2848_default"]["rep_conditions"]
         assert received["percent_filter"] == preset_rc["percent_filter"]
         assert received["irr_bal"] == preset_rc["irr_bal"]
-        assert received["front_poa"] == preset_rc["front_poa"]
         assert set(received["func"].keys()) == set(preset_rc["func"].keys())
 
     def test_rep_cond_partial_merge_overrides(self, ct_default):
@@ -1771,4 +1804,25 @@ class TestIntegration:
 
         self._run_canonical_sequence(ct_bifi_power_tc)
         cap_ratio = ct_bifi_power_tc.captest_results(print_res=False)
+        assert 0.8 < cap_ratio < 1.2
+
+    def test_end_to_end_bifi_power_tc_meas_tbom(self, ct_bifi_power_tc_meas_tbom):
+        """bifi_power_tc_meas_tbom preset runs end-to-end.
+
+        Verifies that the ``power_temp_correct`` calculated column was added to
+        both CapData instances during ``setup()`` using the measured BOM
+        temperature on the meas side, and that the scatter layout has two
+        panels. Cap ratio is checked for plausibility.
+        """
+        assert "power_temp_correct" in ct_bifi_power_tc_meas_tbom.meas.data.columns
+        assert "power_temp_correct" in ct_bifi_power_tc_meas_tbom.sim.data.columns
+
+        layout = ct_bifi_power_tc_meas_tbom.scatter_plots()
+        import holoviews as hv
+
+        assert isinstance(layout, hv.Layout)
+        assert len(layout) == 2
+
+        self._run_canonical_sequence(ct_bifi_power_tc_meas_tbom)
+        cap_ratio = ct_bifi_power_tc_meas_tbom.captest_results(print_res=False)
         assert 0.8 < cap_ratio < 1.2
