@@ -2992,7 +2992,7 @@ class CapData(object):
         The calculation is formula-agnostic: the right-hand-side variables of
         ``self.regression_formula`` drive which columns are aggregated.
 
-        The test setups defined in captest.TEST_SETUPS define value for the arguments
+        The test setups defined in captest.TEST_SETUPS define values for the arguments
         of this method. For example, the ``e2848_default`` setup defines reporting
         conditions per ASTM E2939 - the POA irradiance value that exceeds 60 % of the
         filtered irradiance data, the mean ambient temperature, and the mean wind speed.
@@ -3006,7 +3006,7 @@ class CapData(object):
             side of the regression formula. Passed to ``df.agg(...)``. A dict maps rhs
             variable names to aggregation functions (e.g.
             ``{'poa': perc_wrap(60), 't_amb': 'mean'}``).
-        w_vel : numeric or None
+        w_vel : numeric or None, default None
             If not None, overrides the calculated wind speed reporting
             condition with this value.
         irr_bal : bool, default False

@@ -1676,7 +1676,7 @@ class CapTest(param.Parameterized):
         is partial-merged on top: top-level keys replace, the nested ``func``
         dict merges one level deep.
 
-        See ``CapData.rep_cond`` for details on the reporting conditions calculation
+        See :meth:`~captest.capdata.CapData.rep_cond` for details on the reporting conditions calculation
         options.
 
         Parameters

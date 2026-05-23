@@ -6,6 +6,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Added `bifi_power_tc_meas_tbom` preset test setup using field-measured back-of-module temperature.
+- Added a required `description` key to `TEST_SETUPS` registry entries and updated validation.
+- Added a "Predefined Test Setups" section to the API reference and updated user guides for new presets.
+- Added Sphinx documentation stubs for `validate_test_setup`, `resolve_test_setup`, and `perc_wrap`.
+
+### Changed
+- Renamed the `bifi_power_tc` preset test setup to `bifi_power_tc_calc_tbom`.
+- Modified `CapData.rep_cond` parameter order! If you were relying on the ability to pass kwargs as posiitional args
+you will now be passing the WRONG arguments.
+- Updated `CapData.rep_cond` doc string to more clearly describe default calculations defined in `captest.TEST_SETUPS`
+- Removed the redundant `front_poa` parameter from `TEST_SETUPS` presets where `irr_bal` is `False`.
+
 [0.15.1]: https://github.com/pvcaptest/pvcaptest/compare/v0.15.0...v0.15.1
 ## [0.15.1] - 2026-05-12
 ### Fixed

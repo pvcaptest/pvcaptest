@@ -1134,7 +1134,6 @@ class TestRepCondConvenience:
         preset_rc = ct.TEST_SETUPS["e2848_default"]["rep_conditions"]
         assert received["percent_filter"] == preset_rc["percent_filter"]
         assert received["irr_bal"] == preset_rc["irr_bal"]
-        assert received["front_poa"] == preset_rc["front_poa"]
         assert set(received["func"].keys()) == set(preset_rc["func"].keys())
 
     def test_rep_cond_partial_merge_overrides(self, ct_default):
