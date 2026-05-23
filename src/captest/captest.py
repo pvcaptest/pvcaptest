@@ -202,7 +202,6 @@ TEST_SETUPS = {
         "rep_conditions": {
             "irr_bal": False,
             "percent_filter": 20,
-            "front_poa": "poa",
             "func": {
                 "poa": perc_wrap(60),
                 "t_amb": "mean",
@@ -248,7 +247,6 @@ TEST_SETUPS = {
         "rep_conditions": {
             "irr_bal": False,
             "percent_filter": 20,
-            "front_poa": "poa",
             "func": {
                 "poa": perc_wrap(60),
                 "t_amb": "mean",
@@ -297,7 +295,6 @@ TEST_SETUPS = {
         "rep_conditions": {
             "irr_bal": False,
             "percent_filter": 20,
-            "front_poa": "poa",
             "func": {
                 "poa": perc_wrap(60),
                 "rpoa": "mean",
@@ -352,7 +349,6 @@ TEST_SETUPS = {
         "rep_conditions": {
             "irr_bal": False,
             "percent_filter": 20,
-            "front_poa": "poa",
             "func": {
                 "poa": perc_wrap(60),
                 "rpoa": "mean",
@@ -432,7 +428,6 @@ TEST_SETUPS = {
         "rep_conditions": {
             "irr_bal": False,
             "percent_filter": 20,
-            "front_poa": "poa",
             "func": {
                 "poa": perc_wrap(60),
                 "t_amb": "mean",
@@ -1680,6 +1675,9 @@ class CapTest(param.Parameterized):
         overrides from ``setup()``) is used as the default kwargs. ``overrides``
         is partial-merged on top: top-level keys replace, the nested ``func``
         dict merges one level deep.
+
+        See ``CapData.rep_cond`` for details on the reporting conditions calculation
+        options.
 
         Parameters
         ----------
