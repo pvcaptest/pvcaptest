@@ -2979,22 +2979,36 @@ class CapData(object):
     @update_summary
     def rep_cond(
         self,
+        func=None,
+        w_vel=None,
         irr_bal=False,
         percent_filter=20,
         front_poa="poa",
-        w_vel=None,
-        func=None,
         rc_kwargs={},
     ):
         """
         Calculate reporting conditions for the current regression formula.
 
         The calculation is formula-agnostic: the right-hand-side variables of
-        ``self.regression_formula`` drive which columns are aggregated. Always
-        writes the result to ``self.rc``.
+        ``self.regression_formula`` drive which columns are aggregated.
+
+        The test setups defined in captest.TEST_SETUPS define value for the arguments
+        of this method. For example, the ``e2848_default`` setup defines reporting
+        conditions per ASTM E2939 - the POA irradiance value that exceeds 60 % of the
+        filtered irradiance data, the mean ambient temperature, and the mean wind speed.
+
+        Use ``rep_cond_freq`` for seasonal/monthly outputs.
 
         Parameters
         ----------
+        func : dict, str, callable, or None, default None
+            When None, defaults to calculating the mean for each term on right hand
+            side of the regression formula. Passed to ``df.agg(...)``. A dict maps rhs
+            variable names to aggregation functions (e.g.
+            ``{'poa': perc_wrap(60), 't_amb': 'mean'}``).
+        w_vel : numeric or None
+            If not None, overrides the calculated wind speed reporting
+            condition with this value.
         irr_bal : bool, default False
             If True, uses `ReportingIrradiance` to determine the reporting
             irradiance (``front_poa``). When True, the other reporting
@@ -3007,14 +3021,6 @@ class CapData(object):
         front_poa : str, default 'poa'
             Key in ``self.regression_cols`` whose column is used as the
             irradiance driver when ``irr_bal`` is True.
-        w_vel : numeric or None
-            If not None, overrides the calculated wind speed reporting
-            condition with this value.
-        func : dict, str, callable, or None, default None
-            Passed to ``df.agg(...)``. A dict maps rhs variable names to
-            aggregation functions (e.g. ``{'poa': perc_wrap(60), 't_amb':
-            'mean'}``). When None, defaults to ``{var: 'mean' for var in rhs}``
-            where ``rhs`` is derived from ``self.regression_formula``.
         rc_kwargs : dict
             Passed to ``ReportingIrradiance`` when ``irr_bal`` is True.
 
@@ -3022,10 +3028,10 @@ class CapData(object):
         -------
         None
             Reporting conditions are stored on ``self.rc`` as a one-row
-            DataFrame. Use ``rep_cond_freq`` for seasonal/monthly outputs.
+            DataFrame.
         """
         lhs, rhs = util.parse_regression_formula(self.regression_formula)
-        df = self.get_reg_cols(reg_vars=rhs)
+        df = self.get_reg_cols(reg_vars=rhs, filtered_data=True)
 
         if func is None:
             func = {var: "mean" for var in rhs}
