@@ -14,7 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - Renamed the `bifi_power_tc` preset test setup to `bifi_power_tc_calc_tbom`.
-- Modified `CapData.rep_cond` parameter order! If you were relying on the ability to pass kwargs as posiitional args
+- Modified `CapData.rep_cond` parameter order! If you were relying on the ability to pass kwargs as positional args
 you will now be passing the WRONG arguments.
 - Updated `CapData.rep_cond` doc string to more clearly describe default calculations defined in `captest.TEST_SETUPS`
 - Removed the redundant `front_poa` parameter from `TEST_SETUPS` presets where `irr_bal` is `False`.
