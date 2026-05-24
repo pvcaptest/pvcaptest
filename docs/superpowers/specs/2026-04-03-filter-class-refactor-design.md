@@ -1,7 +1,7 @@
 # Filter Class Refactor Design
 
 **Date:** 2026-04-03
-**Status:** Approved for implementation after release of current master and merge of `agg-in-process-reg-cols`
+**Status:** Approved for implementation — prerequisites satisfied as of v0.15.1 (see Implementation Sequencing)
 **Scope:** Filter class architecture, `data_filtered` property, YAML round-trip serialization
 
 ---
@@ -155,7 +155,17 @@ There is no setter. Filter `_execute()` methods return an index; `run()` stores 
 
 ### pandas Copy Semantics
 
-`data.loc[ix, :]` may return a view in some cases. Under pandas Copy-on-Write (default in pandas 3.0, opt-in in 2.0+), mutations to the result are safe — a copy is made on write. For pandas < 3.0 without CoW, the property should return `.copy()` to prevent `SettingWithCopyWarning`:
+`data.loc[ix, :]` may return a view in some cases. Under pandas Copy-on-Write (default in pandas 3.0, opt-in in 2.0+), mutations to the result are safe — a copy is made on write. For pandas < 3.0 without CoW, a downstream consumer that mutates the returned frame (e.g. `rep_cond`/`fit_regression` adding a column) would raise `SettingWithCopyWarning`.
+
+Note that within this architecture the property itself is never written back to: `_execute()` returns an index and column-dropping operations target `self.data` (see Impact on Other Methods). So the `.copy()` is purely defensive against downstream mutation of the returned frame, not a correctness requirement of the filter pipeline.
+
+**Should we require pandas >= 3.0 to drop the `.copy()`?** No — not worth it under the current support matrix:
+
+- `pyproject.toml` currently pins `pandas>=1` and `requires-python = ">=3.10"`.
+- The resolved environment already splits on Python version: the lockfile pulls **pandas 3.0.2 on Python ≥ 3.11** (CoW default, `.copy()` unnecessary) and **pandas 2.3.3 on Python 3.10** (CoW opt-in, `.copy()` needed).
+- **pandas 3.0 requires Python ≥ 3.11.** Requiring `pandas>=3.0` therefore forces dropping Python 3.10 support. Python 3.10 is supported until Oct 2026, so dropping it solely to avoid one defensive `.copy()` is a poor trade.
+
+**Recommendation:** keep the unconditional `.copy()` in the property — it is correct on every supported pandas version and the cost is negligible for the access pattern (filters applied once; `data_filtered` read a handful of times in `rep_cond`/`fit_regression`):
 
 ```python
 @property
@@ -165,7 +175,7 @@ def data_filtered(self):
     return self.data.loc[self.filters[-1].ix_after, :].copy()
 ```
 
-The performance cost of `.copy()` is acceptable given the typical access pattern (apply N filters once, read `data_filtered` a small number of times in `rep_cond` and `fit_regression`). This can be revisited once CoW is the universal default.
+Separately, bumping the misleadingly-loose `pandas>=1` floor to `pandas>=2.0` (the oldest version this code is actually exercised against) is reasonable hygiene but is independent of this refactor. When Python 3.10 is eventually dropped, revisit: require `pandas>=3.0` and remove the `.copy()` to return a CoW view.
 
 ### Impact on Other Methods
 
@@ -214,12 +224,8 @@ Rebuilds the DataFrame by iterating `self.filters`. Enumeration is computed lazi
 def get_summary(self):
     rows = []
     index = []
-    seen = {}
-    for step in self.filters:
-        label = step.custom_name or type(step).__name__
-        n = seen.get(label, 0)
-        seen[label] = n + 1
-        index.append((self.name, label if n == 0 else f'{label}-{n}'))
+    for step, label in zip(self.filters, self._step_labels()):
+        index.append((self.name, label))
         rows.append({
             'function_name': type(step).__name__,
             'pts_after_filter': step.pts_after,
@@ -229,17 +235,69 @@ def get_summary(self):
     return pd.DataFrame(rows, index=pd.MultiIndex.from_tuples(index), columns=columns)
 ```
 
+`_step_labels()` (defined in the Visualization Methods section) is the single source of the enumerated `custom_name`/class-name labels, shared with `scatter_filters()` and `timeseries_filters()`.
+
 `filter_counts` is removed from `CapData.__init__` and `reset_filter()`.
 
 ### Visualization Methods
 
-`scatter_filters()` and `timeseries_filters()` currently read from `self.removed[0]['index']` and iterate `self.kept`. These are updated to read from `self.filters` directly:
+`scatter_filters()` and `timeseries_filters()` currently read from `self.removed[0]['index']` and iterate `self.kept`. Two changes apply:
 
-- `self.removed[0]['index']` → `self.filters[0].ix_before.difference(self.filters[0].ix_after)`
-- `self.kept[i]['name']` → display label from `self.filters[i]` (same enumeration logic as `get_summary()`)
-- `self.removed` and `self.kept` attributes are removed from `CapData.__init__` and `reset_filter()`
+1. **Read from `self.filters` directly.** `self.removed` and `self.kept` are removed from `CapData.__init__` and `reset_filter()`; both methods derive everything from `self.filters`.
+2. **Plot the points *removed by* each filter.** The current methods layer the cumulative *kept* set after each step (each scatter shows the points that survived up to step `i`, labeled with step `i+1`'s name), relying on lower layers showing through to imply what was removed. The new behavior plots, for each step, exactly the rows that step removed:
 
-The "no filtering" initial scatter (currently using a synthetic `removed[0]` baseline) is replaced by using `self.data` for the unfiltered scatter and `self.filters[0].ix_after` for the first filtered step.
+   ```
+   removed_ix(step) = step.ix_before.difference(step.ix_after)
+   ```
+
+   Because filters run sequentially and removed rows never reappear, each step's removed set is disjoint from every other step's. Together with the rows retained after all filters, the steps form a complete partition of the original index:
+
+   ```
+   data.index = retained ⊎ removed(f0) ⊎ removed(f1) ⊎ … ⊎ removed(fN)
+   ```
+
+   This makes each plotted layer directly attributable to a single filter, rather than inferred from overlapping cumulative layers.
+
+**New plotting structure (applies to both methods):**
+
+```python
+def scatter_filters(self):
+    data = self.get_reg_cols(reg_vars=["power", "poa"], filtered_data=False)
+    data["index"] = self.data.index
+
+    scatters = []
+    # baseline: rows retained after all filters (or all rows if no filters)
+    retained_ix = self.filters[-1].ix_after if self.filters else self.data.index
+    scatters.append(
+        hv.Scatter(data.loc[retained_ix, :], "poa", ["power", "index"]).relabel("retained")
+    )
+
+    # one layer per filter: the rows that filter removed
+    for step, label in zip(self.filters, self._step_labels()):
+        removed_ix = step.ix_before.difference(step.ix_after)
+        scatters.append(
+            hv.Scatter(data.loc[removed_ix, :], "poa", ["power", "index"]).relabel(label)
+        )
+
+    return hv.Overlay(scatters).opts(...)
+```
+
+`timeseries_filters()` follows the same structure with `hv.Curve`/`hv.Scatter` on the `Timestamp` axis.
+
+**Shared label enumeration.** Both visualization methods and `get_summary()` need the same per-step display labels (`custom_name` or class name, with `-N` suffix for repeats). This is factored into a `_step_labels()` helper so the enumeration logic lives in one place:
+
+```python
+def _step_labels(self):
+    labels, seen = [], {}
+    for step in self.filters:
+        base = step.custom_name or type(step).__name__
+        n = seen.get(base, 0)
+        seen[base] = n + 1
+        labels.append(base if n == 0 else f"{base}-{n}")
+    return labels
+```
+
+`get_summary()` is updated to consume `_step_labels()` rather than recomputing enumeration inline.
 
 ---
 
@@ -419,12 +477,12 @@ Three filter types accept callables that cannot be directly serialized:
 
 ## Implementation Sequencing
 
-This refactor should be implemented **after** the following prerequisites:
+Both prerequisites for this refactor are now **satisfied** as of the v0.15.0 / v0.15.1 release (2026-05-12). The refactor is clear to begin from the current branch (descended from `v0.15.1`).
 
-1. **Release current master** as a stable version before the refactor begins
-2. **Merge `agg-in-process-reg-cols`** onto master — this branch reworks `agg_sensors` (decomposing it into `agg_group` + `expand_agg_map`) and adds `process_regression_columns`. The refactor changes how `agg_sensors` interacts with `data_filtered`; having the final `agg_sensors` implementation in place before the refactor avoids applying the same change twice.
+1. **Release current master as a stable version** — ✅ Done. `v0.15.0` and `v0.15.1` are tagged and released. The refactor branch starts from released, stable master.
+2. **Merge `agg-in-process-reg-cols` onto master** — ✅ Done. The final `agg_sensors` is in place, decomposed into `agg_group` + `expand_agg_map`, and `process_regression_columns` was added (both shipped in `v0.15.0`). Confirmed at the `v0.15.0` tag: `agg_group`, `expand_agg_map`, `agg_sensors`, and `process_regression_columns` are all present. `agg_sensors` still writes to `data`, `data_filtered`, and `regression_cols` — i.e. the final implementation, so the `data_filtered` interaction only needs reworking once (per the "Impact on Other Methods" table: write to `data` only, then `self.filters = []`).
 
-Note: `agg-in-process-reg-cols` diverged before the uv migration. A clean cherry-pick onto a fresh branch from current master is likely preferable to a true rebase given the depth of divergence and structural build file changes.
+The earlier cherry-pick-vs-rebase concern (`agg-in-process-reg-cols` diverged before the uv migration) is now moot — that work is already on released master.
 
 ---
 
