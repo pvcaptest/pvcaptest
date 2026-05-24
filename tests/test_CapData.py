@@ -1491,6 +1491,16 @@ class Test_csky:
         # assumes typical orientation is used to calculate the poa irradiance
         assert csky_ghi_poa.index.tz == meas.data.index.tz
 
+    def test_csky_invalid_output_raises(self, meas, location_and_system):
+        with pytest.raises(ValueError, match="Unrecognized output"):
+            clearsky.csky(
+                meas.data,
+                loc=location_and_system["location"],
+                sys=location_and_system["system"],
+                concat=False,
+                output="bad",
+            )
+
 
 """
 Change csky to two functions for creating pvlib location and system objects.
