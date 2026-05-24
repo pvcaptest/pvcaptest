@@ -52,12 +52,21 @@ Expected: PASS (2 tests) — pure rename.
 
 - [ ] **Step 3: Write the failing `FilterIrr` tests**
 
-Append to `tests/test_filter_classes.py`:
+First, extend the **existing** top-of-file import (do not add a second import mid-file — `tests/test_filter_classes.py` has no `E402` exemption, so a mid-file import fails `just lint`). Change:
 
 ```python
-from captest.filters import FilterIrr
+from captest.filters import BaseSummaryStep, BaseFilter
+```
 
+to:
 
+```python
+from captest.filters import BaseSummaryStep, BaseFilter, FilterIrr
+```
+
+Then append the `TestFilterIrr` class to `tests/test_filter_classes.py`:
+
+```python
 class TestFilterIrr:
     def _cd(self):
         cd = CapData("irr")
@@ -97,6 +106,16 @@ class TestFilterIrr:
         assert f.ref_val == "rep_irr"
         assert f.ref_val_resolved == 500.0
         assert isinstance(f.ref_val_resolved, float)
+
+    def test_execute_resolves_self_val(self):
+        # 'self_val' is translated to 'rep_irr' and resolved the same way;
+        # the param keeps the original 'self_val' intent.
+        cd = self._cd()
+        cd.rc = pd.DataFrame({"poa": [500.0]})
+        f = FilterIrr(low=0.8, high=1.2, ref_val="self_val")
+        f._execute(cd)
+        assert f.ref_val == "self_val"
+        assert f.ref_val_resolved == 500.0
 
     def test_args_repr_shows_resolved_ref_val_not_sentinel(self):
         cd = self._cd()
@@ -238,7 +257,7 @@ class FilterIrr(BaseFilter):
 - [ ] **Step 7: Run the `FilterIrr` tests**
 
 Run: `uv run pytest tests/test_filter_classes.py::TestFilterIrr -v`
-Expected: PASS (8 tests). Also run the Plan 2 `args_repr` tests to confirm the hook refactor didn't regress them: `uv run pytest tests/test_filter_classes.py -k args_repr -v` → PASS.
+Expected: PASS (9 tests). Also run the Plan 2 `args_repr` tests to confirm the hook refactor didn't regress them: `uv run pytest tests/test_filter_classes.py -k args_repr -v` → PASS.
 
 - [ ] **Step 8: Commit**
 
