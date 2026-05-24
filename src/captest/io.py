@@ -12,7 +12,7 @@ import numpy as np
 import pandas as pd
 
 from captest.capdata import CapData
-from captest.capdata import csky
+from captest.clearsky import csky
 from captest import columngroups as cg
 from captest import util
 

@@ -16,6 +16,7 @@ import panel as pn
 
 from captest import capdata as pvc
 from captest import captest as captest_module
+from captest import clearsky
 from captest import columngroups as cg
 from captest import io
 from captest import (
@@ -1152,7 +1153,7 @@ class Test_pvlib_loc_sys(unittest.TestCase):
             "tz": "America/Chicago",
         }
 
-        loc_obj = pvc.pvlib_location(loc)
+        loc_obj = clearsky.pvlib_location(loc)
 
         self.assertIsInstance(
             loc_obj,
@@ -1175,9 +1176,9 @@ class Test_pvlib_loc_sys(unittest.TestCase):
 
         tracker_sys2 = {"max_angle": 52, "gcr": 0.3}
 
-        fx_sys = pvc.pvlib_system(fixed_sys)
-        trck_sys1 = pvc.pvlib_system(tracker_sys1)
-        trck_sys2 = pvc.pvlib_system(tracker_sys2)
+        fx_sys = clearsky.pvlib_system(fixed_sys)
+        trck_sys1 = clearsky.pvlib_system(tracker_sys1)
+        trck_sys2 = clearsky.pvlib_system(tracker_sys2)
 
         self.assertIsInstance(
             fx_sys,
@@ -1253,7 +1254,7 @@ class TestGetTimezoneIndex:
 
         df = pd.DataFrame(index=ix_dst)
         print(df.loc["11/4/18 01:00"].index)
-        tz_ix = pvc.get_tz_index(df, location_and_system["location"])
+        tz_ix = clearsky.get_tz_index(df, location_and_system["location"])
         assert isinstance(tz_ix, pd.core.indexes.datetimes.DatetimeIndex)
         assert str(tz_ix.tz) == location_and_system["location"]["tz"]
 
@@ -1269,7 +1270,7 @@ class TestGetTimezoneIndex:
         )
         ix_dst = ix_3days.append(ix_2days)
         df = pd.DataFrame(index=ix_dst)
-        tz_ix = pvc.get_tz_index(df, location_and_system["location"])
+        tz_ix = clearsky.get_tz_index(df, location_and_system["location"])
         assert isinstance(tz_ix, pd.core.indexes.datetimes.DatetimeIndex)
         assert str(tz_ix.tz) == location_and_system["location"]["tz"]
 
@@ -1289,7 +1290,7 @@ class TestGetTimezoneIndex:
                 "Using the timezone of the time_source DatetimeIndex."
             ),
         ):
-            pvc.get_tz_index(df, location_and_system["location"])  # tz is Chicago
+            clearsky.get_tz_index(df, location_and_system["location"])  # tz is Chicago
 
     def test_get_tz_index_ix_tz(self, location_and_system):
         """Test that get_tz_index function returns a datetime index
@@ -1297,7 +1298,9 @@ class TestGetTimezoneIndex:
         ix = pd.date_range(
             start="1/1/2019", periods=8760, freq="h", tz="America/Chicago"
         )
-        tz_ix = pvc.get_tz_index(ix, location_and_system["location"])  # tz is Chicago
+        tz_ix = clearsky.get_tz_index(
+            ix, location_and_system["location"]
+        )  # tz is Chicago
         assert isinstance(tz_ix, pd.core.indexes.datetimes.DatetimeIndex)
         # If passing an index with a timezone use that timezone rather than
         # the timezone in the location dictionary if there is one.
@@ -1319,7 +1322,7 @@ class TestGetTimezoneIndex:
                 "Using the timezone of the time_source DatetimeIndex."
             ),
         ):
-            pvc.get_tz_index(ix, location_and_system["location"])
+            clearsky.get_tz_index(ix, location_and_system["location"])
 
     def test_get_tz_index_ix(self, location_and_system):
         """Test that get_tz_index function returns a datetime index\
@@ -1329,7 +1332,9 @@ class TestGetTimezoneIndex:
         )
         # remove timezone info but keep missing  hour and extra hour due to DST
         ix = ix.tz_localize(None)
-        tz_ix = pvc.get_tz_index(ix, location_and_system["location"])  # tz is Chicago
+        tz_ix = clearsky.get_tz_index(
+            ix, location_and_system["location"]
+        )  # tz is Chicago
         assert isinstance(tz_ix, pd.core.indexes.datetimes.DatetimeIndex)
         # If passing an index without a timezone use returned index should have
         # the timezone of the passed location dictionary.
@@ -1341,7 +1346,7 @@ class Test_csky:
 
     def test_csky_concat(self, meas, location_and_system):
         # concat=True by default
-        csky_ghi_poa = pvc.csky(
+        csky_ghi_poa = clearsky.csky(
             meas.data,
             loc=location_and_system["location"],
             sys=location_and_system["system"],
@@ -1364,7 +1369,7 @@ class Test_csky:
         # concat=True by default
         data = meas.data.loc["10/9/1990"]
         data.index = pd.date_range("3/12/23", periods=int((60 / 5) * 24), freq="5min")
-        csky_ghi_poa = pvc.csky(
+        csky_ghi_poa = clearsky.csky(
             data, loc=location_and_system["location"], sys=location_and_system["system"]
         )
         assert isinstance(csky_ghi_poa, pd.core.frame.DataFrame)
@@ -1388,7 +1393,7 @@ class Test_csky:
         # data = meas.data.loc['10/9/1990']
         # data.index = pd.date_range('11/5/23', periods=(60 / 5) * 24, freq='5min')
         # fails because tz_localize  in get_tz_index expects two 1AM hours in the index
-        # csky_ghi_poa = pvc.csky(
+        # csky_ghi_poa = clearsky.csky(
         #     data,
         #     loc=location_and_system['location'],
         #     sys=location_and_system['system']
@@ -1406,7 +1411,7 @@ class Test_csky:
         # assert csky_ghi_poa.index.tz == df.index.tz
 
     def test_csky_not_concat(self, meas, location_and_system):
-        csky_ghi_poa = pvc.csky(
+        csky_ghi_poa = clearsky.csky(
             meas.data,
             loc=location_and_system["location"],
             sys=location_and_system["system"],
@@ -1424,7 +1429,7 @@ class Test_csky:
         assert csky_ghi_poa.index.tz == meas.data.index.tz
 
     def test_csky_not_concat_poa_all(self, meas, location_and_system):
-        csky_ghi_poa = pvc.csky(
+        csky_ghi_poa = clearsky.csky(
             meas.data,
             loc=location_and_system["location"],
             sys=location_and_system["system"],
@@ -1446,7 +1451,7 @@ class Test_csky:
         assert csky_ghi_poa.index.tz == meas.data.index.tz
 
     def test_csky_not_concat_ghi_all(self, meas, location_and_system):
-        csky_ghi_poa = pvc.csky(
+        csky_ghi_poa = clearsky.csky(
             meas.data,
             loc=location_and_system["location"],
             sys=location_and_system["system"],
@@ -1462,7 +1467,7 @@ class Test_csky:
         assert csky_ghi_poa.index.tz == meas.data.index.tz
 
     def test_csky_not_concat_all(self, meas, location_and_system):
-        csky_ghi_poa = pvc.csky(
+        csky_ghi_poa = clearsky.csky(
             meas.data,
             loc=location_and_system["location"],
             sys=location_and_system["system"],
