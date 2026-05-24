@@ -28,7 +28,7 @@
 
 **Files:**
 - Create: `src/captest/filters.py`
-- Modify: `src/captest/capdata.py` (remove lines 403-549; add import of moved helpers)
+- Modify: `src/captest/capdata.py` (remove lines 399-544; add import of moved helpers)
 - Test: `tests/test_filter_helpers_move.py` (create — guards the move)
 
 - [ ] **Step 1: Write a failing test that the helpers live in `filters.py`**
@@ -80,7 +80,7 @@ Expected: FAIL — `ModuleNotFoundError: No module named 'captest.filters'`
 
 - [ ] **Step 3: Create `filters.py` and move the helper cluster**
 
-Create `src/captest/filters.py` with this header, then move the six functions verbatim from `capdata.py:403-549` (`perc_difference`, `check_all_perc_diff_comb`, `abs_diff_from_average`, `sensor_filter`, `filter_irr`, `filter_grps`):
+Create `src/captest/filters.py` with this header, then move the six functions verbatim from `capdata.py:399-544` (`perc_difference`, `check_all_perc_diff_comb`, `abs_diff_from_average`, `sensor_filter`, `filter_irr`, `filter_grps`):
 
 ```python
 """Filter step classes and row-filter helper functions.
@@ -100,7 +100,7 @@ import pandas as pd
 
 - [ ] **Step 4: Remove the moved code from `capdata.py` and import the helpers back**
 
-Delete lines 403-549 from `src/captest/capdata.py`.
+Delete lines 399-544 (the six helper functions — stop before `ReportingIrradiance` at line 547) from `src/captest/capdata.py`.
 
 Add to the local-import area near the top of `capdata.py` (after `from captest import util`, line 40):
 
@@ -310,7 +310,7 @@ This is the GUI-groundwork task: a typed, watchable `filters` parameter on a `Pa
 - Modify: `src/captest/capdata.py` — class declaration (`class CapData(object):`), the `from captest.filters import (...)` block (add `BaseSummaryStep`), `__init__`, `copy()`, `reset_filter()`
 - Test: `tests/test_filter_classes.py`
 
-> Line numbers shifted after Task 1 deleted lines 403-549 (~147 lines) and added a 6-line import. **Locate by anchor string, not absolute line number.**
+> Line numbers shifted after Task 1 deleted lines 399-544 (~146 lines) and added a 6-line import. **Locate by anchor string, not absolute line number.**
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -441,6 +441,8 @@ Then, after the line `cd_c.summary = copy.copy(self.summary)`, add:
 ```
 
 > `deepcopy` is a deliberate stop-gap so copied steps are independent. Full copy semantics (and the `__copy__` simplification in the spec) are revisited in plan 4 when `data_filtered` becomes a property.
+>
+> **Known inconsistency (deferred, not fixed here):** `copy()` already does not copy the legacy `removed`/`kept`/`filter_counts` lists (a pre-existing gap). Adding the `filters` copy makes the asymmetry more visible — on a copy, `filters` is mirrored but `removed`/`kept` are empty. We intentionally do **not** patch `copy()` to mirror the legacy lists, because those lists are removed entirely in the summary-rebuild plan (plan 6); mirroring them now would be throwaway code. After plan 6, `filters` is the single source of truth and the inconsistency disappears. Do not rely on `removed`/`kept` being populated on a copied CapData in the interim.
 
 - [ ] **Step 6: Clear `filters` in `reset_filter()`**
 
