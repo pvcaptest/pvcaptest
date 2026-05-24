@@ -15,7 +15,7 @@
 ## Key design decisions (flag if you disagree before implementing)
 
 1. **`__get_poa_col` → `_get_poa_col` rename.** `FilterIrr._execute` lives in `filters.py` and must call the POA-column resolver on the `capdata` instance. Name-mangled `__get_poa_col` is awkward cross-module, so rename to a single-underscore internal method. Updates its one internal caller and two test references (`nrel._CapData__get_poa_col()` → `nrel._get_poa_col()`).
-2. **`ref_val` resolution mutates the stored param.** `_execute` resolves `'rep_irr'`/`'self_val'` to the numeric `capdata.rc["poa"]` value and stores `float(ref_val)` back onto `self.ref_val`. This makes `args_repr` (and therefore the summary) show the resolved number — satisfying `test_refval_rep_irr_shows_in_summary` — and keeps re-runs reproducible. Trade-off: a YAML round-trip after a run serializes the resolved number, not the `'rep_irr'` sentinel. Acceptable (more reproducible); revisit if the GUI needs to preserve the sentinel.
+2. **`ref_val` keeps the user's intent; the resolved value lives in a runtime attribute (Option B).** `_execute` resolves `'rep_irr'`/`'self_val'` to the numeric `capdata.rc["poa"]` value and stores it on the plain runtime attribute `self.ref_val_resolved` (never serialized, like `pts_after`/`ix_after`). The `ref_val` **param is left untouched**, so YAML round-trips the original intent (`'rep_irr'` or a number) and every `run()` re-resolves against the current `rc` (good for the reactive GUI). The summary shows the resolved number via a small `_args_for_repr()` hook on `BaseSummaryStep` that `FilterIrr` overrides to substitute `ref_val_resolved` for `ref_val` — satisfying `test_refval_rep_irr_shows_in_summary` without serializing the resolved value. (A `param` would be serialized, defeating the goal — hence a plain attribute.)
 3. **`inplace` is kept for now (deferral of the spec's removal).** The spec removes `inplace` entirely, but doing so here would touch every `filter_irr(..., inplace=...)` test call. To keep the suite green with minimal churn, the thin wrapper keeps `inplace`: `inplace=True` (default) runs the step and records it; `inplace=False` returns the filtered DataFrame **without** recording a step. Full `inplace` removal is deferred to a later cleanup plan.
 4. **Legacy label via `_legacy_name`.** `BaseSummaryStep` gets a class attribute `_legacy_name = None`; `run()`'s mirroring uses `self._legacy_name or type(self).__name__`. `FilterIrr._legacy_name = "filter_irr"` so the summary label stays `filter_irr` during the transition. Removed in plan 6 when the summary switches to class names.
 
@@ -24,7 +24,7 @@
 ### Task 1: Add `FilterIrr` and rename `_get_poa_col`
 
 **Files:**
-- Modify: `src/captest/filters.py` (add `FilterIrr`)
+- Modify: `src/captest/filters.py` (add the `_args_for_repr` hook to `BaseSummaryStep`; add `FilterIrr`)
 - Modify: `src/captest/capdata.py` (rename `__get_poa_col` → `_get_poa_col` at def ~1541 and caller ~1900)
 - Modify: `tests/test_CapData.py` (update `_CapData__get_poa_col` refs at lines 2203, 2215)
 - Test: `tests/test_filter_classes.py`
@@ -88,13 +88,30 @@ class TestFilterIrr:
         f = FilterIrr(low=0.8, high=1.2, ref_val=500)
         assert list(f._execute(cd)) == [2]
 
-    def test_execute_resolves_rep_irr_and_stores_float(self):
+    def test_execute_resolves_rep_irr_into_runtime_attr(self):
         cd = self._cd()
         cd.rc = pd.DataFrame({"poa": [500.0]})
         f = FilterIrr(low=0.8, high=1.2, ref_val="rep_irr")
         f._execute(cd)
-        assert f.ref_val == 500.0
-        assert isinstance(f.ref_val, float)
+        # intent preserved on the param; resolved value on the runtime attr
+        assert f.ref_val == "rep_irr"
+        assert f.ref_val_resolved == 500.0
+        assert isinstance(f.ref_val_resolved, float)
+
+    def test_args_repr_shows_resolved_ref_val_not_sentinel(self):
+        cd = self._cd()
+        cd.rc = pd.DataFrame({"poa": [500.0]})
+        f = FilterIrr(low=0.8, high=1.2, ref_val="rep_irr")
+        f._execute(cd)
+        args = f.args_repr
+        assert "rep_irr" not in args
+        assert "np." not in args
+        assert "ref_val=500.0" in args
+
+    def test_args_repr_numeric_ref_val_unchanged(self):
+        f = FilterIrr(low=0.8, high=1.2, ref_val=500)
+        # no resolution happened; ref_val_resolved is unset, param value shown
+        assert "ref_val=500" in f.args_repr
 
     def test_execute_rep_irr_without_rc_raises(self):
         cd = self._cd()
@@ -114,7 +131,39 @@ class TestFilterIrr:
 Run: `uv run pytest tests/test_filter_classes.py::TestFilterIrr -v`
 Expected: FAIL — `ImportError: cannot import name 'FilterIrr'`.
 
-- [ ] **Step 5: Implement `FilterIrr` in `filters.py`**
+- [ ] **Step 5: Add the `_args_for_repr` hook to `BaseSummaryStep`**
+
+In `src/captest/filters.py`, change `BaseSummaryStep.args_repr` to read from a `_args_for_repr()` hook (so subclasses can substitute runtime-resolved display values without touching the serialized params). Replace the existing `args_repr` property with:
+
+```python
+    @property
+    def args_repr(self):
+        """Render the step's params for the summary.
+
+        Includes every non-None value (defaults included, for full
+        transparency); only ``None`` values and the internal
+        ``custom_name``/``name`` keys are skipped. Subclasses override
+        ``_args_for_repr`` to substitute runtime-resolved display values
+        (e.g. a resolved ``ref_val``) without mutating the serialized params.
+        """
+        skip = {"custom_name", "name"}
+        items = [
+            f"{k}={v}"
+            for k, v in self._args_for_repr().items()
+            if k not in skip and v is not None
+        ]
+        return ", ".join(items) if items else "Default arguments"
+
+    def _args_for_repr(self):
+        """Mapping of param name -> display value for ``args_repr``.
+
+        Defaults to the serialized param values; subclasses may override to
+        swap in runtime-resolved values.
+        """
+        return dict(self.param.values())
+```
+
+- [ ] **Step 6: Implement `FilterIrr` in `filters.py`**
 
 Append to `src/captest/filters.py`:
 
@@ -164,21 +213,34 @@ class FilterIrr(BaseFilter):
                     "The reporting conditions DataFrame does not have a 'poa' column."
                 )
             ref_val = float(capdata.rc["poa"].iloc[0])
-            self.ref_val = ref_val  # store resolved value for summary + reproducibility
+
+        # Store the effective ref_val as runtime state (NOT a param, so it is
+        # never serialized). The ref_val param keeps the user's intent
+        # ('rep_irr'/'self_val'/number) for YAML round-trip and re-resolution.
+        self.ref_val_resolved = ref_val
 
         return filter_irr(
             capdata.data_filtered, irr_col, self.low, self.high, ref_val=ref_val
         ).index
+
+    def _args_for_repr(self):
+        vals = dict(self.param.values())
+        resolved = getattr(self, "ref_val_resolved", None)
+        if resolved is not None:
+            vals["ref_val"] = resolved
+        return vals
 ```
 
-> Note: `param.Parameter` (not `param.Number`) is used for `ref_val` because it accepts both numbers and the `'rep_irr'`/`'self_val'` sentinel strings.
+> Notes:
+> - `param.Parameter` (not `param.Number`) is used for `ref_val` because it accepts both numbers and the `'rep_irr'`/`'self_val'` sentinel strings.
+> - `ref_val_resolved` is a plain runtime attribute (set in `_execute`, like `pts_after`/`ix_after`) — deliberately **not** a `param`, so YAML serialization (a later plan) never persists the resolved number. When no resolution happened (numeric `ref_val`), `ref_val_resolved` stays unset and `_args_for_repr` falls back to the param value.
 
-- [ ] **Step 6: Run the `FilterIrr` tests**
+- [ ] **Step 7: Run the `FilterIrr` tests**
 
 Run: `uv run pytest tests/test_filter_classes.py::TestFilterIrr -v`
-Expected: PASS (6 tests).
+Expected: PASS (8 tests). Also run the Plan 2 `args_repr` tests to confirm the hook refactor didn't regress them: `uv run pytest tests/test_filter_classes.py -k args_repr -v` → PASS.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
 git add src/captest/filters.py src/captest/capdata.py tests/test_CapData.py tests/test_filter_classes.py
@@ -454,6 +516,6 @@ git commit -m "refactor: make CapData.filter_irr a thin wrapper over FilterIrr"
 
 **2. Placeholder scan:** No TBDs. Every code step shows complete code; every run step has a command + expected result. The two ValueError messages match the originals so `test_refval_rep_irr_rc_none_raises` / `test_refval_rep_irr_no_poa_col_raises` (which match `"Call rep_cond"` and `"does not have a 'poa' column"`) still pass.
 
-**3. Type/name consistency:** `FilterIrr` params (`low`, `high`, `ref_val`, `col_name`), `_legacy_name`, `_record_legacy_summary`, `_get_poa_col`, and the summary keys (`pts_after_filter`, `pts_removed`, `filter_arguments`) match between `filters.py`, `capdata.py`, and the tests. `ref_val` is `param.Parameter` (accepts numbers and the sentinel strings); resolution stores a plain `float`.
+**3. Type/name consistency:** `FilterIrr` params (`low`, `high`, `ref_val`, `col_name`), the runtime attr `ref_val_resolved`, `_args_for_repr`, `_legacy_name`, `_record_legacy_summary`, `_get_poa_col`, and the summary keys (`pts_after_filter`, `pts_removed`, `filter_arguments`) match between `filters.py`, `capdata.py`, and the tests. `ref_val` is `param.Parameter` (accepts numbers and the sentinel strings) and is left intact; the resolved `float` lives only on the runtime attr `ref_val_resolved`, surfaced in the summary via the `_args_for_repr` override (Option B). `test_run_summary_shows_resolved_ref_val` (Task 2) relies on this hook flowing through `args_repr` into `_record_legacy_summary`.
 
 **Risk note:** the same class of gap hit in plans 1-2 (source-caller analysis missing `pvc.`-style test references) is pre-checked here: the only external references to the renamed `_get_poa_col` are the two test lines (2203, 2215), updated in Task 1. After implementing, grep `_CapData__get_poa_col` to confirm none remain.
