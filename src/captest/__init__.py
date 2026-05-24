@@ -7,6 +7,7 @@ from captest import (
     plotting as plotting,
     calcparams as calcparams,
     captest as captest,
+    clearsky as clearsky,
 )
 
 from captest.io import (
