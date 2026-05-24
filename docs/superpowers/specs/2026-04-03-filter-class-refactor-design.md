@@ -23,6 +23,34 @@ The class-based architecture resolves all of these by making each filter a first
 
 ---
 
+## Module Organization
+
+The refactor introduces a dedicated `src/captest/filters.py` module rather than growing `capdata.py` (already ~3,600 lines). This matches the codebase's existing modular split (`io.py`, `columngroups.py`, `plotting.py`, `prtest.py`).
+
+### `src/captest/filters.py` (new)
+
+Holds the entire filter-step surface:
+
+- `BaseSummaryStep`, `BaseFilter` base classes
+- All concrete filter classes (`FilterIrr` … `FilterMissing`), plus `RepCond` and `FitRegression`
+- `FILTER_REGISTRY` and the YAML serialization/deserialization helpers
+- The **row-filter helper functions** moved out of `capdata.py`: `filter_irr`, `filter_grps`, `sensor_filter`, `check_all_perc_diff_comb`
+
+**Import direction is one-way: `capdata.py` imports from `filters.py`, never the reverse.** This is possible because filter steps only touch a `CapData` instance through the runtime `capdata` argument passed to `run()`/`_execute()` — there is no module-load-time dependency on the `CapData` class. `filters.py` imports only `param`, `pandas`, `numpy`, `sklearn` (for outliers), `captest.util`, and `pvlib.clearsky.detect_clearsky` (for `FilterClearsky`, which uses pvlib directly, not the clearsky-modeling functions below).
+
+`capdata.py` imports the moved helpers back where its own non-filter methods still need them — `filter_grps` (in `predict_capacities`), `filter_irr` (in `ReportingIrradiance`). `ReportingIrradiance` stays in `capdata.py` (it is reporting-conditions tooling, not a row filter) and imports `filter_irr` from `filters.py`.
+
+### `src/captest/clearsky.py` (new)
+
+Clear-sky **modeling** (distinct from clear-sky *filtering*) is extracted from `capdata.py` into its own module:
+
+- `pvlib_location`, `pvlib_system`, `get_tz_index`, `csky`
+- The pvlib import guard for `Location`, `PVSystem`, `Array`, `FixedMount`, `SingleAxisTrackerMount`, `retrieve_sam`, `ModelChain`
+
+Consumers are updated: `io.py` imports `csky` from `captest.clearsky`; `captest/__init__.py` re-exports `clearsky` as a submodule; test references `pvc.csky` become `clearsky.csky`. No backward-compat shim is left in `capdata.py` (pre-1.0 package; internal references are updated in the same change). Note `FilterClearsky` does **not** depend on this module — it imports `detect_clearsky` straight from pvlib.
+
+---
+
 ## Architecture Overview
 
 ### Class Hierarchy
@@ -314,7 +342,7 @@ def _step_labels(self):
 | `filter_counts` (dict) | computed lazily in `get_summary()` |
 
 Added:
-- `filters = param.List(default=[], item_type=BaseSummaryStep)` — the single source of truth for the filter pipeline
+- `filters = param.List(default=[], item_type=BaseSummaryStep)` — the single source of truth for the filter pipeline. This requires `CapData` to inherit `param.Parameterized` (so the list is watchable for the GUI). Consequence: `param` reserves a **constant** `name` parameter, so `name` is passed via `super().__init__(name=name)` and cannot be reassigned afterward — `copy()` constructs the copy with the name directly rather than assigning `cd_c.name`.
 
 ### Thin Wrapper Methods
 
