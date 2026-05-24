@@ -39,6 +39,7 @@ import param
 from captest import util
 from captest import plotting
 from captest.filters import (
+    BaseSummaryStep,
     check_all_perc_diff_comb,
     filter_grps,
     filter_irr,
@@ -941,7 +942,7 @@ class FilteredLocIndexer(object):
         return index_capdata(self._capdata, label, filtered=True)
 
 
-class CapData(object):
+class CapData(param.Parameterized):
     """
     Class to store capacity test data and column grouping.
 
@@ -992,9 +993,14 @@ class CapData(object):
         interpreted as a percent.  For example, 5 percent is 5 not 0.05.
     """
 
+    filters = param.List(
+        default=[],
+        item_type=BaseSummaryStep,
+        doc="Ordered pipeline of filter/summary steps applied to the data.",
+    )
+
     def __init__(self, name):  # noqa: D107
-        super(CapData, self).__init__()
-        self.name = name
+        super().__init__(name=name)
         self.data = pd.DataFrame()
         self.data_filtered = None
         self.column_groups = {}
@@ -1087,14 +1093,14 @@ class CapData(object):
 
     def copy(self):
         """Create and returns a copy of self."""
-        cd_c = CapData("")
-        cd_c.name = copy.copy(self.name)
+        cd_c = CapData(self.name)
         cd_c.data = self.data.copy()
         cd_c.data_filtered = self.data_filtered.copy()
         cd_c.column_groups = copy.deepcopy(self.column_groups)
         cd_c.regression_cols = copy.copy(self.regression_cols)
         cd_c.summary_ix = copy.copy(self.summary_ix)
         cd_c.summary = copy.copy(self.summary)
+        cd_c.filters = copy.deepcopy(self.filters)
         cd_c.rc = copy.copy(self.rc)
         cd_c.regression_results = copy.deepcopy(self.regression_results)
         cd_c.regression_formula = copy.copy(self.regression_formula)
@@ -1515,6 +1521,7 @@ class CapData(object):
         self.filter_counts = {}
         self.removed = []
         self.kept = []
+        self.filters = []
 
     def reset_agg(self):
         """

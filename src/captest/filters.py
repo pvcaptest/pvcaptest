@@ -6,8 +6,10 @@ runtime ``capdata`` argument to ``run``/``_execute``.
 """
 
 from itertools import combinations
+import warnings
 
 import pandas as pd
+import param
 
 
 def perc_difference(x, y):
@@ -156,3 +158,62 @@ def filter_grps(grps, rcs, irr_col, low, high, freq, **kwargs):
     df_flt = pd.concat(flt_dfs)
     df_flt_grpby = df_flt.groupby(pd.Grouper(freq=freq, **kwargs))
     return df_flt_grpby
+
+
+class BaseSummaryStep(param.Parameterized):
+    """Common ancestor for steps that appear in the filtering summary.
+
+    Holds the shared lifecycle (`run`), the optional `custom_name` display
+    parameter, and the `args_repr` rendering used by the summary table.
+    Subclasses implement `_execute`, returning the pandas ``Index`` of rows
+    to keep after the step.
+
+    Runtime state (`pts_before`, `pts_after`, `pts_removed`, `ix_before`,
+    `ix_after`) is set by `run` as plain attributes and is never serialized.
+    """
+
+    custom_name = param.String(
+        default=None,
+        allow_None=True,
+        doc="Optional display name in the summary table.",
+    )
+
+    def run(self, capdata):
+        """Execute the step, record runtime state, and append self to filters."""
+        self.pts_before = capdata.data_filtered.shape[0]
+        self.ix_before = capdata.data_filtered.index
+        self.ix_after = self._execute(capdata)
+        self.pts_after = len(self.ix_after)
+        self.pts_removed = self.pts_before - self.pts_after
+        capdata.filters = capdata.filters + [self]
+        # Transitional: keep the legacy data_filtered attribute consistent
+        # until data_filtered becomes a derived property (plan 4).
+        capdata.data_filtered = capdata.data.loc[self.ix_after, :]
+        if self.pts_after == 0:
+            warnings.warn("The last filter removed all data!")
+
+    def _execute(self, capdata):
+        """Return a pandas Index of rows to keep. Implemented by subclasses."""
+        raise NotImplementedError
+
+    @property
+    def args_repr(self):
+        """Render configured (non-default, non-None) params for the summary."""
+        skip = {"custom_name", "name"}
+        items = [
+            f"{k}={v}"
+            for k, v in self.param.values().items()
+            if k not in skip and v is not None
+        ]
+        return ", ".join(items) if items else "Default arguments"
+
+
+class BaseFilter(BaseSummaryStep):
+    """A pure row-filtering step.
+
+    Adds no interface beyond `BaseSummaryStep`; exists to distinguish row
+    filters from non-filter summary steps (e.g. RepCond, FitRegression) for
+    GUI styling and type checks.
+    """
+
+    pass
