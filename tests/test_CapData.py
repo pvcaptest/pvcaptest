@@ -18,6 +18,7 @@ from captest import capdata as pvc
 from captest import captest as captest_module
 from captest import clearsky
 from captest import columngroups as cg
+from captest import filters
 from captest import io
 from captest import (
     CapTest,
@@ -296,16 +297,16 @@ class TestTopLevelFuncs(unittest.TestCase):
         self.assertTrue(less_than, "Points were not removed for each group.")
 
     def test_perc_difference(self):
-        result = pvc.perc_difference(9, 10)
+        result = filters.perc_difference(9, 10)
         self.assertAlmostEqual(result, 0.105263158)
 
-        result = pvc.perc_difference(10, 9)
+        result = filters.perc_difference(10, 9)
         self.assertAlmostEqual(result, 0.105263158)
 
-        result = pvc.perc_difference(10, 10)
+        result = filters.perc_difference(10, 10)
         self.assertAlmostEqual(result, 0)
 
-        result = pvc.perc_difference(0, 0)
+        result = filters.perc_difference(0, 0)
         self.assertAlmostEqual(result, 0)
 
     def test_check_all_perc_diff_comb(self):
@@ -2028,7 +2029,7 @@ class TestAbsDiffFromAverage:
         is greater than the threshold.
         """
         s = pd.Series([800, 805, 806, 840], index=["poa1", "poa2", "poa3", "poa4"])
-        meets_threshold = pvc.abs_diff_from_average(s, 25)
+        meets_threshold = filters.abs_diff_from_average(s, 25)
         assert meets_threshold is False
 
     def test_meets_theshold(self):
@@ -2037,7 +2038,7 @@ class TestAbsDiffFromAverage:
         is less than the threshold.
         """
         s = pd.Series([800, 805, 806, 801], index=["poa1", "poa2", "poa3", "poa4"])
-        meets_threshold = pvc.abs_diff_from_average(s, 25)
+        meets_threshold = filters.abs_diff_from_average(s, 25)
         assert meets_threshold is True
 
     def test_meets_theshold_with_nan(self):
@@ -2046,7 +2047,7 @@ class TestAbsDiffFromAverage:
         is less than the threshold.
         """
         s = pd.Series([800, 805, 806, np.nan], index=["poa1", "poa2", "poa3", "poa4"])
-        meets_threshold = pvc.abs_diff_from_average(s, 25)
+        meets_threshold = filters.abs_diff_from_average(s, 25)
         assert meets_threshold is True
 
     def test_equals_threshold(self):
@@ -2055,7 +2056,7 @@ class TestAbsDiffFromAverage:
         equals the threshold.
         """
         s = pd.Series([800, 800, 800, 825], index=["poa1", "poa2", "poa3", "poa4"])
-        meets_threshold = pvc.abs_diff_from_average(s, 25)
+        meets_threshold = filters.abs_diff_from_average(s, 25)
         assert meets_threshold is True
 
     def test_only_1_value(self):
@@ -2063,7 +2064,7 @@ class TestAbsDiffFromAverage:
         Series. Check that method warns that there is only one value in the Series.
         """
         s = pd.Series([800], index=["poa1"])
-        meets_threshold = pvc.abs_diff_from_average(s, 25)
+        meets_threshold = filters.abs_diff_from_average(s, 25)
         assert meets_threshold is True
 
 
@@ -2072,7 +2073,7 @@ class TestFilterSensorsWithAbsDiffFromAverage:
 
     def test_does_not_drop_rows_when_no_outliers(self, capdata_irr):
         capdata_irr.filter_sensors(
-            perc_diff={"poa": 25}, row_filter=pvc.abs_diff_from_average
+            perc_diff={"poa": 25}, row_filter=filters.abs_diff_from_average
         )
         assert (capdata_irr.data.max(axis=1) - capdata_irr.data.min(axis=1) < 25).all()
         assert capdata_irr.data_filtered.shape[0] == capdata_irr.data.shape[0]
@@ -2082,7 +2083,7 @@ class TestFilterSensorsWithAbsDiffFromAverage:
         capdata_irr.data.iloc[3, 0] = 850
         capdata_irr.data_filtered = capdata_irr.data.copy()
         capdata_irr.filter_sensors(
-            perc_diff={"poa": 25}, row_filter=pvc.abs_diff_from_average
+            perc_diff={"poa": 25}, row_filter=filters.abs_diff_from_average
         )
         assert (capdata_irr.data.max(axis=1) - capdata_irr.data.min(axis=1) >= 25).any()
         assert capdata_irr.data_filtered.shape[0] == capdata_irr.data.shape[0] - 2
