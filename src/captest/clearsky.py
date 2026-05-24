@@ -211,13 +211,18 @@ def csky(time_source, loc=None, sys=None, concat=True, output="both"):
                 "ghi_mod_csky": ghi["ghi"],
             }
         )
-    if output == "poa_all":
+    elif output == "poa_all":
         csky_df = mc.results.total_irrad[cols]
-    if output == "ghi_all":
+    elif output == "ghi_all":
         csky_df = ghi[["ghi", "dni", "dhi"]]
-    if output == "all":
+    elif output == "all":
         csky_df = pd.concat(
             [mc.results.total_irrad[cols], ghi[["ghi", "dni", "dhi"]]], axis=1
+        )
+    else:
+        raise ValueError(
+            f"Unrecognized output {output!r}; expected one of "
+            "'both', 'poa_all', 'ghi_all', 'all'."
         )
 
     ix_no_tz = csky_df.index.tz_localize(None, ambiguous="infer", nonexistent="NaT")
