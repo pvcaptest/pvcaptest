@@ -4,6 +4,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
+import param
+
 from captest.capdata import CapData
 from captest.filters import BaseSummaryStep, BaseFilter
 
@@ -21,6 +23,16 @@ class _DropFirstRow(BaseFilter):
 
     def _execute(self, capdata):
         return capdata.data_filtered.index[1:]
+
+
+class _ConfiguredFilter(BaseFilter):
+    """Test-only filter with a non-None default and a None-default param."""
+
+    threshold = param.Number(default=100.0)
+    ref_val = param.Number(default=None, allow_None=True)
+
+    def _execute(self, capdata):
+        return capdata.data_filtered.index
 
 
 class TestBaseSummaryStep:
@@ -70,6 +82,16 @@ class TestBaseSummaryStep:
 
     def test_args_repr_default(self):
         assert _DropFirstRow().args_repr == "Default arguments"
+
+    def test_args_repr_includes_defaults_and_skips_none(self):
+        # Default (non-None) param values ARE shown for full transparency;
+        # None-valued params are omitted.
+        assert _ConfiguredFilter().args_repr == "threshold=100.0"
+
+    def test_args_repr_includes_overridden_none_param(self):
+        assert (
+            _ConfiguredFilter(ref_val=5.0).args_repr == "ref_val=5.0, threshold=100.0"
+        )
 
 
 class TestCapDataFiltersParam:

@@ -198,7 +198,12 @@ class BaseSummaryStep(param.Parameterized):
 
     @property
     def args_repr(self):
-        """Render configured (non-default, non-None) params for the summary."""
+        """Render the step's params for the summary.
+
+        Includes every non-None param value (defaults included, for full
+        transparency); only ``None``-valued params and the internal
+        ``custom_name``/``name`` params are skipped.
+        """
         skip = {"custom_name", "name"}
         items = [
             f"{k}={v}"
