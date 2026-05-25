@@ -329,6 +329,76 @@ def _step_labels(self):
 
 ---
 
+## Filter Explanations
+
+Each step can produce a human-readable sentence describing its effect, with the *effective* (resolved) values substituted in. These are aggregated by a new `CapData.describe_filters()` method into a written summary of a filtering run — complementary to the tabular `get_summary()`.
+
+### `explanation` property and template
+
+Explanation text is **class-intrinsic boilerplate, not user configuration**, so it is a class-level template attribute plus a property — *not* a `param` (a `param` would be serialized to YAML; see [[Serialization Boundary]]). This mirrors the treatment of `_legacy_name` and runtime resolved values.
+
+```python
+class BaseSummaryStep(param.Parameterized):
+    _explanation_template = None  # class-level; set by concrete subclasses
+
+    @property
+    def explanation(self):
+        """Human-readable description of the step's effect (read after run()).
+
+        Renders `_explanation_template` with `_explanation_values()`. Returns
+        None when no template is defined. Subclasses whose phrasing depends on
+        which params are set (e.g. FilterTime, FilterClearsky, FilterCustom)
+        override this property directly instead of relying on a flat template.
+        """
+        if self._explanation_template is None:
+            return None
+        return self._explanation_template.format(**self._explanation_values())
+
+    def _explanation_values(self):
+        """Substitution mapping for `_explanation_template`.
+
+        Defaults to `_args_for_repr()`; subclasses override to supply
+        run-time-resolved values (resolved column names, effective bounds).
+        """
+        return self._args_for_repr()
+```
+
+**Rendered with resolved/effective values, post-run.** Like `args_repr`, the explanation is meaningful only after `run()` has resolved runtime values. Unlike `args_repr` (which reproduces the *call arguments* for the summary's `filter_arguments` column), the explanation describes the *effect* using resolved column names and effective numeric bounds. For example, `FilterIrr` stores the resolved POA column and the effective absolute bounds (`low * ref_val` / `high * ref_val` when `ref_val` is set) during `_execute`, and overrides `_explanation_values()` to supply them:
+
+```python
+class FilterIrr(BaseFilter):
+    _explanation_template = (
+        "Intervals where {col_name} is below {low} or above {high} W/m^2 "
+        "were removed."
+    )
+
+    def _explanation_values(self):
+        return {
+            "col_name": self.col_name_resolved,
+            "low": self.low_effective,
+            "high": self.high_effective,
+        }
+```
+
+### `CapData.describe_filters()`
+
+Iterates `self.filters` and joins each step's non-None `explanation` into a numbered written summary:
+
+```python
+def describe_filters(self):
+    """Return a written, human-readable summary of the filtering run."""
+    lines = []
+    for i, step in enumerate(self.filters, start=1):
+        text = step.explanation
+        if text is not None:
+            lines.append(f"{i}. {text}")
+    return "\n".join(lines)
+```
+
+**Transition note:** until every filter is class-based (end of the rest-of-filters plan), `describe_filters()` only reports steps that route through `filters` (class-based ones). Filters still using `@update_summary` do not appear. This is an interim limitation of the incremental rollout, resolved once all filters are converted; it does not affect the tabular `get_summary()`, which keeps reading the mirrored legacy lists during the transition.
+
+---
+
 ## CapData Changes
 
 ### Attribute Changes
@@ -343,6 +413,7 @@ def _step_labels(self):
 
 Added:
 - `filters = param.List(default=[], item_type=BaseSummaryStep)` — the single source of truth for the filter pipeline. This requires `CapData` to inherit `param.Parameterized` (so the list is watchable for the GUI). Consequence: `param` reserves a **constant** `name` parameter, so `name` is passed via `super().__init__(name=name)` and cannot be reassigned afterward — `copy()` constructs the copy with the name directly rather than assigning `cd_c.name`.
+- `describe_filters()` — written, human-readable summary of the filtering run, built from each step's `explanation` (see [[Filter Explanations]]).
 
 ### Thin Wrapper Methods
 
