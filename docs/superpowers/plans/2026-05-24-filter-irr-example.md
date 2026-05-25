@@ -18,13 +18,14 @@
 2. **`ref_val` keeps the user's intent; the resolved value lives in a runtime attribute (Option B).** `_execute` resolves `'rep_irr'`/`'self_val'` to the numeric `capdata.rc["poa"]` value and stores it on the plain runtime attribute `self.ref_val_resolved` (never serialized, like `pts_after`/`ix_after`). The `ref_val` **param is left untouched**, so YAML round-trips the original intent (`'rep_irr'` or a number) and every `run()` re-resolves against the current `rc` (good for the reactive GUI). The summary shows the resolved number via a small `_args_for_repr()` hook on `BaseSummaryStep` that `FilterIrr` overrides to substitute `ref_val_resolved` for `ref_val` — satisfying `test_refval_rep_irr_shows_in_summary` without serializing the resolved value. (A `param` would be serialized, defeating the goal — hence a plain attribute.)
 3. **`inplace` is kept for now (deferral of the spec's removal).** The spec removes `inplace` entirely, but doing so here would touch every `filter_irr(..., inplace=...)` test call. To keep the suite green with minimal churn, the thin wrapper keeps `inplace`: `inplace=True` (default) runs the step and records it; `inplace=False` returns the filtered DataFrame **without** recording a step. Full `inplace` removal is deferred to a later cleanup plan.
 4. **Legacy label via `_legacy_name`.** `BaseSummaryStep` gets a class attribute `_legacy_name = None`; `run()`'s mirroring uses `self._legacy_name or type(self).__name__`. `FilterIrr._legacy_name = "filter_irr"` so the summary label stays `filter_irr` during the transition. Removed in plan 6 when the summary switches to class names.
+5. **Filter explanations (new feature, mechanism + FilterIrr + `describe_filters()` land here).** Each filter exposes an `explanation` property — a human-readable sentence with *effective/resolved* values substituted — and `CapData.describe_filters()` joins them into a written summary. The explanation template is a class-level attribute + property, **not a `param`** (it is class-intrinsic boilerplate, not user config; a `param` would be serialized to YAML). It is rendered post-run from resolved values via an `_explanation_values()` hook (distinct from `_args_for_repr`: `args_repr` reproduces the call arguments for the summary table, while `explanation` describes the effect using resolved column names and effective numeric bounds). Conditional filters (FilterTime/FilterClearsky/FilterCustom in plan 4) will override the `explanation` property directly. Interim limitation: until plan 4 converts all filters, `describe_filters()` only lists class-based steps (those in `self.filters`); the tabular `get_summary()` is unaffected.
 
 ---
 
 ### Task 1: Add `FilterIrr` and rename `_get_poa_col`
 
 **Files:**
-- Modify: `src/captest/filters.py` (add the `_args_for_repr` hook to `BaseSummaryStep`; add `FilterIrr`)
+- Modify: `src/captest/filters.py` (add the `_args_for_repr` hook, the `explanation`/`_explanation_values` mechanism, and `_explanation_template` to `BaseSummaryStep`; add `FilterIrr` with its template and resolved runtime attrs)
 - Modify: `src/captest/capdata.py` (rename `__get_poa_col` → `_get_poa_col` at def ~1541 and caller ~1900)
 - Modify: `tests/test_CapData.py` (update `_CapData__get_poa_col` refs at lines 2203, 2215)
 - Test: `tests/test_filter_classes.py`
@@ -132,6 +133,30 @@ class TestFilterIrr:
         # no resolution happened; ref_val_resolved is unset, param value shown
         assert "ref_val=500" in f.args_repr
 
+    def test_explanation_absolute_bounds(self):
+        cd = self._cd()
+        f = FilterIrr(low=200, high=800)
+        f.run(cd)
+        assert f.explanation == (
+            "Intervals where poa is below 200 or above 800 W/m^2 were removed."
+        )
+
+    def test_explanation_uses_effective_bounds_with_ref_val(self):
+        cd = self._cd()
+        f = FilterIrr(low=0.8, high=1.2, ref_val=500)
+        f.run(cd)
+        # effective bounds = fraction * ref_val -> 400 / 600
+        assert "below 400.0 or above 600.0" in f.explanation
+        assert "poa" in f.explanation
+
+    def test_explanation_uses_resolved_col_name(self):
+        cd = self._cd()
+        cd.data["ghi"] = [0.0, 0.0, 0.0, 0.0, 1000.0]
+        cd.data_filtered = cd.data.copy()
+        f = FilterIrr(low=500, high=2000, col_name="ghi")
+        f.run(cd)
+        assert f.explanation.startswith("Intervals where ghi is below 500")
+
     def test_execute_rep_irr_without_rc_raises(self):
         cd = self._cd()
         cd.rc = None
@@ -182,6 +207,38 @@ In `src/captest/filters.py`, change `BaseSummaryStep.args_repr` to read from a `
         return dict(self.param.values())
 ```
 
+Then add the explanation mechanism to `BaseSummaryStep`. Add the class attribute just below `custom_name`/`_legacy_name`:
+
+```python
+    # Class-intrinsic human-readable template; set by concrete subclasses.
+    # Plain class attribute (not a param) so it is never serialized.
+    _explanation_template = None
+```
+
+and add the property + hook (next to `args_repr`):
+
+```python
+    @property
+    def explanation(self):
+        """Human-readable description of the step's effect (read after run()).
+
+        Renders ``_explanation_template`` with ``_explanation_values()``.
+        Returns None when no template is defined. Subclasses whose phrasing
+        depends on which params are set override this property directly.
+        """
+        if self._explanation_template is None:
+            return None
+        return self._explanation_template.format(**self._explanation_values())
+
+    def _explanation_values(self):
+        """Substitution mapping for ``_explanation_template``.
+
+        Defaults to ``_args_for_repr()``; subclasses override to supply
+        run-time-resolved values (resolved column names, effective bounds).
+        """
+        return self._args_for_repr()
+```
+
 - [ ] **Step 6: Implement `FilterIrr` in `filters.py`**
 
 Append to `src/captest/filters.py`:
@@ -195,6 +252,10 @@ class FilterIrr(BaseFilter):
     """
 
     _legacy_name = "filter_irr"
+    _explanation_template = (
+        "Intervals where {col_name} is below {low} or above {high} W/m^2 "
+        "were removed."
+    )
 
     low = param.Number(
         default=None, allow_None=True,
@@ -233,10 +294,13 @@ class FilterIrr(BaseFilter):
                 )
             ref_val = float(capdata.rc["poa"].iloc[0])
 
-        # Store the effective ref_val as runtime state (NOT a param, so it is
-        # never serialized). The ref_val param keeps the user's intent
+        # Store effective/resolved values as runtime state (NOT params, so they
+        # are never serialized). The ref_val param keeps the user's intent
         # ('rep_irr'/'self_val'/number) for YAML round-trip and re-resolution.
         self.ref_val_resolved = ref_val
+        self.col_name_resolved = irr_col
+        self.low_effective = self.low * ref_val if ref_val is not None else self.low
+        self.high_effective = self.high * ref_val if ref_val is not None else self.high
 
         return filter_irr(
             capdata.data_filtered, irr_col, self.low, self.high, ref_val=ref_val
@@ -248,6 +312,14 @@ class FilterIrr(BaseFilter):
         if resolved is not None:
             vals["ref_val"] = resolved
         return vals
+
+    def _explanation_values(self):
+        # Effect-oriented: resolved column + effective absolute bounds.
+        return {
+            "col_name": self.col_name_resolved,
+            "low": self.low_effective,
+            "high": self.high_effective,
+        }
 ```
 
 > Notes:
@@ -257,7 +329,7 @@ class FilterIrr(BaseFilter):
 - [ ] **Step 7: Run the `FilterIrr` tests**
 
 Run: `uv run pytest tests/test_filter_classes.py::TestFilterIrr -v`
-Expected: PASS (9 tests). Also run the Plan 2 `args_repr` tests to confirm the hook refactor didn't regress them: `uv run pytest tests/test_filter_classes.py -k args_repr -v` → PASS.
+Expected: PASS (12 tests). Also run the Plan 2 `args_repr` tests to confirm the hook refactor didn't regress them: `uv run pytest tests/test_filter_classes.py -k args_repr -v` → PASS.
 
 - [ ] **Step 8: Commit**
 
@@ -527,16 +599,107 @@ git commit -m "refactor: make CapData.filter_irr a thin wrapper over FilterIrr"
 
 ---
 
+### Task 4: Add `CapData.describe_filters()`
+
+**Files:**
+- Modify: `src/captest/capdata.py` (add `describe_filters` method, e.g. near `get_summary`)
+- Test: `tests/test_filter_classes.py`
+
+- [ ] **Step 1: Write the failing tests**
+
+Append to `tests/test_filter_classes.py`:
+
+```python
+class TestDescribeFilters:
+    def _cd(self):
+        cd = CapData("irr")
+        cd.data = pd.DataFrame(
+            {"poa": [100.0, 300.0, 500.0, 700.0, 900.0]},
+            index=pd.RangeIndex(5),
+        )
+        cd.data_filtered = cd.data.copy()
+        cd.regression_cols = {"poa": "poa"}
+        return cd
+
+    def test_describe_empty_is_blank(self):
+        assert self._cd().describe_filters() == ""
+
+    def test_describe_single_filter(self):
+        cd = self._cd()
+        cd.filter_irr(200, 800)
+        assert cd.describe_filters() == (
+            "1. Intervals where poa is below 200 or above 800 W/m^2 were removed."
+        )
+
+    def test_describe_numbers_multiple_steps(self):
+        cd = self._cd()
+        cd.filter_irr(200, 800)
+        cd.filter_irr(400, 800)
+        lines = cd.describe_filters().splitlines()
+        assert len(lines) == 2
+        assert lines[0].startswith("1. Intervals where poa is below 200")
+        assert lines[1].startswith("2. Intervals where poa is below 400")
+```
+
+- [ ] **Step 2: Run to verify failure**
+
+Run: `uv run pytest tests/test_filter_classes.py::TestDescribeFilters -v`
+Expected: FAIL — `AttributeError: 'CapData' object has no attribute 'describe_filters'`.
+
+- [ ] **Step 3: Implement `describe_filters`**
+
+In `src/captest/capdata.py`, add the method (e.g. just after `get_summary`):
+
+```python
+    def describe_filters(self):
+        """Return a written, human-readable summary of the filtering run.
+
+        Joins the ``explanation`` of each class-based filter step in
+        ``self.filters`` into a numbered list. Steps without an explanation
+        template are skipped.
+
+        Note: until all filters are class-based, filters still applied via the
+        legacy decorator do not appear here. Use ``get_summary()`` for the
+        complete tabular history during the transition.
+        """
+        lines = []
+        for i, step in enumerate(self.filters, start=1):
+            text = step.explanation
+            if text is not None:
+                lines.append(f"{i}. {text}")
+        return "\n".join(lines)
+```
+
+- [ ] **Step 4: Run the tests**
+
+Run: `uv run pytest tests/test_filter_classes.py::TestDescribeFilters -v`
+Expected: PASS.
+
+- [ ] **Step 5: Run the full suite, lint, format**
+
+Run: `just test-wo-warnings && just lint && just fmt`
+Expected: PASS / clean.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add src/captest/capdata.py tests/test_filter_classes.py
+git commit -m "feat: add CapData.describe_filters written filtering summary"
+```
+
+---
+
 ## Self-Review
 
 **1. Spec coverage (this plan's slice):**
 - "Concrete Filter Classes → FilterIrr" (low/high/ref_val/col_name params, `_execute` returns kept index) → Task 1. ✓
 - "Thin Wrapper Methods" (`filter_irr` instantiates the class and calls `run()`) → Task 3. ✓
 - "Summary Table" continuity during transition (legacy lists kept populated) → Task 2. ✓
-- Deferred: `custom_name` kwarg on the wrapper (the branch has no `filter_name` feature today — added with the broader wrapper work), `inplace` removal (decision 3), the other 11 filter classes, the `function_name` summary column and class-name labels (plan 6).
+- "Filter Explanations" (the `explanation` property/template mechanism + `FilterIrr` template + `CapData.describe_filters()`) → mechanism in Task 1 Steps 5-6, method in Task 4. ✓
+- Deferred: `custom_name` kwarg on the wrapper (the branch has no `filter_name` feature today — added with the broader wrapper work), `inplace` removal (decision 3), the other 11 filter classes (each authors its `_explanation_template` or overrides `explanation` in plan 4), the `function_name` summary column and class-name labels (plan 6).
 
 **2. Placeholder scan:** No TBDs. Every code step shows complete code; every run step has a command + expected result. The two ValueError messages match the originals so `test_refval_rep_irr_rc_none_raises` / `test_refval_rep_irr_no_poa_col_raises` (which match `"Call rep_cond"` and `"does not have a 'poa' column"`) still pass.
 
-**3. Type/name consistency:** `FilterIrr` params (`low`, `high`, `ref_val`, `col_name`), the runtime attr `ref_val_resolved`, `_args_for_repr`, `_legacy_name`, `_record_legacy_summary`, `_get_poa_col`, and the summary keys (`pts_after_filter`, `pts_removed`, `filter_arguments`) match between `filters.py`, `capdata.py`, and the tests. `ref_val` is `param.Parameter` (accepts numbers and the sentinel strings) and is left intact; the resolved `float` lives only on the runtime attr `ref_val_resolved`, surfaced in the summary via the `_args_for_repr` override (Option B). `test_run_summary_shows_resolved_ref_val` (Task 2) relies on this hook flowing through `args_repr` into `_record_legacy_summary`.
+**3. Type/name consistency:** `FilterIrr` params (`low`, `high`, `ref_val`, `col_name`), the runtime attrs (`ref_val_resolved`, `col_name_resolved`, `low_effective`, `high_effective`), the hooks (`_args_for_repr`, `_explanation_values`, `explanation`, `_explanation_template`), `_legacy_name`, `_record_legacy_summary`, `_get_poa_col`, `describe_filters`, and the summary keys (`pts_after_filter`, `pts_removed`, `filter_arguments`) match between `filters.py`, `capdata.py`, and the tests. `ref_val` is `param.Parameter` (accepts numbers and the sentinel strings) and is left intact; resolved values live only on runtime attrs (Option B). `args_repr` reproduces call arguments (ref_val resolved); `explanation` describes the effect using the resolved column and effective absolute bounds via the separate `_explanation_values` override. `test_run_summary_shows_resolved_ref_val` (Task 2) relies on `args_repr` flowing into `_record_legacy_summary`.
 
 **Risk note:** the same class of gap hit in plans 1-2 (source-caller analysis missing `pvc.`-style test references) is pre-checked here: the only external references to the renamed `_get_poa_col` are the two test lines (2203, 2215), updated in Task 1. After implementing, grep `_CapData__get_poa_col` to confirm none remain.
