@@ -407,7 +407,9 @@ git commit -m "feat: mirror legacy summary state from BaseSummaryStep.run()"
 
 - [ ] **Step 1: Write the failing wrapper tests**
 
-Append to `tests/test_filter_classes.py`:
+The existing `tests/test_CapData.py::TestFilterIrr` suite already covers the wrapper's *filtering* behavior end-to-end — `data_filtered` changes for absolute bounds / explicit `col_name` / numeric `ref_val` / `rep_irr` / `self_val`, the two `ValueError` paths, the resolved value showing in the summary, and `inplace=False` returning a DataFrame with `data_filtered` unchanged. All of those run through the new wrapper after conversion and are re-run in Step 6/7, so they serve as the regression guard for filtering behavior. **Do not duplicate them here.**
+
+Only two invariants are new to the class architecture and not covered by the existing suite, so add just these:
 
 ```python
 class TestFilterIrrWrapper:
@@ -421,20 +423,20 @@ class TestFilterIrrWrapper:
         cd.regression_cols = {"poa": "poa"}
         return cd
 
-    def test_wrapper_records_filter_step(self):
+    def test_wrapper_records_filterirr_step(self):
+        # New: the wrapper now appends a FilterIrr to cd.filters (nothing in
+        # the existing suite touches cd.filters).
         cd = self._cd()
         cd.filter_irr(200, 800)
         assert len(cd.filters) == 1
         assert isinstance(cd.filters[0], FilterIrr)
-        assert list(cd.data_filtered.index) == [1, 2, 3]
 
-    def test_wrapper_inplace_false_returns_df_without_recording(self):
+    def test_wrapper_inplace_false_records_no_step(self):
+        # New/behavior change: the legacy @update_summary decorator recorded a
+        # step even when inplace=False; the wrapper must NOT record one.
         cd = self._cd()
-        before = cd.data_filtered.shape[0]
-        out = cd.filter_irr(200, 800, inplace=False)
-        assert cd.data_filtered.shape[0] == before  # unchanged
-        assert cd.filters == []  # no step recorded
-        assert list(out.index) == [1, 2, 3]
+        cd.filter_irr(200, 800, inplace=False)
+        assert cd.filters == []
 ```
 
 - [ ] **Step 2: Run to verify failure**
