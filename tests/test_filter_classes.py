@@ -279,3 +279,26 @@ class TestFilterIrrWrapper:
         # step even when inplace=False; the wrapper must NOT record one.
         cd_irr.filter_irr(200, 800, inplace=False)
         assert cd_irr.filters == []
+
+
+class TestDescribeFilters:
+    def test_describe_empty_is_blank(self, cd_irr):
+        assert cd_irr.describe_filters() == ""
+
+    def test_describe_single_filter(self, cd_irr):
+        cd_irr.filter_irr(200, 800)
+        assert cd_irr.describe_filters() == (
+            "Intervals where poa is below 200 or above 800 W/m^2 were removed."
+        )
+
+    def test_describe_multiple_steps(self, cd_irr):
+        cd_irr.filter_irr(200, 800)
+        cd_irr.filter_irr(400, 800)
+        lines = cd_irr.describe_filters().splitlines()
+        assert len(lines) == 2
+        assert lines[0] == (
+            "Intervals where poa is below 200 or above 800 W/m^2 were removed."
+        )
+        assert lines[1] == (
+            "Intervals where poa is below 400 or above 800 W/m^2 were removed."
+        )

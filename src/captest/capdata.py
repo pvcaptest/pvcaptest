@@ -2592,6 +2592,22 @@ class CapData(param.Parameterized):
         except TypeError:
             print("No filters have been run.")
 
+    def describe_filters(self):
+        """Return a written, human-readable summary of the filtering run.
+
+        Joins the ``explanation`` of each class-based filter step in
+        ``self.filters``, one per line. Steps without an explanation template
+        are skipped.
+
+        Note: until all filters are class-based, filters still applied via the
+        legacy decorator do not appear here. Use ``get_summary()`` for the
+        complete tabular history during the transition.
+        """
+        lines = [
+            step.explanation for step in self.filters if step.explanation is not None
+        ]
+        return "\n".join(lines)
+
     @update_summary
     def rep_cond(
         self,
