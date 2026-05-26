@@ -1538,7 +1538,7 @@ class CapData(param.Parameterized):
             self.column_groups = self.pre_agg_trans.copy()
             self.regression_cols = self.pre_agg_reg_trans.copy()
 
-    def __get_poa_col(self):
+    def _get_poa_col(self):
         """
         Return poa column name from `column_groups`.
 
@@ -1897,7 +1897,7 @@ class CapData(param.Parameterized):
             Filtered dataframe if inplace is False.
         """
         if col_name is None:
-            irr_col = self.__get_poa_col()
+            irr_col = self._get_poa_col()
         else:
             irr_col = col_name
 

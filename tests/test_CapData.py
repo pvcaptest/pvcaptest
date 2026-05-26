@@ -2200,7 +2200,7 @@ class TestPredictCapacities:
 
 class TestFilterIrr:
     def test_get_poa_col(self, nrel):
-        col = nrel._CapData__get_poa_col()
+        col = nrel._get_poa_col()
         assert col == "POA 40-South CMP11 [W/m^2]"
 
     def test_get_poa_col_multcols(self, nrel):
@@ -2212,7 +2212,7 @@ class TestFilterIrr:
                 "[0-9]+ columns of irradiance data. Use col_name to specify a single column."
             ),
         ):
-            nrel._CapData__get_poa_col()
+            nrel._get_poa_col()
 
     def test_lowhigh_nocol(self, nrel):
         pts_before = nrel.data_filtered.shape[0]

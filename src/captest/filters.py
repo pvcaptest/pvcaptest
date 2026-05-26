@@ -178,6 +178,10 @@ class BaseSummaryStep(param.Parameterized):
         doc="Optional display name in the summary table.",
     )
 
+    # Class-intrinsic human-readable template; set by concrete subclasses.
+    # Plain class attribute (not a param) so it is never serialized.
+    _explanation_template = None
+
     def run(self, capdata):
         """Execute the step, record runtime state, and append self to filters."""
         self.pts_before = capdata.data_filtered.shape[0]
@@ -200,17 +204,47 @@ class BaseSummaryStep(param.Parameterized):
     def args_repr(self):
         """Render the step's params for the summary.
 
-        Includes every non-None param value (defaults included, for full
-        transparency); only ``None``-valued params and the internal
-        ``custom_name``/``name`` params are skipped.
+        Includes every non-None value (defaults included, for full
+        transparency); only ``None`` values and the internal
+        ``custom_name``/``name`` keys are skipped. Subclasses override
+        ``_args_for_repr`` to substitute runtime-resolved display values
+        (e.g. a resolved ``ref_val``) without mutating the serialized params.
         """
         skip = {"custom_name", "name"}
         items = [
             f"{k}={v}"
-            for k, v in self.param.values().items()
+            for k, v in self._args_for_repr().items()
             if k not in skip and v is not None
         ]
         return ", ".join(items) if items else "Default arguments"
+
+    def _args_for_repr(self):
+        """Mapping of param name -> display value for ``args_repr``.
+
+        Defaults to the serialized param values; subclasses may override to
+        swap in runtime-resolved values.
+        """
+        return dict(self.param.values())
+
+    @property
+    def explanation(self):
+        """Human-readable description of the step's effect (read after run()).
+
+        Renders ``_explanation_template`` with ``_explanation_values()``.
+        Returns None when no template is defined. Subclasses whose phrasing
+        depends on which params are set override this property directly.
+        """
+        if self._explanation_template is None:
+            return None
+        return self._explanation_template.format(**self._explanation_values())
+
+    def _explanation_values(self):
+        """Substitution mapping for ``_explanation_template``.
+
+        Defaults to ``_args_for_repr()``; subclasses override to supply
+        run-time-resolved values (resolved column names, effective bounds).
+        """
+        return self._args_for_repr()
 
 
 class BaseFilter(BaseSummaryStep):
@@ -222,3 +256,83 @@ class BaseFilter(BaseSummaryStep):
     """
 
     pass
+
+
+class FilterIrr(BaseFilter):
+    """Filter rows by an irradiance column to a low/high band.
+
+    ``low``/``high`` are absolute values (W/m^2) unless ``ref_val`` is set,
+    in which case they are treated as fractions of ``ref_val``.
+    """
+
+    _legacy_name = "filter_irr"
+    _explanation_template = (
+        "Intervals where {col_name} is below {low} or above {high} W/m^2 were removed."
+    )
+
+    low = param.Number(
+        default=None,
+        allow_None=True,
+        doc="Lower bound (W/m^2, or fraction of ref_val when ref_val is set).",
+    )
+    high = param.Number(
+        default=None,
+        allow_None=True,
+        doc="Upper bound (W/m^2, or fraction of ref_val when ref_val is set).",
+    )
+    ref_val = param.Parameter(
+        default=None,
+        doc="Reference value; low/high are fractions of it. May be 'rep_irr'/"
+        "'self_val' to resolve from capdata.rc at run time.",
+    )
+    col_name = param.String(
+        default=None,
+        allow_None=True,
+        doc="Irradiance column to filter. Inferred from regression_cols if None.",
+    )
+
+    def _execute(self, capdata):
+        irr_col = self.col_name if self.col_name is not None else capdata._get_poa_col()
+
+        ref_val = self.ref_val
+        if ref_val == "self_val":
+            ref_val = "rep_irr"
+        if ref_val == "rep_irr":
+            if capdata.rc is None:
+                raise ValueError(
+                    "ref_val='rep_irr' requires reporting conditions to be set. "
+                    "Call rep_cond() before filtering with ref_val='rep_irr'."
+                )
+            if "poa" not in capdata.rc.columns:
+                raise ValueError(
+                    "ref_val='rep_irr' requires a 'poa' column in capdata.rc. "
+                    "The reporting conditions DataFrame does not have a 'poa' column."
+                )
+            ref_val = float(capdata.rc["poa"].iloc[0])
+
+        # Store effective/resolved values as runtime state (NOT params, so they
+        # are never serialized). The ref_val param keeps the user's intent
+        # ('rep_irr'/'self_val'/number) for YAML round-trip and re-resolution.
+        self.ref_val_resolved = ref_val
+        self.col_name_resolved = irr_col
+        self.low_effective = self.low * ref_val if ref_val is not None else self.low
+        self.high_effective = self.high * ref_val if ref_val is not None else self.high
+
+        return filter_irr(
+            capdata.data_filtered, irr_col, self.low, self.high, ref_val=ref_val
+        ).index
+
+    def _args_for_repr(self):
+        vals = dict(self.param.values())
+        resolved = getattr(self, "ref_val_resolved", None)
+        if resolved is not None:
+            vals["ref_val"] = resolved
+        return vals
+
+    def _explanation_values(self):
+        # Effect-oriented: resolved column + effective absolute bounds.
+        return {
+            "col_name": self.col_name_resolved,
+            "low": self.low_effective,
+            "high": self.high_effective,
+        }
