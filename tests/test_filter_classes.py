@@ -2,20 +2,27 @@
 
 import numpy as np
 import pandas as pd
-import pytest
-
 import param
+import pytest
 
 from captest.capdata import CapData
 from captest.filters import BaseSummaryStep, BaseFilter
 
 
-def _make_capdata(n=5):
-    """CapData with a tiny integer-indexed DataFrame and data_filtered set."""
-    cd = CapData("test")
-    cd.data = pd.DataFrame({"power": np.arange(n), "poa": np.arange(n) * 10.0})
-    cd.data_filtered = cd.data.copy()
-    return cd
+@pytest.fixture
+def make_capdata():
+    """Factory fixture: a CapData with an n-row power+poa frame.
+
+    ``data_filtered`` is initialized to a copy of ``data``.
+    """
+
+    def _make(n=5):
+        cd = CapData("test")
+        cd.data = pd.DataFrame({"power": np.arange(n), "poa": np.arange(n) * 10.0})
+        cd.data_filtered = cd.data.copy()
+        return cd
+
+    return _make
 
 
 class _DropFirstRow(BaseFilter):
@@ -42,13 +49,12 @@ class TestBaseSummaryStep:
     def test_custom_name_defaults_to_none(self):
         assert _DropFirstRow().custom_name is None
 
-    def test_execute_not_implemented_on_base(self):
-        cd = _make_capdata()
+    def test_execute_not_implemented_on_base(self, make_capdata):
         with pytest.raises(NotImplementedError):
-            BaseSummaryStep().run(cd)
+            BaseSummaryStep().run(make_capdata())
 
-    def test_run_records_runtime_state(self):
-        cd = _make_capdata(n=5)
+    def test_run_records_runtime_state(self, make_capdata):
+        cd = make_capdata(n=5)
         step = _DropFirstRow()
         step.run(cd)
         assert step.pts_before == 5
@@ -57,35 +63,32 @@ class TestBaseSummaryStep:
         assert list(step.ix_before) == [0, 1, 2, 3, 4]
         assert list(step.ix_after) == [1, 2, 3, 4]
 
-    def test_run_appends_to_filters(self):
-        cd = _make_capdata()
+    def test_run_appends_to_filters(self, make_capdata):
+        cd = make_capdata()
         step = _DropFirstRow()
         step.run(cd)
         assert cd.filters == [step]
 
-    def test_run_reassigns_filters_list(self):
+    def test_run_reassigns_filters_list(self, make_capdata):
         """run() must reassign (not in-place append) so param watchers fire."""
-        cd = _make_capdata()
+        cd = make_capdata()
         original = cd.filters
         _DropFirstRow().run(cd)
         assert cd.filters is not original
 
-    def test_run_updates_data_filtered_transitionally(self):
-        cd = _make_capdata(n=5)
+    def test_run_updates_data_filtered_transitionally(self, make_capdata):
+        cd = make_capdata(n=5)
         _DropFirstRow().run(cd)
         assert list(cd.data_filtered.index) == [1, 2, 3, 4]
 
-    def test_run_warns_when_all_data_removed(self):
-        cd = _make_capdata(n=1)
+    def test_run_warns_when_all_data_removed(self, make_capdata):
         with pytest.warns(UserWarning, match="removed all data"):
-            _DropFirstRow().run(cd)
+            _DropFirstRow().run(make_capdata(n=1))
 
     def test_args_repr_default(self):
         assert _DropFirstRow().args_repr == "Default arguments"
 
     def test_args_repr_includes_defaults_and_skips_none(self):
-        # Default (non-None) param values ARE shown for full transparency;
-        # None-valued params are omitted.
         assert _ConfiguredFilter().args_repr == "threshold=100.0"
 
     def test_args_repr_includes_overridden_none_param(self):
@@ -96,8 +99,6 @@ class TestBaseSummaryStep:
 
 class TestCapDataFiltersParam:
     def test_capdata_is_parameterized(self):
-        import param
-
         assert isinstance(CapData("x"), param.Parameterized)
 
     def test_filters_is_a_param_list(self):
@@ -120,24 +121,24 @@ class TestCapDataFiltersParam:
         with pytest.raises(TypeError):
             cd.filters = ["not a step"]
 
-    def test_run_triggers_filters_watcher(self):
-        cd = _make_capdata()
+    def test_run_triggers_filters_watcher(self, make_capdata):
+        cd = make_capdata()
         events = []
         cd.param.watch(lambda e: events.append(e), "filters")
         _DropFirstRow().run(cd)
         assert len(events) == 1
         assert isinstance(events[0].new[-1], _DropFirstRow)
 
-    def test_copy_copies_filters_and_name(self):
-        cd = _make_capdata()
+    def test_copy_copies_filters_and_name(self, make_capdata):
+        cd = make_capdata()
         _DropFirstRow().run(cd)
         cd_c = cd.copy()
         assert len(cd_c.filters) == 1
         assert cd_c.filters is not cd.filters
         assert cd_c.name == cd.name
 
-    def test_reset_filter_clears_filters(self):
-        cd = _make_capdata()
+    def test_reset_filter_clears_filters(self, make_capdata):
+        cd = make_capdata()
         _DropFirstRow().run(cd)
         assert len(cd.filters) == 1
         cd.reset_filter()
