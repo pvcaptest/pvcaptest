@@ -40,6 +40,7 @@ from captest import util
 from captest import plotting
 from captest.filters import (
     BaseSummaryStep,
+    FilterIrr,
     check_all_perc_diff_comb,
     filter_grps,
     filter_irr,
@@ -1868,7 +1869,6 @@ class CapData(param.Parameterized):
                 header=False,
             )
 
-    @update_summary
     def filter_irr(self, low, high, ref_val=None, col_name=None, inplace=True):
         """
         Filter on irradiance values.
@@ -1888,40 +1888,19 @@ class CapData(param.Parameterized):
             irradiance set in regression_cols attribute or average of the POA
             columns.
         inplace : bool, default True
-            Default true write back to data_filtered or return filtered
-            dataframe.
+            If True, record the filter step and update data_filtered. If False,
+            return the filtered DataFrame without recording a step.
 
         Returns
         -------
         DataFrame
             Filtered dataframe if inplace is False.
         """
-        if col_name is None:
-            irr_col = self._get_poa_col()
-        else:
-            irr_col = col_name
-
-        if ref_val == "self_val":
-            ref_val = "rep_irr"
-
-        if ref_val == "rep_irr":
-            if self.rc is None:
-                raise ValueError(
-                    "ref_val='rep_irr' requires reporting conditions to be set. "
-                    "Call rep_cond() before calling filter_irr() with ref_val='rep_irr'."
-                )
-            if "poa" not in self.rc.columns:
-                raise ValueError(
-                    "ref_val='rep_irr' requires a 'poa' column in self.rc. "
-                    "The reporting conditions DataFrame does not have a 'poa' column."
-                )
-            ref_val = self.rc["poa"].iloc[0]
-
-        df_flt = filter_irr(self.data_filtered, irr_col, low, high, ref_val=ref_val)
+        flt = FilterIrr(low=low, high=high, ref_val=ref_val, col_name=col_name)
         if inplace:
-            self.data_filtered = df_flt
+            flt.run(self)
         else:
-            return df_flt
+            return self.data_filtered.loc[flt._execute(self), :]
 
     @update_summary
     def filter_pvsyst(self, inplace=True):

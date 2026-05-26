@@ -264,3 +264,18 @@ class TestRunLegacyMirroring:
         assert "rep_irr" not in args
         assert "np." not in args
         assert "500" in args
+
+
+class TestFilterIrrWrapper:
+    def test_wrapper_records_filterirr_step(self, cd_irr):
+        # New: the wrapper now appends a FilterIrr to cd.filters (nothing in
+        # the existing suite touches cd.filters).
+        cd_irr.filter_irr(200, 800)
+        assert len(cd_irr.filters) == 1
+        assert isinstance(cd_irr.filters[0], FilterIrr)
+
+    def test_wrapper_inplace_false_records_no_step(self, cd_irr):
+        # New/behavior change: the legacy @update_summary decorator recorded a
+        # step even when inplace=False; the wrapper must NOT record one.
+        cd_irr.filter_irr(200, 800, inplace=False)
+        assert cd_irr.filters == []
