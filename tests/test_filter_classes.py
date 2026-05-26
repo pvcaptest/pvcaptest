@@ -174,6 +174,16 @@ class TestFilterIrr:
         f = FilterIrr(low=0.8, high=1.2, ref_val=500)
         assert list(f._execute(cd_irr)) == [2]
 
+    def test_execute_one_sided_high_only(self, cd_irr):
+        # low=None means no lower bound; keep everything <= 500.
+        f = FilterIrr(low=None, high=500)
+        assert list(f._execute(cd_irr)) == [0, 1, 2]
+
+    def test_execute_one_sided_with_ref_val_does_not_raise(self, cd_irr):
+        # A None bound combined with a numeric ref_val must not raise.
+        f = FilterIrr(low=None, high=1.2, ref_val=500)
+        assert list(f._execute(cd_irr)) == [0, 1, 2]  # <= 600
+
     def test_execute_resolves_rep_irr_into_runtime_attr(self, cd_irr):
         cd_irr.rc = pd.DataFrame({"poa": [500.0]})
         f = FilterIrr(low=0.8, high=1.2, ref_val="rep_irr")
@@ -268,17 +278,15 @@ class TestRunLegacyMirroring:
 
 class TestFilterIrrWrapper:
     def test_wrapper_records_filterirr_step(self, cd_irr):
-        # New: the wrapper now appends a FilterIrr to cd.filters (nothing in
-        # the existing suite touches cd.filters).
         cd_irr.filter_irr(200, 800)
         assert len(cd_irr.filters) == 1
         assert isinstance(cd_irr.filters[0], FilterIrr)
 
     def test_wrapper_inplace_false_records_no_step(self, cd_irr):
-        # New/behavior change: the legacy @update_summary decorator recorded a
-        # step even when inplace=False; the wrapper must NOT record one.
-        cd_irr.filter_irr(200, 800, inplace=False)
+        result = cd_irr.filter_irr(200, 800, inplace=False)
         assert cd_irr.filters == []
+        assert result.shape[0] == 3
+        assert cd_irr.data_filtered.shape[0] == 5
 
 
 class TestDescribeFilters:

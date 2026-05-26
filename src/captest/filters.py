@@ -349,12 +349,26 @@ class FilterIrr(BaseFilter):
         # ('rep_irr'/'self_val'/number) for YAML round-trip and re-resolution.
         self.ref_val_resolved = ref_val
         self.col_name_resolved = irr_col
-        self.low_effective = self.low * ref_val if ref_val is not None else self.low
-        self.high_effective = self.high * ref_val if ref_val is not None else self.high
+        self.low_effective = (
+            self.low * ref_val
+            if (ref_val is not None and self.low is not None)
+            else self.low
+        )
+        self.high_effective = (
+            self.high * ref_val
+            if (ref_val is not None and self.high is not None)
+            else self.high
+        )
 
-        return filter_irr(
-            capdata.data_filtered, irr_col, self.low, self.high, ref_val=ref_val
-        ).index
+        # Filter from the effective bounds so a None bound means "unbounded on
+        # that side" rather than raising (low/high are allow_None params).
+        df = capdata.data_filtered
+        mask = pd.Series(True, index=df.index)
+        if self.low_effective is not None:
+            mask &= df[irr_col] >= self.low_effective
+        if self.high_effective is not None:
+            mask &= df[irr_col] <= self.high_effective
+        return df.index[mask]
 
     def _args_for_repr(self):
         vals = dict(self.param.values())
