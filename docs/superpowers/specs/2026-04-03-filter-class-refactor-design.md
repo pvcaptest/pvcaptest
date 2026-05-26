@@ -382,16 +382,14 @@ class FilterIrr(BaseFilter):
 
 ### `CapData.describe_filters()`
 
-Iterates `self.filters` and joins each step's non-None `explanation` into a numbered written summary:
+Iterates `self.filters` and joins each step's non-None `explanation` into a written summary, one sentence per line:
 
 ```python
 def describe_filters(self):
     """Return a written, human-readable summary of the filtering run."""
-    lines = []
-    for i, step in enumerate(self.filters, start=1):
-        text = step.explanation
-        if text is not None:
-            lines.append(f"{i}. {text}")
+    lines = [
+        step.explanation for step in self.filters if step.explanation is not None
+    ]
     return "\n".join(lines)
 ```
 
