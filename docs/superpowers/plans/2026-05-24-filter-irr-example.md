@@ -65,64 +65,63 @@ to:
 from captest.filters import BaseSummaryStep, BaseFilter, FilterIrr
 ```
 
-Then append the `TestFilterIrr` class to `tests/test_filter_classes.py`:
+Then add a module-level `cd_irr` fixture near the existing `make_capdata` fixture at the top of `tests/test_filter_classes.py` (function-scoped, so each test gets a fresh instance and may mutate it freely):
+
+```python
+@pytest.fixture
+def cd_irr():
+    """A CapData with a 5-row poa frame and regression_cols set, for FilterIrr."""
+    cd = CapData("irr")
+    cd.data = pd.DataFrame(
+        {"poa": [100.0, 300.0, 500.0, 700.0, 900.0]},
+        index=pd.RangeIndex(5),
+    )
+    cd.data_filtered = cd.data.copy()
+    cd.regression_cols = {"poa": "poa"}
+    return cd
+```
+
+Then append the `TestFilterIrr` class (each test takes the `cd_irr` fixture):
 
 ```python
 class TestFilterIrr:
-    def _cd(self):
-        cd = CapData("irr")
-        cd.data = pd.DataFrame(
-            {"poa": [100.0, 300.0, 500.0, 700.0, 900.0]},
-            index=pd.RangeIndex(5),
-        )
-        cd.data_filtered = cd.data.copy()
-        cd.regression_cols = {"poa": "poa"}
-        return cd
-
-    def test_execute_absolute_bounds(self):
-        cd = self._cd()
+    def test_execute_absolute_bounds(self, cd_irr):
         f = FilterIrr(low=200, high=800)
-        kept = f._execute(cd)
-        assert list(kept) == [1, 2, 3]
+        assert list(f._execute(cd_irr)) == [1, 2, 3]
 
-    def test_execute_uses_explicit_col_name(self):
-        cd = self._cd()
-        cd.data["ghi"] = [0.0, 0.0, 0.0, 0.0, 1000.0]
-        cd.data_filtered = cd.data.copy()
+    def test_execute_uses_explicit_col_name(self, cd_irr):
+        cd_irr.data["ghi"] = [0.0, 0.0, 0.0, 0.0, 1000.0]
+        cd_irr.data_filtered = cd_irr.data.copy()
         f = FilterIrr(low=500, high=2000, col_name="ghi")
-        assert list(f._execute(cd)) == [4]
+        assert list(f._execute(cd_irr)) == [4]
 
-    def test_execute_fraction_with_ref_val(self):
-        cd = self._cd()
+    def test_execute_fraction_with_ref_val(self, cd_irr):
         # low/high are fractions of ref_val 500 -> [400, 600]
         f = FilterIrr(low=0.8, high=1.2, ref_val=500)
-        assert list(f._execute(cd)) == [2]
+        assert list(f._execute(cd_irr)) == [2]
 
-    def test_execute_resolves_rep_irr_into_runtime_attr(self):
-        cd = self._cd()
-        cd.rc = pd.DataFrame({"poa": [500.0]})
+    def test_execute_resolves_rep_irr_into_runtime_attr(self, cd_irr):
+        cd_irr.rc = pd.DataFrame({"poa": [500.0]})
         f = FilterIrr(low=0.8, high=1.2, ref_val="rep_irr")
-        f._execute(cd)
+        f._execute(cd_irr)
         # intent preserved on the param; resolved value on the runtime attr
         assert f.ref_val == "rep_irr"
         assert f.ref_val_resolved == 500.0
         assert isinstance(f.ref_val_resolved, float)
 
-    def test_execute_resolves_self_val(self):
+    def test_execute_resolves_self_val(self, cd_irr):
         # 'self_val' is translated to 'rep_irr' and resolved the same way;
         # the param keeps the original 'self_val' intent.
-        cd = self._cd()
-        cd.rc = pd.DataFrame({"poa": [500.0]})
+        cd_irr.rc = pd.DataFrame({"poa": [500.0]})
         f = FilterIrr(low=0.8, high=1.2, ref_val="self_val")
-        f._execute(cd)
+        f._execute(cd_irr)
         assert f.ref_val == "self_val"
         assert f.ref_val_resolved == 500.0
 
-    def test_args_repr_shows_resolved_ref_val_not_sentinel(self):
-        cd = self._cd()
-        cd.rc = pd.DataFrame({"poa": [500.0]})
+    def test_args_repr_shows_resolved_ref_val_not_sentinel(self, cd_irr):
+        cd_irr.rc = pd.DataFrame({"poa": [500.0]})
         f = FilterIrr(low=0.8, high=1.2, ref_val="rep_irr")
-        f._execute(cd)
+        f._execute(cd_irr)
         args = f.args_repr
         assert "rep_irr" not in args
         assert "np." not in args
@@ -133,41 +132,36 @@ class TestFilterIrr:
         # no resolution happened; ref_val_resolved is unset, param value shown
         assert "ref_val=500" in f.args_repr
 
-    def test_explanation_absolute_bounds(self):
-        cd = self._cd()
+    def test_explanation_absolute_bounds(self, cd_irr):
         f = FilterIrr(low=200, high=800)
-        f.run(cd)
+        f.run(cd_irr)
         assert f.explanation == (
             "Intervals where poa is below 200 or above 800 W/m^2 were removed."
         )
 
-    def test_explanation_uses_effective_bounds_with_ref_val(self):
-        cd = self._cd()
+    def test_explanation_uses_effective_bounds_with_ref_val(self, cd_irr):
         f = FilterIrr(low=0.8, high=1.2, ref_val=500)
-        f.run(cd)
+        f.run(cd_irr)
         # effective bounds = fraction * ref_val -> 400 / 600
         assert "below 400.0 or above 600.0" in f.explanation
         assert "poa" in f.explanation
 
-    def test_explanation_uses_resolved_col_name(self):
-        cd = self._cd()
-        cd.data["ghi"] = [0.0, 0.0, 0.0, 0.0, 1000.0]
-        cd.data_filtered = cd.data.copy()
+    def test_explanation_uses_resolved_col_name(self, cd_irr):
+        cd_irr.data["ghi"] = [0.0, 0.0, 0.0, 0.0, 1000.0]
+        cd_irr.data_filtered = cd_irr.data.copy()
         f = FilterIrr(low=500, high=2000, col_name="ghi")
-        f.run(cd)
+        f.run(cd_irr)
         assert f.explanation.startswith("Intervals where ghi is below 500")
 
-    def test_execute_rep_irr_without_rc_raises(self):
-        cd = self._cd()
-        cd.rc = None
+    def test_execute_rep_irr_without_rc_raises(self, cd_irr):
+        cd_irr.rc = None
         with pytest.raises(ValueError, match="Call rep_cond"):
-            FilterIrr(low=0.8, high=1.2, ref_val="rep_irr")._execute(cd)
+            FilterIrr(low=0.8, high=1.2, ref_val="rep_irr")._execute(cd_irr)
 
-    def test_execute_rep_irr_without_poa_col_raises(self):
-        cd = self._cd()
-        cd.rc = pd.DataFrame({"irr": [500.0]})
+    def test_execute_rep_irr_without_poa_col_raises(self, cd_irr):
+        cd_irr.rc = pd.DataFrame({"irr": [500.0]})
         with pytest.raises(ValueError, match="does not have a 'poa' column"):
-            FilterIrr(low=0.8, high=1.2, ref_val="rep_irr")._execute(cd)
+            FilterIrr(low=0.8, high=1.2, ref_val="rep_irr")._execute(cd_irr)
 ```
 
 - [ ] **Step 4: Run to verify failure**
@@ -352,42 +346,28 @@ Append to `tests/test_filter_classes.py`:
 
 ```python
 class TestRunLegacyMirroring:
-    def _cd(self):
-        cd = CapData("irr")
-        cd.data = pd.DataFrame(
-            {"poa": [100.0, 300.0, 500.0, 700.0, 900.0]},
-            index=pd.RangeIndex(5),
-        )
-        cd.data_filtered = cd.data.copy()
-        cd.regression_cols = {"poa": "poa"}
-        return cd
+    def test_run_populates_legacy_summary(self, cd_irr):
+        FilterIrr(low=200, high=800).run(cd_irr)
+        assert cd_irr.summary_ix == [("irr", "filter_irr")]
+        assert cd_irr.summary[0]["pts_after_filter"] == 3
+        assert cd_irr.summary[0]["pts_removed"] == 2
+        assert "low=200" in cd_irr.summary[0]["filter_arguments"]
 
-    def test_run_populates_legacy_summary(self):
-        cd = self._cd()
-        FilterIrr(low=200, high=800).run(cd)
-        assert cd.summary_ix == [("irr", "filter_irr")]
-        assert cd.summary[0]["pts_after_filter"] == 3
-        assert cd.summary[0]["pts_removed"] == 2
-        assert "low=200" in cd.summary[0]["filter_arguments"]
+    def test_run_populates_removed_and_kept(self, cd_irr):
+        FilterIrr(low=200, high=800).run(cd_irr)
+        assert list(cd_irr.removed[0]["index"]) == [0, 4]
+        assert list(cd_irr.kept[0]["index"]) == [1, 2, 3]
+        assert cd_irr.removed[0]["name"] == "filter_irr"
 
-    def test_run_populates_removed_and_kept(self):
-        cd = self._cd()
-        FilterIrr(low=200, high=800).run(cd)
-        assert list(cd.removed[0]["index"]) == [0, 4]
-        assert list(cd.kept[0]["index"]) == [1, 2, 3]
-        assert cd.removed[0]["name"] == "filter_irr"
+    def test_run_enumerates_repeated_filters(self, cd_irr):
+        FilterIrr(low=200, high=800).run(cd_irr)
+        FilterIrr(low=400, high=800).run(cd_irr)
+        assert [ix[1] for ix in cd_irr.summary_ix] == ["filter_irr", "filter_irr-1"]
 
-    def test_run_enumerates_repeated_filters(self):
-        cd = self._cd()
-        FilterIrr(low=200, high=800).run(cd)
-        FilterIrr(low=400, high=800).run(cd)
-        assert [ix[1] for ix in cd.summary_ix] == ["filter_irr", "filter_irr-1"]
-
-    def test_run_summary_shows_resolved_ref_val(self):
-        cd = self._cd()
-        cd.rc = pd.DataFrame({"poa": [500.0]})
-        FilterIrr(low=0.8, high=1.2, ref_val="rep_irr").run(cd)
-        args = cd.summary[0]["filter_arguments"]
+    def test_run_summary_shows_resolved_ref_val(self, cd_irr):
+        cd_irr.rc = pd.DataFrame({"poa": [500.0]})
+        FilterIrr(low=0.8, high=1.2, ref_val="rep_irr").run(cd_irr)
+        args = cd_irr.summary[0]["filter_arguments"]
         assert "rep_irr" not in args
         assert "np." not in args
         assert "500" in args
@@ -485,30 +465,18 @@ Only two invariants are new to the class architecture and not covered by the exi
 
 ```python
 class TestFilterIrrWrapper:
-    def _cd(self):
-        cd = CapData("irr")
-        cd.data = pd.DataFrame(
-            {"poa": [100.0, 300.0, 500.0, 700.0, 900.0]},
-            index=pd.RangeIndex(5),
-        )
-        cd.data_filtered = cd.data.copy()
-        cd.regression_cols = {"poa": "poa"}
-        return cd
-
-    def test_wrapper_records_filterirr_step(self):
+    def test_wrapper_records_filterirr_step(self, cd_irr):
         # New: the wrapper now appends a FilterIrr to cd.filters (nothing in
         # the existing suite touches cd.filters).
-        cd = self._cd()
-        cd.filter_irr(200, 800)
-        assert len(cd.filters) == 1
-        assert isinstance(cd.filters[0], FilterIrr)
+        cd_irr.filter_irr(200, 800)
+        assert len(cd_irr.filters) == 1
+        assert isinstance(cd_irr.filters[0], FilterIrr)
 
-    def test_wrapper_inplace_false_records_no_step(self):
+    def test_wrapper_inplace_false_records_no_step(self, cd_irr):
         # New/behavior change: the legacy @update_summary decorator recorded a
         # step even when inplace=False; the wrapper must NOT record one.
-        cd = self._cd()
-        cd.filter_irr(200, 800, inplace=False)
-        assert cd.filters == []
+        cd_irr.filter_irr(200, 800, inplace=False)
+        assert cd_irr.filters == []
 ```
 
 - [ ] **Step 2: Run to verify failure**
@@ -611,34 +579,26 @@ Append to `tests/test_filter_classes.py`:
 
 ```python
 class TestDescribeFilters:
-    def _cd(self):
-        cd = CapData("irr")
-        cd.data = pd.DataFrame(
-            {"poa": [100.0, 300.0, 500.0, 700.0, 900.0]},
-            index=pd.RangeIndex(5),
-        )
-        cd.data_filtered = cd.data.copy()
-        cd.regression_cols = {"poa": "poa"}
-        return cd
+    def test_describe_empty_is_blank(self, cd_irr):
+        assert cd_irr.describe_filters() == ""
 
-    def test_describe_empty_is_blank(self):
-        assert self._cd().describe_filters() == ""
-
-    def test_describe_single_filter(self):
-        cd = self._cd()
-        cd.filter_irr(200, 800)
-        assert cd.describe_filters() == (
-            "1. Intervals where poa is below 200 or above 800 W/m^2 were removed."
+    def test_describe_single_filter(self, cd_irr):
+        cd_irr.filter_irr(200, 800)
+        assert cd_irr.describe_filters() == (
+            "Intervals where poa is below 200 or above 800 W/m^2 were removed."
         )
 
-    def test_describe_numbers_multiple_steps(self):
-        cd = self._cd()
-        cd.filter_irr(200, 800)
-        cd.filter_irr(400, 800)
-        lines = cd.describe_filters().splitlines()
+    def test_describe_multiple_steps(self, cd_irr):
+        cd_irr.filter_irr(200, 800)
+        cd_irr.filter_irr(400, 800)
+        lines = cd_irr.describe_filters().splitlines()
         assert len(lines) == 2
-        assert lines[0].startswith("1. Intervals where poa is below 200")
-        assert lines[1].startswith("2. Intervals where poa is below 400")
+        assert lines[0] == (
+            "Intervals where poa is below 200 or above 800 W/m^2 were removed."
+        )
+        assert lines[1] == (
+            "Intervals where poa is below 400 or above 800 W/m^2 were removed."
+        )
 ```
 
 - [ ] **Step 2: Run to verify failure**
@@ -655,18 +615,16 @@ In `src/captest/capdata.py`, add the method (e.g. just after `get_summary`):
         """Return a written, human-readable summary of the filtering run.
 
         Joins the ``explanation`` of each class-based filter step in
-        ``self.filters`` into a numbered list. Steps without an explanation
-        template are skipped.
+        ``self.filters``, one per line. Steps without an explanation template
+        are skipped.
 
         Note: until all filters are class-based, filters still applied via the
         legacy decorator do not appear here. Use ``get_summary()`` for the
         complete tabular history during the transition.
         """
-        lines = []
-        for i, step in enumerate(self.filters, start=1):
-            text = step.explanation
-            if text is not None:
-                lines.append(f"{i}. {text}")
+        lines = [
+            step.explanation for step in self.filters if step.explanation is not None
+        ]
         return "\n".join(lines)
 ```
 
