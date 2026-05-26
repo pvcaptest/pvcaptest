@@ -236,3 +236,31 @@ class TestFilterIrr:
         cd_irr.rc = pd.DataFrame({"irr": [500.0]})
         with pytest.raises(ValueError, match="does not have a 'poa' column"):
             FilterIrr(low=0.8, high=1.2, ref_val="rep_irr")._execute(cd_irr)
+
+
+class TestRunLegacyMirroring:
+    def test_run_populates_legacy_summary(self, cd_irr):
+        FilterIrr(low=200, high=800).run(cd_irr)
+        assert cd_irr.summary_ix == [("irr", "filter_irr")]
+        assert cd_irr.summary[0]["pts_after_filter"] == 3
+        assert cd_irr.summary[0]["pts_removed"] == 2
+        assert "low=200" in cd_irr.summary[0]["filter_arguments"]
+
+    def test_run_populates_removed_and_kept(self, cd_irr):
+        FilterIrr(low=200, high=800).run(cd_irr)
+        assert list(cd_irr.removed[0]["index"]) == [0, 4]
+        assert list(cd_irr.kept[0]["index"]) == [1, 2, 3]
+        assert cd_irr.removed[0]["name"] == "filter_irr"
+
+    def test_run_enumerates_repeated_filters(self, cd_irr):
+        FilterIrr(low=200, high=800).run(cd_irr)
+        FilterIrr(low=400, high=800).run(cd_irr)
+        assert [ix[1] for ix in cd_irr.summary_ix] == ["filter_irr", "filter_irr-1"]
+
+    def test_run_summary_shows_resolved_ref_val(self, cd_irr):
+        cd_irr.rc = pd.DataFrame({"poa": [500.0]})
+        FilterIrr(low=0.8, high=1.2, ref_val="rep_irr").run(cd_irr)
+        args = cd_irr.summary[0]["filter_arguments"]
+        assert "rep_irr" not in args
+        assert "np." not in args
+        assert "500" in args

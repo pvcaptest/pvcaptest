@@ -182,6 +182,11 @@ class BaseSummaryStep(param.Parameterized):
     # Plain class attribute (not a param) so it is never serialized.
     _explanation_template = None
 
+    # Transitional: legacy summary label, used by run()'s mirroring until the
+    # summary-rebuild plan switches the summary table to class names. Plain
+    # class attribute (not a param) so it is never serialized.
+    _legacy_name = None
+
     def run(self, capdata):
         """Execute the step, record runtime state, and append self to filters."""
         self.pts_before = capdata.data_filtered.shape[0]
@@ -193,8 +198,37 @@ class BaseSummaryStep(param.Parameterized):
         # Transitional: keep the legacy data_filtered attribute consistent
         # until data_filtered becomes a derived property (plan 4).
         capdata.data_filtered = capdata.data.loc[self.ix_after, :]
+        self._record_legacy_summary(capdata)
         if self.pts_after == 0:
             warnings.warn("The last filter removed all data!")
+
+    def _record_legacy_summary(self, capdata):
+        """Populate the legacy summary/removed/kept lists.
+
+        Transitional scaffolding so get_summary() and the visualization
+        methods keep working while filters that still use @update_summary
+        coexist with class-based filters. Removed in the summary-rebuild plan.
+        """
+        label = self._legacy_name or type(self).__name__
+        if label in capdata.filter_counts:
+            capdata.filter_counts[label] += 1
+            label_enum = f"{label}-{capdata.filter_counts[label] - 1}"
+        else:
+            capdata.filter_counts[label] = 1
+            label_enum = label
+
+        capdata.summary_ix.append((capdata.name, label_enum))
+        capdata.summary.append(
+            {
+                "pts_after_filter": self.pts_after,
+                "pts_removed": self.pts_removed,
+                "filter_arguments": self.args_repr,
+            }
+        )
+        capdata.removed.append(
+            {"name": label_enum, "index": self.ix_before.difference(self.ix_after)}
+        )
+        capdata.kept.append({"name": label_enum, "index": self.ix_after})
 
     def _execute(self, capdata):
         """Return a pandas Index of rows to keep. Implemented by subclasses."""
