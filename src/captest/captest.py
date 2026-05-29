@@ -254,6 +254,51 @@ TEST_SETUPS = {
             },
         },
     },
+    "bifi_e2848_etotal_meas_shade": {
+        "description": (
+            "Variant of 'bifi_e2848_etotal' for applying rear-shading losses on the "
+            "measured side. The modeled rear irradiance maps directly to PVsyst's "
+            "unshaded global rear ('GlobBak') instead of rpoa_pvsyst, and rear shading "
+            "is applied to the measured side through the e_total 'rear_shade' factor "
+            "(propagated by CapTest to the measured CapData only). Total irradiance is "
+            "E_Total = E_POA + E_Rear * bifaciality * (1 - rear_shade)."
+        ),
+        "reg_cols_meas": {
+            "power": ("real_pwr_mtr", "sum"),
+            "poa": (
+                e_total,
+                {
+                    "poa": ("irr_poa", "mean"),
+                    "rpoa": ("irr_rpoa", "mean"),
+                },
+            ),
+            "t_amb": ("temp_amb", "mean"),
+            "w_vel": ("wind_speed", "mean"),
+        },
+        "reg_cols_sim": {
+            "power": "E_Grid",
+            "poa": (
+                e_total,
+                {
+                    "poa": "GlobInc",
+                    "rpoa": "GlobBak",
+                },
+            ),
+            "t_amb": "T_Amb",
+            "w_vel": "WindVel",
+        },
+        "reg_fml": "power ~ poa + I(poa * poa) + I(poa * t_amb) + I(poa * w_vel) - 1",
+        "scatter_plots": scatter_etotal,
+        "rep_conditions": {
+            "irr_bal": False,
+            "percent_filter": 20,
+            "func": {
+                "poa": perc_wrap(60),
+                "t_amb": "mean",
+                "w_vel": "mean",
+            },
+        },
+    },
     "bifi_power_tc_meas_tbom": {
         "description": (
             "The regression equation is temperature corrected power regressed against "
@@ -771,9 +816,15 @@ _CAPTEST_YAML_KEYS = frozenset(
         "irrad_stability_threshold",
         "hrs_req",
         "bifaciality",
+        "bifacial_frac",
+        "rear_shade",
         "power_temp_coeff",
         "base_temp",
+        "module_type",
+        "racking",
         "spectral_module_type",
+        "airmass_model",
+        "altitude_override",
         "meas_load_kwargs",
         "sim_load_kwargs",
         "meas_path",
@@ -889,9 +940,21 @@ class CapTest(param.Parameterized):
         Threshold value for ``irrad_stability``.
     hrs_req : float
         Hours of data required for a complete test. Default 12.5.
-    bifaciality, power_temp_coeff, base_temp : float
-        Calc-params scalars propagated onto both ``CapData`` instances at
-        ``setup()``. See ``_downstream_attrs``.
+    bifaciality, bifacial_frac, power_temp_coeff, base_temp, altitude_override : float
+        Numeric calc-params scalars propagated to both CapData instances at
+        setup(). See ``_downstream_attrs``.
+    module_type, racking, airmass_model, spectral_module_type : str
+        String calc-params options propagated to both CapData instances at
+        setup(). ``module_type``/``racking`` feed the Sandia temperature
+        model (``calcparams.bom_temp`` / ``calcparams.cell_temp``);
+        ``airmass_model`` feeds ``calcparams.absolute_airmass``;
+        ``spectral_module_type`` feeds
+        ``calcparams.spectral_factor_firstsolar``.
+    rear_shade : float
+        Fraction of rear irradiance lost to shading, propagated to the
+        measured CapData instance only (see ``_downstream_attrs_meas_only``).
+        Applied by ``calcparams.e_total`` on the measured side; the modeled
+        side handles rear shading through its own ``reg_cols_sim`` definition.
     meas_loader, sim_loader : callable or None
         Programmatic-only data-loader callables. Default resolution when
         ``None``: ``captest.io.load_data`` and ``captest.io.load_pvsyst``
@@ -1022,11 +1085,30 @@ class CapTest(param.Parameterized):
         doc="Hours of data required for a complete test.",
     )
 
-    # Calc-params scalars propagated to both CapData instances at setup().
+    # Calc-params scalars propagated to the CapData instances at setup().
+    # All are propagated onto both meas and sim except rear_shade, which is
+    # meas-only (see _downstream_attrs_meas_only).
     bifaciality = param.Number(
         default=0.0,
         bounds=(0.0, 1.0),
         doc="Bifaciality factor propagated onto both CapData instances.",
+    )
+    bifacial_frac = param.Number(
+        default=1.0,
+        bounds=(0.0, 1.0),
+        doc=(
+            "Fraction of array nameplate power that is bifacial, passed to "
+            "calcparams.e_total. Propagated onto both CapData instances."
+        ),
+    )
+    rear_shade = param.Number(
+        default=0.0,
+        bounds=(0.0, 1.0),
+        doc=(
+            "Fraction of rear irradiance lost due to shading, passed to "
+            "calcparams.e_total. Propagated onto the measured CapData "
+            "instance only (see _downstream_attrs_meas_only)."
+        ),
     )
     power_temp_coeff = param.Number(
         default=-0.32,
@@ -1035,6 +1117,26 @@ class CapTest(param.Parameterized):
     base_temp = param.Number(
         default=25,
         doc="Base temperature for temperature correction (deg C).",
+    )
+    module_type = param.String(
+        default="glass_cell_poly",
+        doc=(
+            "Module construction passed to the Sandia temperature model via "
+            "calcparams.bom_temp and calcparams.cell_temp. One of "
+            "'glass_cell_poly', 'glass_cell_glass', or 'poly_tf_steel'. "
+            "Propagated onto both CapData instances at setup(). Distinct from "
+            "spectral_module_type, which feeds "
+            "calcparams.spectral_factor_firstsolar."
+        ),
+    )
+    racking = param.String(
+        default="open_rack",
+        doc=(
+            "Racking configuration passed to the Sandia temperature model via "
+            "calcparams.bom_temp and calcparams.cell_temp. One of 'open_rack', "
+            "'close_roof_mount', or 'insulated_back'. Propagated onto both "
+            "CapData instances at setup()."
+        ),
     )
     spectral_module_type = param.String(
         default="cdte",
@@ -1045,6 +1147,25 @@ class CapTest(param.Parameterized):
             "CapData.custom_param. Named to avoid collision with the "
             "'module_type' kwarg of calcparams.bom_temp and "
             "calcparams.cell_temp."
+        ),
+    )
+    airmass_model = param.String(
+        default="kastenyoung1989",
+        doc=(
+            "Relative airmass model passed to calcparams.absolute_airmass "
+            "(pvlib.atmosphere.get_relative_airmass). Propagated onto both "
+            "CapData instances at setup()."
+        ),
+    )
+    altitude_override = param.Number(
+        default=0,
+        allow_None=True,
+        doc=(
+            "Altitude (m) used when building the pvlib.Location in "
+            "calcparams.apparent_zenith / apparent_zenith_pvsyst. Defaults to "
+            "0 (sea level) per the First Solar spectral-correction reference; "
+            "set to None to respect the site's own altitude. Propagated onto "
+            "both CapData instances at setup()."
         ),
     )
 
@@ -1070,14 +1191,23 @@ class CapTest(param.Parameterized):
         doc="Extra kwargs splatted into sim_loader.",
     )
 
-    # Class-level tuple of param names to copy onto both CapData instances
-    # during setup(). Extending is a one-line edit.
+    # Class-level tuple of param names to copy onto the CapData instances
+    # during setup(). Names also listed in _downstream_attrs_meas_only are
+    # copied onto meas only; all others are copied onto both meas and sim.
+    # Extending is a one-line edit.
     _downstream_attrs = (
         "bifaciality",
+        "bifacial_frac",
+        "rear_shade",
         "power_temp_coeff",
         "base_temp",
+        "module_type",
+        "racking",
         "spectral_module_type",
+        "airmass_model",
+        "altitude_override",
     )
+    _downstream_attrs_meas_only = ("rear_shade",)
 
     def __init__(self, **kwargs):  # noqa: D107
         super().__init__(**kwargs)
@@ -1465,9 +1595,15 @@ class CapTest(param.Parameterized):
             "irrad_stability_threshold",
             "hrs_req",
             "bifaciality",
+            "bifacial_frac",
+            "rear_shade",
             "power_temp_coeff",
             "base_temp",
+            "module_type",
+            "racking",
             "spectral_module_type",
+            "airmass_model",
+            "altitude_override",
         )
         for name in scalar_names:
             sub[name] = getattr(self, name)
@@ -1563,10 +1699,13 @@ class CapTest(param.Parameterized):
         resolved = resolve_test_setup(self.test_setup, overrides=overrides)
         self._resolved_setup = resolved
 
-        # Propagate scalar calc-params onto both CapData instances.
+        # Propagate scalar calc-params onto the CapData instances. Names in
+        # _downstream_attrs_meas_only are copied onto meas only; all others
+        # are copied onto both meas and sim.
         for name in self._downstream_attrs:
             setattr(self.meas, name, getattr(self, name))
-            setattr(self.sim, name, getattr(self, name))
+            if name not in self._downstream_attrs_meas_only:
+                setattr(self.sim, name, getattr(self, name))
 
         # Propagate site from meas -> sim with Etc/GMT±N tz for PVsyst.
         self._propagate_sim_site()

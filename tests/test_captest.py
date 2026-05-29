@@ -347,8 +347,14 @@ class TestConstruction:
         assert capt.sim is None
         assert capt.test_tolerance == "- 4"
         assert capt.bifaciality == 0.0
+        assert capt.rear_shade == 0.0
         assert capt.power_temp_coeff == -0.32
         assert capt.base_temp == 25
+        assert capt.bifacial_frac == 1.0
+        assert capt.module_type == "glass_cell_poly"
+        assert capt.racking == "open_rack"
+        assert capt.airmass_model == "kastenyoung1989"
+        assert capt.altitude_override == 0
         assert capt._resolved_setup is None
 
     def test_bare_init_accepts_kwargs(self):
@@ -368,10 +374,17 @@ class TestConstruction:
     def test_class_level_downstream_attrs(self):
         assert CapTest._downstream_attrs == (
             "bifaciality",
+            "bifacial_frac",
+            "rear_shade",
             "power_temp_coeff",
             "base_temp",
+            "module_type",
+            "racking",
             "spectral_module_type",
+            "airmass_model",
+            "altitude_override",
         )
+        assert CapTest._downstream_attrs_meas_only == ("rear_shade",)
 
     def test_from_params_with_capdata_instances_triggers_setup(
         self, meas_cd_default, sim_cd_default
@@ -840,7 +853,11 @@ class TestSetup:
         )
         for attr in CapTest._downstream_attrs:
             assert getattr(capt.meas, attr) == getattr(capt, attr)
-            assert getattr(capt.sim, attr) == getattr(capt, attr)
+            if attr in CapTest._downstream_attrs_meas_only:
+                # meas-only attrs must NOT be propagated to sim.
+                assert not hasattr(capt.sim, attr)
+            else:
+                assert getattr(capt.sim, attr) == getattr(capt, attr)
 
     @pytest.mark.parametrize("preset", _DEFAULT_FIXTURE_PRESETS)
     def test_setup_wires_regression_formula(
@@ -939,6 +956,106 @@ class TestDownstreamPropagation:
         first = meas_df.loc[mask].iloc[0]
         expected = first["irr_poa_mean_agg"] + first["irr_rpoa_mean_agg"] * 0.5
         assert first["e_total"] == pytest.approx(expected)
+
+    def test_rear_shade_flows_into_e_total(self, meas_cd_default, sim_cd_default):
+        capt = CapTest.from_params(
+            test_setup="bifi_e2848_etotal",
+            meas=meas_cd_default,
+            sim=sim_cd_default,
+            bifaciality=0.5,
+            rear_shade=0.12,
+        )
+        # Sanity: e_total = poa + rpoa * bifaciality * (1 - rear_shade)
+        meas_df = capt.meas.data
+        mask = meas_df["irr_poa_mean_agg"] > 0
+        first = meas_df.loc[mask].iloc[0]
+        expected = first["irr_poa_mean_agg"] + first["irr_rpoa_mean_agg"] * 0.5 * (
+            1 - 0.12
+        )
+        assert first["e_total"] == pytest.approx(expected)
+
+    def test_rear_shade_not_propagated_to_sim(self, meas_cd_default, sim_cd_default):
+        """rear_shade is meas-only: set on meas, absent on sim, no sim discount."""
+        capt = CapTest.from_params(
+            test_setup="bifi_e2848_etotal",
+            meas=meas_cd_default,
+            sim=sim_cd_default,
+            bifaciality=0.5,
+            rear_shade=0.12,
+        )
+        assert capt.meas.rear_shade == 0.12
+        assert not hasattr(capt.sim, "rear_shade")
+        # Sim e_total uses the e_total default rear_shade=0 (no shade discount).
+        # sim rpoa = rpoa_pvsyst(GlobBak, BackShd) = GlobBak (BackShd is 0).
+        sim_df = capt.sim.data
+        first = sim_df.loc[sim_df["GlobInc"] > 0].iloc[0]
+        expected_sim = first["GlobInc"] + first["GlobBak"] * 0.5
+        assert first["e_total"] == pytest.approx(expected_sim)
+
+    def test_meas_shade_setup_applies_shade_to_meas_only(
+        self, meas_cd_default, sim_cd_default
+    ):
+        """bifi_e2848_etotal_meas_shade discounts the measured rear by
+        rear_shade while mapping sim rpoa directly to GlobBak (no discount).
+        """
+        capt = CapTest.from_params(
+            test_setup="bifi_e2848_etotal_meas_shade",
+            meas=meas_cd_default,
+            sim=sim_cd_default,
+            bifaciality=0.5,
+            rear_shade=0.12,
+        )
+        # Meas: e_total = poa + rpoa * bifaciality * (1 - rear_shade).
+        meas_df = capt.meas.data
+        m = meas_df.loc[meas_df["irr_poa_mean_agg"] > 0].iloc[0]
+        assert m["e_total"] == pytest.approx(
+            m["irr_poa_mean_agg"] + m["irr_rpoa_mean_agg"] * 0.5 * (1 - 0.12)
+        )
+        # Sim: rpoa maps directly to GlobBak with no rear_shade discount.
+        assert not hasattr(capt.sim, "rear_shade")
+        sim_df = capt.sim.data
+        s = sim_df.loc[sim_df["GlobInc"] > 0].iloc[0]
+        assert s["e_total"] == pytest.approx(s["GlobInc"] + s["GlobBak"] * 0.5)
+
+    def test_bifacial_frac_flows_into_e_total(self, meas_cd_default, sim_cd_default):
+        capt = CapTest.from_params(
+            test_setup="bifi_e2848_etotal",
+            meas=meas_cd_default,
+            sim=sim_cd_default,
+            bifaciality=0.5,
+            bifacial_frac=0.8,
+        )
+        # e_total = poa + rpoa * bifaciality * bifacial_frac (rear_shade=0).
+        meas_df = capt.meas.data
+        first = meas_df.loc[meas_df["irr_poa_mean_agg"] > 0].iloc[0]
+        expected = first["irr_poa_mean_agg"] + first["irr_rpoa_mean_agg"] * 0.5 * 0.8
+        assert first["e_total"] == pytest.approx(expected)
+
+    def test_module_type_and_racking_flow_into_temp_model(
+        self, meas_cd_default, sim_cd_default
+    ):
+        """module_type/racking propagate into the Sandia temp model so a
+        non-default racking changes the calculated cell_temp column."""
+        ct_open = CapTest.from_params(
+            test_setup="bifi_power_tc_calc_tbom",
+            meas=meas_cd_default,
+            sim=sim_cd_default,
+            bifaciality=0.15,
+        )
+        cell_temp_open = ct_open.meas.data["cell_temp"].copy()
+        ct_ins = CapTest.from_params(
+            test_setup="bifi_power_tc_calc_tbom",
+            meas=meas_cd_default,
+            sim=sim_cd_default,
+            bifaciality=0.15,
+            racking="insulated_back",
+        )
+        assert ct_ins.meas.racking == "insulated_back"
+        assert ct_ins.sim.racking == "insulated_back"
+        # open_rack del_tcnd=3 vs insulated_back del_tcnd=0 -> cell_temp differs.
+        assert not np.allclose(
+            cell_temp_open.to_numpy(), ct_ins.meas.data["cell_temp"].to_numpy()
+        )
 
     def test_power_temp_coeff_flows_into_power_temp_correct(
         self, meas_cd_default, sim_cd_default
@@ -1569,6 +1686,29 @@ class TestToYamlAndRoundTrip:
         # A second from_yaml on the written file succeeds.
         capt2 = CapTest.from_yaml(p2)
         assert capt2.ac_nameplate == 6_000_000
+
+    def test_to_yaml_round_trips_calc_param_scalars(self, tmp_path):
+        """New calc-param scalars + rear_shade survive a to_yaml/from_yaml trip."""
+        p = tmp_path / "cfg.yaml"
+        capt = CapTest(
+            test_setup="bifi_e2848_etotal",
+            bifaciality=0.3,
+            bifacial_frac=0.8,
+            rear_shade=0.12,
+            module_type="glass_cell_glass",
+            racking="close_roof_mount",
+            airmass_model="kasten1966",
+            altitude_override=500,
+        )
+        capt.to_yaml(p, merge_into_existing=False)
+        loaded = CapTest.from_yaml(p)
+        assert loaded.bifaciality == 0.3
+        assert loaded.bifacial_frac == 0.8
+        assert loaded.rear_shade == 0.12
+        assert loaded.module_type == "glass_cell_glass"
+        assert loaded.racking == "close_roof_mount"
+        assert loaded.airmass_model == "kasten1966"
+        assert loaded.altitude_override == 500
 
     def test_to_yaml_warns_when_scatter_plots_is_user_mutated(
         self, tmp_path, ct_default
