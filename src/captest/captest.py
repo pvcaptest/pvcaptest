@@ -838,6 +838,14 @@ _CAPTEST_OVERRIDE_KEYS = frozenset(
     {"reg_cols_meas", "reg_cols_sim", "reg_fml", "rep_conditions"}
 )
 
+# Keys whose ``None`` (yaml ``null``) value is a distinct, meaningful value
+# rather than a request to fall back to the param default. These are NOT
+# stripped by ``from_mapping`` so the value round-trips through ``to_yaml`` /
+# ``from_yaml``. ``altitude_override`` is the only such key: it has a non-None
+# default (0, the sea-level convention) but allows ``None`` to mean "respect
+# the site's own altitude".
+_CAPTEST_NONE_MEANINGFUL_KEYS = frozenset({"altitude_override"})
+
 
 def _default_meas_loader():
     """Return the default measured-data loader (``captest.io.load_data``).
@@ -1194,7 +1202,9 @@ class CapTest(param.Parameterized):
     # Class-level tuple of param names to copy onto the CapData instances
     # during setup(). Names also listed in _downstream_attrs_meas_only are
     # copied onto meas only; all others are copied onto both meas and sim.
-    # Extending is a one-line edit.
+    # Extending is a one-line edit. Invariant: every name in
+    # _downstream_attrs_meas_only MUST also appear in _downstream_attrs, since
+    # setup() iterates _downstream_attrs (guarded by a subset test).
     _downstream_attrs = (
         "bifaciality",
         "bifacial_frac",
@@ -1440,8 +1450,14 @@ class CapTest(param.Parameterized):
                 )
             kwargs[path_key] = _join_base_and_relative(base_dir, val_str)
 
-        # ``null`` (None) in yaml is equivalent to omitting the key.
-        kwargs = {k: v for k, v in kwargs.items() if v is not None}
+        # ``null`` (None) in yaml is equivalent to omitting the key, except
+        # for keys where None is a distinct, meaningful value (see
+        # _CAPTEST_NONE_MEANINGFUL_KEYS) and must survive the round trip.
+        kwargs = {
+            k: v
+            for k, v in kwargs.items()
+            if v is not None or k in _CAPTEST_NONE_MEANINGFUL_KEYS
+        }
 
         # Inject programmatic-only loader callables. Explicit kwargs win
         # over any value that happened to slip through the sub-mapping

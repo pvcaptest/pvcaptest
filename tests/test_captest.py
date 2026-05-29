@@ -386,6 +386,14 @@ class TestConstruction:
         )
         assert CapTest._downstream_attrs_meas_only == ("rear_shade",)
 
+    def test_downstream_attrs_meas_only_is_subset(self):
+        """meas-only attrs must be a subset of _downstream_attrs; setup()
+        iterates _downstream_attrs, so an orphaned meas-only name would never
+        propagate to either CapData instance."""
+        assert set(CapTest._downstream_attrs_meas_only).issubset(
+            CapTest._downstream_attrs
+        )
+
     def test_from_params_with_capdata_instances_triggers_setup(
         self, meas_cd_default, sim_cd_default
     ):
@@ -1057,6 +1065,55 @@ class TestDownstreamPropagation:
             cell_temp_open.to_numpy(), ct_ins.meas.data["cell_temp"].to_numpy()
         )
 
+    def test_airmass_model_flows_into_absolute_airmass(
+        self, meas_cd_spec_corrected, sim_cd_spec_corrected
+    ):
+        """A non-default airmass_model changes the absolute_airmass column."""
+        with pytest.warns(UserWarning, match="Propagating meas.site"):
+            ct_default_model = CapTest.from_params(
+                test_setup="e2848_spec_corrected_poa",
+                meas=meas_cd_spec_corrected,
+                sim=sim_cd_spec_corrected,
+            )
+            am_default = ct_default_model.meas.data["absolute_airmass"].copy()
+            ct_alt = CapTest.from_params(
+                test_setup="e2848_spec_corrected_poa",
+                meas=meas_cd_spec_corrected,
+                sim=sim_cd_spec_corrected,
+                airmass_model="simple",
+            )
+        assert ct_alt.meas.airmass_model == "simple"
+        assert ct_alt.sim.airmass_model == "simple"
+        assert not np.allclose(
+            am_default.to_numpy(),
+            ct_alt.meas.data["absolute_airmass"].to_numpy(),
+            equal_nan=True,
+        )
+
+    def test_altitude_override_flows_into_apparent_zenith(
+        self, meas_cd_spec_corrected, sim_cd_spec_corrected
+    ):
+        """A non-zero altitude_override changes the apparent_zenith column."""
+        with pytest.warns(UserWarning, match="Propagating meas.site"):
+            ct_sea = CapTest.from_params(
+                test_setup="e2848_spec_corrected_poa",
+                meas=meas_cd_spec_corrected,
+                sim=sim_cd_spec_corrected,
+            )
+            zen_sea = ct_sea.meas.data["apparent_zenith"].copy()
+            ct_alt = CapTest.from_params(
+                test_setup="e2848_spec_corrected_poa",
+                meas=meas_cd_spec_corrected,
+                sim=sim_cd_spec_corrected,
+                altitude_override=5000,
+            )
+        assert ct_alt.meas.altitude_override == 5000
+        assert not np.allclose(
+            zen_sea.to_numpy(),
+            ct_alt.meas.data["apparent_zenith"].to_numpy(),
+            equal_nan=True,
+        )
+
     def test_power_temp_coeff_flows_into_power_temp_correct(
         self, meas_cd_default, sim_cd_default
     ):
@@ -1709,6 +1766,15 @@ class TestToYamlAndRoundTrip:
         assert loaded.racking == "close_roof_mount"
         assert loaded.airmass_model == "kasten1966"
         assert loaded.altitude_override == 500
+
+    def test_to_yaml_round_trips_altitude_override_none(self, tmp_path):
+        """altitude_override=None (respect site altitude) survives the round
+        trip as None rather than being coerced to the default of 0."""
+        p = tmp_path / "cfg.yaml"
+        capt = CapTest(test_setup="e2848_default", altitude_override=None)
+        capt.to_yaml(p, merge_into_existing=False)
+        loaded = CapTest.from_yaml(p)
+        assert loaded.altitude_override is None
 
     def test_to_yaml_warns_when_scatter_plots_is_user_mutated(
         self, tmp_path, ct_default
