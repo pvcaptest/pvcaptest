@@ -177,7 +177,7 @@ git commit -m "feat: add FilterSensors class with param.Callable row_filter"
 ### Task 2: Convert `CapData.filter_sensors` to a thin wrapper
 
 **Files:**
-- Modify: `src/captest/capdata.py` (`filter_sensors` method ~2327-2381: drop `@update_summary`, delegate to `FilterSensors`; add `FilterSensors` to the `from captest.filters import (...)` block)
+- Modify: `src/captest/capdata.py` (`filter_sensors` method ~2327-2381: drop `@update_summary`, delegate to `FilterSensors`; in the `from captest.filters import (...)` block, add `FilterSensors` and drop `sensor_filter` — the only `sensor_filter` callers were inside the removed method body)
 - Test: `tests/test_filter_classes.py`
 
 - [ ] **Step 1: Write the failing wrapper tests**
@@ -208,7 +208,7 @@ Expected: FAIL — `cd.filters` empty / not a `FilterSensors` (still the decorat
 
 - [ ] **Step 3: Add `FilterSensors` to the capdata import**
 
-In `src/captest/capdata.py`, extend the import block:
+In `src/captest/capdata.py`, edit the import block: **add `FilterSensors`** and **drop `sensor_filter`** (after Task 2 Step 4 removes the method body, `sensor_filter` is no longer called anywhere in `capdata.py` — leaving it imported would fail `ruff` `F401`). `check_all_perc_diff_comb` stays because it remains the wrapper's default arg.
 
 ```python
 from captest.filters import (
@@ -218,7 +218,6 @@ from captest.filters import (
     check_all_perc_diff_comb,
     filter_grps,
     filter_irr,
-    sensor_filter,
 )
 ```
 
