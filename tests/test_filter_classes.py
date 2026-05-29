@@ -6,7 +6,14 @@ import param
 import pytest
 
 from captest.capdata import CapData
-from captest.filters import BaseSummaryStep, BaseFilter, FilterIrr
+from captest.filters import (
+    BaseSummaryStep,
+    BaseFilter,
+    FilterIrr,
+    FilterSensors,
+    abs_diff_from_average,
+    check_all_perc_diff_comb,
+)
 
 
 @pytest.fixture
@@ -310,3 +317,40 @@ class TestDescribeFilters:
         assert lines[1] == (
             "Intervals where poa is below 400 or above 800 W/m^2 were removed."
         )
+
+
+class TestFilterSensors:
+    def test_execute_default_perc_diff_resolves(self, capdata_irr):
+        capdata_irr.regression_cols = {"poa": "poa"}
+        f = FilterSensors()
+        kept = f._execute(capdata_irr)
+        # tightly-clustered random data (876-900) is within the 5% default,
+        # so no rows are removed
+        assert list(kept) == list(capdata_irr.data_filtered.index)
+        assert f.perc_diff_resolved == {"poa": 0.05}
+
+    def test_execute_explicit_row_filter_drops_outliers(self, capdata_irr):
+        capdata_irr.data.iloc[0, 2] = 926
+        capdata_irr.data.iloc[3, 0] = 850
+        capdata_irr.data_filtered = capdata_irr.data.copy()
+        f = FilterSensors(perc_diff={"poa": 25}, row_filter=abs_diff_from_average)
+        kept = f._execute(capdata_irr)
+        assert len(kept) == capdata_irr.data.shape[0] - 2
+
+    def test_row_filter_defaults_to_check_all_perc_diff_comb(self):
+        assert FilterSensors().row_filter is check_all_perc_diff_comb
+
+    def test_args_repr_renders_row_filter_by_name(self):
+        f = FilterSensors(perc_diff={"poa": 0.05})
+        args = f.args_repr
+        assert "row_filter=check_all_perc_diff_comb" in args
+        assert "<function" not in args
+
+    def test_explanation_names_group_and_row_filter(self, capdata_irr):
+        capdata_irr.regression_cols = {"poa": "poa"}
+        f = FilterSensors()
+        f.run(capdata_irr)
+        exp = f.explanation
+        assert "poa" in exp
+        assert "check_all_perc_diff_comb" in exp
+        assert exp.endswith("were removed.")
