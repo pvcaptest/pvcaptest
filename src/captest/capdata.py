@@ -41,10 +41,10 @@ from captest import plotting
 from captest.filters import (
     BaseSummaryStep,
     FilterIrr,
+    FilterSensors,
     check_all_perc_diff_comb,
     filter_grps,
     filter_irr,
-    sensor_filter,
 )
 
 # visualization library imports
@@ -2323,7 +2323,6 @@ class CapData(param.Parameterized):
         """
         self.data_filtered = func(self.data_filtered, *args, **kwargs)
 
-    @update_summary
     def filter_sensors(
         self, perc_diff=None, inplace=True, row_filter=check_all_perc_diff_comb
     ):
@@ -2341,44 +2340,21 @@ class CapData(param.Parameterized):
             By default the poa sensors as set by the regression_cols dictionary
             are filtered with a 5% percent difference threshold.
         inplace : bool, default True
-            If True, writes over current filtered dataframe. If False, returns
-            CapData object.
+            If True, record the filter step and update data_filtered. If False,
+            return the filtered DataFrame without recording a step.
+        row_filter : callable, default check_all_perc_diff_comb
+            Row-wise consistency check applied across a group's columns.
 
         Returns
         -------
         DataFrame
             Returns filtered dataframe if inplace is False.
         """
-        if self.pre_agg_cols is not None:
-            df = self.data_filtered[self.pre_agg_cols]
-            trans = self.pre_agg_trans
-            regression_cols = self.pre_agg_reg_trans
-        else:
-            df = self.data_filtered
-            trans = self.column_groups
-            regression_cols = self.regression_cols
-
-        if perc_diff is None:
-            poa_trans_key = regression_cols["poa"]
-            perc_diff = {poa_trans_key: 0.05}
-
-        for key, threshold in perc_diff.items():
-            if "index" in locals():
-                # if index has been assigned then take intersection
-                sensors_df = df[trans[key]]
-                next_index = sensor_filter(sensors_df, threshold, row_filter=row_filter)
-                index = index.intersection(next_index)  # noqa: F821
-            else:
-                # if index has not been assigned then assign it
-                sensors_df = df[trans[key]]
-                index = sensor_filter(sensors_df, threshold, row_filter=row_filter)
-
-        df_out = self.data_filtered.loc[index, :]
-
+        flt = FilterSensors(perc_diff=perc_diff, row_filter=row_filter)
         if inplace:
-            self.data_filtered = df_out
+            flt.run(self)
         else:
-            return df_out
+            return self.data_filtered.loc[flt._execute(self), :]
 
     @update_summary
     def filter_clearsky(self, ghi_col=None, inplace=True, keep_clear=True, **kwargs):

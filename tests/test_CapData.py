@@ -331,7 +331,7 @@ class TestTopLevelFuncs(unittest.TestCase):
         df.iloc[0, 0] = 1200
         df.iloc[4, 1] = 100
         df.iloc[7, 2] = 150
-        ix = pvc.sensor_filter(df, 0.05)
+        ix = filters.sensor_filter(df, 0.05)
         self.assertEqual(ix.shape[0], 7, "Filter should have droppe three rows.")
 
     def test_sensor_filter_one_col(self):
@@ -339,7 +339,7 @@ class TestTopLevelFuncs(unittest.TestCase):
         df = pd.DataFrame({"a": rng})
         df["a"] = df["a"] + 4.1
         df.iloc[0, 0] = 1200
-        ix = pvc.sensor_filter(df, 0.05)
+        ix = filters.sensor_filter(df, 0.05)
         self.assertEqual(
             ix.shape[0], 10, "Should be no filtering for single column df."
         )

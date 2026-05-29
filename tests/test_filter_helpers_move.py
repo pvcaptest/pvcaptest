@@ -38,5 +38,4 @@ def test_capdata_still_exposes_helpers():
 
     assert callable(capdata.filter_irr)
     assert callable(capdata.filter_grps)
-    assert callable(capdata.sensor_filter)
     assert callable(capdata.check_all_perc_diff_comb)

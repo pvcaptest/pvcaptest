@@ -354,3 +354,17 @@ class TestFilterSensors:
         assert "poa" in exp
         assert "check_all_perc_diff_comb" in exp
         assert exp.endswith("were removed.")
+
+
+class TestFilterSensorsWrapper:
+    def test_wrapper_records_filtersensors_step(self, capdata_irr):
+        capdata_irr.regression_cols = {"poa": "poa"}
+        capdata_irr.filter_sensors()
+        assert len(capdata_irr.filters) == 1
+        assert isinstance(capdata_irr.filters[0], FilterSensors)
+
+    def test_wrapper_inplace_false_records_no_step(self, capdata_irr):
+        result = capdata_irr.filter_sensors(perc_diff={"poa": 0.05}, inplace=False)
+        assert capdata_irr.filters == []
+        assert result.shape[0] == capdata_irr.data_filtered.shape[0]
+        assert capdata_irr.data_filtered.shape[0] == capdata_irr.data.shape[0]
