@@ -265,10 +265,14 @@ class BaseSummaryStep(param.Parameterized):
         """Human-readable description of the step's effect (read after run()).
 
         Renders ``_explanation_template`` with ``_explanation_values()``.
-        Returns None when no template is defined. Subclasses whose phrasing
-        depends on which params are set override this property directly.
+        Returns None when no template is defined or when the step has not yet
+        been run (``_explanation_values`` typically depends on runtime-resolved
+        state set during ``_execute``). Subclasses whose phrasing depends on
+        which params are set override this property directly.
         """
         if self._explanation_template is None:
+            return None
+        if not hasattr(self, "ix_after"):
             return None
         return self._explanation_template.format(**self._explanation_values())
 
@@ -425,6 +429,8 @@ class FilterSensors(BaseFilter):
         perc_diff = self.perc_diff
         if perc_diff is None:
             perc_diff = {regression_cols["poa"]: 0.05}
+        if not perc_diff:
+            raise ValueError("perc_diff must not be empty")
         self.perc_diff_resolved = perc_diff
 
         index = None

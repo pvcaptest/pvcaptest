@@ -355,6 +355,17 @@ class TestFilterSensors:
         assert "check_all_perc_diff_comb" in exp
         assert exp.endswith("were removed.")
 
+    def test_execute_empty_perc_diff_raises(self, capdata_irr):
+        f = FilterSensors(perc_diff={})
+        with pytest.raises(ValueError, match="must not be empty"):
+            f._execute(capdata_irr)
+
+    def test_explanation_before_run_returns_none(self):
+        # explanation is post-run; reading it before run() must not raise
+        assert FilterSensors().explanation is None
+        # FilterIrr has the same property by virtue of the base-class guard
+        assert FilterIrr(low=0, high=1).explanation is None
+
 
 class TestFilterSensorsWrapper:
     def test_wrapper_records_filtersensors_step(self, capdata_irr):
