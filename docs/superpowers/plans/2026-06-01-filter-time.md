@@ -4,7 +4,7 @@
 
 **Goal:** Convert `filter_time` — the most branch-heavy filter — to `FilterTime`, with a conditional `explanation` property override (the escape hatch we designed for filters whose phrasing depends on which params are set).
 
-**Architecture:** `FilterTime` declares `start`, `end`, `test_date`, `days`, `drop`, `wrap_year` as params. `_execute` consolidates the original's four overlapping `if`-blocks into one resolution step (compute effective `start`/`end`, then choose wrap-year / drop-complement / slice). Because phrasing varies with which params are set, `FilterTime` **overrides `explanation` directly** instead of relying on a flat `_explanation_template`. Two `filter_time` helpers (`spans_year`, `wrap_year_end`) live in `capdata.py` today; they move to `filters.py` so `FilterTime._execute` can use them without a back-import cycle. `capdata.py` re-imports `wrap_year_end` (still used by `wrap_seasons`); `spans_year` has no remaining `capdata.py` caller.
+**Architecture:** `FilterTime` declares `start`, `end`, `test_date`, `days`, `drop` as params (`wrap_year` is removed — see decision 7). `_execute` consolidates the original's four overlapping `if`-blocks into one resolution step (compute effective `start`/`end`, then choose drop-complement / slice). Because phrasing varies with which params are set, `FilterTime` **overrides `explanation` directly** instead of relying on a flat `_explanation_template`. Two `filter_time` helpers (`spans_year`, `wrap_year_end`) live in `capdata.py` today; they move to `filters.py` so they live in one place. `capdata.py` re-imports `wrap_year_end` (still used by `wrap_seasons`); `spans_year` has no remaining `capdata.py` caller and is positioned for the future CapTest auto-wrap plan.
 
 **Tech Stack:** Python, `param`, pandas, pytest, `just`.
 
@@ -14,13 +14,16 @@
 
 ## Key design decisions (flag if you disagree before implementing)
 
-1. **`spans_year`/`wrap_year_end` move to `filters.py`.** `FilterTime._execute` needs them. They are pure pandas helpers (no `CapData` dependency); `capdata.py` re-imports `wrap_year_end` because `wrap_seasons` still calls it. `spans_year` has no remaining `capdata.py` caller. Same one-way import pattern as `filter_irr`/`filter_grps`/`sensor_filter`.
+1. **`spans_year`/`wrap_year_end` move to `filters.py`.** They are pure pandas helpers (no `CapData` dependency). `FilterTime._execute` itself does not call them (wrap_year is removed — decision 7), but the move consolidates them with the other row-/window-helpers and gives the future CapTest auto-wrap plan a stable import location. `capdata.py` re-imports `wrap_year_end` because `wrap_seasons` still calls it; `spans_year` has no remaining `capdata.py` caller. Same one-way import pattern as `filter_irr`/`filter_grps`/`sensor_filter`.
 2. **`start`/`end`/`test_date` as `param.Parameter`, not `param.Date`.** The original accepts strings (`"2/1/90"`) and `pd.Timestamp` values interchangeably, and converts via `pd.to_datetime` inside the method. `param.Date` rejects non-`datetime.date` types. `param.Parameter` (no type check) preserves the legacy flexibility; `_execute` does the conversion.
 3. **No-args call raises `ValueError`.** The original `filter_time()` with all params `None` leaves `df_temp` unset and crashes with `NameError`. `_execute` raises `ValueError("filter_time requires at least one of start, end, or test_date")` — surfaces the misuse cleanly.
 4. **`test_date` without `days` warns and is a no-op.** The original returns `warnings.warn(...)` (i.e. `None`) and leaves `data_filtered` unchanged. The existing `test_test_date_no_days` asserts a `UserWarning` is emitted; it does not check `data_filtered` shape. New behavior: emit the same warning and return `data_filtered.index` (no filtering), so `run()`'s `len(ix_after)` doesn't blow up on `None`. The warning text matches the original (`"Must specify days"`).
 5. **`explanation` is overridden (escape hatch).** Phrasing varies by which params are set; a flat template can't express the matrix cleanly. `_explanation_template` is left unset and `FilterTime.explanation` returns a different sentence per branch (drop vs keep, start-only, end-only, days, test_date). This is exactly the case the plan-3 spec called out as needing the override hatch.
 6. **`inplace` kept for now.** Same transitional decision as `FilterIrr`/`FilterSensors`.
-7. **`wrap_year=True` is not supported in the class-based pipeline (raises `NotImplementedError`).** `wrap_year_end` shifts indices into a year that does not exist in `capdata.data`, so the new `run()` lifecycle (`data_filtered = data.loc[ix_after]`) raises `KeyError`. Verified empirically: `wrap_year_end` returns rows indexed `1989-12-25..1990-01-10` from `1990`-only data; `data.loc[<those>]` fails. The original method bypassed this by assigning `data_filtered = df_temp` directly. No existing test exercises `wrap_year=True`, so we surface the limitation as `NotImplementedError("wrap_year is not supported in the class-based filter pipeline; the index-transforming behavior of wrap_year_end conflicts with run()'s reindex-from-data invariant")` rather than break silently. Re-enabling it later would need an architecture extension (e.g. an index-transform escape hatch on `BaseSummaryStep`). `wrap_year_end` still moves to `filters.py` because `wrap_seasons` (the other caller, still in `capdata.py`) needs it.
+7. **`wrap_year` is removed from `FilterTime` entirely — the functionality relocates to CapTest's load step (separate plan).** The original `wrap_year_end` shifts indices into a year that does not exist in `capdata.data`, which fundamentally conflicts with the new `run()` lifecycle (`data_filtered = data.loc[ix_after]` raises `KeyError`; verified empirically). Rather than work around this at the filter layer, the wrap-year functionality moves *earlier in the pipeline*: a follow-up plan adds an auto-wrap step at CapTest load — if the measured data is within 60 days of year-end/year-start, `wrap_year_end` is applied to the sim data so `CapTest.sim.data` is already contiguous by the time any filtering runs. With wrap done upstream, `FilterTime` no longer needs the flag. **Consequences for this plan:**
+   - `FilterTime` does not declare a `wrap_year` param.
+   - The `CapData.filter_time` wrapper drops `wrap_year` from its signature. Calls like `cd.filter_time(..., wrap_year=True)` will raise `TypeError: unexpected keyword argument 'wrap_year'` — a deliberately loud failure pointing migrators at the new CapTest load path (no existing test passes `wrap_year=True`, so the suite is unaffected).
+   - `wrap_year_end` still moves to `filters.py` because `wrap_seasons` (the other caller, still in `capdata.py`) needs it, and the future CapTest load plan will also import it from there.
 
 ---
 
@@ -149,15 +152,11 @@ class TestFilterTime:
         f.run(cd_time)
         assert f.explanation == "Data after 2023-02-15 was removed."
 
-    def test_execute_wrap_year_raises_not_implemented(self):
-        cd = CapData("wrap")
-        idx = pd.date_range("1990-01-01", "1990-12-31", freq="D")
-        cd.data = pd.DataFrame({"power": range(len(idx))}, index=idx)
-        cd.data_filtered = cd.data.copy()
-        # start in 1989, end in 1990 -> spans_year triggers the wrap path
-        f = FilterTime(start="1989-12-25", end="1990-01-10", wrap_year=True)
-        with pytest.raises(NotImplementedError, match="wrap_year"):
-            f._execute(cd)
+    def test_wrap_year_kwarg_is_rejected(self):
+        # wrap_year was removed from the FilterTime params; passing it should
+        # raise. (CapTest auto-wrap is the new home for this functionality.)
+        with pytest.raises(TypeError):
+            FilterTime(wrap_year=True)
 
     def test_helpers_importable_from_filters(self):
         from captest.filters import spans_year, wrap_year_end
@@ -239,10 +238,6 @@ class FilterTime(BaseFilter):
         default=False,
         doc="When True with start+end, remove the window instead of keeping it.",
     )
-    wrap_year = param.Boolean(
-        default=False,
-        doc="Rotate year-end-spanning windows into a contiguous period.",
-    )
 
     def _execute(self, capdata):
         df = capdata.data_filtered
@@ -277,26 +272,13 @@ class FilterTime(BaseFilter):
                 "filter_time requires at least one of start, end, or test_date"
             )
 
-        # wrap_year only meaningful when a bounded window is in play (user gave
-        # both start+end, or any combination involving days/test_date).
-        bounded = self.days is not None or (
-            self.start is not None and self.end is not None
-        )
-        should_wrap = self.wrap_year and bounded and spans_year(start, end)
+        # drop only applies when the user gave both start and end (matches the
+        # original method's behavior: drop is ignored for start-only / end-only
+        # / test_date / days combinations).
         should_drop = (
-            self.drop
-            and self.start is not None
-            and self.end is not None
-            and not should_wrap
+            self.drop and self.start is not None and self.end is not None
         )
-
-        if should_wrap:
-            raise NotImplementedError(
-                "wrap_year is not supported in the class-based filter "
-                "pipeline; the index-transforming behavior of wrap_year_end "
-                "conflicts with run()'s reindex-from-data invariant."
-            )
-        elif should_drop:
+        if should_drop:
             selected = df.loc[start:end, :]
             df_temp = df.loc[df.index.difference(selected.index), :]
         else:
@@ -425,7 +407,6 @@ Replace the entire current method (the `@update_summary` line through its final 
         days=None,
         test_date=None,
         inplace=True,
-        wrap_year=False,
     ):
         """
         Select data for a specified time period.
@@ -445,9 +426,12 @@ Replace the entire current method (the `@update_summary` line through its final 
         inplace : bool, default True
             If True, record the filter step and update data_filtered. If False,
             return the filtered DataFrame without recording a step.
-        wrap_year : bool, default False
-            If True, rotate year-end-spanning windows into a contiguous period
-            (see ``wrap_year_end``).
+
+        Notes
+        -----
+        The ``wrap_year`` parameter from the previous implementation has been
+        removed. Year-end-spanning data is now handled by an auto-wrap step at
+        CapTest load time (see the CapTest auto-wrap plan).
         """
         flt = FilterTime(
             start=start,
@@ -455,7 +439,6 @@ Replace the entire current method (the `@update_summary` line through its final 
             drop=drop,
             days=days,
             test_date=test_date,
-            wrap_year=wrap_year,
         )
         if inplace:
             flt.run(self)
@@ -500,13 +483,13 @@ git commit -m "refactor: make CapData.filter_time a thin wrapper over FilterTime
 ## Self-Review
 
 **1. Spec coverage (this filter):**
-- "Concrete Filter Classes" (FilterTime with start/end/drop/days/test_date/wrap_year) → Task 1. ✓
+- "Concrete Filter Classes" (FilterTime with start/end/drop/days/test_date) → Task 1. ✓ `wrap_year` is intentionally removed from this scope and relocates to a future CapTest auto-wrap plan (decision 7).
 - "Filter Explanations → override hatch for conditional filters" → Task 1's `explanation` override. ✓
 - "Thin Wrapper Methods" → Task 2. ✓
 - Defensive improvements (no-args `ValueError`, test_date-no-days warn + keep-all) are honest reads of the original's known bugs and don't break any existing test.
 
 **2. Placeholder scan:** No TBDs. Every code step shows complete code; every run step has a command + expected result. The "Quick check" after Step 4 of Task 1 catches stray `spans_year` callers before they bite.
 
-**3. Type/name consistency:** `FilterTime` params (`start`, `end`, `test_date`, `days`, `drop`, `wrap_year`), the runtime attrs `_effective_start`/`_effective_end`, `_legacy_name`, the `explanation` override, and the wrapper signature match across `filters.py`, `capdata.py`, and the tests. `spans_year`/`wrap_year_end` move with their existing signatures; `wrap_year_end` is re-imported alphabetically.
+**3. Type/name consistency:** `FilterTime` params (`start`, `end`, `test_date`, `days`, `drop`), the runtime attrs `_effective_start`/`_effective_end`, `_legacy_name`, the `explanation` override, and the wrapper signature (no `wrap_year`) match across `filters.py`, `capdata.py`, and the tests. `spans_year`/`wrap_year_end` move with their existing signatures; `wrap_year_end` is re-imported alphabetically.
 
 **Risk note (repeat of the FilterSensors-class gap):** before deleting `spans_year`/`wrap_year_end` defs from `capdata.py`, the existing `grep -rnE` in Task 2 Step 7 will catch any `pvc.spans_year` / `pvc.wrap_year_end` test references. Treat any hit as a test-update step (consistent with the no-shim policy used for `csky`, `perc_difference`, `sensor_filter`).
