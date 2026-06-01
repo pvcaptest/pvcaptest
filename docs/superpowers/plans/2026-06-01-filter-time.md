@@ -154,8 +154,9 @@ class TestFilterTime:
 
     def test_wrap_year_kwarg_is_rejected(self):
         # wrap_year was removed from the FilterTime params; passing it should
-        # raise. (CapTest auto-wrap is the new home for this functionality.)
-        with pytest.raises(TypeError):
+        # raise with the kwarg name in the message. (CapTest auto-wrap is the
+        # new home for this functionality.)
+        with pytest.raises(TypeError, match="wrap_year"):
             FilterTime(wrap_year=True)
 
     def test_helpers_importable_from_filters(self):
