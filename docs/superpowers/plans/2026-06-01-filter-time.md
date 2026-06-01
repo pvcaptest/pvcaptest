@@ -20,6 +20,7 @@
 4. **`test_date` without `days` warns and is a no-op.** The original returns `warnings.warn(...)` (i.e. `None`) and leaves `data_filtered` unchanged. The existing `test_test_date_no_days` asserts a `UserWarning` is emitted; it does not check `data_filtered` shape. New behavior: emit the same warning and return `data_filtered.index` (no filtering), so `run()`'s `len(ix_after)` doesn't blow up on `None`. The warning text matches the original (`"Must specify days"`).
 5. **`explanation` is overridden (escape hatch).** Phrasing varies by which params are set; a flat template can't express the matrix cleanly. `_explanation_template` is left unset and `FilterTime.explanation` returns a different sentence per branch (drop vs keep, start-only, end-only, days, test_date). This is exactly the case the plan-3 spec called out as needing the override hatch.
 6. **`inplace` kept for now.** Same transitional decision as `FilterIrr`/`FilterSensors`.
+7. **`wrap_year=True` is not supported in the class-based pipeline (raises `NotImplementedError`).** `wrap_year_end` shifts indices into a year that does not exist in `capdata.data`, so the new `run()` lifecycle (`data_filtered = data.loc[ix_after]`) raises `KeyError`. Verified empirically: `wrap_year_end` returns rows indexed `1989-12-25..1990-01-10` from `1990`-only data; `data.loc[<those>]` fails. The original method bypassed this by assigning `data_filtered = df_temp` directly. No existing test exercises `wrap_year=True`, so we surface the limitation as `NotImplementedError("wrap_year is not supported in the class-based filter pipeline; the index-transforming behavior of wrap_year_end conflicts with run()'s reindex-from-data invariant")` rather than break silently. Re-enabling it later would need an architecture extension (e.g. an index-transform escape hatch on `BaseSummaryStep`). `wrap_year_end` still moves to `filters.py` because `wrap_seasons` (the other caller, still in `capdata.py`) needs it.
 
 ---
 
@@ -147,6 +148,16 @@ class TestFilterTime:
         f = FilterTime(end="2023-02-15")
         f.run(cd_time)
         assert f.explanation == "Data after 2023-02-15 was removed."
+
+    def test_execute_wrap_year_raises_not_implemented(self):
+        cd = CapData("wrap")
+        idx = pd.date_range("1990-01-01", "1990-12-31", freq="D")
+        cd.data = pd.DataFrame({"power": range(len(idx))}, index=idx)
+        cd.data_filtered = cd.data.copy()
+        # start in 1989, end in 1990 -> spans_year triggers the wrap path
+        f = FilterTime(start="1989-12-25", end="1990-01-10", wrap_year=True)
+        with pytest.raises(NotImplementedError, match="wrap_year"):
+            f._execute(cd)
 
     def test_helpers_importable_from_filters(self):
         from captest.filters import spans_year, wrap_year_end
@@ -280,7 +291,11 @@ class FilterTime(BaseFilter):
         )
 
         if should_wrap:
-            df_temp = wrap_year_end(df, start, end)
+            raise NotImplementedError(
+                "wrap_year is not supported in the class-based filter "
+                "pipeline; the index-transforming behavior of wrap_year_end "
+                "conflicts with run()'s reindex-from-data invariant."
+            )
         elif should_drop:
             selected = df.loc[start:end, :]
             df_temp = df.loc[df.index.difference(selected.index), :]
@@ -296,7 +311,14 @@ class FilterTime(BaseFilter):
         if not hasattr(self, "ix_after"):
             return None
 
-        s, e, td, d = self.start, self.end, self.test_date, self.days
+        # Render every datetime-ish value as YYYY-MM-DD regardless of whether
+        # the user passed a string ("2/1/90") or a pd.Timestamp — otherwise a
+        # Timestamp interpolates as "2023-02-01 00:00:00".
+        def _fmt(v):
+            return str(pd.Timestamp(v).date()) if v is not None else None
+
+        s, e, td = _fmt(self.start), _fmt(self.end), _fmt(self.test_date)
+        d = self.days
         if td is not None:
             if d is None:
                 return None  # test_date without days is a no-op
@@ -325,7 +347,7 @@ class FilterTime(BaseFilter):
 - [ ] **Step 6: Run the unit tests**
 
 Run: `uv run pytest tests/test_filter_classes.py::TestFilterTime -v`
-Expected: PASS (15 tests).
+Expected: PASS (17 tests).
 
 - [ ] **Step 7: Confirm `capdata` still imports and `wrap_seasons` still works**
 
