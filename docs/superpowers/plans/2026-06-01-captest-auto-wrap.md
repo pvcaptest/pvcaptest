@@ -4,7 +4,7 @@
 
 **Goal:** Move the wrap-year functionality (currently in `filter_time(wrap_year=True)`) up to CapTest's `setup()`. When the measured data sits within 60 days of a year boundary, automatically wrap the **sim** data so `CapTest.sim.data` is already contiguous through year-end by the time any filtering runs. A toggle (`auto_wrap_sim`, default `True`) opts callers out.
 
-**Architecture:** Add a `param.Boolean` `auto_wrap_sim` (default `True`) and a private `_sim_data_pre_wrap` instance attribute on `CapTest`. A new `_maybe_wrap_sim_year_end()` method runs early in `setup()`: it restores any prior wrap from `_sim_data_pre_wrap` (so toggling off, or repeated `setup()` calls, behave correctly), checks whether the measured-data range is within 60 days of a year boundary, and — if it is — saves a pre-wrap snapshot and applies `wrap_year_end` to `self.sim.data` with start/end month-day-anchored to the sim year. `self.sim.data_filtered` is refreshed and `self.sim.filters` is cleared (consistent with the existing "data changed → drop filter state" pattern).
+**Architecture:** Add a `param.Boolean` `auto_wrap_sim` (default `True`) on `CapTest` and a new `_maybe_wrap_sim_year_end()` method that runs early in `setup()`. The method restores any prior wrap from a `_pre_wrap_data` snapshot **stored on `self.sim` itself** (not on CapTest, so a future `reload_sim` that replaces `self.sim` automatically invalidates the snapshot — see decision 5), checks whether the measured-data range is within 60 days of a year boundary, and — if it is — snapshots the current `sim.data` onto `self.sim._pre_wrap_data` and applies `wrap_year_end` to `self.sim.data` with start/end month-day-anchored to the sim year. `self.sim.data_filtered` is refreshed and `self.sim.filters` is cleared (consistent with the existing "data changed → drop filter state" pattern).
 
 **Tech Stack:** Python, `param`, pandas, pytest, `just`.
 
@@ -25,12 +25,13 @@
    The constant 60 lives as a `_AUTO_WRAP_DAYS = 60` module-level constant in `captest.py` so it can be tuned without changing CapTest's public API.
 3. **Action: `wrap_year_end(self.sim.data, start, end)` with sim-year anchoring.** The wrap helper requires `start`/`end` to land on the sim's typical year. Map measured's first/last month-day onto `(sim_year - 1, sim_year)` where `sim_year = self.sim.data.index[0].year`. Verified empirically: typical-year 1990 hourly sim, `start = 1989-12-01`, `end = 1990-02-15` → contiguous 1825-row window straddling year-end. The plain `start`/`end` for `wrap_year_end` are constructed from `pd.Timestamp(year=..., month=meas.month, day=meas.day, hour=..., minute=...)`.
 4. **`wrap_year_end` adds an `"index"` column to its output (pre-existing quirk).** This plan drops that column after the wrap so `sim.data` retains only its real measurement columns.
-5. **Restore-on-disable / idempotency via `_sim_data_pre_wrap` snapshot.** A plain instance attribute (`None` initially, holds the pre-wrap `sim.data` after a wrap). Every `_maybe_wrap_sim_year_end` call:
-   1. If `_sim_data_pre_wrap is not None`, restores `sim.data = _sim_data_pre_wrap.copy()` and clears the snapshot.
-   2. Returns early if `auto_wrap_sim` is `False`, or `meas`/`sim` are unset, or either index is not a `DatetimeIndex`.
-   3. Returns early if the trigger condition fails.
-   4. Otherwise snapshots the current `sim.data` and applies the wrap.
-   This makes `setup()` safely re-runnable, makes `auto_wrap_sim=False` reversibly disable a prior wrap, and avoids re-wrapping already-wrapped data.
+5. **Restore-on-disable / idempotency via a `_pre_wrap_data` snapshot stored on `self.sim` itself.** The snapshot is a plain attribute on the CapData object — `self.sim._pre_wrap_data` — *not* on CapTest. Rationale: a future partial-reload feature (`reload_sim`/`reload_meas`) will replace `self.sim`; tying the snapshot to the sim object means a replacement automatically invalidates the snapshot (the old CapData and its `_pre_wrap_data` go away together), with no contract for future authors to remember. Every `_maybe_wrap_sim_year_end` call:
+   1. Returns early if `self.sim is None`.
+   2. If `getattr(self.sim, "_pre_wrap_data", None) is not None`, restores `sim.data = sim._pre_wrap_data.copy()`, refreshes `sim.data_filtered`/`sim.filters`, and clears `sim._pre_wrap_data = None`.
+   3. Returns early if `auto_wrap_sim` is `False`, or `meas` is unset, or either index is not a `DatetimeIndex`.
+   4. Returns early if the trigger condition fails.
+   5. Otherwise snapshots the current `sim.data` onto `sim._pre_wrap_data` and applies the wrap.
+   This makes `setup()` safely re-runnable, makes `auto_wrap_sim=False` reversibly disable a prior wrap, avoids re-wrapping already-wrapped data, **and** keeps the future partial-reload feature footgun-free (replacing `self.sim` automatically drops the stale snapshot).
 6. **Side effects on the sim CapData.** After wrapping, the plan sets:
    - `self.sim.data` to the wrap output (with the helper's added `"index"` column dropped).
    - `self.sim.data_filtered = self.sim.data.copy()` (matches the spec's invariant that `data_filtered` is rooted in `data`).
@@ -75,14 +76,7 @@ In `class CapTest(param.Parameterized):`, alongside the other top-level params, 
     )
 ```
 
-In `CapTest.__init__` (around line 1083 — after `self._sim_path = None`), add:
-
-```python
-        # Pre-wrap snapshot of sim.data (set by _maybe_wrap_sim_year_end so a
-        # subsequent setup() with auto_wrap_sim=False or a non-triggering
-        # measured range can restore the original sim data).
-        self._sim_data_pre_wrap = None
-```
+No change to `CapTest.__init__` — the pre-wrap snapshot lives on `self.sim._pre_wrap_data` (a plain attribute set lazily by `_maybe_wrap_sim_year_end`), not on CapTest. This automatically invalidates the snapshot when `self.sim` is replaced (future `reload_sim`).
 
 - [ ] **Step 3: Write the failing unit tests**
 
@@ -129,7 +123,7 @@ class TestAutoWrapSim:
         before = ct.sim.data.copy()
         ct._maybe_wrap_sim_year_end()
         pd.testing.assert_frame_equal(ct.sim.data, before)
-        assert ct._sim_data_pre_wrap is None
+        assert getattr(ct.sim, "_pre_wrap_data", None) is None
 
     def test_wraps_when_meas_starts_near_year_start(self):
         # meas Jan 15 -> Feb 15 -> start is within 60 days of Jan 1
@@ -141,7 +135,7 @@ class TestAutoWrapSim:
         assert ct.sim.data.index.min() < pd.Timestamp("1990-01-01")
         assert ct.sim.data.index.max() <= pd.Timestamp("1990-02-15")
         assert "index" not in ct.sim.data.columns  # helper's quirk column dropped
-        assert ct._sim_data_pre_wrap is not None
+        assert getattr(ct.sim, "_pre_wrap_data", None) is not None
         assert ct.sim.filters == []
 
     def test_wraps_when_meas_ends_near_year_end(self):
@@ -155,7 +149,7 @@ class TestAutoWrapSim:
         ct = _ct_with(meas_idx, sim.index)
         ct._maybe_wrap_sim_year_end()
         assert ct.sim.data.index.min() < pd.Timestamp("1990-01-01")
-        assert ct._sim_data_pre_wrap is not None
+        assert getattr(ct.sim, "_pre_wrap_data", None) is not None
 
     def test_disabled_does_not_wrap(self):
         meas_idx = pd.date_range("2023-01-15", "2023-02-15", freq="h")
@@ -164,7 +158,7 @@ class TestAutoWrapSim:
         before = ct.sim.data.copy()
         ct._maybe_wrap_sim_year_end()
         pd.testing.assert_frame_equal(ct.sim.data, before)
-        assert ct._sim_data_pre_wrap is None
+        assert getattr(ct.sim, "_pre_wrap_data", None) is None
 
     def test_disabling_after_wrap_restores(self):
         meas_idx = pd.date_range("2023-01-15", "2023-02-15", freq="h")
@@ -176,7 +170,7 @@ class TestAutoWrapSim:
         ct._maybe_wrap_sim_year_end()  # should restore
         assert len(ct.sim.data) == len(sim)
         assert wrapped_len != len(sim)  # sanity: wrap did change the length
-        assert ct._sim_data_pre_wrap is None
+        assert getattr(ct.sim, "_pre_wrap_data", None) is None
 
     def test_idempotent_repeated_runs(self):
         meas_idx = pd.date_range("2023-01-15", "2023-02-15", freq="h")
@@ -204,7 +198,7 @@ class TestAutoWrapSim:
         ct.sim.data = sim
         ct.sim.data_filtered = sim.copy()
         ct._maybe_wrap_sim_year_end()  # must not raise
-        assert ct._sim_data_pre_wrap is None
+        assert getattr(ct.sim, "_pre_wrap_data", None) is None
 ```
 
 - [ ] **Step 4: Run to verify failure**
@@ -221,20 +215,26 @@ Add the method to `CapTest` (a reasonable spot is just before `def setup` so it 
         """Auto-apply ``wrap_year_end`` to ``self.sim.data`` when warranted.
 
         Idempotent and reversible: a prior wrap is restored from
-        ``self._sim_data_pre_wrap`` before each check, so re-running ``setup()``
-        — or toggling ``self.auto_wrap_sim`` to False and re-running — leaves
-        ``sim.data`` in the correct state.
+        ``self.sim._pre_wrap_data`` before each check, so re-running
+        ``setup()`` — or toggling ``self.auto_wrap_sim`` to False and
+        re-running — leaves ``sim.data`` in the correct state. The snapshot
+        lives on the sim CapData itself so a future ``reload_sim`` that
+        replaces ``self.sim`` automatically discards the stale snapshot.
         """
+        if self.sim is None:
+            return  # nothing to restore or wrap
+
         # Restore any prior wrap first so each call starts from the original.
-        if self._sim_data_pre_wrap is not None:
-            self.sim.data = self._sim_data_pre_wrap.copy()
+        snapshot = getattr(self.sim, "_pre_wrap_data", None)
+        if snapshot is not None:
+            self.sim.data = snapshot.copy()
             self.sim.data_filtered = self.sim.data.copy()
             self.sim.filters = []
-            self._sim_data_pre_wrap = None
+            self.sim._pre_wrap_data = None
 
         if not self.auto_wrap_sim:
             return
-        if self.meas is None or self.sim is None:
+        if self.meas is None:
             return
         meas_idx = self.meas.data.index
         sim_idx = self.sim.data.index
@@ -278,7 +278,7 @@ Add the method to `CapTest` (a reasonable spot is just before `def setup` so it 
             minute=meas_end.minute,
         )
 
-        self._sim_data_pre_wrap = self.sim.data.copy()
+        self.sim._pre_wrap_data = self.sim.data.copy()
         wrapped = wrap_year_end(self.sim.data, start, end)
         # wrap_year_end adds an "index" column (pre-existing helper quirk).
         if "index" in wrapped.columns:
@@ -332,7 +332,7 @@ class TestSetupAutoWrap:
         sim_idx = _hourly_typical_year(1990).index
         ct = self._make_ct(meas_idx, sim_idx)
         ct.setup(verbose=False)
-        assert ct._sim_data_pre_wrap is not None
+        assert getattr(ct.sim, "_pre_wrap_data", None) is not None
         # Wrap prepends 1989-shifted Nov-Dec; min < 1990-01-01 confirms it.
         assert ct.sim.data.index.min() < pd.Timestamp("1990-01-01")
 
@@ -341,7 +341,7 @@ class TestSetupAutoWrap:
         sim_idx = _hourly_typical_year(1990).index
         ct = self._make_ct(meas_idx, sim_idx, auto_wrap_sim=False)
         ct.setup(verbose=False)
-        assert ct._sim_data_pre_wrap is None
+        assert getattr(ct.sim, "_pre_wrap_data", None) is None
         # sim.data unchanged: still spans only 1990
         assert ct.sim.data.index.min() >= pd.Timestamp("1990-01-01")
         assert ct.sim.data.index.max() <= pd.Timestamp("1990-12-31 23:00")
@@ -350,7 +350,7 @@ class TestSetupAutoWrap:
 - [ ] **Step 2: Run to verify failure**
 
 Run: `uv run pytest tests/test_captest.py::TestSetupAutoWrap -v`
-Expected: FAIL — `setup()` does not call the wrap method yet (`_sim_data_pre_wrap` stays `None` even when wrap is warranted).
+Expected: FAIL — `setup()` does not call the wrap method yet (`sim._pre_wrap_data` stays unset even when wrap is warranted).
 
 - [ ] **Step 3: Wire into `setup()`**
 
@@ -404,6 +404,8 @@ git commit -m "refactor: invoke auto_wrap_sim at the start of CapTest.setup()"
 
 **2. Placeholder scan:** No TBDs. Every code step shows complete code; every run step has a command + expected result. The single deferred decision (which module to import `wrap_year_end` from) is explicitly tied to the execution-order question at the top.
 
-**3. Type/name consistency:** `auto_wrap_sim`, `_sim_data_pre_wrap`, `_AUTO_WRAP_DAYS`, `_maybe_wrap_sim_year_end`, and the wrap helper's signature (`wrap_year_end(df, start, end)`) match across `captest.py` and the tests.
+**3. Type/name consistency:** `auto_wrap_sim`, `_AUTO_WRAP_DAYS`, `_maybe_wrap_sim_year_end`, the sim-side snapshot `sim._pre_wrap_data`, and the wrap helper's signature (`wrap_year_end(df, start, end)`) match across `captest.py` and the tests.
+
+**Partial-reload safety:** Storing the pre-wrap snapshot on `self.sim._pre_wrap_data` (decision 5) means a future `reload_sim` that reassigns `self.sim` automatically drops the stale snapshot — the new sim has no `_pre_wrap_data` attribute, so `_maybe_wrap_sim_year_end`'s `getattr(..., None)` returns `None` and the restore branch is skipped. No contract on the future plan author is required.
 
 **Risk note:** the existing CapTest test suite may contain a fixture whose measured range happens to fall within 60 days of a year boundary. That test would change behavior under `auto_wrap_sim=True` and either need `auto_wrap_sim=False` set, or its assertions updated. Task 2 Step 5 surfaces this; treat any failure as a documented behavior change, not a regression.
