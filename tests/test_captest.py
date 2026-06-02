@@ -1936,6 +1936,23 @@ class TestAutoWrapSim:
         ct._maybe_wrap_sim_year_end()
         assert getattr(ct.sim, "_pre_wrap_data", None) is None
 
+    def test_leap_day_meas_start_does_not_raise(self):
+        # meas_start = 2024-02-29 (leap day); sim_year-1 = 1989 (non-leap).
+        # Without the day-clip guard, pd.Timestamp(1989, 2, 29) would raise.
+        meas_idx = pd.date_range("2024-02-29", "2024-03-15", freq="h")
+        sim = _hourly_typical_year(1990)
+        ct = _ct_with(meas_idx, sim.index)
+        ct._maybe_wrap_sim_year_end()
+        assert getattr(ct.sim, "_pre_wrap_data", None) is not None
+
+    def test_leap_day_meas_end_does_not_raise(self):
+        # meas_end = 2024-02-29; sim_year = 1990 (non-leap).
+        meas_idx = pd.date_range("2024-01-15", "2024-02-29 23:00", freq="h")
+        sim = _hourly_typical_year(1990)
+        ct = _ct_with(meas_idx, sim.index)
+        ct._maybe_wrap_sim_year_end()
+        assert getattr(ct.sim, "_pre_wrap_data", None) is not None
+
 
 class TestSetupAutoWrap:
     def _make_ct(self, meas_idx, sim_idx, **kwargs):
