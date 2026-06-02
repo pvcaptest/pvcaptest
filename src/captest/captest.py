@@ -28,7 +28,7 @@ import param
 import yaml
 
 from captest import util
-from captest.capdata import CapData
+from captest.capdata import CapData, wrap_year_end
 from captest.plotting import ScatterBifiPowerTc, ScatterPlot
 from captest.calcparams import (
     absolute_airmass,
@@ -646,6 +646,9 @@ def _serialize_rep_conditions(rc):
     return serialized
 
 
+_AUTO_WRAP_DAYS = 60
+
+
 def load_config(path, key="captest"):
     """Load and lightly validate the captest sub-mapping from a yaml file.
 
@@ -990,6 +993,13 @@ class CapTest(param.Parameterized):
     test_tolerance = param.String(
         default="- 4",
         doc="Tolerance string forwarded to pass/fail logic.",
+    )
+
+    auto_wrap_sim = param.Boolean(
+        default=True,
+        doc="When True, automatically apply wrap_year_end to sim.data during "
+        "setup() if measured data is within 60 days of a year boundary. "
+        "Set False to opt out and restore any prior auto-wrap.",
     )
 
     # Filter parameters
@@ -1528,6 +1538,77 @@ class CapTest(param.Parameterized):
                     stacklevel=2,
                 )
         self.sim.site = new_site
+
+    def _maybe_wrap_sim_year_end(self):
+        """Auto-apply ``wrap_year_end`` to ``self.sim.data`` when warranted.
+
+        Idempotent and reversible: a prior wrap is restored from
+        ``self.sim._pre_wrap_data`` before each check, so re-running
+        ``setup()`` — or toggling ``self.auto_wrap_sim`` to False and
+        re-running — leaves ``sim.data`` in the correct state. The snapshot
+        lives on the sim CapData itself so a future ``reload_sim`` that
+        replaces ``self.sim`` automatically discards the stale snapshot.
+        """
+        if self.sim is None:
+            return
+
+        snapshot = getattr(self.sim, "_pre_wrap_data", None)
+        if snapshot is not None:
+            self.sim.data = snapshot.copy()
+            self.sim.data_filtered = self.sim.data.copy()
+            self.sim.filters = []
+            self.sim._pre_wrap_data = None
+
+        if not self.auto_wrap_sim:
+            return
+        if self.meas is None:
+            return
+        meas_idx = self.meas.data.index
+        sim_idx = self.sim.data.index
+        if not isinstance(meas_idx, pd.DatetimeIndex):
+            return
+        if not isinstance(sim_idx, pd.DatetimeIndex):
+            return
+        if len(meas_idx) == 0 or len(sim_idx) == 0:
+            return
+
+        meas_start = meas_idx[0]
+        meas_end = meas_idx[-1]
+        days_from_year_start = (
+            meas_start - pd.Timestamp(year=meas_start.year, month=1, day=1)
+        ).days
+        days_to_year_end = (
+            pd.Timestamp(year=meas_end.year, month=12, day=31) - meas_end
+        ).days
+        if (
+            days_from_year_start > _AUTO_WRAP_DAYS
+            and days_to_year_end > _AUTO_WRAP_DAYS
+        ):
+            return
+
+        sim_year = sim_idx[0].year
+        start = pd.Timestamp(
+            year=sim_year - 1,
+            month=meas_start.month,
+            day=meas_start.day,
+            hour=meas_start.hour,
+            minute=meas_start.minute,
+        )
+        end = pd.Timestamp(
+            year=sim_year,
+            month=meas_end.month,
+            day=meas_end.day,
+            hour=meas_end.hour,
+            minute=meas_end.minute,
+        )
+
+        self.sim._pre_wrap_data = self.sim.data.copy()
+        wrapped = wrap_year_end(self.sim.data, start, end)
+        if "index" in wrapped.columns:
+            wrapped = wrapped.drop(columns="index")
+        self.sim.data = wrapped
+        self.sim.data_filtered = self.sim.data.copy()
+        self.sim.filters = []
 
     def setup(self, verbose=True):
         """Resolve TEST_SETUPS, propagate scalars, process regression cols.

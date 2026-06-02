@@ -16,6 +16,7 @@ import pytest
 import yaml
 
 from captest import CapTest, captest as ct
+from captest.capdata import CapData
 from captest.calcparams import (
     apparent_zenith_pvsyst,
     cell_temp,
@@ -1826,3 +1827,111 @@ class TestIntegration:
         self._run_canonical_sequence(ct_bifi_power_tc_meas_tbom)
         cap_ratio = ct_bifi_power_tc_meas_tbom.captest_results(print_res=False)
         assert 0.8 < cap_ratio < 1.2
+
+
+def _hourly_typical_year(year=1990):
+    """1-year hourly DataFrame indexed by ``year``."""
+    idx = pd.date_range(f"{year}-01-01", f"{year}-12-31 23:00", freq="h")
+    return pd.DataFrame({"poa": np.arange(len(idx), dtype=float)}, index=idx)
+
+
+def _ct_with(meas_idx, sim_idx, **kwargs):
+    """A CapTest with minimal meas/sim CapData attached for wrap testing."""
+    ct = CapTest(**kwargs)
+    meas = CapData("meas")
+    meas.data = pd.DataFrame({"poa": np.zeros(len(meas_idx))}, index=meas_idx)
+    meas.data_filtered = meas.data.copy()
+    sim = CapData("sim")
+    sim.data = pd.DataFrame(
+        {"poa": np.arange(len(sim_idx), dtype=float)}, index=sim_idx
+    )
+    sim.data_filtered = sim.data.copy()
+    ct.meas = meas
+    ct.sim = sim
+    return ct
+
+
+class TestAutoWrapSim:
+    def test_default_is_true(self):
+        assert CapTest().auto_wrap_sim is True
+
+    def test_no_wrap_when_meas_centered_in_year(self):
+        meas_idx = pd.date_range("2023-05-01", "2023-08-31", freq="h")
+        sim_idx = _hourly_typical_year(1990).index
+        ct = _ct_with(meas_idx, sim_idx)
+        before = ct.sim.data.copy()
+        ct._maybe_wrap_sim_year_end()
+        pd.testing.assert_frame_equal(ct.sim.data, before)
+        assert getattr(ct.sim, "_pre_wrap_data", None) is None
+
+    def test_wraps_when_meas_starts_near_year_start(self):
+        meas_idx = pd.date_range("2023-01-15", "2023-02-15", freq="h")
+        sim = _hourly_typical_year(1990)
+        ct = _ct_with(meas_idx, sim.index)
+        ct._maybe_wrap_sim_year_end()
+        assert ct.sim.data.index.min() < pd.Timestamp("1990-01-01")
+        assert ct.sim.data.index.max() <= pd.Timestamp("1990-02-15")
+        assert "index" not in ct.sim.data.columns
+        assert getattr(ct.sim, "_pre_wrap_data", None) is not None
+        assert ct.sim.filters == []
+
+    def test_wraps_when_meas_ends_near_year_end(self):
+        # meas Nov 1 -> Dec 15 -> end is within 60 days of Dec 31.
+        # The wrap prepends sim's Nov-Dec data shifted into 1989; the post-
+        # 1989 portion is df.loc[:1990-12-15] so the max is 1990-12-15, not
+        # anything past 1990-12-31. The observable effect is the prepended
+        # 1989 data — assert min < 1990-01-01 instead.
+        meas_idx = pd.date_range("2023-11-01", "2023-12-15", freq="h")
+        sim = _hourly_typical_year(1990)
+        ct = _ct_with(meas_idx, sim.index)
+        ct._maybe_wrap_sim_year_end()
+        assert ct.sim.data.index.min() < pd.Timestamp("1990-01-01")
+        assert getattr(ct.sim, "_pre_wrap_data", None) is not None
+
+    def test_disabled_does_not_wrap(self):
+        meas_idx = pd.date_range("2023-01-15", "2023-02-15", freq="h")
+        sim = _hourly_typical_year(1990)
+        ct = _ct_with(meas_idx, sim.index, auto_wrap_sim=False)
+        before = ct.sim.data.copy()
+        ct._maybe_wrap_sim_year_end()
+        pd.testing.assert_frame_equal(ct.sim.data, before)
+        assert getattr(ct.sim, "_pre_wrap_data", None) is None
+
+    def test_disabling_after_wrap_restores(self):
+        meas_idx = pd.date_range("2023-01-15", "2023-02-15", freq="h")
+        sim = _hourly_typical_year(1990)
+        ct = _ct_with(meas_idx, sim.index)
+        ct._maybe_wrap_sim_year_end()
+        wrapped_len = len(ct.sim.data)
+        ct.auto_wrap_sim = False
+        ct._maybe_wrap_sim_year_end()
+        assert len(ct.sim.data) == len(sim)
+        assert wrapped_len != len(sim)
+        assert getattr(ct.sim, "_pre_wrap_data", None) is None
+
+    def test_idempotent_repeated_runs(self):
+        meas_idx = pd.date_range("2023-01-15", "2023-02-15", freq="h")
+        sim = _hourly_typical_year(1990)
+        ct = _ct_with(meas_idx, sim.index)
+        ct._maybe_wrap_sim_year_end()
+        first = ct.sim.data.copy()
+        ct._maybe_wrap_sim_year_end()
+        pd.testing.assert_frame_equal(ct.sim.data, first)
+
+    def test_returns_early_when_meas_or_sim_missing(self):
+        ct = CapTest()
+        ct.meas = None
+        ct.sim = None
+        ct._maybe_wrap_sim_year_end()  # must not raise
+
+    def test_returns_early_for_non_datetime_index(self):
+        ct = CapTest()
+        ct.meas = CapData("meas")
+        ct.meas.data = pd.DataFrame({"poa": [0, 1, 2]})  # RangeIndex
+        ct.meas.data_filtered = ct.meas.data.copy()
+        ct.sim = CapData("sim")
+        sim = _hourly_typical_year(1990)
+        ct.sim.data = sim
+        ct.sim.data_filtered = sim.copy()
+        ct._maybe_wrap_sim_year_end()
+        assert getattr(ct.sim, "_pre_wrap_data", None) is None
