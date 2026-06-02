@@ -1632,6 +1632,11 @@ class CapTest(param.Parameterized):
         if self.sim is None:
             raise RuntimeError("CapTest.sim must be set before setup().")
 
+        # Auto-wrap sim.data when measured spans (within 60 days of) a year
+        # boundary. Idempotent and reversible — re-running setup() or toggling
+        # auto_wrap_sim restores the appropriate state.
+        self._maybe_wrap_sim_year_end()
+
         # Build the overrides dict for resolve_test_setup. Only non-None
         # values are passed through so named-preset resolution falls back to
         # the preset's defaults for keys the user hasn't overridden.

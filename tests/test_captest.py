@@ -1935,3 +1935,33 @@ class TestAutoWrapSim:
         ct.sim.data_filtered = sim.copy()
         ct._maybe_wrap_sim_year_end()
         assert getattr(ct.sim, "_pre_wrap_data", None) is None
+
+
+class TestSetupAutoWrap:
+    def _make_ct(self, meas_idx, sim_idx, **kwargs):
+        ct = _ct_with(meas_idx, sim_idx, **kwargs)
+        ct.meas.regression_cols = {"poa": "poa"}
+        ct.sim.regression_cols = {"poa": "poa"}
+        ct.test_setup = "custom"
+        ct.reg_cols_meas = {"poa": "poa"}
+        ct.reg_cols_sim = {"poa": "poa"}
+        ct.reg_fml = "poa ~ poa - 1"
+        return ct
+
+    def test_setup_calls_wrap_when_meas_near_year_end(self):
+        meas_idx = pd.date_range("2023-11-01", "2023-12-15", freq="h")
+        sim_idx = _hourly_typical_year(1990).index
+        ct = self._make_ct(meas_idx, sim_idx)
+        ct.setup(verbose=False)
+        assert getattr(ct.sim, "_pre_wrap_data", None) is not None
+        # Wrap prepends 1989-shifted Nov-Dec; min < 1990-01-01 confirms it.
+        assert ct.sim.data.index.min() < pd.Timestamp("1990-01-01")
+
+    def test_setup_skips_wrap_when_disabled(self):
+        meas_idx = pd.date_range("2023-11-01", "2023-12-15", freq="h")
+        sim_idx = _hourly_typical_year(1990).index
+        ct = self._make_ct(meas_idx, sim_idx, auto_wrap_sim=False)
+        ct.setup(verbose=False)
+        assert getattr(ct.sim, "_pre_wrap_data", None) is None
+        assert ct.sim.data.index.min() >= pd.Timestamp("1990-01-01")
+        assert ct.sim.data.index.max() <= pd.Timestamp("1990-12-31 23:00")
