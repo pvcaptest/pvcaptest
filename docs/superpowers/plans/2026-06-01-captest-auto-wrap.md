@@ -145,12 +145,16 @@ class TestAutoWrapSim:
         assert ct.sim.filters == []
 
     def test_wraps_when_meas_ends_near_year_end(self):
-        # meas Nov 1 -> Dec 15 -> end is within 60 days of Dec 31
+        # meas Nov 1 -> Dec 15 -> end is within 60 days of Dec 31.
+        # The wrap prepends sim's Nov-Dec data shifted into 1989; the post-
+        # 1989 portion is df.loc[:1990-12-15] so the max is 1990-12-15, not
+        # anything past 1990-12-31. The observable effect is the prepended
+        # 1989 data — assert min < 1990-01-01 instead.
         meas_idx = pd.date_range("2023-11-01", "2023-12-15", freq="h")
         sim = _hourly_typical_year(1990)
         ct = _ct_with(meas_idx, sim.index)
         ct._maybe_wrap_sim_year_end()
-        assert ct.sim.data.index.max() > pd.Timestamp("1990-12-31")
+        assert ct.sim.data.index.min() < pd.Timestamp("1990-01-01")
         assert ct._sim_data_pre_wrap is not None
 
     def test_disabled_does_not_wrap(self):
@@ -329,7 +333,8 @@ class TestSetupAutoWrap:
         ct = self._make_ct(meas_idx, sim_idx)
         ct.setup(verbose=False)
         assert ct._sim_data_pre_wrap is not None
-        assert ct.sim.data.index.max() > pd.Timestamp("1990-12-31")
+        # Wrap prepends 1989-shifted Nov-Dec; min < 1990-01-01 confirms it.
+        assert ct.sim.data.index.min() < pd.Timestamp("1990-01-01")
 
     def test_setup_skips_wrap_when_disabled(self):
         meas_idx = pd.date_range("2023-11-01", "2023-12-15", freq="h")
