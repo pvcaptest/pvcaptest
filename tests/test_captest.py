@@ -1038,6 +1038,13 @@ class TestDownstreamPropagation:
         first = meas_df.loc[meas_df["irr_poa_mean_agg"] > 0].iloc[0]
         expected = first["irr_poa_mean_agg"] + first["irr_rpoa_mean_agg"] * 0.5 * 0.8
         assert first["e_total"] == pytest.approx(expected)
+        # bifacial_frac propagates to both sides; sim e_total reflects it too.
+        # sim rpoa = rpoa_pvsyst(GlobBak, BackShd) = GlobBak (BackShd is 0).
+        assert capt.sim.bifacial_frac == 0.8
+        sim_df = capt.sim.data
+        sim_first = sim_df.loc[sim_df["GlobInc"] > 0].iloc[0]
+        expected_sim = sim_first["GlobInc"] + sim_first["GlobBak"] * 0.5 * 0.8
+        assert sim_first["e_total"] == pytest.approx(expected_sim)
 
     def test_module_type_and_racking_flow_into_temp_model(
         self, meas_cd_default, sim_cd_default
