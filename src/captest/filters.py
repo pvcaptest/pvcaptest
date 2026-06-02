@@ -552,7 +552,7 @@ class FilterTime(BaseFilter):
     days = param.Integer(default=None, allow_None=True, doc="Window length in days.")
     drop = param.Boolean(
         default=False,
-        doc="When True with start+end, remove the window instead of keeping it.",
+        doc="When True, remove the resolved window from the data instead of keeping it.",
     )
 
     def _execute(self, capdata):

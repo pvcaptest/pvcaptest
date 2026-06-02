@@ -461,6 +461,21 @@ class TestFilterTime:
         assert len(kept) == n - 11
         assert pd.Timestamp("2023-02-15") not in kept
 
+    def test_execute_drop_start_only(self, cd_time):
+        # start-only resolves end=last row; drop keeps rows BEFORE start.
+        # cd_time spans 2023-01-01..2023-03-31 daily (90 rows); window
+        # 02-01..03-31 is 59 rows; complement is 31 (Jan 1..Jan 31).
+        kept = FilterTime(start="2023-02-01", drop=True)._execute(cd_time)
+        assert len(kept) == 31
+        assert kept[-1] < pd.Timestamp("2023-02-01")
+
+    def test_execute_drop_end_only(self, cd_time):
+        # end-only resolves start=first row; drop keeps rows AFTER end.
+        # Window 01-01..02-15 = 46 rows; complement = 44.
+        kept = FilterTime(end="2023-02-15", drop=True)._execute(cd_time)
+        assert len(kept) == 44
+        assert kept[0] > pd.Timestamp("2023-02-15")
+
     def test_explanation_start_end(self, cd_time):
         f = FilterTime(start="2023-02-01", end="2023-02-15")
         f.run(cd_time)
@@ -496,6 +511,16 @@ class TestFilterTime:
         assert "within" in exp
         assert "2023-02-10" in exp  # resolved start
         assert "2023-02-20" in exp  # resolved end
+
+    def test_explanation_drop_start_only(self, cd_time):
+        f = FilterTime(start="2023-02-01", drop=True)
+        f.run(cd_time)
+        assert f.explanation == "Data from 2023-02-01 onward was removed."
+
+    def test_explanation_drop_end_only(self, cd_time):
+        f = FilterTime(end="2023-02-15", drop=True)
+        f.run(cd_time)
+        assert f.explanation == "Data up to 2023-02-15 was removed."
 
     def test_explanation_start_only(self, cd_time):
         f = FilterTime(start="2023-02-01")
