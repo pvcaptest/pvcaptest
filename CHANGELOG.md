@@ -8,12 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - Added `bifi_power_tc_meas_tbom` preset test setup using field-measured back-of-module temperature.
+- Added `bifi_e2848_etotal_rear_shade_meas` preset test setup that applies rear-shading losses on the measured side via the `e_total` `rear_shade` factor (the modeled rear maps directly to PVsyst `GlobBak`).
 - Added a required `description` key to `TEST_SETUPS` registry entries and updated validation.
 - Added a "Predefined Test Setups" section to the API reference and updated user guides for new presets.
 - Added Sphinx documentation stubs for `validate_test_setup`, `resolve_test_setup`, and `perc_wrap`.
 
 ### Changed
 - Renamed the `bifi_power_tc` preset test setup to `bifi_power_tc_calc_tbom`.
+- **Breaking:** Renamed the `bifi_e2848_etotal` preset test setup to `bifi_e2848_etotal_rear_shade_sim` so the name states that rear shading is handled in the modeled (PVsyst) data (`rpoa_pvsyst = GlobBak + BackShd`). The new `bifi_e2848_etotal_rear_shade_meas` variant handles rear shading on the measured side.
 - Modified `CapData.rep_cond` parameter order! If you were relying on the ability to pass kwargs as positional args
 you will now be passing the WRONG arguments.
 - Updated `CapData.rep_cond` doc string to more clearly describe default calculations defined in `captest.TEST_SETUPS`

@@ -62,9 +62,9 @@ class TestTestSetupsRegistry:
         assert set(entry["reg_cols_meas"].keys()) == {"power", "poa", "t_amb", "w_vel"}
         assert set(entry["reg_cols_sim"].keys()) == {"power", "poa", "t_amb", "w_vel"}
 
-    def test_bifi_e2848_etotal_uses_e_total(self):
-        """bifi_e2848_etotal preset wraps poa in an e_total calc-tuple."""
-        entry = ct.TEST_SETUPS["bifi_e2848_etotal"]
+    def test_bifi_e2848_etotal_rear_shade_sim_uses_e_total(self):
+        """bifi_e2848_etotal_rear_shade_sim preset wraps poa in an e_total calc-tuple."""
+        entry = ct.TEST_SETUPS["bifi_e2848_etotal_rear_shade_sim"]
         meas_poa = entry["reg_cols_meas"]["poa"]
         assert isinstance(meas_poa, tuple)
         assert meas_poa[0] is e_total
@@ -232,11 +232,11 @@ class TestLoadConfig:
             ct.load_config(p)
 
     def test_custom_key(self, tmp_path):
-        yaml_text = "captest_bifi:\n  test_setup: bifi_e2848_etotal\n"
+        yaml_text = "captest_bifi:\n  test_setup: bifi_e2848_etotal_rear_shade_sim\n"
         p = tmp_path / "cfg.yaml"
         p.write_text(yaml_text)
         sub = ct.load_config(p, key="captest_bifi")
-        assert sub["test_setup"] == "bifi_e2848_etotal"
+        assert sub["test_setup"] == "bifi_e2848_etotal_rear_shade_sim"
 
     def test_top_level_not_a_mapping_raises(self, tmp_path):
         p = tmp_path / "cfg.yaml"
@@ -359,11 +359,11 @@ class TestConstruction:
 
     def test_bare_init_accepts_kwargs(self):
         capt = CapTest(
-            test_setup="bifi_e2848_etotal",
+            test_setup="bifi_e2848_etotal_rear_shade_sim",
             ac_nameplate=125_000,
             bifaciality=0.15,
         )
-        assert capt.test_setup == "bifi_e2848_etotal"
+        assert capt.test_setup == "bifi_e2848_etotal_rear_shade_sim"
         assert capt.ac_nameplate == 125_000
         assert capt.bifaciality == 0.15
 
@@ -789,12 +789,12 @@ class TestLoadConfigPublicExport:
     def test_returns_sub_mapping(self, tmp_path):
         p = tmp_path / "cfg.yaml"
         p.write_text(
-            "captest:\n  test_setup: bifi_e2848_etotal\n  ac_nameplate: 1234\n"
+            "captest:\n  test_setup: bifi_e2848_etotal_rear_shade_sim\n  ac_nameplate: 1234\n"
         )
         import captest
 
         sub = captest.load_config(p)
-        assert sub["test_setup"] == "bifi_e2848_etotal"
+        assert sub["test_setup"] == "bifi_e2848_etotal_rear_shade_sim"
         assert sub["ac_nameplate"] == 1234
 
     def test_missing_key_raises_keyerror_listing_available_keys(self, tmp_path):
@@ -852,7 +852,7 @@ class TestSetup:
         self, meas_cd_default, sim_cd_default
     ):
         capt = CapTest.from_params(
-            test_setup="bifi_e2848_etotal",
+            test_setup="bifi_e2848_etotal_rear_shade_sim",
             meas=meas_cd_default,
             sim=sim_cd_default,
             bifaciality=0.22,
@@ -952,7 +952,7 @@ class TestDownstreamPropagation:
 
     def test_bifaciality_flows_into_e_total(self, meas_cd_default, sim_cd_default):
         capt = CapTest.from_params(
-            test_setup="bifi_e2848_etotal",
+            test_setup="bifi_e2848_etotal_rear_shade_sim",
             meas=meas_cd_default,
             sim=sim_cd_default,
             bifaciality=0.5,
@@ -967,7 +967,7 @@ class TestDownstreamPropagation:
 
     def test_rear_shade_flows_into_e_total(self, meas_cd_default, sim_cd_default):
         capt = CapTest.from_params(
-            test_setup="bifi_e2848_etotal",
+            test_setup="bifi_e2848_etotal_rear_shade_sim",
             meas=meas_cd_default,
             sim=sim_cd_default,
             bifaciality=0.5,
@@ -985,7 +985,7 @@ class TestDownstreamPropagation:
     def test_rear_shade_not_propagated_to_sim(self, meas_cd_default, sim_cd_default):
         """rear_shade is meas-only: set on meas, absent on sim, no sim discount."""
         capt = CapTest.from_params(
-            test_setup="bifi_e2848_etotal",
+            test_setup="bifi_e2848_etotal_rear_shade_sim",
             meas=meas_cd_default,
             sim=sim_cd_default,
             bifaciality=0.5,
@@ -1003,11 +1003,11 @@ class TestDownstreamPropagation:
     def test_meas_shade_setup_applies_shade_to_meas_only(
         self, meas_cd_default, sim_cd_default
     ):
-        """bifi_e2848_etotal_meas_shade discounts the measured rear by
+        """bifi_e2848_etotal_rear_shade_meas discounts the measured rear by
         rear_shade while mapping sim rpoa directly to GlobBak (no discount).
         """
         capt = CapTest.from_params(
-            test_setup="bifi_e2848_etotal_meas_shade",
+            test_setup="bifi_e2848_etotal_rear_shade_meas",
             meas=meas_cd_default,
             sim=sim_cd_default,
             bifaciality=0.5,
@@ -1027,7 +1027,7 @@ class TestDownstreamPropagation:
 
     def test_bifacial_frac_flows_into_e_total(self, meas_cd_default, sim_cd_default):
         capt = CapTest.from_params(
-            test_setup="bifi_e2848_etotal",
+            test_setup="bifi_e2848_etotal_rear_shade_sim",
             meas=meas_cd_default,
             sim=sim_cd_default,
             bifaciality=0.5,
@@ -1748,7 +1748,7 @@ class TestToYamlAndRoundTrip:
         """New calc-param scalars + rear_shade survive a to_yaml/from_yaml trip."""
         p = tmp_path / "cfg.yaml"
         capt = CapTest(
-            test_setup="bifi_e2848_etotal",
+            test_setup="bifi_e2848_etotal_rear_shade_sim",
             bifaciality=0.3,
             bifacial_frac=0.8,
             rear_shade=0.12,
@@ -1866,18 +1866,20 @@ class TestYamlKeyParametrization:
 
     def test_from_yaml_reads_under_captest_key_by_default(self, tmp_path):
         p = tmp_path / "cfg.yaml"
-        p.write_text("captest:\n  test_setup: bifi_e2848_etotal\n  ac_nameplate: 1\n")
+        p.write_text(
+            "captest:\n  test_setup: bifi_e2848_etotal_rear_shade_sim\n  ac_nameplate: 1\n"
+        )
         capt = CapTest.from_yaml(p)
-        assert capt.test_setup == "bifi_e2848_etotal"
+        assert capt.test_setup == "bifi_e2848_etotal_rear_shade_sim"
         assert capt.ac_nameplate == 1
 
     def test_from_yaml_reads_under_custom_key(self, tmp_path):
         p = tmp_path / "cfg.yaml"
         p.write_text(
-            "captest_bifi:\n  test_setup: bifi_e2848_etotal\n  ac_nameplate: 2\n"
+            "captest_bifi:\n  test_setup: bifi_e2848_etotal_rear_shade_sim\n  ac_nameplate: 2\n"
         )
         capt = CapTest.from_yaml(p, key="captest_bifi")
-        assert capt.test_setup == "bifi_e2848_etotal"
+        assert capt.test_setup == "bifi_e2848_etotal_rear_shade_sim"
         assert capt.ac_nameplate == 2
 
     def test_from_yaml_missing_key_lists_available_keys(self, tmp_path):
@@ -1908,7 +1910,7 @@ class TestYamlKeyParametrization:
             "  test_setup: e2848_default\n"
             "  ac_nameplate: 10\n"
         )
-        capt = CapTest(test_setup="bifi_e2848_etotal", ac_nameplate=20)
+        capt = CapTest(test_setup="bifi_e2848_etotal_rear_shade_sim", ac_nameplate=20)
         capt.to_yaml(p, key="captest_bifi", merge_into_existing=True)
         doc = yaml.safe_load(p.read_text())
         # Other top-level keys preserved.
@@ -1918,7 +1920,7 @@ class TestYamlKeyParametrization:
         assert doc["captest"]["test_setup"] == "e2848_default"
         assert doc["captest"]["ac_nameplate"] == 10
         # New captest_bifi sub-map written.
-        assert doc["captest_bifi"]["test_setup"] == "bifi_e2848_etotal"
+        assert doc["captest_bifi"]["test_setup"] == "bifi_e2848_etotal_rear_shade_sim"
         assert doc["captest_bifi"]["ac_nameplate"] == 20
 
     def test_to_yaml_merge_false_overwrites_existing_file(self, tmp_path):
@@ -1975,7 +1977,7 @@ class TestIntegration:
         assert ct_default.meas.regression_cols["poa"] == "irr_poa_mean_agg"
         assert ct_default.sim.regression_cols["poa"] == "GlobInc"
 
-    def test_end_to_end_bifi_e2848_etotal(self, ct_etotal):
+    def test_end_to_end_bifi_e2848_etotal_rear_shade_sim(self, ct_etotal):
         """Bifacial e_total preset runs end-to-end; e_total column materialized."""
         # setup() (called by from_params) already ran process_regression_columns
         # which adds the e_total column to both CapData instances.

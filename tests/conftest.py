@@ -195,7 +195,7 @@ def meas_cd_default():
     Column groups are renamed so the shipped ``e2848_default`` preset matches
     without extra overrides: ``real_pwr_mtr``, ``irr_poa``, ``temp_amb``,
     ``wind_speed``. A synthetic ``irr_rpoa`` group is added (scaled fraction
-    of the POA sensors) so the ``bifi_e2848_etotal`` and
+    of the POA sensors) so the ``bifi_e2848_etotal_rear_shade_sim`` and
     ``bifi_power_tc_calc_tbom`` presets also resolve against this fixture
     without additional wiring.
     """
@@ -230,7 +230,7 @@ def sim_cd_default():
     """Minimal modeled CapData loaded from the shipped PVsyst example.
 
     Synthetic ``GlobBak`` and ``BackShd`` columns are added so presets that
-    rely on ``rpoa_pvsyst(globbak=..., backshd=...)`` (``bifi_e2848_etotal``,
+    rely on ``rpoa_pvsyst(globbak=..., backshd=...)`` (``bifi_e2848_etotal_rear_shade_sim``,
     ``bifi_power_tc_meas_tbom``, ``bifi_power_tc_calc_tbom``) resolve without
     needing a new PVsyst export.
     """
@@ -255,9 +255,9 @@ def ct_default(meas_cd_default, sim_cd_default):
 
 @pytest.fixture
 def ct_etotal(meas_cd_default, sim_cd_default):
-    """CapTest for the bifi_e2848_etotal preset with setup() run."""
+    """CapTest for the bifi_e2848_etotal_rear_shade_sim preset with setup() run."""
     return CapTest.from_params(
-        test_setup="bifi_e2848_etotal",
+        test_setup="bifi_e2848_etotal_rear_shade_sim",
         meas=meas_cd_default,
         sim=sim_cd_default,
         ac_nameplate=6_000_000,

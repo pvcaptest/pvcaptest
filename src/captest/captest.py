@@ -158,7 +158,8 @@ def scatter_default(cd, **kwargs):
 def scatter_etotal(cd, **kwargs):
     """Single scatter of regression lhs vs. the ``e_total`` column.
 
-    Intended for the ``bifi_e2848_etotal`` preset. Thin wrapper around
+    Intended for the ``bifi_e2848_etotal_rear_shade_sim`` /
+    ``bifi_e2848_etotal_rear_shade_meas`` presets. Thin wrapper around
     :class:`captest.plotting.ScatterPlot`; resolves the x column from
     ``cd.regression_cols['poa']`` after ``process_regression_columns``
     has materialized the calculated e_total column.
@@ -209,11 +210,18 @@ TEST_SETUPS = {
             },
         },
     },
-    "bifi_e2848_etotal": {
+    "bifi_e2848_etotal_rear_shade_sim": {
         "description": (
-            "Standard ASTM E2848 regression form with total effective irradiance replacing "
-            "front-side POA as the independent variable. Total irradiance is calculated as "
-            "E_Total = E_POA + E_Rear * bifaciality, following the NREL modified bifacial approach."
+            "Standard ASTM E2848 regression form with total effective "
+            "irradiance replacing front-side POA as the independent variable. "
+            "Rear shading and IAM losses are handled in the modeled (PVsyst) "
+            "data: the modeled rear irradiance is rpoa_pvsyst = GlobBak + "
+            "BackShd, while the measured rear sensor (irr_rpoa) is used "
+            "as-measured (no rear_shade factor, i.e. rear_shade = 0). For the "
+            "variant that instead applies rear shading on the measured side, "
+            "see 'bifi_e2848_etotal_rear_shade_meas'. Total irradiance is "
+            "E_Total = E_POA + E_Rear * bifaciality, following the NREL "
+            "modified bifacial approach."
         ),
         "reg_cols_meas": {
             "power": ("real_pwr_mtr", "sum"),
@@ -254,14 +262,16 @@ TEST_SETUPS = {
             },
         },
     },
-    "bifi_e2848_etotal_meas_shade": {
+    "bifi_e2848_etotal_rear_shade_meas": {
         "description": (
-            "Variant of 'bifi_e2848_etotal' for applying rear-shading losses on the "
-            "measured side. The modeled rear irradiance maps directly to PVsyst's "
-            "unshaded global rear ('GlobBak') instead of rpoa_pvsyst, and rear shading "
-            "is applied to the measured side through the e_total 'rear_shade' factor "
-            "(propagated by CapTest to the measured CapData only). Total irradiance is "
-            "E_Total = E_POA + E_Rear * bifaciality * (1 - rear_shade)."
+            "Variant of 'bifi_e2848_etotal_rear_shade_sim' for applying "
+            "rear-shading losses on the measured side. The modeled rear "
+            "irradiance maps directly to PVsyst's unshaded global rear "
+            "('GlobBak') instead of rpoa_pvsyst, and rear shading is applied "
+            "to the measured side through the e_total 'rear_shade' factor "
+            "(propagated by CapTest to the measured CapData only). Total "
+            "irradiance is E_Total = E_POA + E_Rear * bifaciality * "
+            "(1 - rear_shade)."
         ),
         "reg_cols_meas": {
             "power": ("real_pwr_mtr", "sum"),
@@ -899,7 +909,7 @@ class CapTest(param.Parameterized):
 
     3. Bare + manual::
 
-        ct = CapTest(test_setup="bifi_e2848_etotal", bifaciality=0.15)
+        ct = CapTest(test_setup="bifi_e2848_etotal_rear_shade_sim", bifaciality=0.15)
         ct.meas = my_meas_cd
         ct.sim = my_sim_cd
         ct.setup()
@@ -1767,7 +1777,8 @@ class CapTest(param.Parameterized):
 
         Built-in setup behavior:
 
-        - ``e2848_default``, ``bifi_e2848_etotal``, and
+        - ``e2848_default``, ``bifi_e2848_etotal_rear_shade_sim``,
+          ``bifi_e2848_etotal_rear_shade_meas``, and
           ``e2848_spec_corrected_poa`` use ``ScatterPlot`` through the
           ``scatter_default`` / ``scatter_etotal`` wrappers. These create a
           formula-driven scatter of the regression left-hand-side variable

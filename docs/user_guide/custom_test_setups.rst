@@ -2,7 +2,8 @@
 
 Custom Test Setups
 ==================
-The built-in ``test_setup`` presets (``e2848_default``, ``bifi_e2848_etotal``,
+The built-in ``test_setup`` presets (``e2848_default``,
+``bifi_e2848_etotal_rear_shade_sim``, ``bifi_e2848_etotal_rear_shade_meas``,
 ``bifi_power_tc_meas_tbom``, ``bifi_power_tc_calc_tbom``, ``e2848_spec_corrected_poa``)
 cover the most common capacity-test configurations. When a project calls for a
 different regression equation or a non-standard column calculation, pvcaptest lets

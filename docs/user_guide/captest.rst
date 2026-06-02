@@ -88,15 +88,37 @@ The built-in options are:
 
     This is the default setup for monofacial capacity tests.
 
-``bifi_e2848_etotal``
+``bifi_e2848_etotal_rear_shade_sim``
     Uses the standard ASTM E2848 regression form, but replaces front-side POA
-    with total irradiance:
+    with total irradiance. Rear shading and IAM losses are handled in the
+    modeled (PVsyst) data: the modeled rear irradiance is
+    ``rpoa_pvsyst = GlobBak + BackShd``, while the measured rear sensor
+    (``irr_rpoa``) is used as-measured (``rear_shade = 0``).
 
     .. math::
-        E_{Total} = E_{POA} + E_{Rear} \varphi
+        E_{Total}^{model} = E_{POA} + \left(E_{Rear} + E_{BackShd}\right)\varphi
+
+    .. math::
+        E_{Total}^{meas} = E_{POA} + E_{Rear}\,\varphi
 
     where :math:`\varphi` is the bifaciality factor. This is useful for the
     NREL modified bifacial approach described in :ref:`bifacial`.
+
+``bifi_e2848_etotal_rear_shade_meas``
+    Same regression form as ``bifi_e2848_etotal_rear_shade_sim``, but rear
+    shading is applied on the measured side as a flat fraction :math:`s` (the
+    ``rear_shade`` factor), while the modeled rear maps directly to PVsyst's
+    unshaded global rear (``GlobBak``).
+
+    .. math::
+        E_{Total}^{meas} = E_{POA} + E_{Rear}\,\varphi\left(1 - s\right)
+
+    .. math::
+        E_{Total}^{model} = E_{POA} + GlobBak \cdot \varphi
+
+    where :math:`\varphi` is the bifaciality factor and :math:`s` is the
+    ``rear_shade`` fraction. Use this when rear-shading losses are better
+    characterized from the measured array than from the PVsyst model.
 
 ``bifi_power_tc_meas_tbom``
     Uses temperature-corrected power as the dependent variable and regresses it
@@ -122,7 +144,8 @@ The built-in options are:
 
     The built-in setup names are strings. For example,
     ``test_setup='e2848_default'`` uses the standard ASTM E2848 setup, and
-    ``test_setup='bifi_e2848_etotal'`` uses the total-irradiance bifacial setup.
+    ``test_setup='bifi_e2848_etotal_rear_shade_sim'`` uses the total-irradiance
+    bifacial setup.
 
 .. note:: 
 
@@ -132,7 +155,8 @@ The built-in options are:
 
     - ``irr_poa`` — front-side plane-of-array irradiance (all setups)
     - ``irr_rpoa`` — rear-side plane-of-array irradiance
-      (``bifi_e2848_etotal``, ``bifi_power_tc_meas_tbom``,
+      (``bifi_e2848_etotal_rear_shade_sim``,
+      ``bifi_e2848_etotal_rear_shade_meas``, ``bifi_power_tc_meas_tbom``,
       ``bifi_power_tc_calc_tbom``)
     - ``temp_bom`` — back-of-module temperature
       (``bifi_power_tc_meas_tbom`` only)
@@ -166,7 +190,7 @@ If you provide paths to your data, ``CapTest`` will load the data for you.
 .. code-block:: Python
 
     ct = CapTest.from_params(
-        test_setup='bifi_e2848_etotal',
+        test_setup='bifi_e2848_etotal_rear_shade_sim',
         meas_path='./data/measured/',
         sim_path='./data/pvsyst_results.csv',
         bifaciality=0.15,
@@ -225,7 +249,7 @@ file and loaded with :py:meth:`~captest.captest.CapTest.from_yaml`.
 .. code-block:: yaml
 
     captest:
-      test_setup: bifi_e2848_etotal
+      test_setup: bifi_e2848_etotal_rear_shade_sim
       meas_path: ./data/measured/
       sim_path: ./data/pvsyst.csv
       ac_nameplate: 6_000_000
@@ -249,7 +273,7 @@ setup and the temperature-corrected power setup.
 .. code-block:: yaml
 
     captest_bifi_etotal:
-      test_setup: bifi_e2848_etotal
+      test_setup: bifi_e2848_etotal_rear_shade_sim
       meas_path: ./data/measured/
       sim_path: ./data/pvsyst.csv
       ac_nameplate: 6_000_000
