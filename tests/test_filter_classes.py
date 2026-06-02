@@ -446,6 +446,21 @@ class TestFilterTime:
             kept = f._execute(cd_time)
         assert len(kept) == n_before
 
+    def test_execute_drop_with_start_days(self, cd_time):
+        # start+days resolves end=02-11; df.loc[02-01:02-11] inclusive is
+        # 11 rows; drop=True keeps the complement.
+        n = len(cd_time.data_filtered)
+        kept = FilterTime(start="2023-02-01", days=10, drop=True)._execute(cd_time)
+        assert len(kept) == n - 11
+        assert pd.Timestamp("2023-02-05") not in kept
+
+    def test_execute_drop_with_test_date(self, cd_time):
+        # test_date+days resolves window 02-10..02-20 (11 rows inclusive).
+        n = len(cd_time.data_filtered)
+        kept = FilterTime(test_date="2023-02-15", days=10, drop=True)._execute(cd_time)
+        assert len(kept) == n - 11
+        assert pd.Timestamp("2023-02-15") not in kept
+
     def test_explanation_start_end(self, cd_time):
         f = FilterTime(start="2023-02-01", end="2023-02-15")
         f.run(cd_time)
@@ -464,6 +479,23 @@ class TestFilterTime:
         f.run(cd_time)
         assert "centered" in f.explanation
         assert "10-day" in f.explanation
+
+    def test_explanation_drop_with_start_days(self, cd_time):
+        f = FilterTime(start="2023-02-01", days=10, drop=True)
+        f.run(cd_time)
+        exp = f.explanation
+        assert "within" in exp
+        assert "10-day" in exp
+        assert "2023-02-01" in exp
+        assert "2023-02-11" in exp  # resolved end
+
+    def test_explanation_drop_with_test_date(self, cd_time):
+        f = FilterTime(test_date="2023-02-15", days=10, drop=True)
+        f.run(cd_time)
+        exp = f.explanation
+        assert "within" in exp
+        assert "2023-02-10" in exp  # resolved start
+        assert "2023-02-20" in exp  # resolved end
 
     def test_explanation_start_only(self, cd_time):
         f = FilterTime(start="2023-02-01")

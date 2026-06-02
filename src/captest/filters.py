@@ -587,15 +587,17 @@ class FilterTime(BaseFilter):
                 "filter_time requires at least one of start, end, or test_date"
             )
 
-        should_drop = self.drop and self.start is not None and self.end is not None
-        if should_drop:
+        # By the time we get here every dispatch branch has set both `start`
+        # and `end` (or raised); `drop` applies to whichever bounded window
+        # was resolved, not just to the user-gave-both case.
+        self._effective_start = start
+        self._effective_end = end
+
+        if self.drop:
             selected = df.loc[start:end, :]
             df_temp = df.loc[df.index.difference(selected.index), :]
         else:
             df_temp = df.loc[start:end, :]
-
-        self._effective_start = start
-        self._effective_end = end
         return df_temp.index
 
     @property
@@ -606,22 +608,48 @@ class FilterTime(BaseFilter):
         def _fmt(v):
             return str(pd.Timestamp(v).date()) if v is not None else None
 
+        # Effective window edges (set by _execute); fall back to the params
+        # for the rare cases where explanation is read without ix_after (the
+        # base-class guard above normally prevents this).
+        es = _fmt(getattr(self, "_effective_start", None))
+        ee = _fmt(getattr(self, "_effective_end", None))
         s, e, td = _fmt(self.start), _fmt(self.end), _fmt(self.test_date)
         d = self.days
+
         if td is not None:
             if d is None:
                 return None
-            return f"Data outside a {d}-day window centered on {td} was removed."
+            if self.drop:
+                return (
+                    f"Data within a {d}-day window centered on {td} "
+                    f"({es} to {ee}) was removed."
+                )
+            return (
+                f"Data outside a {d}-day window centered on {td} "
+                f"({es} to {ee}) was removed."
+            )
         if s is not None and e is not None:
             if self.drop:
-                return f"Data between {s} and {e} was removed."
-            return f"Data outside the period {s} to {e} was removed."
+                return f"Data between {es} and {ee} was removed."
+            return f"Data outside the period {es} to {ee} was removed."
         if s is not None:
             if d is not None:
-                return f"Data outside the {d}-day period starting at {s} was removed."
-            return f"Data before {s} was removed."
+                if self.drop:
+                    return (
+                        f"Data within the {d}-day period from {es} to {ee} was removed."
+                    )
+                return f"Data outside the {d}-day period from {es} to {ee} was removed."
+            if self.drop:
+                return f"Data from {es} onward was removed."
+            return f"Data before {es} was removed."
         if e is not None:
             if d is not None:
-                return f"Data outside the {d}-day period ending at {e} was removed."
-            return f"Data after {e} was removed."
+                if self.drop:
+                    return (
+                        f"Data within the {d}-day period from {es} to {ee} was removed."
+                    )
+                return f"Data outside the {d}-day period from {es} to {ee} was removed."
+            if self.drop:
+                return f"Data up to {ee} was removed."
+            return f"Data after {ee} was removed."
         return None
