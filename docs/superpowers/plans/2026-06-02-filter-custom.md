@@ -97,8 +97,21 @@ class TestFilterCustom:
         assert "'9:00'" in args
         assert "'17:00'" in args
 
+    def test_args_repr_handles_callable_without_dunder_name(self):
+        # functools.partial has no __name__; args_repr must fall back rather
+        # than raising AttributeError mid-run() and leaving the step
+        # half-applied.
+        import functools
+
+        f = FilterCustom(functools.partial(pd.DataFrame.dropna))
+        args = f.args_repr  # must not raise
+        assert isinstance(args, str)
+
     def test_explanation_reuses_call(self, cd_irr):
         f = FilterCustom(_drop_first)
+        # Pre-run: BaseSummaryStep.explanation returns None until ix_after is
+        # set by run(). Pinning this keeps the guard a tested contract.
+        assert f.explanation is None
         f.run(cd_irr)
         exp = f.explanation
         assert "_drop_first" in exp
@@ -148,10 +161,19 @@ class FilterCustom(BaseFilter):
 
     @property
     def args_repr(self):
-        """Render ``func_name(arg, ..., k=v, ...)`` — matches the legacy regex."""
+        """Render ``func_name(arg, ..., k=v, ...)`` — matches the legacy regex.
+
+        Uses ``getattr(self.func, '__name__', repr(self.func))`` because some
+        callables (e.g. ``functools.partial`` instances, callable class
+        instances) do not expose ``__name__``. Without the guard, accessing
+        ``args_repr`` from inside ``run()``'s ``_record_legacy_summary`` would
+        raise ``AttributeError`` *after* ``_execute`` had already mutated
+        ``data_filtered``, leaving the step half-applied.
+        """
+        name = getattr(self.func, "__name__", repr(self.func))
         arg_parts = [repr(a) for a in self.args]
         kwarg_parts = [f"{k}={v!r}" for k, v in self.kwargs.items()]
-        return f"{self.func.__name__}({', '.join(arg_parts + kwarg_parts)})"
+        return f"{name}({', '.join(arg_parts + kwarg_parts)})"
 
     def _explanation_values(self):
         return {"call": self.args_repr}
@@ -164,7 +186,7 @@ class FilterCustom(BaseFilter):
 - [ ] **Step 4: Run the tests**
 
 Run: `uv run pytest tests/test_filter_classes.py::TestFilterCustom -v`
-Expected: PASS (7 tests).
+Expected: PASS (8 tests).
 
 - [ ] **Step 5: Commit**
 
