@@ -11,6 +11,7 @@ from captest.filters import (
     BaseFilter,
     FilterIrr,
     FilterSensors,
+    FilterTime,
     abs_diff_from_average,
     check_all_perc_diff_comb,
 )
@@ -42,6 +43,16 @@ def cd_irr():
     )
     cd.data_filtered = cd.data.copy()
     cd.regression_cols = {"poa": "poa"}
+    return cd
+
+
+@pytest.fixture
+def cd_time():
+    """A CapData with a 90-day daily DatetimeIndex for time-window tests."""
+    cd = CapData("time")
+    idx = pd.date_range("2023-01-01", periods=90, freq="D")
+    cd.data = pd.DataFrame({"power": range(90)}, index=idx)
+    cd.data_filtered = cd.data.copy()
     return cd
 
 
@@ -379,3 +390,118 @@ class TestFilterSensorsWrapper:
         assert capdata_irr.filters == []
         assert result.shape[0] == capdata_irr.data_filtered.shape[0]
         assert capdata_irr.data_filtered.shape[0] == capdata_irr.data.shape[0]
+
+
+class TestFilterTime:
+    def test_execute_start_end(self, cd_time):
+        f = FilterTime(start="2023-02-01", end="2023-02-15")
+        kept = f._execute(cd_time)
+        assert kept[0] == pd.Timestamp("2023-02-01")
+        assert kept[-1] == pd.Timestamp("2023-02-15")
+
+    def test_execute_start_end_drop(self, cd_time):
+        n_before = len(cd_time.data_filtered)
+        f = FilterTime(start="2023-02-01", end="2023-02-15", drop=True)
+        kept = f._execute(cd_time)
+        assert len(kept) == n_before - 15
+
+    def test_execute_start_days(self, cd_time):
+        f = FilterTime(start="2023-02-01", days=10)
+        kept = f._execute(cd_time)
+        assert kept[0] == pd.Timestamp("2023-02-01")
+        assert kept[-1] == pd.Timestamp("2023-02-11")
+
+    def test_execute_end_days(self, cd_time):
+        f = FilterTime(end="2023-02-15", days=10)
+        kept = f._execute(cd_time)
+        assert kept[0] == pd.Timestamp("2023-02-05")
+        assert kept[-1] == pd.Timestamp("2023-02-15")
+
+    def test_execute_test_date(self, cd_time):
+        f = FilterTime(test_date="2023-02-15", days=10)
+        kept = f._execute(cd_time)
+        assert kept[0] == pd.Timestamp("2023-02-10")
+        assert kept[-1] == pd.Timestamp("2023-02-20")
+
+    def test_execute_start_only_defaults_to_last(self, cd_time):
+        f = FilterTime(start="2023-02-01")
+        kept = f._execute(cd_time)
+        assert kept[0] == pd.Timestamp("2023-02-01")
+        assert kept[-1] == cd_time.data_filtered.index[-1]
+
+    def test_execute_end_only_defaults_to_first(self, cd_time):
+        f = FilterTime(end="2023-02-15")
+        kept = f._execute(cd_time)
+        assert kept[0] == cd_time.data_filtered.index[0]
+        assert kept[-1] == pd.Timestamp("2023-02-15")
+
+    def test_execute_no_args_raises(self, cd_time):
+        with pytest.raises(ValueError, match="at least one of"):
+            FilterTime()._execute(cd_time)
+
+    def test_execute_test_date_no_days_warns_and_keeps_all(self, cd_time):
+        n_before = len(cd_time.data_filtered)
+        f = FilterTime(test_date="2023-02-15")
+        with pytest.warns(UserWarning, match="Must specify days"):
+            kept = f._execute(cd_time)
+        assert len(kept) == n_before
+
+    def test_explanation_start_end(self, cd_time):
+        f = FilterTime(start="2023-02-01", end="2023-02-15")
+        f.run(cd_time)
+        assert "outside" in f.explanation
+        assert "2023-02-01" in f.explanation
+        assert "2023-02-15" in f.explanation
+
+    def test_explanation_drop(self, cd_time):
+        f = FilterTime(start="2023-02-01", end="2023-02-15", drop=True)
+        f.run(cd_time)
+        assert f.explanation.startswith("Data between")
+        assert f.explanation.endswith("was removed.")
+
+    def test_explanation_test_date(self, cd_time):
+        f = FilterTime(test_date="2023-02-15", days=10)
+        f.run(cd_time)
+        assert "centered" in f.explanation
+        assert "10-day" in f.explanation
+
+    def test_explanation_start_only(self, cd_time):
+        f = FilterTime(start="2023-02-01")
+        f.run(cd_time)
+        assert f.explanation == "Data before 2023-02-01 was removed."
+
+    def test_explanation_end_only(self, cd_time):
+        f = FilterTime(end="2023-02-15")
+        f.run(cd_time)
+        assert f.explanation == "Data after 2023-02-15 was removed."
+
+    def test_wrap_year_kwarg_is_rejected(self):
+        with pytest.raises(TypeError, match="wrap_year"):
+            FilterTime(wrap_year=True)
+
+    def test_helpers_importable_from_filters(self):
+        from captest.filters import spans_year, wrap_year_end
+
+        assert callable(spans_year)
+        assert callable(wrap_year_end)
+
+    def test_capdata_still_exposes_wrap_year_end(self):
+        from captest import capdata
+
+        assert callable(capdata.wrap_year_end)
+
+
+class TestFilterTimeWrapper:
+    def test_wrapper_records_filtertime_step(self, cd_time):
+        cd_time.filter_time(start="2023-02-01", end="2023-02-15")
+        assert len(cd_time.filters) == 1
+        assert isinstance(cd_time.filters[0], FilterTime)
+
+    def test_wrapper_inplace_false_records_no_step(self, cd_time):
+        n_before = cd_time.data_filtered.shape[0]
+        result = cd_time.filter_time(
+            start="2023-02-01", end="2023-02-15", inplace=False
+        )
+        assert cd_time.filters == []
+        assert cd_time.data_filtered.shape[0] == n_before
+        assert result.shape[0] == 15

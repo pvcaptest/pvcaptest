@@ -42,9 +42,11 @@ from captest.filters import (
     BaseSummaryStep,
     FilterIrr,
     FilterSensors,
+    FilterTime,
     check_all_perc_diff_comb,
     filter_grps,
     filter_irr,
+    wrap_year_end,
 )
 
 # visualization library imports
@@ -234,72 +236,6 @@ def update_summary(func):
         return ret_val
 
     return wrapper
-
-
-def wrap_year_end(df, start, end):
-    """
-    Shifts data before or after new year to form a contigous time period.
-
-    This function shifts data from the end of the year a year back or data from
-    the begining of the year a year forward, to create a contiguous time
-    period. Intended to be used on historical typical year data.
-
-    If start date is in dataframe, then data at the beginning of the year will
-    be moved ahead one year.  If end date is in dataframe, then data at the end
-    of the year will be moved back one year.
-
-    cntg (contiguous); eoy (end of year)
-
-    Parameters
-    ----------
-    df: pandas DataFrame
-        Dataframe to be adjusted.
-    start: pandas Timestamp
-        Start date for time period.
-    end: pandas Timestamp
-        End date for time period.
-
-    Todo
-    ----
-    Need to test and debug this for years not matching.
-    """
-    if df.index[0].year == start.year:
-        df_start = df.loc[start:, :]
-
-        df_end = df.copy()
-        df_end.index = df_end.index + pd.DateOffset(days=365)
-        df_end = df_end.loc[:end, :]
-
-    elif df.index[0].year == end.year:
-        df_end = df.loc[:end, :]
-
-        df_start = df.copy()
-        df_start.index = df_start.index - pd.DateOffset(days=365)
-        df_start = df_start.loc[start:, :]
-
-    df_return = pd.concat([df_start, df_end], axis=0)
-    ix_series = df_return.index.to_series()
-    df_return["index"] = ix_series.apply(lambda x: x.strftime("%m/%d/%Y %H %M"))  # noqa E501
-    return df_return
-
-
-def spans_year(start_date, end_date):
-    """
-    Determine if dates passed are in the same year.
-
-    Parameters
-    ----------
-    start_date: pandas Timestamp
-    end_date: pandas Timestamp
-
-    Returns
-    -------
-    bool
-    """
-    if start_date.year != end_date.year:
-        return True
-    else:
-        return False
 
 
 def wrap_seasons(df, freq):
@@ -1990,7 +1926,6 @@ class CapData(param.Parameterized):
         else:
             return self.data_filtered.loc[index_shd, :]
 
-    @update_summary
     def filter_time(
         self,
         start=None,
@@ -1999,7 +1934,6 @@ class CapData(param.Parameterized):
         days=None,
         test_date=None,
         inplace=True,
-        wrap_year=False,
     ):
         """
         Select data for a specified time period.
@@ -2007,94 +1941,36 @@ class CapData(param.Parameterized):
         Parameters
         ----------
         start : str or pd.Timestamp or None, default None
-            Start date for data to be returned.  If a string is passed it must
-            be in format that can be converted by pandas.to_datetime.  Not
-            required if test_date and days arguments are passed.  If not
-            provided and days is also not provided, defaults to the first
-            timestamp in data_filtered.
+            Start date for data to be returned.
         end : str or pd.Timestamp or None, default None
-            End date for data to be returned.  If a string is passed it must
-            be in format that can be converted by pandas.to_datetime.  Not
-            required if test_date and days arguments are passed.  If not
-            provided and days is also not provided, defaults to the last
-            timestamp in data_filtered.
+            End date for data to be returned.
         drop : bool, default False
-            Set to true to drop time period between `start` and `end` rather
-            than keep it. Must supply `start` and `end` and `wrap_year` must
-            be false.
+            With start+end, remove the window instead of keeping it.
         days : int or None, default None
-            Days in time period to be returned.  Not required if `start` and
-            `end` are specified.
+            Days in the time window.
         test_date : str or pd.Timestamp or None, default None
-            Must be format that can be converted by pandas.to_datetime.  Not
-            required if `start` and `end` are specified.  Requires `days`
-            argument. Time period returned will be centered on this date.
+            Center of a symmetric ``days``-wide window.
         inplace : bool, default True
-            If inplace is true, then function overwrites the filtered
-            dataframe. If false returns a DataFrame.
-        wrap_year : bool, default False
-            If true calls the wrap_year_end function.  See wrap_year_end
-            docstring for details. wrap_year_end was cntg_eoy prior to v0.7.0.
+            If True, record the filter step and update data_filtered. If False,
+            return the filtered DataFrame without recording a step.
 
-        Todo
-        ----
-        Add inverse options to remove time between start end rather than return
-        it.
+        Notes
+        -----
+        The ``wrap_year`` parameter from the previous implementation has been
+        removed. Year-end-spanning data is now handled by an auto-wrap step at
+        CapTest load time (see CapTest.auto_wrap_sim).
         """
-        if start is not None and end is not None:
-            start = pd.to_datetime(start)
-            end = pd.to_datetime(end)
-            if wrap_year and spans_year(start, end):
-                df_temp = wrap_year_end(self.data_filtered, start, end)
-            else:
-                df_temp = self.data_filtered.loc[start:end, :]
-                if drop:
-                    keep_ix = self.data_filtered.index.difference(df_temp.index)
-                    df_temp = self.data_filtered.loc[keep_ix, :]
-
-        if start is not None and end is None:
-            if days is None:
-                start = pd.to_datetime(start)
-                end = self.data_filtered.index[-1]
-                df_temp = self.data_filtered.loc[start:end, :]
-            else:
-                start = pd.to_datetime(start)
-                end = start + pd.DateOffset(days=days)
-                if wrap_year and spans_year(start, end):
-                    df_temp = wrap_year_end(self.data_filtered, start, end)
-                else:
-                    df_temp = self.data_filtered.loc[start:end, :]
-
-        if start is None and end is not None:
-            if days is None:
-                end = pd.to_datetime(end)
-                start = self.data_filtered.index[0]
-                df_temp = self.data_filtered.loc[start:end, :]
-            else:
-                end = pd.to_datetime(end)
-                start = end - pd.DateOffset(days=days)
-                if wrap_year and spans_year(start, end):
-                    df_temp = wrap_year_end(self.data_filtered, start, end)
-                else:
-                    df_temp = self.data_filtered.loc[start:end, :]
-
-        if test_date is not None:
-            test_date = pd.to_datetime(test_date)
-            if days is None:
-                return warnings.warn("Must specify days")
-            else:
-                offset = pd.DateOffset(days=days // 2)
-                start = test_date - offset
-                end = test_date + offset
-                if wrap_year and spans_year(start, end):
-                    df_temp = wrap_year_end(self.data_filtered, start, end)
-                else:
-                    df_temp = self.data_filtered.loc[start:end, :]
-
+        flt = FilterTime(
+            start=start,
+            end=end,
+            drop=drop,
+            days=days,
+            test_date=test_date,
+        )
         if inplace:
-            self.data_filtered = df_temp
+            flt.run(self)
         else:
-            return df_temp
+            return self.data_filtered.loc[flt._execute(self), :]
 
     @update_summary
     def filter_days(self, days, drop=False, inplace=True):

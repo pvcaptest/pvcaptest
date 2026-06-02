@@ -29,7 +29,8 @@ import param
 import yaml
 
 from captest import util
-from captest.capdata import CapData, wrap_year_end
+from captest.capdata import CapData
+from captest.filters import wrap_year_end
 from captest.plotting import ScatterBifiPowerTc, ScatterPlot
 from captest.calcparams import (
     absolute_airmass,

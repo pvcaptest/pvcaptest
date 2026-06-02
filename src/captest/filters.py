@@ -160,6 +160,72 @@ def filter_grps(grps, rcs, irr_col, low, high, freq, **kwargs):
     return df_flt_grpby
 
 
+def wrap_year_end(df, start, end):
+    """
+    Shifts data before or after new year to form a contigous time period.
+
+    This function shifts data from the end of the year a year back or data from
+    the begining of the year a year forward, to create a contiguous time
+    period. Intended to be used on historical typical year data.
+
+    If start date is in dataframe, then data at the beginning of the year will
+    be moved ahead one year.  If end date is in dataframe, then data at the end
+    of the year will be moved back one year.
+
+    cntg (contiguous); eoy (end of year)
+
+    Parameters
+    ----------
+    df: pandas DataFrame
+        Dataframe to be adjusted.
+    start: pandas Timestamp
+        Start date for time period.
+    end: pandas Timestamp
+        End date for time period.
+
+    Todo
+    ----
+    Need to test and debug this for years not matching.
+    """
+    if df.index[0].year == start.year:
+        df_start = df.loc[start:, :]
+
+        df_end = df.copy()
+        df_end.index = df_end.index + pd.DateOffset(days=365)
+        df_end = df_end.loc[:end, :]
+
+    elif df.index[0].year == end.year:
+        df_end = df.loc[:end, :]
+
+        df_start = df.copy()
+        df_start.index = df_start.index - pd.DateOffset(days=365)
+        df_start = df_start.loc[start:, :]
+
+    df_return = pd.concat([df_start, df_end], axis=0)
+    ix_series = df_return.index.to_series()
+    df_return["index"] = ix_series.apply(lambda x: x.strftime("%m/%d/%Y %H %M"))  # noqa E501
+    return df_return
+
+
+def spans_year(start_date, end_date):
+    """
+    Determine if dates passed are in the same year.
+
+    Parameters
+    ----------
+    start_date: pandas Timestamp
+    end_date: pandas Timestamp
+
+    Returns
+    -------
+    bool
+    """
+    if start_date.year != end_date.year:
+        return True
+    else:
+        return False
+
+
 class BaseSummaryStep(param.Parameterized):
     """Common ancestor for steps that appear in the filtering summary.
 
@@ -455,3 +521,107 @@ class FilterSensors(BaseFilter):
             "groups": ", ".join(self.perc_diff_resolved),
             "row_filter": self.row_filter.__name__,
         }
+
+
+class FilterTime(BaseFilter):
+    """Filter rows to a time window described by start/end/days/test_date.
+
+    Multiple parameter combinations are supported:
+
+    - ``start`` + ``end`` — keep the window (or drop it if ``drop=True``).
+    - ``start`` + ``days`` — keep a window of ``days`` starting at ``start``.
+    - ``end`` + ``days`` — keep a window of ``days`` ending at ``end``.
+    - ``test_date`` + ``days`` — keep a window of ``days`` centered on
+      ``test_date``.
+    - ``start`` only — keep rows from ``start`` to the last timestamp.
+    - ``end`` only — keep rows from the first timestamp to ``end``.
+
+    The legacy ``wrap_year`` flag is intentionally not supported here; the
+    wrap-year functionality has moved to CapTest's auto-wrap step at setup
+    time so sim data is already contiguous before any filtering runs.
+    """
+
+    _legacy_name = "filter_time"
+
+    start = param.Parameter(default=None, doc="Window start (str or Timestamp).")
+    end = param.Parameter(default=None, doc="Window end (str or Timestamp).")
+    test_date = param.Parameter(
+        default=None,
+        doc="Center of a symmetric ``days``-wide window (str or Timestamp).",
+    )
+    days = param.Integer(default=None, allow_None=True, doc="Window length in days.")
+    drop = param.Boolean(
+        default=False,
+        doc="When True with start+end, remove the window instead of keeping it.",
+    )
+
+    def _execute(self, capdata):
+        df = capdata.data_filtered
+        start = pd.to_datetime(self.start) if self.start is not None else None
+        end = pd.to_datetime(self.end) if self.end is not None else None
+        test_date = (
+            pd.to_datetime(self.test_date) if self.test_date is not None else None
+        )
+
+        if test_date is not None:
+            if self.days is None:
+                warnings.warn("Must specify days")
+                return df.index
+            offset = pd.DateOffset(days=self.days // 2)
+            start = test_date - offset
+            end = test_date + offset
+        elif start is not None and end is not None:
+            pass
+        elif start is not None:
+            if self.days is not None:
+                end = start + pd.DateOffset(days=self.days)
+            else:
+                end = df.index[-1]
+        elif end is not None:
+            if self.days is not None:
+                start = end - pd.DateOffset(days=self.days)
+            else:
+                start = df.index[0]
+        else:
+            raise ValueError(
+                "filter_time requires at least one of start, end, or test_date"
+            )
+
+        should_drop = self.drop and self.start is not None and self.end is not None
+        if should_drop:
+            selected = df.loc[start:end, :]
+            df_temp = df.loc[df.index.difference(selected.index), :]
+        else:
+            df_temp = df.loc[start:end, :]
+
+        self._effective_start = start
+        self._effective_end = end
+        return df_temp.index
+
+    @property
+    def explanation(self):
+        if not hasattr(self, "ix_after"):
+            return None
+
+        def _fmt(v):
+            return str(pd.Timestamp(v).date()) if v is not None else None
+
+        s, e, td = _fmt(self.start), _fmt(self.end), _fmt(self.test_date)
+        d = self.days
+        if td is not None:
+            if d is None:
+                return None
+            return f"Data outside a {d}-day window centered on {td} was removed."
+        if s is not None and e is not None:
+            if self.drop:
+                return f"Data between {s} and {e} was removed."
+            return f"Data outside the period {s} to {e} was removed."
+        if s is not None:
+            if d is not None:
+                return f"Data outside the {d}-day period starting at {s} was removed."
+            return f"Data before {s} was removed."
+        if e is not None:
+            if d is not None:
+                return f"Data outside the {d}-day period ending at {e} was removed."
+            return f"Data after {e} was removed."
+        return None
