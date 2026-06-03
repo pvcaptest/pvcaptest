@@ -9,6 +9,7 @@ from captest.capdata import CapData
 from captest.filters import (
     BaseSummaryStep,
     BaseFilter,
+    FilterCustom,
     FilterIrr,
     FilterSensors,
     FilterTime,
@@ -54,6 +55,14 @@ def cd_time():
     cd.data = pd.DataFrame({"power": range(90)}, index=idx)
     cd.data_filtered = cd.data.copy()
     return cd
+
+
+def _drop_first(df):
+    return df.iloc[1:]
+
+
+def _gt_threshold(df, threshold=0, col="poa"):
+    return df[df[col] > threshold]
 
 
 class _DropFirstRow(BaseFilter):
@@ -562,3 +571,62 @@ class TestFilterTimeWrapper:
         assert cd_time.filters == []
         assert cd_time.data_filtered.shape[0] == n_before
         assert result.shape[0] == 15
+
+
+class TestFilterCustom:
+    def test_execute_applies_func(self, cd_irr):
+        kept = FilterCustom(_drop_first)._execute(cd_irr)
+        assert list(kept) == [1, 2, 3, 4]
+
+    def test_execute_passes_args_and_kwargs(self, cd_irr):
+        # poa values [100, 300, 500, 700, 900] -> > 400 -> indices [2, 3, 4]
+        f = FilterCustom(_gt_threshold, threshold=400)
+        assert list(f._execute(cd_irr)) == [2, 3, 4]
+
+    def test_execute_with_pandas_method_dropna(self):
+        cd = CapData("c")
+        cd.data = pd.DataFrame(
+            {"power": [1.0, np.nan, 3.0, np.nan, 5.0]},
+            index=pd.RangeIndex(5),
+        )
+        cd.data_filtered = cd.data.copy()
+        kept = FilterCustom(pd.DataFrame.dropna)._execute(cd)
+        assert list(kept) == [0, 2, 4]
+
+    def test_args_repr_renders_func_name(self):
+        f = FilterCustom(_gt_threshold, threshold=400)
+        args = f.args_repr
+        assert "_gt_threshold" in args
+        assert "threshold=400" in args
+        assert "<function" not in args
+
+    def test_args_repr_with_positional_args(self):
+        f = FilterCustom(pd.DataFrame.between_time, "9:00", "17:00")
+        args = f.args_repr
+        assert "between_time" in args
+        assert "'9:00'" in args
+        assert "'17:00'" in args
+
+    def test_args_repr_handles_callable_without_dunder_name(self):
+        # functools.partial has no __name__; args_repr must fall back rather
+        # than raising AttributeError mid-run() and leaving the step
+        # half-applied.
+        import functools
+
+        f = FilterCustom(functools.partial(pd.DataFrame.dropna))
+        args = f.args_repr  # must not raise
+        assert isinstance(args, str)
+
+    def test_explanation_reuses_call(self, cd_irr):
+        f = FilterCustom(_drop_first)
+        # Pre-run: BaseSummaryStep.explanation returns None until ix_after is
+        # set by run(). Pinning this keeps the guard a tested contract.
+        assert f.explanation is None
+        f.run(cd_irr)
+        exp = f.explanation
+        assert "_drop_first" in exp
+        assert exp.endswith("was applied.")
+
+    def test_custom_name_passes_through(self):
+        f = FilterCustom(_drop_first, custom_name="prune")
+        assert f.custom_name == "prune"

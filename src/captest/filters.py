@@ -653,3 +653,50 @@ class FilterTime(BaseFilter):
                 return f"Data up to {ee} was removed."
             return f"Data after {ee} was removed."
         return None
+
+
+class FilterCustom(BaseFilter):
+    """Apply an arbitrary callable to ``capdata.data_filtered`` as a row filter.
+
+    ``func`` is a callable that takes a DataFrame as its first argument and
+    returns a DataFrame whose index is the rows to keep. Typical use is a
+    pandas DataFrame method like ``pd.DataFrame.dropna`` or
+    ``pd.DataFrame.between_time``.
+
+    Unlike most filters, ``func``/``*args``/``**kwargs`` are stored as plain
+    instance attributes (not ``param`` parameters). Callables and variadics
+    don't fit ``param``'s declared-parameter model; YAML serialization for
+    ``func`` (module-qualified-name string) is handled by the YAML plan.
+    """
+
+    _legacy_name = "filter_custom"
+    _explanation_template = "Custom filter {call} was applied."
+
+    def __init__(self, func, *args, custom_name=None, **kwargs):
+        super().__init__(custom_name=custom_name)
+        self.func = func
+        self.args = args
+        self.kwargs = kwargs
+
+    def _execute(self, capdata):
+        result = self.func(capdata.data_filtered, *self.args, **self.kwargs)
+        return result.index
+
+    @property
+    def args_repr(self):
+        """Render ``func_name(arg, ..., k=v, ...)`` — matches the legacy regex.
+
+        Uses ``getattr(self.func, '__name__', repr(self.func))`` because some
+        callables (e.g. ``functools.partial`` instances, callable class
+        instances) do not expose ``__name__``. Without the guard, accessing
+        ``args_repr`` from inside ``run()``'s ``_record_legacy_summary`` would
+        raise ``AttributeError`` *after* ``_execute`` had already mutated
+        ``data_filtered``, leaving the step half-applied.
+        """
+        name = getattr(self.func, "__name__", repr(self.func))
+        arg_parts = [repr(a) for a in self.args]
+        kwarg_parts = [f"{k}={v!r}" for k, v in self.kwargs.items()]
+        return f"{name}({', '.join(arg_parts + kwarg_parts)})"
+
+    def _explanation_values(self):
+        return {"call": self.args_repr}
