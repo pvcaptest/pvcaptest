@@ -10,6 +10,7 @@ import warnings
 
 import pandas as pd
 import param
+import sklearn.covariance as sk_cv
 
 
 def perc_difference(x, y):
@@ -700,3 +701,80 @@ class FilterCustom(BaseFilter):
 
     def _explanation_values(self):
         return {"call": self.args_repr}
+
+
+class FilterOutliers(BaseFilter):
+    """Remove statistical outliers in the (poa, power) plane via sklearn EllipticEnvelope.
+
+    Reads ``capdata.floc[["poa", "power"]]`` (the regression-mapped columns),
+    drops any NaN rows by delegating to ``capdata.filter_missing`` (which
+    records its own step), fits ``sklearn.covariance.EllipticEnvelope`` on
+    the cleaned 2-D matrix, and keeps the rows whose ``predict`` is 1.
+
+    ``envelope_kwargs`` carries user overrides for ``EllipticEnvelope``;
+    defaults (``support_fraction=0.9``, ``contamination=0.04``) are merged in
+    at run time. The merged dict is exposed on ``envelope_kwargs_resolved``
+    for display.
+    """
+
+    _legacy_name = "filter_outliers"
+    _explanation_template = (
+        "Statistical outliers in (poa, power), detected via "
+        "EllipticEnvelope({kwargs}), were removed."
+    )
+    _default_envelope_kwargs = {"support_fraction": 0.9, "contamination": 0.04}
+
+    envelope_kwargs = param.Dict(
+        default=None,
+        allow_None=True,
+        doc="Override kwargs for sklearn EllipticEnvelope. Defaults "
+        "(support_fraction=0.9, contamination=0.04) are merged in at run time.",
+    )
+
+    def _execute(self, capdata):
+        XandY = capdata.floc[["poa", "power"]]
+        if XandY.shape[1] > 2:
+            warnings.warn(
+                "Too many columns. Try running aggregate_sensors before using "
+                "filter_outliers."
+            )
+            return capdata.data_filtered.index
+
+        if XandY.isna().any().any():
+            warnings.warn(
+                "Poa and/or power columns contain missing values. Calling "
+                "filter_missing on poa and power columns before continuing "
+                "with filter_outliers."
+            )
+            capdata.filter_missing(columns=XandY.columns.tolist())
+            XandY = capdata.floc[["poa", "power"]]
+            # Re-snapshot the run() inputs so this step's pts_removed counts
+            # only outliers — the NaN rows are already attributed to the
+            # nested filter_missing step.
+            self.ix_before = capdata.data_filtered.index
+            self.pts_before = len(self.ix_before)
+
+        resolved = dict(self._default_envelope_kwargs)
+        if self.envelope_kwargs:
+            resolved.update(self.envelope_kwargs)
+        self.envelope_kwargs_resolved = resolved
+
+        X = XandY.values
+        clf = sk_cv.EllipticEnvelope(**resolved)
+        clf.fit(X)
+        mask = clf.predict(X) == 1
+        return capdata.data_filtered.index[mask]
+
+    @property
+    def args_repr(self):
+        """Render ``EllipticEnvelope(k=v, ...)`` using the resolved kwargs."""
+        resolved = getattr(self, "envelope_kwargs_resolved", None)
+        if resolved is None:
+            return super().args_repr
+        kw = ", ".join(f"{k}={v}" for k, v in resolved.items())
+        return f"EllipticEnvelope({kw})"
+
+    def _explanation_values(self):
+        resolved = getattr(self, "envelope_kwargs_resolved", {}) or {}
+        kw = ", ".join(f"{k}={v}" for k, v in resolved.items())
+        return {"kwargs": kw}

@@ -11,6 +11,7 @@ from captest.filters import (
     BaseFilter,
     FilterCustom,
     FilterIrr,
+    FilterOutliers,
     FilterSensors,
     FilterTime,
     abs_diff_from_average,
@@ -63,6 +64,23 @@ def _drop_first(df):
 
 def _gt_threshold(df, threshold=0, col="poa"):
     return df[df[col] > threshold]
+
+
+@pytest.fixture
+def cd_pp():
+    """A CapData with poa+power columns and three injected outliers."""
+    np.random.seed(0)
+    n = 50
+    poa = np.linspace(100.0, 1000.0, n)
+    power = poa * 0.2 + np.random.normal(0, 5, n)
+    power[5] = 500.0
+    power[20] = 0.0
+    power[40] = -100.0
+    cd = CapData("pp")
+    cd.data = pd.DataFrame({"poa": poa, "power": power}, index=pd.RangeIndex(n))
+    cd.data_filtered = cd.data.copy()
+    cd.regression_cols = {"poa": "poa", "power": "power"}
+    return cd
 
 
 class _DropFirstRow(BaseFilter):
@@ -645,3 +663,96 @@ class TestFilterCustomWrapper:
     def test_wrapper_custom_name_kwarg_is_kwonly(self, cd_irr):
         cd_irr.filter_custom(_drop_first, custom_name="prune")
         assert cd_irr.filters[0].custom_name == "prune"
+
+
+class TestFilterOutliers:
+    def test_execute_removes_outliers(self, cd_pp):
+        # Default contamination=0.04 on n=50 removes 2 points; verified
+        # empirically that indices 5 and 40 (the two most extreme injected
+        # outliers) go and index 20 stays at the default contamination.
+        n_before = len(cd_pp.data_filtered)
+        kept = FilterOutliers()._execute(cd_pp)
+        assert len(kept) < n_before
+        assert 5 not in kept
+        assert 40 not in kept
+
+    def test_execute_higher_contamination_removes_more(self, cd_pp):
+        f = FilterOutliers(envelope_kwargs={"contamination": 0.10})
+        kept = f._execute(cd_pp)
+        for ix in (5, 20, 40):
+            assert ix not in kept
+
+    def test_execute_resolves_default_kwargs(self, cd_pp):
+        f = FilterOutliers()
+        f._execute(cd_pp)
+        assert f.envelope_kwargs_resolved == {
+            "support_fraction": 0.9,
+            "contamination": 0.04,
+        }
+
+    def test_execute_user_kwargs_override(self, cd_pp):
+        f = FilterOutliers(envelope_kwargs={"contamination": 0.10})
+        f._execute(cd_pp)
+        assert f.envelope_kwargs_resolved["contamination"] == 0.10
+        assert f.envelope_kwargs_resolved["support_fraction"] == 0.9
+
+    def test_execute_too_many_columns_warns_and_keeps_all(self, cd_pp):
+        cd_pp.data["poa2"] = cd_pp.data["poa"]
+        cd_pp.data_filtered = cd_pp.data.copy()
+        cd_pp.column_groups = {"poa": ["poa", "poa2"], "power": ["power"]}
+        n_before = len(cd_pp.data_filtered)
+        f = FilterOutliers()
+        with pytest.warns(UserWarning, match="aggregate_sensors"):
+            kept = f._execute(cd_pp)
+        assert len(kept) == n_before
+
+    def test_execute_nan_calls_filter_missing(self, cd_pp):
+        cd_pp.data.iloc[0, cd_pp.data.columns.get_loc("poa")] = np.nan
+        cd_pp.data_filtered = cd_pp.data.copy()
+        with pytest.warns(UserWarning, match="missing values"):
+            kept = FilterOutliers()._execute(cd_pp)
+        assert 0 not in kept
+
+    def test_pts_removed_excludes_nan_drop(self, cd_pp):
+        cd_pp.data.iloc[1, cd_pp.data.columns.get_loc("poa")] = np.nan
+        cd_pp.data_filtered = cd_pp.data.copy()
+        pre_run_pts = len(cd_pp.data_filtered)  # includes the NaN row
+        f = FilterOutliers()
+        with pytest.warns(UserWarning):
+            f.run(cd_pp)
+        assert cd_pp.summary_ix[-2][1] == "filter_missing"
+        assert cd_pp.summary_ix[-1][1] == "filter_outliers"
+        assert f.pts_before == cd_pp.summary[-2]["pts_after_filter"]
+        assert (
+            cd_pp.summary[-1]["pts_removed"]
+            == cd_pp.summary[-2]["pts_after_filter"]
+            - cd_pp.summary[-1]["pts_after_filter"]
+        )
+        assert cd_pp.summary[-1]["pts_removed"] < (
+            pre_run_pts - cd_pp.summary[-1]["pts_after_filter"]
+        )
+
+    def test_args_repr_renders_envelope_call(self):
+        # Pre-_execute: param dict is None, so the resolved attr isn't set yet
+        # and args_repr falls back to the base "Default arguments" rendering.
+        f = FilterOutliers()
+        assert "EllipticEnvelope" not in f.args_repr
+        cd = CapData("x")
+        cd.data = pd.DataFrame(
+            {"poa": np.linspace(100, 1000, 30), "power": np.linspace(20, 200, 30)},
+            index=pd.RangeIndex(30),
+        )
+        cd.data_filtered = cd.data.copy()
+        cd.regression_cols = {"poa": "poa", "power": "power"}
+        f._execute(cd)
+        post = f.args_repr
+        assert "EllipticEnvelope(" in post
+        assert "contamination=0.04" in post
+        assert "support_fraction=0.9" in post
+
+    def test_explanation_describes_envelope(self, cd_pp):
+        f = FilterOutliers()
+        f.run(cd_pp)
+        exp = f.explanation
+        assert "EllipticEnvelope" in exp
+        assert exp.endswith("were removed.")
