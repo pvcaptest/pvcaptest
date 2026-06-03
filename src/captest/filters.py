@@ -255,11 +255,25 @@ class BaseSummaryStep(param.Parameterized):
     _legacy_name = None
 
     def run(self, capdata):
-        """Execute the step, record runtime state, and append self to filters."""
-        self.pts_before = capdata.data_filtered.shape[0]
-        self.ix_before = capdata.data_filtered.index
+        """Execute the step, record runtime state, and append self to filters.
+
+        ``ix_before``/``pts_before`` are snapshotted **after** ``_execute``
+        returns so they reflect whatever state the chain is in just before
+        ``ix_after`` is applied. For filters whose ``_execute`` doesn't touch
+        ``capdata.data_filtered`` this is identical to a pre-``_execute``
+        snapshot; for filters that make nested filter calls during
+        ``_execute`` (e.g. ``FilterOutliers`` invoking ``filter_missing``
+        on NaN), it naturally picks up the post-nested-call state so
+        attribution to this step counts only what this step actually removed.
+
+        These transitional instance attributes go away in the summary-rebuild
+        plan, where they're derived from the prior step's ``pts_after`` /
+        ``ix_after`` instead — see the spec's Summary Table section.
+        """
         self.ix_after = self._execute(capdata)
         self.pts_after = len(self.ix_after)
+        self.ix_before = capdata.data_filtered.index
+        self.pts_before = len(self.ix_before)
         self.pts_removed = self.pts_before - self.pts_after
         capdata.filters = capdata.filters + [self]
         # Transitional: keep the legacy data_filtered attribute consistent
@@ -748,11 +762,10 @@ class FilterOutliers(BaseFilter):
             )
             capdata.filter_missing(columns=XandY.columns.tolist())
             XandY = capdata.floc[["poa", "power"]]
-            # Re-snapshot the run() inputs so this step's pts_removed counts
-            # only outliers — the NaN rows are already attributed to the
-            # nested filter_missing step.
-            self.ix_before = capdata.data_filtered.index
-            self.pts_before = len(self.ix_before)
+            # No manual re-snapshot needed: run() reads pts_before / ix_before
+            # AFTER _execute, so the post-filter_missing state is picked up
+            # automatically and FilterOutliers' pts_removed counts only the
+            # outlier drop.
 
         resolved = dict(self._default_envelope_kwargs)
         if self.envelope_kwargs:

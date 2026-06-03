@@ -82,7 +82,9 @@ BaseSummaryStep  (param.Parameterized)
 
 `_execute()` returns a pandas `Index` of the rows to keep after the step. `run()` captures this as `self.ix_after` before appending `self` to `capdata.filters`. Because `data_filtered` is a property derived from `filters[-1].ix_after`, it reflects the new state as soon as `self` is appended — no direct assignment to `data_filtered` is ever needed.
 
-Runtime state (`pts_before`, `pts_after`, `pts_removed`, `ix_before`, `ix_after`) is set by `run()` as plain Python attributes, not `param` parameters. They are not serialized to YAML.
+Runtime state stored per step is **just `ix_after` and `pts_after`** (a pandas `Index` and its length) — these are the authoritative "rows this step kept" set by `run()` after `_execute()` returns. They are plain Python attributes, not `param` parameters, and are not serialized to YAML.
+
+`pts_before`, `ix_before`, and `pts_removed` are **derived from the chain**, not stored on each step: a step's "before" state is the prior step's `ix_after` (or `capdata.data` for the first step in `filters`). This keeps `ix_after` as the single source of truth and avoids the trap of a step needing to snapshot its own input — `data_filtered` (a property derived from `filters[-1].ix_after`) already represents that state.
 
 ```python
 class BaseSummaryStep(param.Parameterized):
@@ -91,11 +93,8 @@ class BaseSummaryStep(param.Parameterized):
 
     def run(self, capdata):
         """Execute the step, record state, and append self to capdata.filters."""
-        self.pts_before = capdata.data_filtered.shape[0]
-        self.ix_before = capdata.data_filtered.index
         self.ix_after = self._execute(capdata)   # _execute returns a pandas Index
         self.pts_after = len(self.ix_after)
-        self.pts_removed = self.pts_before - self.pts_after
         capdata.filters = capdata.filters + [self]  # reassignment triggers param watchers
         if self.pts_after == 0:
             warnings.warn('The last filter removed all data!')
@@ -246,18 +245,19 @@ columns = ['function_name', 'pts_after_filter', 'pts_removed', 'filter_arguments
 
 ### `get_summary()`
 
-Rebuilds the DataFrame by iterating `self.filters`. Enumeration is computed lazily:
+Rebuilds the DataFrame by iterating `self.filters`. Enumeration is computed lazily; `pts_removed` is derived from the chain rather than read from a per-step attribute (see [[Chain-derived per-step counts]] below):
 
 ```python
 def get_summary(self):
     rows = []
     index = []
-    for step, label in zip(self.filters, self._step_labels()):
+    for i, (step, label) in enumerate(zip(self.filters, self._step_labels())):
         index.append((self.name, label))
+        pts_before = self._pts_before(i)
         rows.append({
             'function_name': type(step).__name__,
             'pts_after_filter': step.pts_after,
-            'pts_removed': step.pts_removed,
+            'pts_removed': pts_before - step.pts_after,
             'filter_arguments': step.args_repr,
         })
     return pd.DataFrame(rows, index=pd.MultiIndex.from_tuples(index), columns=columns)
@@ -267,15 +267,30 @@ def get_summary(self):
 
 `filter_counts` is removed from `CapData.__init__` and `reset_filter()`.
 
+#### Chain-derived per-step counts
+
+Each step stores only `ix_after`/`pts_after`. A step's "before" count and index are derived from its predecessor in the chain — the prior step's `ix_after`, or `self.data` for the first step. `CapData` exposes two small helpers used by `get_summary()` and the visualization methods:
+
+```python
+def _ix_before(self, i):
+    """Index passed *into* ``self.filters[i]`` (the chain's state just before)."""
+    return self.filters[i - 1].ix_after if i > 0 else self.data.index
+
+def _pts_before(self, i):
+    return len(self._ix_before(i))
+```
+
+This is the single source of "what came into this step." Filters whose `_execute` makes nested filter calls (e.g. `FilterOutliers` calling `filter_missing` when NaN is present) get correct attribution automatically: the nested call appends its own step to `self.filters`, so the calling step's `_ix_before(i)` resolves to that nested step's `ix_after`. No per-subclass re-snapshotting is needed.
+
 ### Visualization Methods
 
 `scatter_filters()` and `timeseries_filters()` currently read from `self.removed[0]['index']` and iterate `self.kept`. Two changes apply:
 
 1. **Read from `self.filters` directly.** `self.removed` and `self.kept` are removed from `CapData.__init__` and `reset_filter()`; both methods derive everything from `self.filters`.
-2. **Plot the points *removed by* each filter.** The current methods layer the cumulative *kept* set after each step (each scatter shows the points that survived up to step `i`, labeled with step `i+1`'s name), relying on lower layers showing through to imply what was removed. The new behavior plots, for each step, exactly the rows that step removed:
+2. **Plot the points *removed by* each filter.** The current methods layer the cumulative *kept* set after each step (each scatter shows the points that survived up to step `i`, labeled with step `i+1`'s name), relying on lower layers showing through to imply what was removed. The new behavior plots, for each step, exactly the rows that step removed — derived from the chain via `_ix_before`:
 
    ```
-   removed_ix(step) = step.ix_before.difference(step.ix_after)
+   removed_ix(step_i) = self._ix_before(i).difference(self.filters[i].ix_after)
    ```
 
    Because filters run sequentially and removed rows never reappear, each step's removed set is disjoint from every other step's. Together with the rows retained after all filters, the steps form a complete partition of the original index:
@@ -300,9 +315,9 @@ def scatter_filters(self):
         hv.Scatter(data.loc[retained_ix, :], "poa", ["power", "index"]).relabel("retained")
     )
 
-    # one layer per filter: the rows that filter removed
-    for step, label in zip(self.filters, self._step_labels()):
-        removed_ix = step.ix_before.difference(step.ix_after)
+    # one layer per filter: the rows that filter removed (derived from the chain)
+    for i, (step, label) in enumerate(zip(self.filters, self._step_labels())):
+        removed_ix = self._ix_before(i).difference(step.ix_after)
         scatters.append(
             hv.Scatter(data.loc[removed_ix, :], "poa", ["power", "index"]).relabel(label)
         )
@@ -465,7 +480,7 @@ def rerun_from(self, index):
 
 ### Serialization Boundary
 
-`param` parameters on each filter class are the serialization boundary. Runtime state (`pts_before`, `pts_after`, `ix_before`, `ix_after`) is stored as plain Python attributes and is never serialized.
+`param` parameters on each filter class are the serialization boundary. Runtime state (`pts_after`, `ix_after`) is stored as plain Python attributes and is never serialized. The chain-derived counterparts (`pts_before`, `ix_before`, `pts_removed`) are computed on demand from prior steps' `ix_after` (see [[Chain-derived per-step counts]]).
 
 ### YAML Format
 
