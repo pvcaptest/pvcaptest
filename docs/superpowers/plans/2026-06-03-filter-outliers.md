@@ -15,7 +15,9 @@
 ## Key design decisions (flag if you disagree before implementing)
 
 1. **`envelope_kwargs` as `param.Dict(default=None, allow_None=True)`.** The user's overrides are stored as the param value; defaults are *not* baked in so `args_repr` can distinguish "user said `contamination=0.10`" from "default `0.04` applied at run time." `_execute` merges `{"support_fraction": 0.9, "contamination": 0.04}` with `self.envelope_kwargs or {}` and stores the resolved dict on `self.envelope_kwargs_resolved` (runtime attr, like `ref_val_resolved` on FilterIrr). Same Option-B pattern: param keeps the user intent for YAML; the resolved view is for display.
-2. **NaN handling preserves the auto-`filter_missing` side effect.** `tests/test_CapData.py::TestFilterOutliersAndPower::test_filter_outliers_nan_records_filter_missing_in_summary` pins the recorded ordering (`filter_missing` then `filter_outliers` in `summary_ix`). `_execute` calls `capdata.filter_missing(columns=XandY.columns.tolist())` when NaN is detected, which records a separate step via `FilterMissing` (or the legacy `@update_summary` decorator until `FilterMissing` is converted — the recorded shape is identical either way). This carries the pre-existing wart that `FilterOutliers`' own `pts_removed` over-counts (it includes the NaN drop the nested call already attributed to `filter_missing`); the wart exists in the legacy method too and no test pins it.
+2. **NaN handling preserves the auto-`filter_missing` side effect, with corrected attribution.** `tests/test_CapData.py::TestFilterOutliersAndPower::test_filter_outliers_nan_records_filter_missing_in_summary` pins the recorded ordering (`filter_missing` then `filter_outliers` in `summary_ix`). `_execute` calls `capdata.filter_missing(columns=XandY.columns.tolist())` when NaN is detected, which records a separate step via `FilterMissing` (or the legacy `@update_summary` decorator until `FilterMissing` is converted — the recorded shape is identical either way).
+
+   **Fix vs. the legacy over-count:** the legacy method's `@update_summary` decorator captures `pts_before` at the *entry* to `filter_outliers`, before the nested `filter_missing` call shrinks `data_filtered`. So `pts_removed` on the `filter_outliers` row over-counts — it includes the NaN drop the `filter_missing` row already attributed to itself. The new design fixes this: immediately after the nested `capdata.filter_missing(...)` call, `_execute` re-snapshots `self.ix_before`/`self.pts_before` to the *post-NaN* state. `run()`'s final `pts_removed = self.pts_before - self.pts_after` then attributes only the outlier drop to `FilterOutliers`, and the `removed[i]["index"]` derived from `ix_before.difference(ix_after)` is exactly the outlier set. A new test (`test_pts_removed_excludes_nan_drop`) pins this by asserting `f.pts_before == cd.summary[-2]["pts_after_filter"]` (FilterOutliers enters at the row count `filter_missing` ended at).
 3. **`>2` columns is a warn-and-no-op, not an error.** The existing `test_not_aggregated` pins the `UserWarning`. `_execute` returns `capdata.data_filtered.index` in this branch (no rows removed) so `run()` doesn't blow up on `len(None)`. The recorded step has `pts_removed=0` — same as the legacy method, which silently returned from `warnings.warn(...)` (which returns `None`) and left `data_filtered` untouched.
 4. **`args_repr` over-rides to render `EllipticEnvelope(k=v, ...)`** using the resolved kwargs (so defaults show up in the summary, matching the "full transparency" decision from FilterIrr's `args_repr`). The `_explanation_template` reuses this via `_explanation_values()`.
 5. **`inplace` kept for now.** Same transitional choice as the other complex filters.
@@ -123,6 +125,26 @@ class TestFilterOutliers:
         # NaN row should not appear in kept
         assert 0 not in kept
 
+    def test_pts_removed_excludes_nan_drop(self, cd_pp):
+        # When the nested filter_missing runs, FilterOutliers' own pts_removed
+        # must account for outliers only — not the NaN row already attributed
+        # to filter_missing.
+        cd_pp.data.iloc[1, cd_pp.data.columns.get_loc("poa")] = np.nan
+        cd_pp.data_filtered = cd_pp.data.copy()
+        f = FilterOutliers()
+        with pytest.warns(UserWarning):
+            f.run(cd_pp)
+        # filter_missing recorded before filter_outliers
+        assert cd_pp.summary_ix[-2][1] == "filter_missing"
+        assert cd_pp.summary_ix[-1][1] == "filter_outliers"
+        # FilterOutliers entered at filter_missing's exit count
+        assert f.pts_before == cd_pp.summary[-2]["pts_after_filter"]
+        # And its pts_removed equals only the outlier drop (not NaN + outliers)
+        assert (
+            cd_pp.summary[-1]["pts_removed"]
+            == f.pts_before - cd_pp.summary[-1]["pts_after_filter"]
+        )
+
     def test_args_repr_renders_envelope_call(self):
         args = FilterOutliers().args_repr
         # Before _execute, only the user's param (None) and custom_name appear.
@@ -211,6 +233,11 @@ class FilterOutliers(BaseFilter):
             )
             capdata.filter_missing(columns=XandY.columns.tolist())
             XandY = capdata.floc[["poa", "power"]]
+            # Re-snapshot the run() inputs so this step's pts_removed counts
+            # only outliers — the NaN rows are already attributed to the
+            # nested filter_missing step.
+            self.ix_before = capdata.data_filtered.index
+            self.pts_before = len(self.ix_before)
 
         resolved = dict(self._default_envelope_kwargs)
         if self.envelope_kwargs:
@@ -246,7 +273,7 @@ class FilterOutliers(BaseFilter):
 - [ ] **Step 4: Run the tests**
 
 Run: `uv run pytest tests/test_filter_classes.py::TestFilterOutliers -v`
-Expected: PASS (8 tests).
+Expected: PASS (9 tests).
 
 - [ ] **Step 5: Commit**
 
@@ -401,4 +428,4 @@ git commit -m "refactor: make CapData.filter_outliers a thin wrapper over Filter
 - Default `support_fraction=0.9`, `contamination=0.04` (legacy `if "support_fraction" not in kwargs` etc.). ✓
 - Existing summary recording shape (filter_missing then filter_outliers) — `run()` mirrors via `_record_legacy_summary` so both routes (legacy decorator on filter_missing, new run on FilterOutliers) end up in the same `summary_ix` list. ✓
 
-**Pre-existing wart (not fixed):** `FilterOutliers`' own `pts_removed` over-counts when the NaN auto-call fires (it includes the NaN drop already attributed to `filter_missing`). The legacy method has the same wart; no test pins it.
+**Pre-existing wart fixed:** the legacy method's `pts_removed` for the `filter_outliers` row over-counted when the NaN auto-call fired (it included the NaN drop already attributed to the `filter_missing` row, because `@update_summary` captured `pts_before` before the nested call). `FilterOutliers._execute` now re-snapshots `self.ix_before`/`self.pts_before` right after the nested `capdata.filter_missing(...)` call, so `run()`'s final `pts_removed` counts only outliers. Pinned by `test_pts_removed_excludes_nan_drop`.
