@@ -131,6 +131,7 @@ class TestFilterOutliers:
         # to filter_missing.
         cd_pp.data.iloc[1, cd_pp.data.columns.get_loc("poa")] = np.nan
         cd_pp.data_filtered = cd_pp.data.copy()
+        pre_run_pts = len(cd_pp.data_filtered)  # includes the NaN row
         f = FilterOutliers()
         with pytest.warns(UserWarning):
             f.run(cd_pp)
@@ -139,10 +140,18 @@ class TestFilterOutliers:
         assert cd_pp.summary_ix[-1][1] == "filter_outliers"
         # FilterOutliers entered at filter_missing's exit count
         assert f.pts_before == cd_pp.summary[-2]["pts_after_filter"]
-        # And its pts_removed equals only the outlier drop (not NaN + outliers)
+        # pts_removed equals the gap between filter_missing's exit count and
+        # FilterOutliers' exit count — i.e., outliers only, not NaN+outliers.
+        # Without the re-snapshot fix, pts_removed would equal
+        # pre_run_pts - pts_after_filter (NaN drop double-counted).
         assert (
             cd_pp.summary[-1]["pts_removed"]
-            == f.pts_before - cd_pp.summary[-1]["pts_after_filter"]
+            == cd_pp.summary[-2]["pts_after_filter"]
+            - cd_pp.summary[-1]["pts_after_filter"]
+        )
+        # And the legacy over-count case is explicitly excluded.
+        assert cd_pp.summary[-1]["pts_removed"] < (
+            pre_run_pts - cd_pp.summary[-1]["pts_after_filter"]
         )
 
     def test_args_repr_renders_envelope_call(self):
