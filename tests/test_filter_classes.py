@@ -756,3 +756,20 @@ class TestFilterOutliers:
         exp = f.explanation
         assert "EllipticEnvelope" in exp
         assert exp.endswith("were removed.")
+
+
+class TestFilterOutliersWrapper:
+    def test_wrapper_records_filteroutliers_step(self, cd_pp):
+        cd_pp.filter_outliers()
+        assert len(cd_pp.filters) == 1
+        assert isinstance(cd_pp.filters[0], FilterOutliers)
+
+    def test_wrapper_passes_kwargs(self, cd_pp):
+        cd_pp.filter_outliers(contamination=0.10)
+        assert cd_pp.filters[0].envelope_kwargs_resolved["contamination"] == 0.10
+
+    def test_wrapper_inplace_false_records_no_step(self, cd_pp):
+        result = cd_pp.filter_outliers(inplace=False)
+        assert cd_pp.filters == []
+        assert result is not None
+        assert result.shape[0] < cd_pp.data.shape[0]

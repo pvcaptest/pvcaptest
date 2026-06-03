@@ -27,8 +27,6 @@ import pandas as pd
 from patsy import dmatrix
 import statsmodels.formula.api as smf
 
-# from sklearn.covariance import EllipticEnvelope
-import sklearn.covariance as sk_cv
 
 # anaconda distribution defaults
 # visualization library imports
@@ -42,6 +40,7 @@ from captest.filters import (
     BaseSummaryStep,
     FilterCustom,
     FilterIrr,
+    FilterOutliers,
     FilterSensors,
     FilterTime,
     check_all_perc_diff_comb,
@@ -2008,55 +2007,31 @@ class CapData(param.Parameterized):
         else:
             return filtered_data
 
-    @update_summary
     def filter_outliers(self, inplace=True, **kwargs):
         """
-        Apply eliptic envelope from scikit-learn to remove outliers.
+        Apply EllipticEnvelope from scikit-learn to remove outliers in (poa, power).
 
         Parameters
         ----------
-        inplace : bool
-            Default of true writes filtered dataframe back to data_filtered
-            attribute.
+        inplace : bool, default True
+            If True, record the filter step and update data_filtered. If False,
+            return the filtered DataFrame without recording a step.
         **kwargs
-            Passed to sklearn EllipticEnvelope.  Contamination keyword
-            is useful to adjust proportion of outliers in dataset.
-            Default is 0.04.
-        Todo
-        ----
-        Add plot option
-            Add option to return plot showing envelope with points not removed
-            alpha decreased.
+            Forwarded to ``sklearn.covariance.EllipticEnvelope``. Defaults
+            ``support_fraction=0.9`` and ``contamination=0.04`` are applied
+            when not overridden.
+
+        Notes
+        -----
+        When NaN values are present in poa/power, ``filter_missing`` is
+        invoked first (and recorded as a separate filter step). This
+        preserves the legacy auto-handling behavior.
         """
-        XandY = self.floc[["poa", "power"]]
-        if XandY.shape[1] > 2:
-            return warnings.warn(
-                "Too many columns. Try running "
-                "aggregate_sensors before using "
-                "filter_outliers."
-            )
-        if XandY.isna().any().any():
-            warnings.warn(
-                "Poa and/or power columns contain missing values. "
-                "Calling filter_missing on poa and power columns before continuing "
-                "with filter_outliers."
-            )
-            self.filter_missing(columns=XandY.columns.tolist())
-            XandY = self.floc[["poa", "power"]]
-        X1 = XandY.values
-
-        if "support_fraction" not in kwargs.keys():
-            kwargs["support_fraction"] = 0.9
-        if "contamination" not in kwargs.keys():
-            kwargs["contamination"] = 0.04
-
-        clf_1 = sk_cv.EllipticEnvelope(**kwargs)
-        clf_1.fit(X1)
-
+        flt = FilterOutliers(envelope_kwargs=kwargs or None)
         if inplace:
-            self.data_filtered = self.data_filtered[clf_1.predict(X1) == 1]
+            flt.run(self)
         else:
-            return self.data_filtered[clf_1.predict(X1) == 1]
+            return self.data_filtered.loc[flt._execute(self), :]
 
     @update_summary
     def filter_pf(self, pf, inplace=True):
