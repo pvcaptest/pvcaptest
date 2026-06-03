@@ -40,6 +40,7 @@ from captest import util
 from captest import plotting
 from captest.filters import (
     BaseSummaryStep,
+    FilterCustom,
     FilterIrr,
     FilterSensors,
     FilterTime,
@@ -2154,50 +2155,32 @@ class CapData(param.Parameterized):
         else:
             return df_flt
 
-    @update_summary
-    def filter_custom(self, func, *args, **kwargs):
-        """
-        Apply `update_summary` decorator to passed function.
+    def filter_custom(self, func, *args, custom_name=None, **kwargs):
+        """Apply ``func`` to ``data_filtered`` as a row filter and record the step.
+
+        ``func`` is called as ``func(self.data_filtered, *args, **kwargs)`` and
+        must return a DataFrame whose index is the rows to keep. Many pandas
+        DataFrame methods qualify, e.g. ``pd.DataFrame.between_time`` or
+        ``pd.DataFrame.dropna``.
 
         Parameters
         ----------
-        func : function
-            Any function that takes a dataframe as the first argument and
-            returns a dataframe.
-            Many pandas dataframe methods meet this requirement, like
-            pd.DataFrame.between_time.
-        *args
-            Additional positional arguments passed to func.
-        **kwds
-            Additional keyword arguments passed to func.
+        func : callable
+            Takes a DataFrame as the first argument and returns a DataFrame.
+        *args, **kwargs
+            Forwarded to ``func``.
+        custom_name : str, default None
+            Optional display label for the recorded filter step. Keyword-only
+            so it cannot collide with positional args destined for ``func``.
 
-        Examples
-        --------
-        Example use of the pandas dropna method to remove rows with missing
-        data.
-
-        >>> das.custom_filter(pd.DataFrame.dropna, axis=0, how='any')
-        >>> summary = das.get_summary()
-        >>> summary['pts_before_filter'][0]
-        1424
-        >>> summary['pts_removed'][0]
-        16
-
-        Example use of the pandas between_time method to remove time periods.
-
-        >>> das.reset_filter()
-        >>> das.custom_filter(pd.DataFrame.between_time, '9:00', '13:00')
-        >>> summary = das.get_summary()
-        >>> summary['pts_before_filter'][0]
-        245
-        >>> summary['pts_removed'][0]
-        1195
-        >>> das.data_filtered.index[0].hour
-        9
-        >>> das.data_filtered.index[-1].hour
-        13
+        Notes
+        -----
+        The class-based pipeline preserves the original column set: only the
+        returned frame's *index* is consumed. A function that drops or
+        transforms columns will see its column changes discarded — pass
+        column-transforming logic outside the filter pipeline.
         """
-        self.data_filtered = func(self.data_filtered, *args, **kwargs)
+        FilterCustom(func, *args, custom_name=custom_name, **kwargs).run(self)
 
     def filter_sensors(
         self, perc_diff=None, inplace=True, row_filter=check_all_perc_diff_comb

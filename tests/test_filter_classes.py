@@ -630,3 +630,18 @@ class TestFilterCustom:
     def test_custom_name_passes_through(self):
         f = FilterCustom(_drop_first, custom_name="prune")
         assert f.custom_name == "prune"
+
+
+class TestFilterCustomWrapper:
+    def test_wrapper_records_filtercustom_step(self, cd_irr):
+        cd_irr.filter_custom(_drop_first)
+        assert len(cd_irr.filters) == 1
+        assert isinstance(cd_irr.filters[0], FilterCustom)
+
+    def test_wrapper_passes_args_kwargs_to_func(self, cd_irr):
+        cd_irr.filter_custom(_gt_threshold, threshold=400)
+        assert list(cd_irr.data_filtered.index) == [2, 3, 4]
+
+    def test_wrapper_custom_name_kwarg_is_kwonly(self, cd_irr):
+        cd_irr.filter_custom(_drop_first, custom_name="prune")
+        assert cd_irr.filters[0].custom_name == "prune"
