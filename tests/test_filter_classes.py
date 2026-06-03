@@ -712,6 +712,10 @@ class TestFilterOutliers:
         with pytest.warns(UserWarning, match="missing values"):
             kept = FilterOutliers()._execute(cd_pp)
         assert 0 not in kept
+        # The nested filter_missing must be recorded as its own step (the
+        # legacy @update_summary path until FilterMissing is converted).
+        assert len(cd_pp.summary_ix) == 1
+        assert cd_pp.summary_ix[0][1] == "filter_missing"
 
     def test_pts_removed_excludes_nan_drop(self, cd_pp):
         cd_pp.data.iloc[1, cd_pp.data.columns.get_loc("poa")] = np.nan
