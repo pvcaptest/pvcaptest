@@ -19,6 +19,8 @@
 - **`n_std` is a param** (default 2). `fit_regression(filter=True)` passes `n_std=2` to preserve current behavior.
 - **`_legacy_name = "fit_regression"`** preserves the transitional summary label. No test asserts this label (verified), and the existing `fit_regression` calls in `test_captest.py` use `filter=False`, so the conversion is safe.
 - **`filter=True` never stored `regression_results`** (only `filter=False` does) — preserved.
+- **NaN handling (mirrors `FilterOutliers`):** if the regression columns contain NaN, statsmodels' formula fit drops those rows, leaving `reg.resid` shorter than `df`, and the residual mask raises `IndexingError: Unalignable boolean Series` (verified empirically; the legacy `fit_regression` had the same latent bug). `FilterRegression._execute` handles it **proactively** — like `FilterOutliers` does for `(poa, power)` — by warning and calling `capdata.filter_missing()` (which records its own `filter_missing` step) before fitting. The kept index is taken from `reg.resid[...]` (not `df[...]`), which is self-aligned and avoids both the misalignment error and pandas' "Boolean Series key will be reindexed" warning.
+  - *Deviation from review #82's Low finding:* the reviewer suggested `smf.ols(..., missing="raise")` + catch-and-retry. I use the proactive approach instead because (a) it matches the established `FilterOutliers` precedent in this codebase, and (b) it keeps the **shared** `fit_model` (also used by `fit_regression(filter=False)` and `predict_capacities`' `grps.apply(fit_model)`) on its current `missing="drop"` default — changing that globally to `"raise"` is a broad behavior change out of this plan's scope. The net effect (run `filter_missing` when NaN is present) is the same.
 
 ---
 
@@ -125,44 +127,69 @@ git commit -m "refactor: move fit_model into captest.filters (capdata re-imports
 
 - [ ] **Step 1: Write the failing tests**
 
-Add `FilterRegression` to the top-of-file `filters` import in `tests/test_filter_classes.py`. Append `TestFilterRegression` (uses the conftest `nrel` fixture, which has the full ASTM regression setup):
+Add `FilterRegression` to the top-of-file `filters` import in `tests/test_filter_classes.py`. Add a self-contained `cd_reg` fixture near the other fixtures (the conftest `nrel` fixture has **no power column** and cannot fit the ASTM formula, so it can't be used here — verified). This fixture uses a simple `power ~ poa` formula with one gross outlier at index 10 (deterministic — verified empirically that `n_std=2` removes exactly that point):
+
+```python
+@pytest.fixture
+def cd_reg():
+    """A CapData with a clean linear power~poa relationship + one outlier."""
+    n = 40
+    poa = np.linspace(100, 1000, n)
+    rng = np.random.default_rng(0)
+    power = poa * 0.5 + rng.normal(0, 3, n)
+    power[10] += 400  # gross residual outlier at index 10
+    cd = CapData("reg")
+    cd.data = pd.DataFrame({"poa": poa, "power": power}, index=pd.RangeIndex(n))
+    cd.data_filtered = cd.data.copy()
+    cd.column_groups = {"irr-poa-": ["poa"], "real_pwr--": ["power"]}
+    cd.regression_cols = {"power": "power", "poa": "poa"}
+    cd.regression_formula = "power ~ poa"
+    return cd
+```
+
+Append `TestFilterRegression`:
 
 ```python
 class TestFilterRegression:
     def test_n_std_default_is_2(self):
         assert FilterRegression().n_std == 2
 
-    def test_execute_exposes_fitted_model(self, nrel):
+    def test_execute_exposes_fitted_model(self, cd_reg):
         f = FilterRegression()
-        f._execute(nrel)
+        f._execute(cd_reg)
         assert hasattr(f, "regression_model")
         assert hasattr(f.regression_model, "resid")
 
-    def test_execute_kept_rows_within_threshold(self, nrel):
+    def test_execute_removes_the_outlier(self, cd_reg):
+        kept = FilterRegression(n_std=2)._execute(cd_reg)
+        assert 10 not in kept  # the injected outlier is dropped
+        assert len(kept) == cd_reg.data_filtered.shape[0] - 1
+
+    def test_execute_kept_rows_within_threshold(self, cd_reg):
         f = FilterRegression(n_std=2)
-        kept = f._execute(nrel)
+        kept = f._execute(cd_reg)
         reg = f.regression_model
         threshold = 2 * reg.scale**0.5
-        # every kept row's residual is within the band
         assert (reg.resid.loc[kept].abs() < threshold).all()
 
-    def test_execute_removed_rows_beyond_threshold(self, nrel):
-        f = FilterRegression(n_std=2)
-        kept = f._execute(nrel)
-        reg = f.regression_model
-        threshold = 2 * reg.scale**0.5
-        removed = reg.resid.index.difference(kept)
-        if len(removed) > 0:
-            assert (reg.resid.loc[removed].abs() >= threshold).all()
-
-    def test_larger_n_std_keeps_more(self, nrel):
-        kept_2 = FilterRegression(n_std=2)._execute(nrel)
-        kept_4 = FilterRegression(n_std=4)._execute(nrel)
+    def test_larger_n_std_keeps_more(self, cd_reg):
+        kept_2 = FilterRegression(n_std=2)._execute(cd_reg)
+        kept_4 = FilterRegression(n_std=4)._execute(cd_reg)
         assert len(kept_4) >= len(kept_2)
 
-    def test_explanation(self, nrel):
+    def test_execute_nan_calls_filter_missing(self, cd_reg):
+        # NaN in a regression column: must run filter_missing (recording its
+        # own step) rather than raise an unalignable-boolean error.
+        cd_reg.data.iloc[5, cd_reg.data.columns.get_loc("power")] = np.nan
+        cd_reg.data_filtered = cd_reg.data.copy()
+        with pytest.warns(UserWarning, match="missing values"):
+            kept = FilterRegression(n_std=2)._execute(cd_reg)
+        assert 5 not in kept  # NaN row removed
+        assert cd_reg.summary_ix[-1][1] == "filter_missing"
+
+    def test_explanation(self, cd_reg):
         f = FilterRegression(n_std=2)
-        f.run(nrel)
+        f.run(cd_reg)
         assert "residual" in f.explanation.lower()
         assert "2" in f.explanation
         assert f.explanation.endswith("were removed.")
@@ -199,18 +226,28 @@ class FilterRegression(BaseFilter):
 
     def _execute(self, capdata):
         df = capdata.get_reg_cols()
+        if df.isna().any().any():
+            warnings.warn(
+                "Regression columns contain missing values. Calling "
+                "filter_missing before fitting the regression."
+            )
+            capdata.filter_missing()
+            df = capdata.get_reg_cols()
         reg = fit_model(df, fml=capdata.regression_formula)
         self.regression_model = reg
         threshold = self.n_std * reg.scale**0.5
-        return df[reg.resid.abs() < threshold].index
+        return reg.resid[reg.resid.abs() < threshold].index
 ```
 
-> `reg.resid.abs()` and `reg.scale ** 0.5` avoid a numpy import in `filters.py` (`reg.resid` is a pandas Series; `reg.scale` is a float). `df.index` is a subset of `capdata.data_filtered.index` (since `get_reg_cols` defaults to `filtered_data=True`), so the returned index is a valid kept set for `run()`.
+> Notes:
+> - NaN handling mirrors `FilterOutliers`: warn + `capdata.filter_missing()` (records its own step) before fitting. `run()` snapshots `ix_before`/`pts_before` *after* `_execute`, so the NaN drop is attributed to the nested `filter_missing` step, not to `FilterRegression` (same as `FilterOutliers`).
+> - The kept index comes from `reg.resid[...]` (self-aligned), not `df[...]` — this avoids both the unalignable-boolean error and pandas' "Boolean Series key will be reindexed" warning (verified empirically).
+> - `reg.resid.abs()` / `reg.scale ** 0.5` avoid a numpy import in `filters.py`.
 
 - [ ] **Step 4: Run the tests**
 
 Run: `uv run pytest tests/test_filter_classes.py::TestFilterRegression -v`
-Expected: PASS (6 tests).
+Expected: PASS (7 tests).
 
 - [ ] **Step 5: Commit**
 
@@ -231,22 +268,22 @@ Append to `tests/test_filter_classes.py`:
 
 ```python
 class TestFitRegressionWrapper:
-    def test_filter_true_records_filterregression_step(self, nrel):
-        nrel.fit_regression(filter=True, summary=False)
-        assert len(nrel.filters) == 1
-        assert isinstance(nrel.filters[0], FilterRegression)
+    def test_filter_true_records_filterregression_step(self, cd_reg):
+        cd_reg.fit_regression(filter=True, summary=False)
+        assert len(cd_reg.filters) == 1
+        assert isinstance(cd_reg.filters[0], FilterRegression)
 
-    def test_filter_true_not_inplace_records_no_step(self, nrel):
-        n_before = nrel.data_filtered.shape[0]
-        out = nrel.fit_regression(filter=True, inplace=False, summary=False)
-        assert nrel.filters == []
-        assert nrel.data_filtered.shape[0] == n_before
-        assert out.shape[0] <= n_before
+    def test_filter_true_not_inplace_records_no_step(self, cd_reg):
+        n_before = cd_reg.data_filtered.shape[0]
+        out = cd_reg.fit_regression(filter=True, inplace=False, summary=False)
+        assert cd_reg.filters == []
+        assert cd_reg.data_filtered.shape[0] == n_before
+        assert out.shape[0] < n_before  # the outlier is removed
 
-    def test_filter_false_stores_regression_results(self, nrel):
-        nrel.fit_regression(filter=False, summary=False)
-        assert nrel.regression_results is not None
-        assert nrel.filters == []  # plain fit records no filter step
+    def test_filter_false_stores_regression_results(self, cd_reg):
+        cd_reg.fit_regression(filter=False, summary=False)
+        assert cd_reg.regression_results is not None
+        assert cd_reg.filters == []  # plain fit records no filter step
 ```
 
 - [ ] **Step 2: Run to verify failure**
