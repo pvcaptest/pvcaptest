@@ -46,6 +46,7 @@ from captest.filters import (
     FilterPf,
     FilterPower,
     FilterPvsyst,
+    FilterRegression,
     FilterSensors,
     FilterShade,
     FilterTime,
@@ -2453,44 +2454,44 @@ class CapData(param.Parameterized):
 
         return results
 
-    @update_summary
     def fit_regression(self, filter=False, inplace=True, summary=True):
         """
-        Perform a regression with statsmodels on filtered data.
+        Perform a regression with statsmodels on the filtered data.
 
         Parameters
         ----------
-        filter: bool, default False
-            When true removes timestamps where the residuals are greater than
-            two standard deviations.  When false just calcualtes ordinary least
-            squares regression.
-        inplace: bool, default True
-            If filter is true and inplace is true, then function overwrites the
-            filtered data for sim or das.  If false returns a CapData object.
-        summary: bool, default True
-            Set to false to not print regression summary.
+        filter : bool, default False
+            When True, removes timestamps whose residuals exceed two standard
+            deviations (recorded as a FilterRegression step). When False, just
+            fits ordinary least squares and stores the result in
+            ``regression_results``.
+        inplace : bool, default True
+            With filter=True: if True, record the filter step and update
+            data_filtered; if False, return the filtered DataFrame without
+            recording a step.
+        summary : bool, default True
+            Set False to suppress printing the regression summary.
 
         Returns
         -------
-        CapData
-            Returns a filtered CapData object if filter is True and inplace is
-            False.
+        DataFrame
+            Filtered DataFrame when filter=True and inplace=False.
         """
-        df = self.get_reg_cols()
-
-        reg = fit_model(df, fml=self.regression_formula)
-
         if filter:
             print("NOTE: Regression used to filter outlying points.\n\n")
-            if summary:
-                print(reg.summary())
-            df = df[np.abs(reg.resid) < 2 * np.sqrt(reg.scale)]
-            dframe_flt = self.data_filtered.loc[df.index, :]
+            flt = FilterRegression(n_std=2)
             if inplace:
-                self.data_filtered = dframe_flt
+                flt.run(self)
+                if summary:
+                    print(flt.regression_model.summary())
             else:
-                return dframe_flt
+                kept = flt._execute(self)
+                if summary:
+                    print(flt.regression_model.summary())
+                return self.data_filtered.loc[kept, :]
         else:
+            df = self.get_reg_cols()
+            reg = fit_model(df, fml=self.regression_formula)
             if summary:
                 print(reg.summary())
             self.regression_results = reg

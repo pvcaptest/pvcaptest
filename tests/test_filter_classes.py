@@ -1182,3 +1182,22 @@ class TestFilterRegression:
         assert "residual" in f.explanation.lower()
         assert "2" in f.explanation
         assert f.explanation.endswith("were removed.")
+
+
+class TestFitRegressionWrapper:
+    def test_filter_true_records_filterregression_step(self, cd_reg):
+        cd_reg.fit_regression(filter=True, summary=False)
+        assert len(cd_reg.filters) == 1
+        assert isinstance(cd_reg.filters[0], FilterRegression)
+
+    def test_filter_true_not_inplace_records_no_step(self, cd_reg):
+        n_before = cd_reg.data_filtered.shape[0]
+        out = cd_reg.fit_regression(filter=True, inplace=False, summary=False)
+        assert cd_reg.filters == []
+        assert cd_reg.data_filtered.shape[0] == n_before
+        assert out.shape[0] < n_before  # the outlier is removed
+
+    def test_filter_false_stores_regression_results(self, cd_reg):
+        cd_reg.fit_regression(filter=False, summary=False)
+        assert cd_reg.regression_results is not None
+        assert cd_reg.filters == []  # plain fit records no filter step
