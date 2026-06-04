@@ -5,12 +5,19 @@ This module is imported one-way by ``capdata.py``; it never imports
 runtime ``capdata`` argument to ``run``/``_execute``.
 """
 
+import importlib.util
 from itertools import combinations
 import warnings
 
 import pandas as pd
 import param
 import sklearn.covariance as sk_cv
+
+pvlib_spec = importlib.util.find_spec("pvlib")
+if pvlib_spec is not None:
+    from pvlib.clearsky import detect_clearsky
+else:
+    warnings.warn("Clear sky filtering will not work without the pvlib package.")
 
 
 def perc_difference(x, y):
@@ -791,3 +798,120 @@ class FilterOutliers(BaseFilter):
         resolved = getattr(self, "envelope_kwargs_resolved", {}) or {}
         kw = ", ".join(f"{k}={v}" for k, v in resolved.items())
         return {"kwargs": kw}
+
+
+class FilterClearsky(BaseFilter):
+    """Remove intervals where measured GHI doesn't match modeled clear-sky GHI.
+
+    Uses ``pvlib.clearsky.detect_clearsky`` to classify each timestamp as
+    clear or cloudy. By default keeps the clear timestamps and removes
+    cloudy ones; set ``keep_clear=False`` to invert.
+
+    Requires the ``ghi_mod_csky`` column in ``capdata.data_filtered`` (added
+    by ``io.load_data`` when the ``site`` argument is supplied). When
+    ``ghi_col`` is None, the measured GHI column is auto-detected from
+    ``column_groups`` (the single ``irr-ghi-*`` entry other than
+    ``irr-ghi-clear_sky``); multi-column groups are averaged with a warning.
+    """
+
+    _legacy_name = "filter_clearsky"
+    _explanation_template = (
+        "{removed_kind} intervals (detected via pvlib "
+        "detect_clearsky({kwargs})) were removed."
+    )
+    _default_detect_kwargs = {"infer_limits": True}
+
+    ghi_col = param.String(
+        default=None,
+        allow_None=True,
+        doc="Measured GHI column name. Auto-detected from column_groups if None.",
+    )
+    keep_clear = param.Boolean(
+        default=True,
+        doc="Keep clear intervals (True) or keep cloudy intervals (False).",
+    )
+    detect_kwargs = param.Dict(
+        default=None,
+        allow_None=True,
+        doc="Override kwargs for pvlib detect_clearsky. Default "
+        "infer_limits=True is merged in at run time.",
+    )
+
+    def _execute(self, capdata):
+        if "ghi_mod_csky" not in capdata.data_filtered.columns:
+            warnings.warn(
+                "Modeled clear sky data must be available to run this filter. "
+                "Use CapData load_data clear_sky option."
+            )
+            return capdata.data_filtered.index
+
+        if self.ghi_col is None:
+            ghi_keys = []
+            for key in capdata.column_groups.keys():
+                defs = key.split("-")
+                if len(defs) == 1:
+                    continue
+                if defs[1] == "ghi":
+                    ghi_keys.append(key)
+            ghi_keys = [k for k in ghi_keys if k != "irr-ghi-clear_sky"]
+
+            if not ghi_keys:
+                warnings.warn(
+                    "No measured GHI column group found in column_groups. "
+                    "Pass column name to ghi_col."
+                )
+                return capdata.data_filtered.index
+            if len(ghi_keys) > 1:
+                warnings.warn(
+                    "Too many ghi categories. Pass column name to ghi_col to "
+                    "use a specific column."
+                )
+                return capdata.data_filtered.index
+
+            meas_ghi = capdata.floc[ghi_keys[0]]
+            if meas_ghi.shape[1] > 1:
+                warnings.warn(
+                    "Averaging measured GHI data. Pass column name to ghi_col "
+                    "to use a specific column."
+                )
+            meas_ghi = meas_ghi.mean(axis=1)
+        else:
+            meas_ghi = capdata.data_filtered[self.ghi_col]
+
+        resolved = dict(self._default_detect_kwargs)
+        if self.detect_kwargs:
+            resolved.update(self.detect_kwargs)
+        self.detect_kwargs_resolved = resolved
+
+        clear_per = detect_clearsky(
+            measured=meas_ghi,
+            clearsky=capdata.data_filtered["ghi_mod_csky"],
+            times=meas_ghi.index,
+            **resolved,
+        )
+        if not any(clear_per):
+            warnings.warn(
+                "No clear periods detected. Try adjusting detect_clearsky "
+                "parameters via kwargs."
+            )
+            return capdata.data_filtered.index
+
+        mask = clear_per if self.keep_clear else ~clear_per
+        return capdata.data_filtered.index[mask]
+
+    @property
+    def args_repr(self):
+        """Render ``detect_clearsky(k=v, ...)`` using the resolved kwargs."""
+        resolved = getattr(self, "detect_kwargs_resolved", None)
+        if resolved is None:
+            return super().args_repr
+        kw = ", ".join(f"{k}={v}" for k, v in resolved.items())
+        return f"detect_clearsky({kw})"
+
+    def _explanation_values(self):
+        resolved = getattr(self, "detect_kwargs_resolved", {}) or {}
+        kw = ", ".join(f"{k}={v}" for k, v in resolved.items())
+        return {
+            "removed_kind": "Cloudy" if self.keep_clear else "Clear",
+            "kwargs": kw,
+        }

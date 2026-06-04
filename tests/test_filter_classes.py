@@ -9,6 +9,7 @@ from captest.capdata import CapData
 from captest.filters import (
     BaseSummaryStep,
     BaseFilter,
+    FilterClearsky,
     FilterCustom,
     FilterIrr,
     FilterOutliers,
@@ -777,3 +778,72 @@ class TestFilterOutliersWrapper:
         assert cd_pp.filters == []
         assert result is not None
         assert result.shape[0] < cd_pp.data.shape[0]
+
+
+class TestFilterClearsky:
+    def test_execute_keeps_clear_periods(self, nrel_clear_sky):
+        n_before = nrel_clear_sky.data_filtered.shape[0]
+        kept = FilterClearsky()._execute(nrel_clear_sky)
+        assert len(kept) < n_before
+        assert nrel_clear_sky.data_filtered.shape[0] == n_before
+
+    def test_execute_keep_clear_false_inverts_mask(self, nrel_clear_sky):
+        clear_kept = FilterClearsky()._execute(nrel_clear_sky)
+        cloudy_kept = FilterClearsky(keep_clear=False)._execute(nrel_clear_sky)
+        full = nrel_clear_sky.data_filtered.index
+        assert clear_kept.union(cloudy_kept).equals(full)
+        assert clear_kept.intersection(cloudy_kept).empty
+
+    def test_execute_resolves_default_detect_kwargs(self, nrel_clear_sky):
+        f = FilterClearsky()
+        f._execute(nrel_clear_sky)
+        assert f.detect_kwargs_resolved == {"infer_limits": True}
+
+    def test_execute_user_kwargs_override(self, nrel_clear_sky):
+        f = FilterClearsky(detect_kwargs={"infer_limits": False, "window_length": 30})
+        f._execute(nrel_clear_sky)
+        assert f.detect_kwargs_resolved["infer_limits"] is False
+        assert f.detect_kwargs_resolved["window_length"] == 30
+
+    def test_execute_no_ghi_mod_csky_warns_and_keeps_all(self, nrel_clear_sky):
+        nrel_clear_sky.drop_cols("ghi_mod_csky")
+        n_before = nrel_clear_sky.data_filtered.shape[0]
+        with pytest.warns(UserWarning, match="Modeled clear sky"):
+            kept = FilterClearsky()._execute(nrel_clear_sky)
+        assert len(kept) == n_before
+
+    def test_execute_no_measured_ghi_group_warns_and_keeps_all(self, nrel_clear_sky):
+        # ghi_mod_csky present (so the first guard passes) but no measured
+        # GHI column group at all — must warn and no-op rather than IndexError.
+        del nrel_clear_sky.column_groups["irr-ghi-"]
+        n_before = nrel_clear_sky.data_filtered.shape[0]
+        with pytest.warns(UserWarning, match="No measured GHI"):
+            kept = FilterClearsky()._execute(nrel_clear_sky)
+        assert len(kept) == n_before
+
+    def test_execute_specify_ghi_col(self, nrel_clear_sky):
+        nrel_clear_sky.data["ws 2 ghi W/m^2"] = nrel_clear_sky.loc["irr-ghi-"] * 1.05
+        nrel_clear_sky.data_filtered = nrel_clear_sky.data.copy()
+        nrel_clear_sky.column_groups["irr-ghi-"].append("ws 2 ghi W/m^2")
+        f = FilterClearsky(ghi_col="ws 2 ghi W/m^2")
+        kept = f._execute(nrel_clear_sky)
+        assert len(kept) < nrel_clear_sky.data_filtered.shape[0]
+
+    def test_args_repr_renders_detect_call(self, nrel_clear_sky):
+        f = FilterClearsky()
+        assert "detect_clearsky" not in f.args_repr
+        f._execute(nrel_clear_sky)
+        assert "detect_clearsky(" in f.args_repr
+        assert "infer_limits=True" in f.args_repr
+
+    def test_explanation_default_says_cloudy(self, nrel_clear_sky):
+        f = FilterClearsky()
+        f.run(nrel_clear_sky)
+        assert f.explanation.startswith("Cloudy intervals")
+        assert "detect_clearsky" in f.explanation
+        assert f.explanation.endswith("were removed.")
+
+    def test_explanation_keep_clear_false_says_clear(self, nrel_clear_sky):
+        f = FilterClearsky(keep_clear=False)
+        f.run(nrel_clear_sky)
+        assert f.explanation.startswith("Clear intervals")
