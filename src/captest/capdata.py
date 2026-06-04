@@ -1988,6 +1988,13 @@ class CapData(object):
             Pre-fetched DataFrame of columns to aggregate. When provided the
             lookup via ``self._get_group`` is skipped. Intended for internal use
             by ``agg_sensors`` to avoid a redundant lookup.
+
+        Notes
+        -----
+        When ``agg_func`` is ``"sum"`` the aggregation is performed with
+        ``min_count=1`` so that a row in which every column is ``NaN`` returns
+        ``NaN`` rather than ``0.0`` (the pandas default). Rows with at least one
+        value still skip ``NaN`` and sum the remaining values.
         """
         if columns is None:
             columns_to_aggregate = self._get_group(group_id)
