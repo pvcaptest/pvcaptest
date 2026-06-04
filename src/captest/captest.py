@@ -1557,7 +1557,6 @@ class CapTest(param.Parameterized):
         snapshot = getattr(self.sim, "_pre_wrap_data", None)
         if snapshot is not None:
             self.sim.data = snapshot.copy()
-            self.sim.data_filtered = self.sim.data.copy()
             self.sim.filters = []
             self.sim._pre_wrap_data = None
 
@@ -1619,7 +1618,6 @@ class CapTest(param.Parameterized):
         if "index" in wrapped.columns:
             wrapped = wrapped.drop(columns="index")
         self.sim.data = wrapped
-        self.sim.data_filtered = self.sim.data.copy()
         self.sim.filters = []
 
     def setup(self, verbose=True):

@@ -911,10 +911,24 @@ class CapData(param.Parameterized):
         doc="Ordered pipeline of filter/summary steps applied to the data.",
     )
 
+    @property
+    def data_filtered(self):
+        """Working data after the applied filter chain (derived, read-only).
+
+        Returns ``self.data`` when no filters are set, otherwise ``self.data``
+        restricted to the rows kept by the last filter
+        (``self.filters[-1].ix_after``). A defensive ``.copy()`` is returned so
+        downstream mutation of the result cannot corrupt ``self.data`` under
+        pandas < 3.0 (no Copy-on-Write). There is no setter: filter results
+        flow through ``filters``; to clear filtering set ``self.filters = []``.
+        """
+        if not self.filters:
+            return self.data
+        return self.data.loc[self.filters[-1].ix_after, :].copy()
+
     def __init__(self, name):  # noqa: D107
         super().__init__(name=name)
         self.data = pd.DataFrame()
-        self.data_filtered = None
         self.column_groups = {}
         self.regression_cols = {}
         self.summary_ix = []
@@ -1007,7 +1021,6 @@ class CapData(param.Parameterized):
         """Create and returns a copy of self."""
         cd_c = CapData(self.name)
         cd_c.data = self.data.copy()
-        cd_c.data_filtered = self.data_filtered.copy()
         cd_c.column_groups = copy.deepcopy(self.column_groups)
         cd_c.regression_cols = copy.copy(self.regression_cols)
         cd_c.summary_ix = copy.copy(self.summary_ix)
@@ -1048,8 +1061,6 @@ class CapData(param.Parameterized):
                     continue
             self.data.drop(col, axis=1, inplace=True)
             print("    Dropped from data attribute")
-            self.data_filtered.drop(col, axis=1, inplace=True)
-            print("    Dropped from data filtered attribute")
 
     def rename_cols(self, column_map):
         """
@@ -1061,7 +1072,6 @@ class CapData(param.Parameterized):
             Dictionary mapping old column names to new column names.
         """
         self.data.rename(columns=column_map, inplace=True)
-        self.data_filtered.rename(columns=column_map, inplace=True)
         for key, value in self.column_groups.items():
             self.column_groups[key] = [column_map.get(col, col) for col in value]
 
@@ -1427,7 +1437,6 @@ class CapData(param.Parameterized):
         data : str
             'sim' or 'das' determines if filter is on sim or das data.
         """
-        self.data_filtered = self.data.copy()
         self.summary_ix = []
         self.summary = []
         self.filter_counts = {}
@@ -1445,7 +1454,6 @@ class CapData(param.Parameterized):
             return warnings.warn("Nothing to reset; agg_sensors has not beenused.")
         else:
             self.data = self.data[self.pre_agg_cols].copy()
-            self.data_filtered = self.data_filtered[self.pre_agg_cols].copy()
 
             self.column_groups = self.pre_agg_trans.copy()
             self.regression_cols = self.pre_agg_reg_trans.copy()
@@ -1739,7 +1747,7 @@ class CapData(param.Parameterized):
             )
             self.data = pd.concat([agg_result, self.data], axis=1)
             agg_names[group_id] = col_name
-        self.data_filtered = self.data.copy()
+        self.filters = []
         self.rename_cols(rename_map)
         self.agg_name_mapper = agg_names
         self.create_column_group_attributes()
@@ -2746,7 +2754,7 @@ class CapData(param.Parameterized):
 
         self.regression_cols_preprocess = copy.deepcopy(self.regression_cols)
         util.process_reg_cols(self.regression_cols, cd=self, verbose=verbose)
-        self.data_filtered = self.data.copy()
+        self.filters = []
         self.create_column_group_attributes()
         if "agg" in self.column_groups:
             self.create_agg_attributes()

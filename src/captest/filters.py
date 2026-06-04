@@ -309,9 +309,6 @@ class BaseSummaryStep(param.Parameterized):
         self.pts_before = len(self.ix_before)
         self.pts_removed = self.pts_before - self.pts_after
         capdata.filters = capdata.filters + [self]
-        # Transitional: keep the legacy data_filtered attribute consistent
-        # until data_filtered becomes a derived property (plan 4).
-        capdata.data_filtered = capdata.data.loc[self.ix_after, :]
         self._record_legacy_summary(capdata)
         if self.pts_after == 0:
             warnings.warn("The last filter removed all data!")

@@ -810,8 +810,6 @@ def calc_tc_power_column(
         )
 
     cd.data[col_name] = cd.data[produced_col]
-    if cd.data_filtered is not None:
-        cd.data_filtered[col_name] = cd.data.loc[cd.data_filtered.index, produced_col]
     return col_name
 
 

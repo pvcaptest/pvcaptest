@@ -543,7 +543,7 @@ class TestIndexCapdata:
     def test_single_label_column_group_key_filtered(self, meas):
         """Test that column_groups key returns the columns of Capdata.data that
         are the values of the key from data_filtered."""
-        meas.data_filtered = meas.data.iloc[0:10, :].copy()
+        meas.filter_custom(pd.DataFrame.head, 10)
         out = pvc.index_capdata(meas, "irr_poa_pyran", filtered=True)
         assert isinstance(out, pd.DataFrame)
         assert out.equals(
@@ -556,7 +556,7 @@ class TestIndexCapdata:
         Test that a list of column_groups key returns the columns of Capdata.data that
         are the union of the values of the keys from data_filtered.
         """
-        meas.data_filtered = meas.data.iloc[0:10, :].copy()
+        meas.filter_custom(pd.DataFrame.head, 10)
         out = pvc.index_capdata(meas, ["irr_poa_pyran", "temp_amb"], filtered=True)
         assert isinstance(out, pd.DataFrame)
         assert out.equals(
@@ -576,7 +576,7 @@ class TestIndexCapdata:
         Test that a list of regression_col keys returns the columns that
         are the regression_col and column_groups maps to in `data_filtered`.
         """
-        meas.data_filtered = meas.data.iloc[0:10, :].copy()
+        meas.filter_custom(pd.DataFrame.head, 10)
         out = pvc.index_capdata(meas, ["poa", "t_amb"], filtered=True)
         assert isinstance(out, pd.DataFrame)
         assert out.equals(
@@ -596,7 +596,7 @@ class TestIndexCapdata:
         Test that a list of regression_col keys returns the columns that
         are the regression_col and column_groups maps to in `data_filtered`.
         """
-        pvsyst_irr_filter.data_filtered = pvsyst_irr_filter.data.iloc[0:10, :].copy()
+        pvsyst_irr_filter.filter_custom(pd.DataFrame.head, 10)
         out = pvc.index_capdata(
             pvsyst_irr_filter, ["poa", "t_amb", "w_vel"], filtered=True
         )
@@ -617,7 +617,7 @@ class TestIndexCapdata:
         Test that passing the label `regcols` returns the columns of
         Capdata.data_filtered that are identified in `regression_cols`.
         """
-        meas.data_filtered = meas.data.iloc[0:10, :].copy()
+        meas.filter_custom(pd.DataFrame.head, 10)
         out = pvc.index_capdata(meas, "regcols", filtered=True)
         assert isinstance(out, pd.DataFrame)
         assert out.equals(
@@ -647,7 +647,7 @@ class TestIndexCapdata:
             "wind": ("wind", "mean"),
         }
         meas.process_regression_columns()
-        meas.data_filtered = meas.data.iloc[0:10, :].copy()
+        meas.filter_custom(pd.DataFrame.head, 10)
         out = pvc.index_capdata(meas, "regcols", filtered=True)
         assert isinstance(out, pd.DataFrame)
         assert out.equals(
@@ -670,7 +670,7 @@ class TestIndexCapdata:
         """Test that column_groups key returns the columns of Capdata.data that
         are the values of the key."""
         # filter data_filtered to make check of row count for filtered=False meaningful
-        meas.data_filtered = meas.data.iloc[0:10, :].copy()
+        meas.filter_custom(pd.DataFrame.head, 10)
         out = pvc.index_capdata(meas, "irr_poa_pyran", filtered=False)
         assert isinstance(out, pd.DataFrame)
         assert out.equals(meas.data[["met1_poa_pyranometer", "met2_poa_pyranometer"]])
@@ -680,7 +680,7 @@ class TestIndexCapdata:
         """Test that regression_columns key returns the columns of Capdata.data that
         are the values of the key."""
         # filter data_filtered to make check of row count for filtered=False meaningful
-        meas.data_filtered = meas.data.iloc[0:10, :].copy()
+        meas.filter_custom(pd.DataFrame.head, 10)
         out = pvc.index_capdata(meas, "poa", filtered=False)
         assert isinstance(out, pd.DataFrame)
         assert out.equals(meas.data[["met1_poa_pyranometer", "met2_poa_pyranometer"]])
@@ -691,7 +691,7 @@ class TestIndexCapdata:
         are the values of the key after agg_sensors has reset regression_columns
         to map to the new aggregated column."""
         # filter data_filtered to make check of row count for filtered=False meaningful
-        meas.data_filtered = meas.data.iloc[0:10, :].copy()
+        meas.filter_custom(pd.DataFrame.head, 10)
         meas.regression_cols = {"poa": ("irr_poa_pyran", "mean")}
         meas.process_regression_columns()
         out = pvc.index_capdata(meas, "poa", filtered=False)
@@ -703,7 +703,7 @@ class TestIndexCapdata:
         """Test that a column label returns the columns of Capdata.data that
         are the values of the key. Passes label through to DataFrame.loc."""
         # filter data_filtered to make check of row count for filtered=False meaningful
-        meas.data_filtered = meas.data.iloc[0:10, :].copy()
+        meas.filter_custom(pd.DataFrame.head, 10)
         out = pvc.index_capdata(meas, "met1_poa_pyranometer", filtered=False)
         assert isinstance(out, pd.DataFrame)
         assert out.equals(meas.data.loc[:, "met1_poa_pyranometer"].to_frame())
@@ -715,7 +715,7 @@ class TestIndexCapdata:
         are the union of the values of the keys.
         """
         # filter data_filtered to make check of row count for filtered=False meaningful
-        meas.data_filtered = meas.data.iloc[0:10, :].copy()
+        meas.filter_custom(pd.DataFrame.head, 10)
         out = pvc.index_capdata(meas, ["irr_poa_pyran", "temp_amb"], filtered=False)
         assert isinstance(out, pd.DataFrame)
         assert out.equals(
@@ -736,7 +736,7 @@ class TestIndexCapdata:
         are the union of the values of the keys.
         """
         # filter data_filtered to make check of row count for filtered=False meaningful
-        meas.data_filtered = meas.data.iloc[0:10, :].copy()
+        meas.filter_custom(pd.DataFrame.head, 10)
         out = pvc.index_capdata(meas, ["poa", "t_amb"], filtered=False)
         assert isinstance(out, pd.DataFrame)
         assert out.equals(
@@ -757,7 +757,7 @@ class TestIndexCapdata:
         are the new aggregated columns after agg_sensors has been run.
         """
         # filter data_filtered to make check of row count for filtered=False meaningful
-        meas.data_filtered = meas.data.iloc[0:10, :].copy()
+        meas.filter_custom(pd.DataFrame.head, 10)
         meas.regression_cols = {
             "poa": ("irr_poa_pyran", "mean"),
             "t_amb": ("temp_amb", "mean"),
@@ -781,7 +781,7 @@ class TestIndexCapdata:
         that are the union of the values of the keys and the aggregated column.
         """
         # filter data_filtered to make check of row count for filtered=False meaningful
-        meas.data_filtered = meas.data.iloc[0:10, :].copy()
+        meas.filter_custom(pd.DataFrame.head, 10)
         meas.agg_sensors(agg_map={"irr_poa_pyran": "mean"})
         meas.regression_cols = {"poa": "irr_poa_pyran_mean_agg", "t_amb": "temp_amb"}
         out = pvc.index_capdata(meas, ["poa", "t_amb"], filtered=False)
@@ -803,7 +803,7 @@ class TestIndexCapdata:
         Passes labels through to DataFrame.loc.
         """
         # filter data_filtered to make check of row count for filtered=False meaningful
-        meas.data_filtered = meas.data.iloc[0:10, :].copy()
+        meas.filter_custom(pd.DataFrame.head, 10)
         out = pvc.index_capdata(
             meas, ["met1_poa_pyranometer", "met2_amb_temp"], filtered=False
         )
@@ -818,7 +818,7 @@ class TestIndexCapdata:
         values of the keys and the labels.
         """
         # filter data_filtered to make check of row count for filtered=False meaningful
-        meas.data_filtered = meas.data.iloc[0:10, :].copy()
+        meas.filter_custom(pd.DataFrame.head, 10)
         out = pvc.index_capdata(
             meas, ["irr_poa_pyran", "t_amb", "met1_windspeed"], filtered=False
         )
@@ -842,7 +842,7 @@ class TestIndexCapdata:
         label rather than a column_group key is added to the columns returned.
         """
         # filter data_filtered to make check of row count for filtered=False meaningful
-        meas.data_filtered = meas.data.iloc[0:10, :].copy()
+        meas.filter_custom(pd.DataFrame.head, 10)
         meas.regression_cols["poa"] = "met1_poa_pyranometer"
         out = pvc.index_capdata(
             meas, ["irr_poa_ref_cell", "poa", "met1_windspeed"], filtered=False
@@ -865,7 +865,7 @@ class TestIndexCapdata:
         Test that passing the label `regcols` returns the columns of
         Capdata.data that are identified in `regression_cols`.
         """
-        meas.data_filtered = meas.data.iloc[0:10, :].copy()
+        meas.filter_custom(pd.DataFrame.head, 10)
         out = pvc.index_capdata(meas, "regcols", filtered=False)
         assert isinstance(out, pd.DataFrame)
         assert out.equals(
@@ -895,7 +895,7 @@ class TestIndexCapdata:
             "wind": ("wind", "mean"),
         }
         meas.process_regression_columns()
-        meas.data_filtered = meas.data.iloc[0:10, :].copy()
+        meas.filter_custom(pd.DataFrame.head, 10)
         out = pvc.index_capdata(meas, "regcols", filtered=False)
         assert isinstance(out, pd.DataFrame)
         assert out.equals(
@@ -917,7 +917,7 @@ class TestIndexCapdata:
         `data` should emit a warning that names the offending label rather than
         raising `UnboundLocalError`.
         """
-        meas.data_filtered = meas.data.iloc[0:10, :].copy()
+        meas.filter_custom(pd.DataFrame.head, 10)
         missing_label = "nonexistent_column_group"
         with pytest.warns(UserWarning, match=missing_label):
             out = pvc.index_capdata(meas, missing_label, filtered=True)
@@ -928,7 +928,7 @@ class TestLocAndFloc:
     def test_single_label_column_group_key_loc(self, meas):
         """Test that column_groups key returns the columns of Capdata.data that
         are the values of the key."""
-        meas.data_filtered = meas.data.iloc[0:10].copy()
+        meas.filter_custom(pd.DataFrame.head, 10)
         out = meas.loc["irr_poa_pyran"]
         assert out.equals(meas.data[["met1_poa_pyranometer", "met2_poa_pyranometer"]])
         assert out.shape[0] == meas.data.shape[0]
@@ -936,7 +936,7 @@ class TestLocAndFloc:
     def test_single_label_column_group_key_floc(self, meas):
         """Test that column_groups key returns the columns of Capdata.data that
         are the values of the key."""
-        meas.data_filtered = (meas.data.iloc[0:10, :]).copy()
+        meas.filter_custom(pd.DataFrame.head, 10)
         out = meas.floc["irr_poa_pyran"]
         assert out.equals(
             meas.data_filtered[["met1_poa_pyranometer", "met2_poa_pyranometer"]]
@@ -1086,7 +1086,7 @@ class TestCapDataMethodsSim:
         assert pvsyst.data_filtered.shape[0] == 8670
 
     def test_filter_pvsyst_default_newer_pvsyst_var_names(self, pvsyst):
-        pvsyst.data_filtered.rename(
+        pvsyst.data.rename(
             columns={
                 "IL Pmin": "IL_Pmin",
                 "IL Vmin": "IL_Vmin",
@@ -1106,7 +1106,6 @@ class TestCapDataMethodsSim:
 
     def test_filter_pvsyst_missing_column(self, pvsyst):
         pvsyst.data.drop(columns="IL Pmin", inplace=True)
-        pvsyst.data_filtered.drop(columns="IL Pmin", inplace=True)
         with pytest.warns(
             UserWarning, match="IL_Pmin or IL Pmin is not a column in the data."
         ):
@@ -1114,9 +1113,6 @@ class TestCapDataMethodsSim:
 
     def test_filter_pvsyst_missing_all_columns(self, pvsyst):
         pvsyst.data.drop(
-            columns=["IL Pmin", "IL Vmin", "IL Pmax", "IL Vmax"], inplace=True
-        )
-        pvsyst.data_filtered.drop(
             columns=["IL Pmin", "IL Vmin", "IL Pmax", "IL Vmax"], inplace=True
         )
         with pytest.warns(UserWarning):
@@ -1137,7 +1133,6 @@ class TestCapDataMethodsSim:
         is_shaded = pvsyst.data["ShdLoss"].isna()
         shdloss_values = 1 / pvsyst.data.loc[is_shaded, "FShdBm"] * 100
         pvsyst.data.loc[is_shaded, "ShdLoss"] = shdloss_values
-        pvsyst.data_filtered = pvsyst.data.copy()
 
         pvsyst.filter_shade(query_str="ShdLoss<=125")
         assert pvsyst.data_filtered.shape[0] == 8671
@@ -1756,7 +1751,6 @@ class TestAggSensors:
         extra_cols = [f"extra_poa_{i}" for i in range(10)]
         for col in extra_cols:
             meas.data[col] = meas.data["met1_poa_pyranometer"]
-        meas.data_filtered = meas.data.copy()
         meas.column_groups["irr_poa_pyran"] = (
             meas.column_groups["irr_poa_pyran"] + extra_cols
         )
@@ -1927,7 +1921,6 @@ class TestAggGroupCutoff:
         extra_cols = [f"extra_poa_{i}" for i in range(n)]
         for col in extra_cols:
             meas.data[col] = meas.data["met1_poa_pyranometer"]
-        meas.data_filtered = meas.data.copy()
         meas.column_groups[group_id] = meas.column_groups[group_id] + extra_cols
         return meas.column_groups[group_id]
 
@@ -2081,7 +2074,6 @@ class TestFilterSensorsWithAbsDiffFromAverage:
     def test_drops_rows_with_outliers(self, capdata_irr):
         capdata_irr.data.iloc[0, 2] = 926
         capdata_irr.data.iloc[3, 0] = 850
-        capdata_irr.data_filtered = capdata_irr.data.copy()
         capdata_irr.filter_sensors(
             perc_diff={"poa": 25}, row_filter=filters.abs_diff_from_average
         )
@@ -2158,9 +2150,7 @@ class TestPredictCapacities:
         # Check that the returned dataframe has 12 rows
         assert pred_caps.shape[0] == 12
 
-        pvsyst_irr_filter.data_filtered = pvsyst_irr_filter.data_filtered.loc[
-            "7/1/90":"7/31/90", :
-        ]
+        pvsyst_irr_filter.filter_time(start="7/1/90", end="7/31/90 23:00")
         pvsyst_irr_filter.rep_cond()
         pvsyst_irr_filter.filter_irr(
             0.8, 1.2, ref_val=pvsyst_irr_filter.rc["poa"].iloc[0]
@@ -2223,7 +2213,6 @@ class TestFilterIrr:
         pts_before = nrel.data_filtered.shape[0]
         nrel.data["POA second column"] = nrel.loc["poa"].values
         nrel.column_groups["irr-poa-"].append("POA second column")
-        nrel.data_filtered = nrel.data.copy()
         nrel.filter_irr(
             500, 600, ref_val=None, col_name="POA second column", inplace=True
         )
@@ -2238,7 +2227,6 @@ class TestFilterIrr:
         pts_before = nrel.data_filtered.shape[0]
         nrel.data["POA second column"] = nrel.loc["poa"].values
         nrel.column_groups["irr-poa-"].append("POA second column")
-        nrel.data_filtered = nrel.data.copy()
         nrel.filter_irr(
             0.8, 1.2, ref_val=500, col_name="POA second column", inplace=True
         )
@@ -2427,7 +2415,6 @@ class TestFilterPF:
         pf = np.append(pf, np.ones(5) * -1)
         pf = np.append(pf, np.arange(0, 1, 0.1))
         nrel.data["pf"] = np.tile(pf, 576)
-        nrel.data_filtered = nrel.data.copy()
         nrel.column_groups["pf--"] = ["pf"]
         nrel.trans_keys = list(nrel.column_groups.keys())
         nrel.filter_pf(1)
@@ -2441,12 +2428,8 @@ class TestFilterOutliersAndPower:
 
     def test_filter_outliers_warns_and_succeeds_when_nans_present(self, pvsyst):
         """filter_outliers warns and auto-removes NaN rows in poa/power before fitting."""
-        pvsyst.data_filtered.iloc[
-            0, pvsyst.data_filtered.columns.get_loc("GlobInc")
-        ] = np.nan
-        pvsyst.data_filtered.iloc[1, pvsyst.data_filtered.columns.get_loc("E_Grid")] = (
-            np.nan
-        )
+        pvsyst.data.iloc[0, pvsyst.data.columns.get_loc("GlobInc")] = np.nan
+        pvsyst.data.iloc[1, pvsyst.data.columns.get_loc("E_Grid")] = np.nan
         initial_rows = pvsyst.data_filtered.shape[0]
 
         with pytest.warns(UserWarning, match="missing values"):
@@ -2457,9 +2440,7 @@ class TestFilterOutliersAndPower:
 
     def test_filter_outliers_nan_records_filter_missing_in_summary(self, pvsyst):
         """When filter_outliers auto-calls filter_missing, both are recorded in summary."""
-        pvsyst.data_filtered.iloc[
-            0, pvsyst.data_filtered.columns.get_loc("GlobInc")
-        ] = np.nan
+        pvsyst.data.iloc[0, pvsyst.data.columns.get_loc("GlobInc")] = np.nan
 
         with pytest.warns(UserWarning):
             pvsyst.filter_outliers()
@@ -2489,8 +2470,8 @@ class TestFilterOutliersAndPower:
     def test_filter_power_column_group_with_nan(self, meas):
         """NaN values in a multi-column power group should not cause row removal."""
         # Introduce NaN in one inverter column
-        meas.data_filtered.iloc[0, meas.data.columns.get_loc("inv1_power")] = np.nan
-        meas.data_filtered.iloc[1, meas.data.columns.get_loc("inv2_power")] = np.nan
+        meas.data.iloc[0, meas.data.columns.get_loc("inv1_power")] = np.nan
+        meas.data.iloc[1, meas.data.columns.get_loc("inv2_power")] = np.nan
         meas.filter_power(500_000, percent=None, columns="power_inv", inplace=True)
         # Rows with NaN should still be present (NaN < threshold is treated as True)
         assert meas.data_filtered.shape[0] == 1138
@@ -2523,7 +2504,6 @@ class TestCskyFilter:
 
     def test_two_ghi_cols(self, nrel_clear_sky):
         nrel_clear_sky.data["ws 2 ghi W/m^2"] = nrel_clear_sky.loc["irr-ghi-"] * 1.05
-        nrel_clear_sky.data_filtered = nrel_clear_sky.data.copy()
         nrel_clear_sky.column_groups["irr-ghi-"].append("ws 2 ghi W/m^2")
         with pytest.warns(UserWarning):
             nrel_clear_sky.filter_clearsky()
@@ -2544,7 +2524,6 @@ class TestCskyFilter:
 
     def test_specify_ghi_col(self, nrel_clear_sky):
         nrel_clear_sky.data["ws 2 ghi W/m^2"] = nrel_clear_sky.loc["irr-ghi-"] * 1.05
-        nrel_clear_sky.data_filtered = nrel_clear_sky.data.copy()
         nrel_clear_sky.column_groups["irr-ghi-"].append("ws 2 ghi W/m^2")
         nrel_clear_sky.trans_keys = list(nrel_clear_sky.column_groups.keys())
 
@@ -2593,10 +2572,10 @@ class TestFilterMissing:
         )
         assert all(meas.floc["regcols"].isna().sum() == 0)
         assert meas.data_filtered.shape[0] == 1440
-        meas.data_filtered.loc["10/9/90 12:00", "meter_power"] = np.nan
-        meas.data_filtered.loc["10/9/90 12:30", "met1_poa_refcell"] = np.nan
-        meas.data_filtered.loc["10/10/90 12:35", "met2_amb_temp"] = np.nan
-        meas.data_filtered.loc["10/10/90 12:50", "met1_windspeed"] = np.nan
+        meas.data.loc["10/9/90 12:00", "meter_power"] = np.nan
+        meas.data.loc["10/9/90 12:30", "met1_poa_refcell"] = np.nan
+        meas.data.loc["10/10/90 12:35", "met2_amb_temp"] = np.nan
+        meas.data.loc["10/10/90 12:50", "met1_windspeed"] = np.nan
         meas.filter_missing()
         assert meas.data_filtered.shape[0] == 1436
 
@@ -2705,7 +2684,6 @@ class TestPredictWithPvalueCheck:
 
         df = pd.DataFrame({"y": y, "x": x, "noise": noise_var})
         cd.data = df
-        cd.data_filtered = df.copy()
 
         # Fit model with both significant (x) and insignificant (noise) predictors
         fml = "y ~ x + noise"
@@ -2796,8 +2774,6 @@ class TestCapTestCpResultsSingleCoeff(unittest.TestCase):
 
         self.meas.regression_results = das_model.fit()
         self.sim.regression_results = sim_model.fit()
-        self.meas.data_filtered = pd.DataFrame()
-        self.sim.data_filtered = pd.DataFrame()
 
     def test_return(self):
         ct = CapTest(test_tolerance="+/- 5", ac_nameplate=100)
@@ -2847,8 +2823,6 @@ class TestCapTestCpResultsMultCoeffKwVsW(unittest.TestCase):
 
         meas.regression_results = das_model.fit()
         sim.regression_results = sim_model.fit()
-        meas.data_filtered = pd.DataFrame()
-        sim.data_filtered = pd.DataFrame()
 
         actual = meas.regression_results.predict(meas.rc)[0] * 1000
         expected = sim.regression_results.predict(meas.rc)[0]
@@ -2906,8 +2880,6 @@ class TestCapTestCpResultsMultCoeff(unittest.TestCase):
 
         self.meas.regression_results = das_model.fit()
         self.sim.regression_results = sim_model.fit()
-        self.meas.data_filtered = pd.DataFrame()
-        self.sim.data_filtered = pd.DataFrame()
 
     def test_model_predict_with_modified_params(self):
         """Test that model.predict() with modified params works correctly.
@@ -3043,9 +3015,7 @@ class TestCapTestCpResultsMultCoeff(unittest.TestCase):
 
     def test_formulas_match(self):
         sim = pvc.CapData("sim")
-        sim.data_filtered = pd.DataFrame()
         das = pvc.CapData("das")
-        das.data_filtered = pd.DataFrame()
 
         sim.regression_formula = "power ~ poa + I(poa * poa) + I(poa * t_amb) - 1"
 
@@ -3147,7 +3117,7 @@ class TestPointsSummary:
         assert results_str == captured.out
 
     def test_print_points_summary_fail(self, meas):
-        meas.data_filtered = meas.data.iloc[0:10, :]
+        meas.filter_custom(pd.DataFrame.head, 10)
         meas.print_points_summary()
         captured = self.capsys.readouterr()
 

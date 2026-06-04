@@ -309,7 +309,6 @@ class TestScatterCallables:
         idx = pd.date_range("2024-01-01", periods=50, freq="1min")
         data = {col: np.linspace(1, 50, 50) for col in columns}
         cd.data = pd.DataFrame(data, index=idx)
-        cd.data_filtered = cd.data.copy()
         cd.column_groups = {col: [col] for col in columns}
         cd.regression_cols = {col: col for col in columns}
         cd.regression_formula = formula
@@ -879,11 +878,12 @@ class TestSetup:
             meas=meas_cd_default,
             sim=sim_cd_default,
         )
-        # Simulate a filter step: shrink data_filtered.
-        capt.meas.data_filtered = capt.meas.data_filtered.iloc[:100].copy()
+        # Simulate a filter step: shrink data_filtered via a real filter.
+        idx = capt.meas.data.index
+        capt.meas.filter_time(start=idx[0], end=idx[99])
         assert capt.meas.data_filtered.shape[0] == 100
         capt.setup(verbose=False)
-        # process_regression_columns resets data_filtered = data.copy().
+        # process_regression_columns clears filters, so data_filtered == data.
         assert capt.meas.data_filtered.shape[0] == capt.meas.data.shape[0]
 
     def test_setup_verbose_prints_aggregations(
@@ -1273,8 +1273,6 @@ class TestPortedMethods:
         sim = CapData("sim")
         meas.data = das_df
         sim.data = sim_df
-        meas.data_filtered = das_df.copy()
-        sim.data_filtered = sim_df.copy()
         meas.rc = pd.DataFrame({"poa": [6], "t_amb": [5], "w_vel": [3]})
         sim.rc = pd.DataFrame({"poa": [6], "t_amb": [5], "w_vel": [3]})
 
@@ -1840,12 +1838,10 @@ def _ct_with(meas_idx, sim_idx, **kwargs):
     ct = CapTest(**kwargs)
     meas = CapData("meas")
     meas.data = pd.DataFrame({"poa": np.zeros(len(meas_idx))}, index=meas_idx)
-    meas.data_filtered = meas.data.copy()
     sim = CapData("sim")
     sim.data = pd.DataFrame(
         {"poa": np.arange(len(sim_idx), dtype=float)}, index=sim_idx
     )
-    sim.data_filtered = sim.data.copy()
     ct.meas = meas
     ct.sim = sim
     return ct
@@ -1928,11 +1924,9 @@ class TestAutoWrapSim:
         ct = CapTest()
         ct.meas = CapData("meas")
         ct.meas.data = pd.DataFrame({"poa": [0, 1, 2]})  # RangeIndex
-        ct.meas.data_filtered = ct.meas.data.copy()
         ct.sim = CapData("sim")
         sim = _hourly_typical_year(1990)
         ct.sim.data = sim
-        ct.sim.data_filtered = sim.copy()
         ct._maybe_wrap_sim_year_end()
         assert getattr(ct.sim, "_pre_wrap_data", None) is None
 

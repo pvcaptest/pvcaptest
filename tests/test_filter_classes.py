@@ -31,15 +31,11 @@ from captest.filters import (
 
 @pytest.fixture
 def make_capdata():
-    """Factory fixture: a CapData with an n-row power+poa frame.
-
-    ``data_filtered`` is initialized to a copy of ``data``.
-    """
+    """Factory fixture: a CapData with an n-row power+poa frame."""
 
     def _make(n=5):
         cd = CapData("test")
         cd.data = pd.DataFrame({"power": np.arange(n), "poa": np.arange(n) * 10.0})
-        cd.data_filtered = cd.data.copy()
         return cd
 
     return _make
@@ -53,7 +49,6 @@ def cd_irr():
         {"poa": [100.0, 300.0, 500.0, 700.0, 900.0]},
         index=pd.RangeIndex(5),
     )
-    cd.data_filtered = cd.data.copy()
     cd.regression_cols = {"poa": "poa"}
     return cd
 
@@ -64,7 +59,6 @@ def cd_time():
     cd = CapData("time")
     idx = pd.date_range("2023-01-01", periods=90, freq="D")
     cd.data = pd.DataFrame({"power": range(90)}, index=idx)
-    cd.data_filtered = cd.data.copy()
     return cd
 
 
@@ -86,7 +80,6 @@ def cd_reg():
     power[10] += 400  # gross residual outlier at index 10
     cd = CapData("reg")
     cd.data = pd.DataFrame({"poa": poa, "power": power}, index=pd.RangeIndex(n))
-    cd.data_filtered = cd.data.copy()
     cd.column_groups = {"irr-poa-": ["poa"], "real_pwr--": ["power"]}
     cd.regression_cols = {"power": "power", "poa": "poa"}
     cd.regression_formula = "power ~ poa"
@@ -105,7 +98,6 @@ def cd_pp():
     power[40] = -100.0
     cd = CapData("pp")
     cd.data = pd.DataFrame({"poa": poa, "power": power}, index=pd.RangeIndex(n))
-    cd.data_filtered = cd.data.copy()
     cd.regression_cols = {"poa": "poa", "power": "power"}
     return cd
 
@@ -237,7 +229,6 @@ class TestFilterIrr:
 
     def test_execute_uses_explicit_col_name(self, cd_irr):
         cd_irr.data["ghi"] = [0.0, 0.0, 0.0, 0.0, 1000.0]
-        cd_irr.data_filtered = cd_irr.data.copy()
         f = FilterIrr(low=500, high=2000, col_name="ghi")
         assert list(f._execute(cd_irr)) == [4]
 
@@ -304,7 +295,6 @@ class TestFilterIrr:
 
     def test_explanation_uses_resolved_col_name(self, cd_irr):
         cd_irr.data["ghi"] = [0.0, 0.0, 0.0, 0.0, 1000.0]
-        cd_irr.data_filtered = cd_irr.data.copy()
         f = FilterIrr(low=500, high=2000, col_name="ghi")
         f.run(cd_irr)
         assert f.explanation.startswith("Intervals where ghi is below 500")
@@ -397,7 +387,6 @@ class TestFilterSensors:
     def test_execute_explicit_row_filter_drops_outliers(self, capdata_irr):
         capdata_irr.data.iloc[0, 2] = 926
         capdata_irr.data.iloc[3, 0] = 850
-        capdata_irr.data_filtered = capdata_irr.data.copy()
         f = FilterSensors(perc_diff={"poa": 25}, row_filter=abs_diff_from_average)
         kept = f._execute(capdata_irr)
         assert len(kept) == capdata_irr.data.shape[0] - 2
@@ -634,7 +623,6 @@ class TestFilterCustom:
             {"power": [1.0, np.nan, 3.0, np.nan, 5.0]},
             index=pd.RangeIndex(5),
         )
-        cd.data_filtered = cd.data.copy()
         kept = FilterCustom(pd.DataFrame.dropna)._execute(cd)
         assert list(kept) == [0, 2, 4]
 
@@ -725,7 +713,6 @@ class TestFilterOutliers:
 
     def test_execute_too_many_columns_warns_and_keeps_all(self, cd_pp):
         cd_pp.data["poa2"] = cd_pp.data["poa"]
-        cd_pp.data_filtered = cd_pp.data.copy()
         cd_pp.column_groups = {"poa": ["poa", "poa2"], "power": ["power"]}
         n_before = len(cd_pp.data_filtered)
         f = FilterOutliers()
@@ -735,7 +722,6 @@ class TestFilterOutliers:
 
     def test_execute_nan_calls_filter_missing(self, cd_pp):
         cd_pp.data.iloc[0, cd_pp.data.columns.get_loc("poa")] = np.nan
-        cd_pp.data_filtered = cd_pp.data.copy()
         with pytest.warns(UserWarning, match="missing values"):
             kept = FilterOutliers()._execute(cd_pp)
         assert 0 not in kept
@@ -746,7 +732,6 @@ class TestFilterOutliers:
 
     def test_pts_removed_excludes_nan_drop(self, cd_pp):
         cd_pp.data.iloc[1, cd_pp.data.columns.get_loc("poa")] = np.nan
-        cd_pp.data_filtered = cd_pp.data.copy()
         pre_run_pts = len(cd_pp.data_filtered)  # includes the NaN row
         f = FilterOutliers()
         with pytest.warns(UserWarning):
@@ -773,7 +758,6 @@ class TestFilterOutliers:
             {"poa": np.linspace(100, 1000, 30), "power": np.linspace(20, 200, 30)},
             index=pd.RangeIndex(30),
         )
-        cd.data_filtered = cd.data.copy()
         cd.regression_cols = {"poa": "poa", "power": "power"}
         f._execute(cd)
         post = f.args_repr
@@ -864,7 +848,6 @@ class TestFilterClearsky:
         nrel_clear_sky.data["ws 2 ghi W/m^2"] = (
             nrel_clear_sky.loc["irr-ghi-"].squeeze() * 1.05
         )
-        nrel_clear_sky.data_filtered = nrel_clear_sky.data.copy()
         nrel_clear_sky.column_groups["irr-ghi-"].append("ws 2 ghi W/m^2")
         n_before = nrel_clear_sky.data_filtered.shape[0]
         with pytest.warns(UserWarning, match="Averaging"):
@@ -892,7 +875,6 @@ class TestFilterClearsky:
         nrel_clear_sky.data["ws 2 ghi W/m^2"] = (
             nrel_clear_sky.loc["irr-ghi-"].squeeze() * 1.05
         )
-        nrel_clear_sky.data_filtered = nrel_clear_sky.data.copy()
         nrel_clear_sky.column_groups["irr-ghi-"].append("ws 2 ghi W/m^2")
         f = FilterClearsky(ghi_col="ws 2 ghi W/m^2")
         kept = f._execute(nrel_clear_sky)
@@ -945,7 +927,6 @@ class TestFilterPvsyst:
             {"IL Pmin": [0.0, 1.0, 0.0, 2.0], "power": [10.0, 20.0, 30.0, 40.0]},
             index=pd.RangeIndex(4),
         )
-        cd.data_filtered = cd.data.copy()
         return cd
 
     def test_execute_drops_positive_rows(self):
@@ -955,13 +936,11 @@ class TestFilterPvsyst:
     def test_execute_underscored_column_names(self):
         cd = CapData("pv")
         cd.data = pd.DataFrame({"IL_Pmax": [0.0, 5.0, 0.0]}, index=pd.RangeIndex(3))
-        cd.data_filtered = cd.data.copy()
         assert list(FilterPvsyst()._execute(cd)) == [0, 2]
 
     def test_execute_missing_column_warns(self):
         cd = CapData("pv")
         cd.data = pd.DataFrame({"power": [1.0, 2.0]}, index=pd.RangeIndex(2))
-        cd.data_filtered = cd.data.copy()
         with pytest.warns(UserWarning, match="not a column"):
             kept = FilterPvsyst()._execute(cd)
         assert list(kept) == [0, 1]
@@ -980,7 +959,6 @@ class TestFilterShade:
             {"FShdBm": [1.0, 0.5, 1.0, 0.8], "ShdLoss": [0.0, 50.0, 0.0, 130.0]},
             index=pd.RangeIndex(4),
         )
-        cd.data_filtered = cd.data.copy()
         return cd
 
     def test_execute_default_fshdbm(self):
@@ -1019,7 +997,6 @@ class TestFilterDaysClass:
         cd = CapData("d")
         idx = pd.date_range("1990-10-01", periods=72, freq="h")  # 3 days
         cd.data = pd.DataFrame({"power": range(72)}, index=idx)
-        cd.data_filtered = cd.data.copy()
         return cd
 
     def test_execute_keep_days(self):
@@ -1050,7 +1027,6 @@ class TestFilterPf:
             {"inv1 pf": [1.0, 0.5, 0.99], "inv2 pf": [0.999, 0.9, 1.0]},
             index=pd.RangeIndex(3),
         )
-        cd.data_filtered = cd.data.copy()
         cd.column_groups = {"pf--": ["inv1 pf", "inv2 pf"]}
         return cd
 
@@ -1060,7 +1036,6 @@ class TestFilterPf:
     def test_execute_no_pf_group_warns(self):
         cd = CapData("pf")
         cd.data = pd.DataFrame({"power": [1.0, 2.0]}, index=pd.RangeIndex(2))
-        cd.data_filtered = cd.data.copy()
         cd.column_groups = {"real_pwr--": ["power"]}
         with pytest.warns(UserWarning, match="power factor"):
             kept = FilterPf(pf=0.99)._execute(cd)
@@ -1080,7 +1055,6 @@ class TestFilterPower:
             {"meter_power": [100.0, 600.0, 300.0, 900.0]},
             index=pd.RangeIndex(4),
         )
-        cd.data_filtered = cd.data.copy()
         cd.regression_cols = {"power": "meter_power"}
         return cd
 
@@ -1119,7 +1093,6 @@ class TestFilterMissingClass:
             {"poa": [1.0, np.nan, 3.0], "power": [10.0, 20.0, np.nan]},
             index=pd.RangeIndex(3),
         )
-        cd.data_filtered = cd.data.copy()
         cd.regression_cols = {"poa": "poa", "power": "power"}
         return cd
 
@@ -1170,7 +1143,6 @@ class TestFilterRegression:
         # NaN in a regression column: must run filter_missing (recording its
         # own step) rather than raise an unalignable-boolean error.
         cd_reg.data.iloc[5, cd_reg.data.columns.get_loc("power")] = np.nan
-        cd_reg.data_filtered = cd_reg.data.copy()
         with pytest.warns(UserWarning, match="missing values"):
             kept = FilterRegression(n_std=2)._execute(cd_reg)
         assert 5 not in kept  # NaN row removed

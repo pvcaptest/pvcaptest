@@ -16,7 +16,6 @@ def meas():
         index_col=0,
         parse_dates=True,
     )
-    meas.data_filtered = meas.data.copy(deep=True)
     meas.column_groups = cg.ColumnGroups(
         util.read_json("./tests/data/example_measured_data_column_groups.json")
     )
@@ -35,7 +34,6 @@ def meas_groups_with_one_tag():
         index_col=0,
         parse_dates=True,
     )
-    meas.data_filtered = meas.data.copy(deep=True)
     meas.column_groups = cg.ColumnGroups(
         util.read_json("./tests/data/example_measured_data_column_groups.json")
     )
@@ -69,7 +67,6 @@ def location_and_system():
 def nrel():
     nrel = pvc.CapData("nrel")
     nrel.data = pd.read_csv("./tests/data/nrel_data.csv", index_col=0, parse_dates=True)
-    nrel.data_filtered = nrel.data.copy()
     nrel.column_groups = {
         "irr-ghi-": [
             "Global CMP22 (vent/cor) [W/m^2]",
@@ -108,7 +105,6 @@ def pvsyst():
     # set pvsyst DataFrame to CapData data attribute
     pvsyst = pvc.CapData("pvsyst")
     pvsyst.data = df
-    pvsyst.data_filtered = pvsyst.data.copy()
     pvsyst.column_groups = {
         "irr-poa-": ["GlobInc"],
         "shade--": ["FShdBm"],
@@ -153,7 +149,6 @@ def nrel_clear_sky(nrel):
         "./tests/data/nrel_data_modelled_csky.csv", index_col=0, parse_dates=True
     )
     nrel.data = pd.concat([nrel.data, clear_sky], axis=1)
-    nrel.data_filtered = nrel.data.copy()
     nrel.column_groups["irr-poa-clear_sky"] = ["poa_mod_csky"]
     nrel.column_groups["irr-ghi-clear_sky"] = ["ghi_mod_csky"]
     return nrel
@@ -180,7 +175,6 @@ def capdata_irr():
 
     cd = pvc.CapData("cd")
     cd.data = df
-    cd.data_filtered = df.copy()
     cd.column_groups = {"poa": ["poa1", "poa2", "poa3", "poa4"]}
     return cd
 
@@ -212,7 +206,6 @@ def meas_cd_default():
     df["met1_rpoa"] = df["met1_poa_pyranometer"] * 0.15
     df["met2_rpoa"] = df["met2_poa_pyranometer"] * 0.15
     cd.data = df
-    cd.data_filtered = cd.data.copy(deep=True)
     cd.column_groups = cg.ColumnGroups(
         {
             "real_pwr_mtr": ["meter_power"],
@@ -237,7 +230,6 @@ def sim_cd_default():
     cd = load_pvsyst(path="./tests/data/pvsyst_example_HourlyRes_2.CSV")
     cd.data["GlobBak"] = cd.data["GlobInc"] * 0.15
     cd.data["BackShd"] = 0.0
-    cd.data_filtered = cd.data.copy(deep=True)
     return cd
 
 
@@ -296,7 +288,6 @@ def meas_cd_bom_temp(meas_cd_default):
     df["met1_bom_temp"] = df["met1_amb_temp"] + df["met1_poa_pyranometer"] * 0.025
     df["met2_bom_temp"] = df["met2_amb_temp"] + df["met2_poa_pyranometer"] * 0.025
     cd.data = df
-    cd.data_filtered = cd.data.copy(deep=True)
     groups = dict(cd.column_groups)
     groups["temp_bom"] = ["met1_bom_temp", "met2_bom_temp"]
     cd.column_groups = cg.ColumnGroups(groups)
@@ -333,7 +324,6 @@ def meas_cd_spec_corrected(meas_cd_default):
     cd.data["met2_humidity"] = np.clip(rng.normal(60.0, 10.0, n), 5.0, 95.0)
     cd.data["met1_pressure"] = rng.normal(1013.0, 3.0, n)
     cd.data["met2_pressure"] = rng.normal(1013.0, 3.0, n)
-    cd.data_filtered = cd.data.copy(deep=True)
     groups = dict(cd.column_groups)
     groups["humidity"] = ["met1_humidity", "met2_humidity"]
     groups["pressure"] = ["met1_pressure", "met2_pressure"]
@@ -367,7 +357,6 @@ def sim_cd_spec_corrected(sim_cd_default):
     rng = np.random.default_rng(seed=43)
     n = cd.data.shape[0]
     cd.data["PrecWat"] = rng.uniform(0.005, 0.03, n)  # meters
-    cd.data_filtered = cd.data.copy(deep=True)
     return cd
 
 
@@ -450,6 +439,5 @@ def cd_nested_col_groups():
 
     # Create DataFrame with the generated data
     cd.data = pd.DataFrame(data, index=datetime_index)
-    cd.data_filtered = cd.data.copy()
 
     return cd
