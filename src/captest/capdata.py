@@ -25,7 +25,6 @@ import pandas as pd
 # anaconda distribution defaults
 # statistics and machine learning imports
 from patsy import dmatrix
-import statsmodels.formula.api as smf
 
 
 # anaconda distribution defaults
@@ -53,6 +52,7 @@ from captest.filters import (
     check_all_perc_diff_comb,
     filter_grps,
     filter_irr,
+    fit_model,
     wrap_year_end,
 )
 
@@ -606,31 +606,6 @@ class ReportingIrradiance(param.Parameterized):
 
     def dashboard(self):
         return pn.Row(self.param, self.plot)
-
-
-def fit_model(
-    df, fml="power ~ poa + I(poa * poa) + I(poa * t_amb) + I(poa * w_vel) - 1"
-):  # noqa E501
-    """
-    Fits linear regression using statsmodels to dataframe passed.
-
-    Dataframe must be first argument for use with pandas groupby object
-    apply method.
-
-    Parameters
-    ----------
-    df : pandas dataframe
-    fml : str
-        Formula to fit refer to statsmodels and patsy documentation for format.
-        Default is the formula in ASTM E2848.
-
-    Returns
-    -------
-    Statsmodels linear model regression results wrapper object.
-    """
-    mod = smf.ols(formula=fml, data=df)
-    reg = mod.fit()
-    return reg
 
 
 def predict(regs, rcs):

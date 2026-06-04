@@ -12,6 +12,7 @@ import warnings
 import pandas as pd
 import param
 import sklearn.covariance as sk_cv
+import statsmodels.formula.api as smf
 
 pvlib_spec = importlib.util.find_spec("pvlib")
 if pvlib_spec is not None:
@@ -232,6 +233,31 @@ def spans_year(start_date, end_date):
         return True
     else:
         return False
+
+
+def fit_model(
+    df, fml="power ~ poa + I(poa * poa) + I(poa * t_amb) + I(poa * w_vel) - 1"
+):  # noqa E501
+    """
+    Fits linear regression using statsmodels to dataframe passed.
+
+    Dataframe must be first argument for use with pandas groupby object
+    apply method.
+
+    Parameters
+    ----------
+    df : pandas dataframe
+    fml : str
+        Formula to fit refer to statsmodels and patsy documentation for format.
+        Default is the formula in ASTM E2848.
+
+    Returns
+    -------
+    Statsmodels linear model regression results wrapper object.
+    """
+    mod = smf.ols(formula=fml, data=df)
+    reg = mod.fit()
+    return reg
 
 
 class BaseSummaryStep(param.Parameterized):
