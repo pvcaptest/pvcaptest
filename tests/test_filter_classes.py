@@ -847,3 +847,23 @@ class TestFilterClearsky:
         f = FilterClearsky(keep_clear=False)
         f.run(nrel_clear_sky)
         assert f.explanation.startswith("Clear intervals")
+
+
+class TestFilterClearskyWrapper:
+    def test_wrapper_records_filterclearsky_step(self, nrel_clear_sky):
+        nrel_clear_sky.filter_clearsky()
+        assert len(nrel_clear_sky.filters) == 1
+        assert isinstance(nrel_clear_sky.filters[0], FilterClearsky)
+
+    def test_wrapper_passes_kwargs(self, nrel_clear_sky):
+        nrel_clear_sky.filter_clearsky(infer_limits=False, window_length=30)
+        resolved = nrel_clear_sky.filters[0].detect_kwargs_resolved
+        assert resolved["infer_limits"] is False
+        assert resolved["window_length"] == 30
+
+    def test_wrapper_inplace_false_records_no_step(self, nrel_clear_sky):
+        original = nrel_clear_sky.data_filtered.copy()
+        result = nrel_clear_sky.filter_clearsky(inplace=False)
+        assert nrel_clear_sky.filters == []
+        pd.testing.assert_frame_equal(nrel_clear_sky.data_filtered, original)
+        assert result.shape[0] < original.shape[0]

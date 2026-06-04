@@ -2558,7 +2558,7 @@ class TestCskyFilter:
     def test_infer_limits_default(self, nrel_clear_sky):
         """Verify infer_limits=True is passed to detect_clearsky by default."""
         with unittest.mock.patch(
-            "captest.capdata.detect_clearsky", wraps=pvc.detect_clearsky
+            "captest.filters.detect_clearsky", wraps=filters.detect_clearsky
         ) as mock_detect:
             nrel_clear_sky.filter_clearsky()
             mock_detect.assert_called_once()
@@ -2568,7 +2568,7 @@ class TestCskyFilter:
     def test_kwargs_passed_to_detect_clearsky(self, nrel_clear_sky):
         """Verify user can override infer_limits and pass window_length."""
         with unittest.mock.patch(
-            "captest.capdata.detect_clearsky", wraps=pvc.detect_clearsky
+            "captest.filters.detect_clearsky", wraps=filters.detect_clearsky
         ) as mock_detect:
             nrel_clear_sky.filter_clearsky(infer_limits=False, window_length=30)
             mock_detect.assert_called_once()

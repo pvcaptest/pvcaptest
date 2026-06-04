@@ -38,6 +38,7 @@ from captest import util
 from captest import plotting
 from captest.filters import (
     BaseSummaryStep,
+    FilterClearsky,
     FilterCustom,
     FilterIrr,
     FilterOutliers,
@@ -79,14 +80,6 @@ if xlsx_spec is None:
         "Specifying a column grouping in an excel file will not work without "
         "the openpyxl package."
     )
-
-# pvlib imports
-pvlib_spec = importlib.util.find_spec("pvlib")
-if pvlib_spec is not None:
-    from pvlib.clearsky import detect_clearsky
-else:
-    warnings.warn("Clear sky functions will not work without the pvlib package.")
-
 
 plot_colors_brewer = {
     "real_pwr": ["#2b8cbe", "#7bccc4", "#bae4bc", "#f0f9e8"],
@@ -2190,95 +2183,31 @@ class CapData(param.Parameterized):
         else:
             return self.data_filtered.loc[flt._execute(self), :]
 
-    @update_summary
     def filter_clearsky(self, ghi_col=None, inplace=True, keep_clear=True, **kwargs):
-        """
-        Use pvlib detect_clearsky to remove periods with unstable irradiance.
-
-        The pvlib detect_clearsky function compares modeled clear sky ghi
-        against measured clear sky ghi to detect periods of clear sky.  Refer
-        to the pvlib documentation for additional information.
-
-        By default uses data identified by the `column_groups` dictionary
-        as ghi and modeled ghi.  Issues warning if there is no modeled ghi
-        data, or the measured ghi data has not been aggregated.
+        """Remove unstable-irradiance intervals using pvlib detect_clearsky.
 
         Parameters
         ----------
         ghi_col : str, default None
-            The name of a column name of measured GHI data. Overrides default
-            attempt to automatically identify a column of GHI data.
+            Measured GHI column. Auto-detected from ``column_groups`` if None.
         inplace : bool, default True
-            When true removes periods with unstable irradiance.  When false
-            returns pvlib detect_clearsky results, which by default is a series
-            of booleans.
+            If True, record the filter step and update data_filtered. If False,
+            return the filtered DataFrame without recording a step.
         keep_clear : bool, default True
-            Set to False to keep cloudy periods.
+            Keep clear intervals (True) or keep cloudy intervals (False).
         **kwargs
-            Passed to pvlib `detect_clearsky`. By default `infer_limits` is set
-            to True, which automatically determines appropriate thresholds
-            (including window length) based on the data's sample interval.
-            Pass `infer_limits=False` and `window_length=<int>` to manually
-            control the detection parameters. See pvlib documentation for all
-            available parameters.
+            Forwarded to pvlib ``detect_clearsky``. Default
+            ``infer_limits=True`` is applied when not overridden.
         """
-        if "ghi_mod_csky" not in self.data_filtered.columns:
-            return warnings.warn(
-                "Modeled clear sky data must be availabe to "
-                "run this filter method. Use CapData "
-                "load_data clear_sky option."
-            )
-        if ghi_col is None:
-            ghi_keys = []
-            for key in self.column_groups.keys():
-                defs = key.split("-")
-                if len(defs) == 1:
-                    continue
-                if "ghi" == key.split("-")[1]:
-                    ghi_keys.append(key)
-            ghi_keys.remove("irr-ghi-clear_sky")
-
-            if len(ghi_keys) > 1:
-                return warnings.warn(
-                    "Too many ghi categories. Pass column "
-                    "name to ghi_col to use a specific "
-                    "column."
-                )
-            else:
-                meas_ghi = ghi_keys[0]
-
-            meas_ghi = self.floc[meas_ghi]
-            if meas_ghi.shape[1] > 1:
-                warnings.warn(
-                    "Averaging measured GHI data.  Pass column name "
-                    "to ghi_col to use a specific column."
-                )
-            meas_ghi = meas_ghi.mean(axis=1)
-        else:
-            meas_ghi = self.data_filtered[ghi_col]
-
-        kwargs.setdefault("infer_limits", True)
-        clear_per = detect_clearsky(
-            measured=meas_ghi,
-            clearsky=self.data_filtered["ghi_mod_csky"],
-            times=meas_ghi.index,
-            **kwargs,
+        flt = FilterClearsky(
+            ghi_col=ghi_col,
+            keep_clear=keep_clear,
+            detect_kwargs=kwargs or None,
         )
-        if not any(clear_per):
-            return warnings.warn(
-                "No clear periods detected. Try adjusting detect_clearsky "
-                "parameters via kwargs."
-            )
-
-        if keep_clear:
-            df_out = self.data_filtered[clear_per]
-        else:
-            df_out = self.data_filtered[~clear_per]
-
         if inplace:
-            self.data_filtered = df_out
+            flt.run(self)
         else:
-            return df_out
+            return self.data_filtered.loc[flt._execute(self), :]
 
     @update_summary
     def filter_missing(self, columns=None):
