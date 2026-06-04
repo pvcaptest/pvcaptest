@@ -978,11 +978,19 @@ class TestFilterShade:
             2,
         ]
 
-    def test_explanation(self):
+    def test_explanation_default_shows_resolved_threshold(self):
         f = FilterShade()
         f.run(self._cd())
         assert "shad" in f.explanation.lower()
+        # resolved value, not the literal @fshdbm placeholder
+        assert "FShdBm>=1.0" in f.explanation
+        assert "@fshdbm" not in f.explanation
         assert f.explanation.endswith("were removed.")
+
+    def test_explanation_custom_query(self):
+        f = FilterShade(query_str="ShdLoss<=125")
+        f.run(self._cd())
+        assert "ShdLoss<=125" in f.explanation
 
 
 class TestFilterDaysClass:

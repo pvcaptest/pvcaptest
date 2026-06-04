@@ -983,11 +983,14 @@ class FilterShade(BaseFilter):
         query_str = self.query_str
         if query_str is None:
             query_str = "FShdBm>=@fshdbm"
-        self._query_resolved = query_str
         return df.query(query_str).index
 
     def _explanation_values(self):
-        return {"query": getattr(self, "_query_resolved", "FShdBm>=@fshdbm")}
+        # For the default query, render the resolved fshdbm value rather than
+        # the literal "@fshdbm" placeholder (which is only needed by df.query).
+        if self.query_str is None:
+            return {"query": f"FShdBm>={self.fshdbm}"}
+        return {"query": self.query_str}
 
 
 class FilterPf(BaseFilter):
