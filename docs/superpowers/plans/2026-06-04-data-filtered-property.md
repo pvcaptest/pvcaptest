@@ -10,17 +10,17 @@
 
 **Spec:** `docs/superpowers/specs/2026-04-03-filter-class-refactor-design.md` → "`data_filtered` as a Property", "Impact on Other Methods", "`reset_filter()` Simplification", "`__copy__` Simplification".
 
-**Sequencing:** Execute **after** the FilterRegression plan (`2026-06-04-filter-regression.md`). All 12 row filters are class-based; once FilterRegression lands, `fit_regression` routes through `run()` too, so only `rep_cond` still carries `@update_summary` (its decorator only *reads* `data_filtered`, so it stays compatible with the property). That plan also already removed this plan's old "fit_regression via FilterCustom" task, and it introduces two new `data_filtered` assignments in `tests/test_filter_classes.py` that this plan's Task 7 must sweep (see the dependency note there). This plan unblocks chunk 5 (summary rebuild).
+**Sequencing:** Execute **after** the FilterRegression plan (`2026-06-04-filter-regression.md`). All 12 row filters are class-based; once FilterRegression lands, `fit_regression` routes through `run()` too, so only `rep_cond` still carries `@update_summary` (its decorator only *reads* `data_filtered`, so it stays compatible with the property). That plan also already removed this plan's old "fit_regression via FilterCustom" task, and it introduces two new `data_filtered` assignments in `tests/test_filter_classes.py` that this plan's Task 6 must sweep (see the dependency note there). This plan unblocks chunk 5 (summary rebuild).
 
 ## Migration shape (big-bang + workflow)
 
 This plan is executed in three phases, landing as **one commit** (the property flip is atomic — partial states are red):
 
 1. **Src + conftest (sequential, by the executor):** Tasks 1-6. Make the property and redirect every src write; migrate the shared `tests/conftest.py` fixtures.
-2. **Test files (parallel workflow):** Task 7. Fan out the 4 non-conftest test files to one agent each (independent files → no edit conflict). Each agent applies the transformation rules and greens its own file.
-3. **Verify + commit (sequential):** Task 8. Full suite, lint, format, single commit.
+2. **Test files (parallel workflow):** Task 6. Fan out the 4 non-conftest test files to one agent each (independent files → no edit conflict). Each agent applies the transformation rules and greens its own file.
+3. **Verify + commit (sequential):** Task 7. Full suite, lint, format, single commit.
 
-**The transformation rules** (used in conftest by hand and by the Task 7 agents) — applied to any `X.data_filtered` site:
+**The transformation rules** (used in conftest by hand and by the Task 6 agents) — applied to any `X.data_filtered` site:
 - **(R1)** `X.data_filtered = X.data.copy()` / `.copy(deep=True)` → **delete the line.** The property returns `data` when no filters are set.
 - **(R2)** `X.data_filtered = X.data.iloc[A:B, :].copy()` (or any subset of `X.data`) → `X.data = X.data.iloc[A:B, :].copy()`. **Judgment required:** only safe if the test does not separately assert on the full `X.data`. If it does, instead shrink via a kept-rows filter or restructure — see R5.
 - **(R3)** In-place mutation `X.data_filtered.iloc[i, j] = v` / `X.data_filtered.loc[k, c] = v` → `X.data.iloc[i, j] = v` / `X.data.loc[k, c] = v`. A property returns a copy, so mutating the returned frame is a silent no-op; the mutation must target the source `data`.
@@ -97,7 +97,7 @@ In `CapData.__init__`, delete the line:
 - [ ] **Step 4: Confirm the module imports**
 
 Run: `uv run python -c "import captest.capdata; cd = captest.capdata.CapData('x'); print(type(cd).data_filtered)"`
-Expected: prints `<property object ...>` and no error. (The suite is now red — that is expected until Task 8.)
+Expected: prints `<property object ...>` and no error. (The suite is now red — that is expected until Task 7.)
 
 ---
 
@@ -189,64 +189,9 @@ Expected: no error.
 
 ---
 
-### Task 4: Fix `fit_regression(filter=True)` to record through `filters`
+> **`fit_regression(filter=True)` is intentionally NOT handled here** — the FilterRegression plan (`2026-06-04-filter-regression.md`, executed before this one) already converted it to delegate to `FilterRegression().run(self)`, so it no longer assigns `data_filtered` and needs no change in this plan.
 
-**Files:** Modify `src/captest/capdata.py`.
-
-The residual filter computes `df.index` (kept rows). It must update the derived `data_filtered` by recording a step, not by assigning. Use a module-level helper passed to `FilterCustom`.
-
-- [ ] **Step 1: Check whether any test asserts the summary label `"fit_regression"`**
-
-Run: `grep -rnE "fit_regression" tests/ | grep -iE "summary|filter_names|summary_ix"`
-Expected: note any test that asserts the recorded label. If none assert `"fit_regression"` specifically, the `FilterCustom` label (`filter_custom`) is acceptable. If one does, set `custom_name` accordingly and confirm the assertion reads `custom_name` (it does not in the legacy-mirroring path until chunk 5 — flag for that test's update if so).
-
-- [ ] **Step 2: Add a module-level keep-rows helper near the other helpers in `capdata.py`** (e.g. just below `predict_with_pvalue_check`):
-
-```python
-def keep_rows(df, index):
-    """Return ``df`` restricted to ``index`` (helper for FilterCustom steps)."""
-    return df.loc[index, :]
-```
-
-- [ ] **Step 3: Replace the `filter=True` assignment block in `fit_regression`**
-
-Replace:
-
-```python
-            df = df[np.abs(reg.resid) < 2 * np.sqrt(reg.scale)]
-            dframe_flt = self.data_filtered.loc[df.index, :]
-            if inplace:
-                self.data_filtered = dframe_flt
-            else:
-                return dframe_flt
-```
-
-with:
-
-```python
-            df = df[np.abs(reg.resid) < 2 * np.sqrt(reg.scale)]
-            if inplace:
-                FilterCustom(keep_rows, df.index).run(self)
-            else:
-                return self.data_filtered.loc[df.index, :]
-```
-
-> `FilterCustom(keep_rows, df.index)` stores `func=keep_rows`, `args=(df.index,)`; its `_execute` calls `keep_rows(capdata.data_filtered, df.index)` → returns rows `df.index`, and `run()` records the step and updates the derived `data_filtered`. `FilterCustom` is already imported in `capdata.py`.
-
-- [ ] **Step 4: Decide `@update_summary` on `fit_regression`**
-
-The `@update_summary` decorator only *reads* `data_filtered` (it never assigns it), so it remains compatible with the property. But with `filter=True` now recording via `FilterCustom.run()`, leaving `@update_summary` would **double-record** the step. Remove `@update_summary` from `fit_regression` so recording happens once (via `run()` on the filter path; `filter=False` records nothing, which is correct — it changes no rows).
-
-Confirm by running: `grep -nB1 "def fit_regression" src/captest/capdata.py` shows no `@update_summary` above it after the edit.
-
-- [ ] **Step 5: Confirm import**
-
-Run: `uv run python -c "import captest.capdata"`
-Expected: no error.
-
----
-
-### Task 5: Fix `io.py`, `captest.py`, and `plotting.py` src sites
+### Task 4: Fix `io.py`, `captest.py`, and `plotting.py` src sites
 
 **Files:** Modify `src/captest/io.py`, `src/captest/captest.py`, `src/captest/plotting.py`.
 
@@ -272,7 +217,7 @@ Expected: no error.
 
 ---
 
-### Task 6: Migrate `tests/conftest.py` (shared fixtures, by the executor)
+### Task 5: Migrate `tests/conftest.py` (shared fixtures, by the executor)
 
 **Files:** Modify `tests/conftest.py`.
 
@@ -284,15 +229,15 @@ conftest fixtures are shared by every test file; they must be migrated first or 
 
 - [ ] **Step 2: Sanity-check a representative fixture loads**
 
-Run: `uv run python -c "import pandas as pd; import tests.conftest as c"` is not how pytest fixtures work; instead run one fixture-dependent test to confirm conftest no longer errors at setup once the source is migrated. Defer the actual pass/fail to Task 8 (the test bodies aren't migrated yet). For now, confirm no syntax error: `uv run python -m py_compile tests/conftest.py`.
+Run: `uv run python -c "import pandas as pd; import tests.conftest as c"` is not how pytest fixtures work; instead run one fixture-dependent test to confirm conftest no longer errors at setup once the source is migrated. Defer the actual pass/fail to Task 7 (the test bodies aren't migrated yet). For now, confirm no syntax error: `uv run python -m py_compile tests/conftest.py`.
 
 ---
 
-### Task 7: Parallel-migrate the 4 non-conftest test files (dynamic workflow)
+### Task 6: Parallel-migrate the 4 non-conftest test files (dynamic workflow)
 
 **Files:** `tests/test_CapData.py`, `tests/test_captest.py`, `tests/test_plotting.py`, `tests/test_filter_classes.py`.
 
-> **Dependency on the FilterRegression plan (`2026-06-04-filter-regression.md`, runs before this one):** that plan adds two new `data_filtered` *assignments* in `tests/test_filter_classes.py` — the `cd_reg` fixture (`cd.data_filtered = cd.data.copy()`) and `test_execute_nan_calls_filter_missing` (`cd_reg.data_filtered = cd_reg.data.copy()` after injecting a NaN into `cd_reg.data`). Both are plain **R1** deletions (the property returns `data` when no filters are set; the NaN injection into `cd_reg.data` is reflected automatically). The `test_filter_classes.py` agent below must sweep them along with the rest; the Task 8 grep gate (which scans all of `tests/`) will catch any miss.
+> **Dependency on the FilterRegression plan (`2026-06-04-filter-regression.md`, runs before this one):** that plan adds two new `data_filtered` *assignments* in `tests/test_filter_classes.py` — the `cd_reg` fixture (`cd.data_filtered = cd.data.copy()`) and `test_execute_nan_calls_filter_missing` (`cd_reg.data_filtered = cd_reg.data.copy()` after injecting a NaN into `cd_reg.data`). Both are plain **R1** deletions (the property returns `data` when no filters are set; the NaN injection into `cd_reg.data` is reflected automatically). The `test_filter_classes.py` agent below must sweep them along with the rest; the Task 7 grep gate (which scans all of `tests/`) will catch any miss.
 
 This task is run as a **dynamic workflow** — one agent per file (independent files, no edit conflict). Each agent:
 1. Reads its assigned file.
@@ -307,7 +252,7 @@ This task is run as a **dynamic workflow** — one agent per file (independent f
 
 ---
 
-### Task 8: Full-suite verification and commit
+### Task 7: Full-suite verification and commit
 
 **Files:** all of the above.
 
@@ -333,14 +278,13 @@ git commit -m "refactor: make CapData.data_filtered a derived read-only property
 - "Impact on Other Methods" table: `data_filtered = df_flt` already returns index from `_execute` (done in prior chunks); reset → `filters = []` (Task 2); `drop`/`rename` → `self.data` (Task 3); `reset_agg` (Task 2 — with the documented "does not reset filtering" deviation noted); `agg_sensors` write-data-only (Task 2). ✓
 - "`reset_filter()` Simplification" → Task 2. ✓
 - "`__copy__` Simplification" (no explicit `data_filtered` copy) → Task 2 Step 1. ✓
-- `fit_regression(filter=True)` (not in the spec's table but forced by the flip) → Task 4. ✓
+- `fit_regression(filter=True)` (forced by the flip) → already handled by the FilterRegression plan (runs first); no task here. ✓
 
-**2. Placeholder scan:** No TBDs. Every src change shows complete before/after code. The test migration is rule-driven (R1-R5 with concrete examples) and verified per-file by the Task 7 agents + the Task 8 grep gate. Task 4 Step 1 and Task 5 Step 2 include explicit "verify exact lines first" checks because line numbers drift.
+**2. Placeholder scan:** No TBDs. Every src change shows complete before/after code. The test migration is rule-driven (R1-R5 with concrete examples) and verified per-file by the Task 6 agents + the Task 7 grep gate. Task 4 Step 2 (`captest.py`) includes an explicit "verify exact lines first" check because line numbers drift.
 
-**3. Type/name consistency:** `data_filtered` (property), `filters`, `ix_after`, `keep_rows`, `FilterCustom` are used consistently. The property reads `self.filters[-1].ix_after` — matches `BaseSummaryStep`'s `ix_after` attribute set in `run()`.
+**3. Type/name consistency:** `data_filtered` (property), `filters`, `ix_after` are used consistently. The property reads `self.filters[-1].ix_after` — matches `BaseSummaryStep`'s `ix_after` attribute set in `run()`.
 
 **Known deviations from the spec (deliberate):**
 - `reset_agg` keeps filters (preserving its "does not reset filtering" docstring) rather than clearing them as the spec's Impact table says — clearing is unnecessary for a columns-only change and would break the contract.
-- `fit_regression(filter=True)` records via `FilterCustom(keep_rows, df.index)` rather than a dedicated `FitRegression` step (the spec's eventual design) — minimal change appropriate for the property flip; the recorded legacy label becomes `filter_custom` unless Task 4 Step 1 finds a test requiring otherwise.
 
-**Big-bang commit note:** Tasks 1-7 leave the suite red until all test sites are migrated; the single commit in Task 8 lands the flip atomically. This is inherent to flipping a read-only-property invariant whose old attribute was assigned across the codebase.
+**Big-bang commit note:** Tasks 1-6 leave the suite red until all test sites are migrated; the single commit in Task 7 lands the flip atomically. This is inherent to flipping a read-only-property invariant whose old attribute was assigned across the codebase.
