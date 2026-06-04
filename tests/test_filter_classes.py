@@ -821,6 +821,16 @@ class TestFilterClearsky:
             kept = FilterClearsky()._execute(nrel_clear_sky)
         assert len(kept) == n_before
 
+    def test_execute_too_many_ghi_categories_warns_and_keeps_all(self, nrel_clear_sky):
+        # Add a second measured GHI category alongside the existing irr-ghi-
+        # (irr-ghi-clear_sky is excluded by the filter, so two real groups
+        # remain and trigger the "Too many ghi categories" guard).
+        nrel_clear_sky.column_groups["irr-ghi-pyran"] = ["some_pyran_col"]
+        n_before = nrel_clear_sky.data_filtered.shape[0]
+        with pytest.warns(UserWarning, match="Too many ghi"):
+            kept = FilterClearsky()._execute(nrel_clear_sky)
+        assert len(kept) == n_before
+
     def test_execute_specify_ghi_col(self, nrel_clear_sky):
         nrel_clear_sky.data["ws 2 ghi W/m^2"] = nrel_clear_sky.loc["irr-ghi-"] * 1.05
         nrel_clear_sky.data_filtered = nrel_clear_sky.data.copy()
