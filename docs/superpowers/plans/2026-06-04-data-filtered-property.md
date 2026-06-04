@@ -16,7 +16,7 @@
 
 This plan is executed in three phases, landing as **one commit** (the property flip is atomic — partial states are red):
 
-1. **Src + conftest (sequential, by the executor):** Tasks 1-6. Make the property and redirect every src write; migrate the shared `tests/conftest.py` fixtures.
+1. **Src + conftest (sequential, by the executor):** Tasks 1-5. Make the property and redirect every src write (Tasks 1-4); migrate the shared `tests/conftest.py` fixtures (Task 5).
 2. **Test files (parallel workflow):** Task 6. Fan out the 4 non-conftest test files to one agent each (independent files → no edit conflict). Each agent applies the transformation rules and greens its own file.
 3. **Verify + commit (sequential):** Task 7. Full suite, lint, format, single commit.
 
