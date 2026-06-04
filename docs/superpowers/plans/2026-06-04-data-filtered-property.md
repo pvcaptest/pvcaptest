@@ -10,7 +10,7 @@
 
 **Spec:** `docs/superpowers/specs/2026-04-03-filter-class-refactor-design.md` → "`data_filtered` as a Property", "Impact on Other Methods", "`reset_filter()` Simplification", "`__copy__` Simplification".
 
-**Sequencing:** All 12 filters are class-based (done). Only `rep_cond`/`fit_regression` still carry `@update_summary`. This plan unblocks chunk 5 (summary rebuild).
+**Sequencing:** Execute **after** the FilterRegression plan (`2026-06-04-filter-regression.md`). All 12 row filters are class-based; once FilterRegression lands, `fit_regression` routes through `run()` too, so only `rep_cond` still carries `@update_summary` (its decorator only *reads* `data_filtered`, so it stays compatible with the property). That plan also already removed this plan's old "fit_regression via FilterCustom" task, and it introduces two new `data_filtered` assignments in `tests/test_filter_classes.py` that this plan's Task 7 must sweep (see the dependency note there). This plan unblocks chunk 5 (summary rebuild).
 
 ## Migration shape (big-bang + workflow)
 
@@ -291,6 +291,8 @@ Run: `uv run python -c "import pandas as pd; import tests.conftest as c"` is not
 ### Task 7: Parallel-migrate the 4 non-conftest test files (dynamic workflow)
 
 **Files:** `tests/test_CapData.py`, `tests/test_captest.py`, `tests/test_plotting.py`, `tests/test_filter_classes.py`.
+
+> **Dependency on the FilterRegression plan (`2026-06-04-filter-regression.md`, runs before this one):** that plan adds two new `data_filtered` *assignments* in `tests/test_filter_classes.py` — the `cd_reg` fixture (`cd.data_filtered = cd.data.copy()`) and `test_execute_nan_calls_filter_missing` (`cd_reg.data_filtered = cd_reg.data.copy()` after injecting a NaN into `cd_reg.data`). Both are plain **R1** deletions (the property returns `data` when no filters are set; the NaN injection into `cd_reg.data` is reflected automatically). The `test_filter_classes.py` agent below must sweep them along with the rest; the Task 8 grep gate (which scans all of `tests/`) will catch any miss.
 
 This task is run as a **dynamic workflow** — one agent per file (independent files, no edit conflict). Each agent:
 1. Reads its assigned file.
