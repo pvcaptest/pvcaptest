@@ -1993,7 +1993,15 @@ class CapData(object):
             columns_to_aggregate = self._get_group(group_id)
         else:
             columns_to_aggregate = columns
-        agg_result = columns_to_aggregate.agg(agg_func, axis=1)
+        # pandas sum() defaults to min_count=0, so a row where every column is
+        # NaN sums to 0.0 instead of NaN. Pass min_count=1 for sum aggregations
+        # so all-NaN rows remain NaN (missing) rather than being treated as real
+        # zeros. This matters for single-column power groups where summing is a
+        # no-op but would otherwise convert NaN to 0.0.
+        if isinstance(agg_func, str) and agg_func == "sum":
+            agg_result = columns_to_aggregate.agg(agg_func, axis=1, min_count=1)
+        else:
+            agg_result = columns_to_aggregate.agg(agg_func, axis=1)
         col_name = util.get_agg_column_name(group_id, agg_func)
         self.column_groups.setdefault("agg", []).append(col_name)
         agg_result = agg_result.rename(col_name).to_frame()
