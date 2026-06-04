@@ -915,3 +915,234 @@ class FilterClearsky(BaseFilter):
             "removed_kind": "Cloudy" if self.keep_clear else "Clear",
             "kwargs": kw,
         }
+
+
+class FilterPvsyst(BaseFilter):
+    """Remove PVsyst intervals operating off the maximum power point.
+
+    Drops rows where any of the PVsyst current-limit columns
+    (``IL Pmin``/``IL Vmin``/``IL Pmax``/``IL Vmax``) is greater than 0.
+    Column names with spaces or underscores are both recognized; a missing
+    column warns and is skipped.
+    """
+
+    _legacy_name = "filter_pvsyst"
+    _explanation_template = (
+        "PVsyst intervals operating off the maximum power point "
+        "(IL Pmin/Vmin/Pmax/Vmax > 0) were removed."
+    )
+
+    def _execute(self, capdata):
+        df = capdata.data_filtered
+        columns = ["IL Pmin", "IL Vmin", "IL Pmax", "IL Vmax"]
+        index = df.index
+        for column in columns:
+            if column not in df.columns:
+                column = column.replace(" ", "_")
+            if column in df.columns:
+                indices_to_drop = df[df[column] > 0].index
+                if not index.equals(indices_to_drop):
+                    index = index.difference(indices_to_drop)
+            else:
+                warnings.warn(
+                    "{} or {} is not a column in the data.".format(
+                        column, column.replace("_", " ")
+                    )
+                )
+        return index
+
+
+class FilterShade(BaseFilter):
+    """Remove intervals of array shading.
+
+    By default removes rows where the PVsyst ``FShdBm`` shading-fraction
+    column is below ``fshdbm`` (default 1.0 — i.e. any shading). Pass a
+    ``query_str`` to instead filter via ``DataFrame.query`` (e.g. when only
+    a shading-loss column is available): ``"ShdLoss<=50"``.
+    """
+
+    _legacy_name = "filter_shade"
+    _explanation_template = (
+        "Intervals of array shading (kept where {query}) were removed."
+    )
+
+    fshdbm = param.Number(
+        default=1.0,
+        doc="Shading-fraction threshold; rows with FShdBm below this are "
+        "removed. Ignored when query_str is given.",
+    )
+    query_str = param.String(
+        default=None,
+        allow_None=True,
+        doc="Optional DataFrame.query expression overriding the FShdBm test.",
+    )
+
+    def _execute(self, capdata):
+        df = capdata.data_filtered
+        fshdbm = self.fshdbm  # noqa: F841 - referenced via @fshdbm in query
+        query_str = self.query_str
+        if query_str is None:
+            query_str = "FShdBm>=@fshdbm"
+        self._query_resolved = query_str
+        return df.query(query_str).index
+
+    def _explanation_values(self):
+        return {"query": getattr(self, "_query_resolved", "FShdBm>=@fshdbm")}
+
+
+class FilterPf(BaseFilter):
+    """Remove intervals with a power factor below a threshold.
+
+    Keeps rows where every column in the power-factor group (the first
+    ``column_groups`` key beginning with ``pf``) has an absolute value at or
+    above ``pf``.
+    """
+
+    _legacy_name = "filter_pf"
+    _explanation_template = "Intervals with a power factor below {pf} were removed."
+
+    pf = param.Number(
+        default=None,
+        allow_None=True,
+        doc="Power-factor threshold, e.g. 0.999. Rows with any |pf| below "
+        "this are removed.",
+    )
+
+    def _execute(self, capdata):
+        selection = None
+        for key in capdata.column_groups.keys():
+            if key.find("pf") == 0:
+                selection = key
+        if selection is None:
+            warnings.warn(
+                "No power factor column group found in column_groups; "
+                "filter_pf made no changes."
+            )
+            return capdata.data_filtered.index
+        df = capdata.data_filtered[capdata.column_groups[selection]]
+        mask = (df.abs() >= self.pf).all(axis=1)
+        return capdata.data_filtered.index[mask]
+
+
+class FilterPower(BaseFilter):
+    """Remove intervals at or above a power threshold.
+
+    With ``percent`` set, ``power`` is treated as nameplate and the effective
+    threshold is ``power * (1 - percent)``. ``columns`` selects the power
+    data: None uses the regression power column; a column-group key applies
+    the threshold across the group; a bare column name uses that column.
+    """
+
+    _legacy_name = "filter_power"
+    _explanation_template = "Intervals at or above {threshold} power were removed."
+
+    power = param.Number(
+        default=None,
+        allow_None=True,
+        doc="Power threshold (or nameplate if percent set).",
+    )
+    percent = param.Number(
+        default=None,
+        allow_None=True,
+        doc="If set, threshold is power*(1-percent). Decimal, e.g. 0.01 for 1%.",
+    )
+    columns = param.Parameter(
+        default=None,
+        doc="Column or column-group to filter on. None uses the regression "
+        "power column. A non-string non-None value warns and is a no-op "
+        "(preserving the legacy validation path).",
+    )
+
+    def _execute(self, capdata):
+        power = self.power
+        if self.percent is not None:
+            power = power * (1 - self.percent)
+        self.power_threshold = power
+
+        multiple_columns = False
+        if self.columns is None:
+            power_data = capdata.get_reg_cols("power")
+        elif isinstance(self.columns, str):
+            if self.columns in capdata.column_groups.keys():
+                power_data = capdata.floc[self.columns]
+                multiple_columns = True
+            else:
+                power_data = pd.DataFrame(capdata.data_filtered[self.columns])
+                power_data = power_data.rename(columns={power_data.columns[0]: "power"})
+        else:
+            warnings.warn("columns must be None or a string.")
+            return capdata.data_filtered.index
+
+        if multiple_columns:
+            mask = power_data.apply(lambda x: all(x.le(power, fill_value=True)), axis=1)
+        else:
+            mask = power_data["power"] < power
+        return capdata.data_filtered.index[mask]
+
+    def _explanation_values(self):
+        return {"threshold": getattr(self, "power_threshold", self.power)}
+
+
+class FilterDays(BaseFilter):
+    """Keep (or drop) the timestamps belonging to a list of days.
+
+    Each entry in ``days`` selects all timestamps on that calendar day
+    (``DataFrame.loc[day]``). By default only those days are kept; set
+    ``drop=True`` to remove them and keep everything else.
+    """
+
+    _legacy_name = "filter_days"
+
+    days = param.List(
+        default=None,
+        allow_None=True,
+        doc="Days to select (or drop). Each is a date string or Timestamp.",
+    )
+    drop = param.Boolean(
+        default=False,
+        doc="Drop the listed days instead of keeping only them.",
+    )
+
+    def _execute(self, capdata):
+        df = capdata.data_filtered
+        ix_all_days = None
+        for day in self.days:
+            ix_day = df.loc[day].index
+            ix_all_days = ix_day if ix_all_days is None else ix_all_days.union(ix_day)
+        if self.drop:
+            return df.index.difference(ix_all_days)
+        return ix_all_days
+
+    @property
+    def explanation(self):
+        if not hasattr(self, "ix_after"):
+            return None
+        days = ", ".join(str(d) for d in (self.days or []))
+        if self.drop:
+            return f"Timestamps on the days [{days}] were removed."
+        return f"All timestamps except the days [{days}] were removed."
+
+
+class FilterMissing(BaseFilter):
+    """Remove rows with missing data (NaN) in the regression columns.
+
+    By default checks the columns identified by ``regression_cols`` (via the
+    ``regcols`` floc key); pass ``columns`` to restrict the NaN check to a
+    subset.
+    """
+
+    _legacy_name = "filter_missing"
+    _explanation_template = (
+        "Intervals with missing data in the regression columns were removed."
+    )
+
+    columns = param.List(
+        default=None,
+        allow_None=True,
+        doc="Subset of columns to check for NaN. None uses the regression columns.",
+    )
+
+    def _execute(self, capdata):
+        if self.columns is None:
+            return capdata.floc["regcols"].dropna().index
+        return capdata.floc[self.columns].dropna().index

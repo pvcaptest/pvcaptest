@@ -13,9 +13,15 @@ from captest.filters import (
     BaseFilter,
     FilterClearsky,
     FilterCustom,
+    FilterDays,
     FilterIrr,
+    FilterMissing,
     FilterOutliers,
+    FilterPf,
+    FilterPower,
+    FilterPvsyst,
     FilterSensors,
+    FilterShade,
     FilterTime,
     abs_diff_from_average,
     check_all_perc_diff_comb,
@@ -912,3 +918,196 @@ class TestFilterClearskyWrapper:
         assert nrel_clear_sky.filters == []
         pd.testing.assert_frame_equal(nrel_clear_sky.data_filtered, original)
         assert result.shape[0] < original.shape[0]
+
+
+class TestFilterPvsyst:
+    def _cd(self):
+        cd = CapData("pv")
+        cd.data = pd.DataFrame(
+            {"IL Pmin": [0.0, 1.0, 0.0, 2.0], "power": [10.0, 20.0, 30.0, 40.0]},
+            index=pd.RangeIndex(4),
+        )
+        cd.data_filtered = cd.data.copy()
+        return cd
+
+    def test_execute_drops_positive_rows(self):
+        kept = FilterPvsyst()._execute(self._cd())
+        assert list(kept) == [0, 2]
+
+    def test_execute_underscored_column_names(self):
+        cd = CapData("pv")
+        cd.data = pd.DataFrame({"IL_Pmax": [0.0, 5.0, 0.0]}, index=pd.RangeIndex(3))
+        cd.data_filtered = cd.data.copy()
+        assert list(FilterPvsyst()._execute(cd)) == [0, 2]
+
+    def test_execute_missing_column_warns(self):
+        cd = CapData("pv")
+        cd.data = pd.DataFrame({"power": [1.0, 2.0]}, index=pd.RangeIndex(2))
+        cd.data_filtered = cd.data.copy()
+        with pytest.warns(UserWarning, match="not a column"):
+            kept = FilterPvsyst()._execute(cd)
+        assert list(kept) == [0, 1]
+
+    def test_explanation(self):
+        f = FilterPvsyst()
+        f.run(self._cd())
+        assert "maximum power point" in f.explanation
+        assert f.explanation.endswith("were removed.")
+
+
+class TestFilterShade:
+    def _cd(self):
+        cd = CapData("sh")
+        cd.data = pd.DataFrame(
+            {"FShdBm": [1.0, 0.5, 1.0, 0.8], "ShdLoss": [0.0, 50.0, 0.0, 130.0]},
+            index=pd.RangeIndex(4),
+        )
+        cd.data_filtered = cd.data.copy()
+        return cd
+
+    def test_execute_default_fshdbm(self):
+        assert list(FilterShade()._execute(self._cd())) == [0, 2]
+
+    def test_execute_custom_fshdbm(self):
+        assert list(FilterShade(fshdbm=0.6)._execute(self._cd())) == [0, 2, 3]
+
+    def test_execute_query_str(self):
+        assert list(FilterShade(query_str="ShdLoss<=125")._execute(self._cd())) == [
+            0,
+            1,
+            2,
+        ]
+
+    def test_explanation(self):
+        f = FilterShade()
+        f.run(self._cd())
+        assert "shad" in f.explanation.lower()
+        assert f.explanation.endswith("were removed.")
+
+
+class TestFilterDaysClass:
+    def _cd(self):
+        # Hourly index so a day-string selects many rows (DataFrame), matching
+        # how filter_days is used in production. A daily index would make
+        # df.loc["day"] return a single-row Series.
+        cd = CapData("d")
+        idx = pd.date_range("1990-10-01", periods=72, freq="h")  # 3 days
+        cd.data = pd.DataFrame({"power": range(72)}, index=idx)
+        cd.data_filtered = cd.data.copy()
+        return cd
+
+    def test_execute_keep_days(self):
+        kept = FilterDays(days=["10/1/1990", "10/2/1990"])._execute(self._cd())
+        assert len(kept) == 48
+        assert set(ts.day for ts in kept) == {1, 2}
+
+    def test_execute_drop_days(self):
+        kept = FilterDays(days=["10/1/1990"], drop=True)._execute(self._cd())
+        assert len(kept) == 48  # 72 - 24
+        assert all(ts.day != 1 for ts in kept)
+
+    def test_explanation_keep(self):
+        f = FilterDays(days=["10/2/1990"])
+        f.run(self._cd())
+        assert "except" in f.explanation.lower()
+
+    def test_explanation_drop(self):
+        f = FilterDays(days=["10/2/1990"], drop=True)
+        f.run(self._cd())
+        assert "removed" in f.explanation.lower()
+
+
+class TestFilterPf:
+    def _cd(self):
+        cd = CapData("pf")
+        cd.data = pd.DataFrame(
+            {"inv1 pf": [1.0, 0.5, 0.99], "inv2 pf": [0.999, 0.9, 1.0]},
+            index=pd.RangeIndex(3),
+        )
+        cd.data_filtered = cd.data.copy()
+        cd.column_groups = {"pf--": ["inv1 pf", "inv2 pf"]}
+        return cd
+
+    def test_execute_keeps_high_pf(self):
+        assert list(FilterPf(pf=0.95)._execute(self._cd())) == [0, 2]
+
+    def test_execute_no_pf_group_warns(self):
+        cd = CapData("pf")
+        cd.data = pd.DataFrame({"power": [1.0, 2.0]}, index=pd.RangeIndex(2))
+        cd.data_filtered = cd.data.copy()
+        cd.column_groups = {"real_pwr--": ["power"]}
+        with pytest.warns(UserWarning, match="power factor"):
+            kept = FilterPf(pf=0.99)._execute(cd)
+        assert list(kept) == [0, 1]
+
+    def test_explanation(self):
+        f = FilterPf(pf=0.95)
+        f.run(self._cd())
+        assert "0.95" in f.explanation
+        assert "power factor" in f.explanation.lower()
+
+
+class TestFilterPower:
+    def _cd(self):
+        cd = CapData("pw")
+        cd.data = pd.DataFrame(
+            {"meter_power": [100.0, 600.0, 300.0, 900.0]},
+            index=pd.RangeIndex(4),
+        )
+        cd.data_filtered = cd.data.copy()
+        cd.regression_cols = {"power": "meter_power"}
+        return cd
+
+    def test_execute_threshold(self):
+        assert list(FilterPower(power=500)._execute(self._cd())) == [0, 2]
+
+    def test_execute_percent(self):
+        assert list(FilterPower(power=1000, percent=0.5)._execute(self._cd())) == [
+            0,
+            2,
+        ]
+
+    def test_execute_named_column(self):
+        assert list(
+            FilterPower(power=500, columns="meter_power")._execute(self._cd())
+        ) == [0, 2]
+
+    def test_execute_bad_columns_warns(self):
+        cd = self._cd()
+        f = FilterPower(power=500, columns=1)
+        with pytest.warns(UserWarning, match="None or a string"):
+            kept = f._execute(cd)
+        assert len(kept) == cd.data_filtered.shape[0]
+
+    def test_explanation(self):
+        f = FilterPower(power=500)
+        f.run(self._cd())
+        assert "power" in f.explanation.lower()
+        assert f.explanation.endswith("were removed.")
+
+
+class TestFilterMissingClass:
+    def _cd(self):
+        cd = CapData("m")
+        cd.data = pd.DataFrame(
+            {"poa": [1.0, np.nan, 3.0], "power": [10.0, 20.0, np.nan]},
+            index=pd.RangeIndex(3),
+        )
+        cd.data_filtered = cd.data.copy()
+        cd.regression_cols = {"poa": "poa", "power": "power"}
+        return cd
+
+    def test_execute_default_regcols(self):
+        assert list(FilterMissing()._execute(self._cd())) == [0]
+
+    def test_execute_subset_columns(self):
+        assert list(FilterMissing(columns=["poa"])._execute(self._cd())) == [0, 2]
+
+    def test_legacy_name_is_filter_missing(self):
+        assert FilterMissing._legacy_name == "filter_missing"
+
+    def test_explanation(self):
+        f = FilterMissing()
+        f.run(self._cd())
+        assert "missing" in f.explanation.lower()
+        assert f.explanation.endswith("were removed.")
