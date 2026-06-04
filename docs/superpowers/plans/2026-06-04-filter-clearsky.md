@@ -92,6 +92,15 @@ class TestFilterClearsky:
             kept = FilterClearsky()._execute(nrel_clear_sky)
         assert len(kept) == n_before
 
+    def test_execute_no_measured_ghi_group_warns_and_keeps_all(self, nrel_clear_sky):
+        # ghi_mod_csky present (so the first guard passes) but no measured
+        # GHI column group at all — must warn and no-op rather than IndexError.
+        del nrel_clear_sky.column_groups["irr-ghi-"]
+        n_before = nrel_clear_sky.data_filtered.shape[0]
+        with pytest.warns(UserWarning, match="No measured GHI"):
+            kept = FilterClearsky()._execute(nrel_clear_sky)
+        assert len(kept) == n_before
+
     def test_execute_specify_ghi_col(self, nrel_clear_sky):
         nrel_clear_sky.data["ws 2 ghi W/m^2"] = (
             nrel_clear_sky.loc["irr-ghi-"] * 1.05
@@ -202,6 +211,12 @@ class FilterClearsky(BaseFilter):
                     ghi_keys.append(key)
             ghi_keys = [k for k in ghi_keys if k != "irr-ghi-clear_sky"]
 
+            if not ghi_keys:
+                warnings.warn(
+                    "No measured GHI column group found in column_groups. "
+                    "Pass column name to ghi_col."
+                )
+                return capdata.data_filtered.index
             if len(ghi_keys) > 1:
                 warnings.warn(
                     "Too many ghi categories. Pass column name to ghi_col to "
@@ -265,7 +280,7 @@ class FilterClearsky(BaseFilter):
 - [ ] **Step 4: Run the tests**
 
 Run: `uv run pytest tests/test_filter_classes.py::TestFilterClearsky -v`
-Expected: PASS (9 tests).
+Expected: PASS (10 tests).
 
 - [ ] **Step 5: Commit**
 
@@ -301,11 +316,14 @@ class TestFilterClearskyWrapper:
         assert resolved["window_length"] == 30
 
     def test_wrapper_inplace_false_records_no_step(self, nrel_clear_sky):
-        n_before = nrel_clear_sky.data_filtered.shape[0]
+        # Pin full immutability of data_filtered, not just row count — a
+        # mutation that changes values without changing length would otherwise
+        # slip through.
+        original = nrel_clear_sky.data_filtered.copy()
         result = nrel_clear_sky.filter_clearsky(inplace=False)
         assert nrel_clear_sky.filters == []
-        assert nrel_clear_sky.data_filtered.shape[0] == n_before
-        assert result.shape[0] < n_before  # some intervals removed
+        pd.testing.assert_frame_equal(nrel_clear_sky.data_filtered, original)
+        assert result.shape[0] < original.shape[0]
 ```
 
 - [ ] **Step 2: Run to verify failure**
