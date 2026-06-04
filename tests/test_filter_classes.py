@@ -20,6 +20,7 @@ from captest.filters import (
     FilterPf,
     FilterPower,
     FilterPvsyst,
+    FilterRegression,
     FilterSensors,
     FilterShade,
     FilterTime,
@@ -73,6 +74,23 @@ def _drop_first(df):
 
 def _gt_threshold(df, threshold=0, col="poa"):
     return df[df[col] > threshold]
+
+
+@pytest.fixture
+def cd_reg():
+    """A CapData with a clean linear power~poa relationship + one outlier."""
+    n = 40
+    poa = np.linspace(100, 1000, n)
+    rng = np.random.default_rng(0)
+    power = poa * 0.5 + rng.normal(0, 3, n)
+    power[10] += 400  # gross residual outlier at index 10
+    cd = CapData("reg")
+    cd.data = pd.DataFrame({"poa": poa, "power": power}, index=pd.RangeIndex(n))
+    cd.data_filtered = cd.data.copy()
+    cd.column_groups = {"irr-poa-": ["poa"], "real_pwr--": ["power"]}
+    cd.regression_cols = {"power": "power", "poa": "poa"}
+    cd.regression_formula = "power ~ poa"
+    return cd
 
 
 @pytest.fixture
@@ -1118,4 +1136,49 @@ class TestFilterMissingClass:
         f = FilterMissing()
         f.run(self._cd())
         assert "missing" in f.explanation.lower()
+        assert f.explanation.endswith("were removed.")
+
+
+class TestFilterRegression:
+    def test_n_std_default_is_2(self):
+        assert FilterRegression().n_std == 2
+
+    def test_execute_exposes_fitted_model(self, cd_reg):
+        f = FilterRegression()
+        f._execute(cd_reg)
+        assert hasattr(f, "regression_model")
+        assert hasattr(f.regression_model, "resid")
+
+    def test_execute_removes_the_outlier(self, cd_reg):
+        kept = FilterRegression(n_std=2)._execute(cd_reg)
+        assert 10 not in kept  # the injected outlier is dropped
+        assert len(kept) == cd_reg.data_filtered.shape[0] - 1
+
+    def test_execute_kept_rows_within_threshold(self, cd_reg):
+        f = FilterRegression(n_std=2)
+        kept = f._execute(cd_reg)
+        reg = f.regression_model
+        threshold = 2 * reg.scale**0.5
+        assert (reg.resid.loc[kept].abs() < threshold).all()
+
+    def test_larger_n_std_keeps_more(self, cd_reg):
+        kept_2 = FilterRegression(n_std=2)._execute(cd_reg)
+        kept_4 = FilterRegression(n_std=4)._execute(cd_reg)
+        assert len(kept_4) >= len(kept_2)
+
+    def test_execute_nan_calls_filter_missing(self, cd_reg):
+        # NaN in a regression column: must run filter_missing (recording its
+        # own step) rather than raise an unalignable-boolean error.
+        cd_reg.data.iloc[5, cd_reg.data.columns.get_loc("power")] = np.nan
+        cd_reg.data_filtered = cd_reg.data.copy()
+        with pytest.warns(UserWarning, match="missing values"):
+            kept = FilterRegression(n_std=2)._execute(cd_reg)
+        assert 5 not in kept  # NaN row removed
+        assert cd_reg.summary_ix[-1][1] == "filter_missing"
+
+    def test_explanation(self, cd_reg):
+        f = FilterRegression(n_std=2)
+        f.run(cd_reg)
+        assert "residual" in f.explanation.lower()
+        assert "2" in f.explanation
         assert f.explanation.endswith("were removed.")

@@ -1175,3 +1175,39 @@ class FilterMissing(BaseFilter):
         if self.columns is None:
             return capdata.floc["regcols"].dropna().index
         return capdata.floc[self.columns].dropna().index
+
+
+class FilterRegression(BaseFilter):
+    """Remove intervals whose regression residuals are statistical outliers.
+
+    Fits the CapData regression formula (``capdata.regression_formula``) to the
+    regression columns and keeps only rows whose residual is within ``n_std``
+    residual standard deviations. The fitted statsmodels result is exposed on
+    ``self.regression_model`` after ``_execute`` so callers (e.g.
+    ``CapData.fit_regression``) can print its summary.
+    """
+
+    _legacy_name = "fit_regression"
+    _explanation_template = (
+        "Intervals with regression residuals beyond {n_std} standard "
+        "deviations were removed."
+    )
+
+    n_std = param.Number(
+        default=2,
+        doc="Residual cutoff in standard deviations; rows beyond this are removed.",
+    )
+
+    def _execute(self, capdata):
+        df = capdata.get_reg_cols()
+        if df.isna().any().any():
+            warnings.warn(
+                "Regression columns contain missing values. Calling "
+                "filter_missing before fitting the regression."
+            )
+            capdata.filter_missing()
+            df = capdata.get_reg_cols()
+        reg = fit_model(df, fml=capdata.regression_formula)
+        self.regression_model = reg
+        threshold = self.n_std * reg.scale**0.5
+        return reg.resid[reg.resid.abs() < threshold].index
