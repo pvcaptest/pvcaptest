@@ -1,5 +1,7 @@
 """Tests for the filter-step class hierarchy (BaseSummaryStep / BaseFilter)."""
 
+import unittest.mock
+
 import numpy as np
 import pandas as pd
 import param
@@ -831,8 +833,41 @@ class TestFilterClearsky:
             kept = FilterClearsky()._execute(nrel_clear_sky)
         assert len(kept) == n_before
 
+    def test_execute_multi_column_ghi_averages_with_warning(self, nrel_clear_sky):
+        # Append a second column to the single irr-ghi- group; the auto-detect
+        # path then averages the columns and warns. Use .squeeze() so the
+        # assignment yields a Series regardless of pandas-version quirks.
+        nrel_clear_sky.data["ws 2 ghi W/m^2"] = (
+            nrel_clear_sky.loc["irr-ghi-"].squeeze() * 1.05
+        )
+        nrel_clear_sky.data_filtered = nrel_clear_sky.data.copy()
+        nrel_clear_sky.column_groups["irr-ghi-"].append("ws 2 ghi W/m^2")
+        n_before = nrel_clear_sky.data_filtered.shape[0]
+        with pytest.warns(UserWarning, match="Averaging"):
+            kept = FilterClearsky()._execute(nrel_clear_sky)
+        # Filtering still runs after averaging — some rows should be removed.
+        assert len(kept) < n_before
+
+    def test_execute_no_clear_periods_warns_and_keeps_all(self, nrel_clear_sky):
+        # Stub detect_clearsky to return an all-False mask so the
+        # `not any(clear_per)` guard fires.
+        n_before = nrel_clear_sky.data_filtered.shape[0]
+        all_false = pd.Series(False, index=nrel_clear_sky.data_filtered.index)
+        with unittest.mock.patch(
+            "captest.filters.detect_clearsky", return_value=all_false
+        ):
+            with pytest.warns(UserWarning, match="No clear periods"):
+                kept = FilterClearsky()._execute(nrel_clear_sky)
+        assert len(kept) == n_before
+
     def test_execute_specify_ghi_col(self, nrel_clear_sky):
-        nrel_clear_sky.data["ws 2 ghi W/m^2"] = nrel_clear_sky.loc["irr-ghi-"] * 1.05
+        # .squeeze() makes the right-hand side an explicit Series rather than
+        # a single-column DataFrame — defensive against future pandas changes
+        # where the DataFrame-to-Series unwrap might align on column names
+        # and silently yield NaN.
+        nrel_clear_sky.data["ws 2 ghi W/m^2"] = (
+            nrel_clear_sky.loc["irr-ghi-"].squeeze() * 1.05
+        )
         nrel_clear_sky.data_filtered = nrel_clear_sky.data.copy()
         nrel_clear_sky.column_groups["irr-ghi-"].append("ws 2 ghi W/m^2")
         f = FilterClearsky(ghi_col="ws 2 ghi W/m^2")
