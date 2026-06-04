@@ -221,6 +221,22 @@ class TestCapDataFiltersParam:
         cd.reset_filter()
         assert cd.filters == []
 
+    def test_data_filtered_no_filter_is_a_defensive_copy(self, make_capdata):
+        # With no filters the property still returns a copy, so mutating the
+        # returned frame must not corrupt self.data.
+        cd = make_capdata(n=5)
+        df = cd.data_filtered
+        assert df is not cd.data
+        df.iloc[0, df.columns.get_loc("power")] = 99999
+        assert cd.data.iloc[0, cd.data.columns.get_loc("power")] != 99999
+
+    def test_data_filtered_with_filter_is_a_defensive_copy(self, make_capdata):
+        cd = make_capdata(n=5)
+        _DropFirstRow().run(cd)
+        df = cd.data_filtered
+        df.iloc[0, df.columns.get_loc("power")] = 99999
+        assert (cd.data["power"] == 99999).sum() == 0
+
 
 class TestFilterIrr:
     def test_execute_absolute_bounds(self, cd_irr):

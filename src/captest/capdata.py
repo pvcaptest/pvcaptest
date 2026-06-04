@@ -915,15 +915,16 @@ class CapData(param.Parameterized):
     def data_filtered(self):
         """Working data after the applied filter chain (derived, read-only).
 
-        Returns ``self.data`` when no filters are set, otherwise ``self.data``
-        restricted to the rows kept by the last filter
-        (``self.filters[-1].ix_after``). A defensive ``.copy()`` is returned so
-        downstream mutation of the result cannot corrupt ``self.data`` under
-        pandas < 3.0 (no Copy-on-Write). There is no setter: filter results
-        flow through ``filters``; to clear filtering set ``self.filters = []``.
+        Returns a copy of ``self.data`` when no filters are set, otherwise a
+        copy of ``self.data`` restricted to the rows kept by the last filter
+        (``self.filters[-1].ix_after``). The result is **always** a defensive
+        ``.copy()`` (both branches) so downstream mutation of the returned
+        frame cannot corrupt ``self.data`` under pandas < 3.0 (no
+        Copy-on-Write). There is no setter: filter results flow through
+        ``filters``; to clear filtering set ``self.filters = []``.
         """
         if not self.filters:
-            return self.data
+            return self.data.copy()
         return self.data.loc[self.filters[-1].ix_after, :].copy()
 
     def __init__(self, name):  # noqa: D107
@@ -1041,7 +1042,10 @@ class CapData(param.Parameterized):
 
     def drop_cols(self, columns):
         """
-        Drop columns from CapData `data`, `data_filtered`, and `column_groups`.
+        Drop columns from CapData `data` and `column_groups`.
+
+        `data_filtered` reflects the change automatically since it is derived
+        from `data`.
 
         Parameters
         ----------
@@ -1064,7 +1068,10 @@ class CapData(param.Parameterized):
 
     def rename_cols(self, column_map):
         """
-        Rename columns in `data`, `data_filtered`, and `column_groups`.
+        Rename columns in `data` and `column_groups`.
+
+        `data_filtered` reflects the change automatically since it is derived
+        from `data`.
 
         Parameters
         ----------
