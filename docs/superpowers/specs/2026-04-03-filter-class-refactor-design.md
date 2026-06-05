@@ -290,26 +290,49 @@ def _pts_before(self, i):
 
 This is the single source of "what came into this step." Filters whose `_execute` makes nested filter calls (e.g. `FilterOutliers` calling `filter_missing` when NaN is present) get correct attribution automatically: the nested call appends its own step to `self.filters`, so the calling step's `_ix_before(i)` resolves to that nested step's `ix_after`. No per-subclass re-snapshotting is needed.
 
-### Visualization Methods
+### Visualization Methods (chunk 6)
 
-`scatter_filters()` and `timeseries_filters()` currently read from `self.removed[0]['index']` and iterate `self.kept`. Two changes apply:
+`scatter_filters()`, `timeseries_filters()`, and `get_filtering_table()` are **attribution views** — each answers "which intervals did each filter remove." They currently read `self.removed[0]['index']` and iterate `self.kept`. In chunk 6 all three are rewritten to derive everything from `self.filters`, and the `self.removed`/`self.kept` lists are **deleted entirely** — from `CapData.__init__`, `reset_filter()`, `agg_sensors()`, and `process_regression_columns()` — along with `BaseSummaryStep._record_removed_kept` and its call site in `run()`. After this, `run()` simply appends the step to `self.filters` (it no longer mirrors removed/kept).
 
-1. **Read from `self.filters` directly.** `self.removed` and `self.kept` are removed from `CapData.__init__` and `reset_filter()`; both methods derive everything from `self.filters`.
-2. **Plot the points *removed by* each filter.** The current methods layer the cumulative *kept* set after each step (each scatter shows the points that survived up to step `i`, labeled with step `i+1`'s name), relying on lower layers showing through to imply what was removed. The new behavior plots, for each step, exactly the rows that step removed — derived from the chain via `_ix_before`:
+**Removed-by-filter, not cumulative-kept.** The current methods layer the cumulative *kept* set after each step (each scatter shows the points that survived up to step `i`, labeled with step `i+1`'s name), relying on lower layers showing through to imply what was removed. The new behavior plots, for each step, exactly the rows that step removed — derived from the chain via `_ix_before`:
 
-   ```
-   removed_ix(step_i) = self._ix_before(i).difference(self.filters[i].ix_after)
-   ```
+```
+removed_ix(step_i) = self._ix_before(i).difference(self.filters[i].ix_after)
+```
 
-   Because filters run sequentially and removed rows never reappear, each step's removed set is disjoint from every other step's. Together with the rows retained after all filters, the steps form a complete partition of the original index:
+Because filters run sequentially and removed rows never reappear, each step's removed set is disjoint from every other step's. Together with the rows retained after all filters, the steps form a complete partition of the original index:
 
-   ```
-   data.index = retained ⊎ removed(f0) ⊎ removed(f1) ⊎ … ⊎ removed(fN)
-   ```
+```
+data.index = retained ⊎ removed(f0) ⊎ removed(f1) ⊎ … ⊎ removed(fN)
+```
 
-   This makes each plotted layer directly attributable to a single filter, rather than inferred from overlapping cumulative layers.
+This makes each plotted layer directly attributable to a single filter, rather than inferred from overlapping cumulative layers.
 
-**New plotting structure (applies to both methods):**
+**Shared helper: `_removed_by_step()`.** The per-step removal computation is factored into one method on `CapData` so the two plots and the filtering table agree on a single source of truth:
+
+```python
+def _removed_by_step(self):
+    """Per-step removal attribution for the visualization methods.
+
+    Returns ``(i, label, removed_ix)`` for each filter step that removed at
+    least one interval, where ``removed_ix = _ix_before(i) \\ filters[i].ix_after``
+    and ``label`` is the step's ``_step_labels()`` entry. Zero-removal steps
+    (always ``RepCond``; also any filter that matched everything) are skipped —
+    they have nothing to attribute. ``i`` is returned so callers can recover the
+    step's input set via ``_ix_before(i)`` and its survivors via
+    ``self.filters[i].ix_after``.
+    """
+    out = []
+    for i, (step, label) in enumerate(zip(self.filters, self._step_labels())):
+        removed_ix = self._ix_before(i).difference(step.ix_after)
+        if len(removed_ix) > 0:
+            out.append((i, label, removed_ix))
+    return out
+```
+
+**Zero-removal steps are skipped in attribution views (decision).** Comprehensive views — `get_summary()` and `describe_filters()` — list *every* step, including `RepCond` (shown with `pts_removed=0`) and any no-op filter; they reconcile the difference for the reader. The attribution views show only steps that removed intervals. Nothing is plot-only: a `rep_cond()` call appears as a `pts_removed=0` row in `get_summary` and a line in `describe_filters` (which is where its chain position is communicated), but contributes no plot layer or table column. An empty plotted layer would be invisible on the canvas anyway, leaving only a dead legend entry; skipping keeps the views focused on filters that actually removed data.
+
+**`scatter_filters()` / `timeseries_filters()`:** a baseline `retained` layer plus one layer per `_removed_by_step()` entry:
 
 ```python
 def scatter_filters(self):
@@ -322,20 +345,31 @@ def scatter_filters(self):
     scatters.append(
         hv.Scatter(data.loc[retained_ix, :], "poa", ["power", "index"]).relabel("retained")
     )
-
-    # one layer per filter: the rows that filter removed (derived from the chain)
-    for i, (step, label) in enumerate(zip(self.filters, self._step_labels())):
-        removed_ix = self._ix_before(i).difference(step.ix_after)
+    # one layer per filter that removed something
+    for _i, label, removed_ix in self._removed_by_step():
         scatters.append(
             hv.Scatter(data.loc[removed_ix, :], "poa", ["power", "index"]).relabel(label)
         )
-
     return hv.Overlay(scatters).opts(...)
 ```
 
 `timeseries_filters()` follows the same structure with `hv.Curve`/`hv.Scatter` on the `Timestamp` axis.
 
-**Shared label enumeration.** Both visualization methods and `get_summary()` need the same per-step display labels (`custom_name` or class name, with `-N` suffix for repeats). This is factored into a `_step_labels()` helper so the enumeration logic lives in one place:
+**`get_filtering_table()`:** the per-interval attribution matrix is rebuilt from `_removed_by_step()`. For each surviving step, mark its column `0` on the step's survivors (`self.filters[i].ix_after`) and `1` on its removed rows; rows absent from the step's input (`_ix_before(i)`) stay `NaN` (removed by an earlier filter). The old `i == 0` special case disappears because `_ix_before(0)` is `self.data.index`. Zero-removal steps get no column (consistent with the plots). The trailing `all_filters` boolean column is unchanged.
+
+```python
+def get_filtering_table(self):
+    filtering_data = pd.DataFrame(index=self.data.index)
+    for i, label, removed_ix in self._removed_by_step():
+        filtering_data.loc[self.filters[i].ix_after, label] = 0
+        filtering_data.loc[removed_ix, label] = 1
+    filtering_data["all_filters"] = filtering_data.apply(lambda x: all(x == 0), axis=1)
+    return filtering_data
+```
+
+**`get_length_test_period()` retargeting.** This method currently finds the test period by matching the `"FilterTime"` label string against `self.kept`. With `removed`/`kept` deleted — and because step labels honor `custom_name`/`-N` enumeration, so a `custom_name`'d `FilterTime` would no longer match the bare label — it is retargeted to iterate `self.filters` and test `isinstance(step, FilterTime)`, using the **first** matching step's `ix_after` for the period and then breaking — preserving the documented "subsequent uses of `FilterTime` are ignored" behavior. This is robust to `custom_name` and independent of display labels.
+
+**Shared label enumeration.** Both the visualization methods and `get_summary()` use the same per-step display labels (`custom_name` or class name, with `-N` suffix for repeats), already factored into the `_step_labels()` helper during the summary rebuild:
 
 ```python
 def _step_labels(self):
@@ -347,8 +381,6 @@ def _step_labels(self):
         labels.append(base if n == 0 else f"{base}-{n}")
     return labels
 ```
-
-`get_summary()` is updated to consume `_step_labels()` rather than recomputing enumeration inline.
 
 ---
 
