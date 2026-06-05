@@ -837,8 +837,6 @@ class CapData(param.Parameterized):
         self.data = pd.DataFrame()
         self.column_groups = {}
         self.regression_cols = {}
-        self.removed = []
-        self.kept = []
         self.rc = None
         self.regression_results = None
         self.regression_formula = (
@@ -1326,8 +1324,6 @@ class CapData(param.Parameterized):
         data : str
             'sim' or 'das' determines if filter is on sim or das data.
         """
-        self.removed = []
-        self.kept = []
         self.filters = []
 
     def reset_agg(self):
@@ -1592,10 +1588,6 @@ class CapData(param.Parameterized):
                 "lost.  It is recommended to use agg_sensors "
                 "before any filtering methods."
             )
-        # reset filter-history mirrors (filters itself is cleared below)
-        self.removed = []
-        self.kept = []
-
         self.pre_agg_cols = self.data.columns.copy()
         self.pre_agg_trans = copy.deepcopy(self.column_groups)
         self.pre_agg_reg_trans = copy.deepcopy(self.regression_cols)
@@ -2717,10 +2709,6 @@ class CapData(param.Parameterized):
                 "lost.  It is recommended to use agg_sensors "
                 "before any filtering methods."
             )
-        # reset filter-history mirrors (filters itself is cleared below)
-        self.removed = []
-        self.kept = []
-
         self.regression_cols_preprocess = copy.deepcopy(self.regression_cols)
         util.process_reg_cols(self.regression_cols, cd=self, verbose=verbose)
         self.filters = []

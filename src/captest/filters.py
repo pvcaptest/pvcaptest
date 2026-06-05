@@ -303,27 +303,8 @@ class BaseSummaryStep(param.Parameterized):
         self.pts_before = len(self.ix_before)
         self.pts_removed = self.pts_before - self.pts_after
         capdata.filters = capdata.filters + [self]
-        self._record_removed_kept(capdata)
         if self.pts_after == 0:
             warnings.warn("The last filter removed all data!")
-
-    def _record_removed_kept(self, capdata):
-        """Append this step's removed/kept index entries for the viz methods.
-
-        Transitional: ``scatter_filters``/``timeseries_filters`` still read
-        ``capdata.removed``/``capdata.kept``. The summary table is rebuilt from
-        the filter chain by ``CapData.get_summary`` and is no longer mirrored
-        here. Both lists are removed when the visualization methods are
-        rewritten to derive removed-by-filter from the chain (chunk 6).
-
-        ``self`` has already been appended to ``capdata.filters`` by ``run`` at
-        this point, so ``capdata._step_labels()[-1]`` is this step's label.
-        """
-        label = capdata._step_labels()[-1]
-        capdata.removed.append(
-            {"name": label, "index": self.ix_before.difference(self.ix_after)}
-        )
-        capdata.kept.append({"name": label, "index": self.ix_after})
 
     def _execute(self, capdata):
         """Return a pandas Index of rows to keep. Implemented by subclasses."""
@@ -713,8 +694,8 @@ class FilterCustom(BaseFilter):
         Uses ``getattr(self.func, '__name__', repr(self.func))`` because some
         callables (e.g. ``functools.partial`` instances, callable class
         instances) do not expose ``__name__``. Without the guard, accessing
-        ``args_repr`` from inside ``run()``'s ``_record_removed_kept`` would
-        raise ``AttributeError`` *after* ``_execute`` had already mutated
+        ``args_repr`` from inside ``run()`` would raise ``AttributeError``
+        *after* ``_execute`` had already mutated
         ``data_filtered``, leaving the step half-applied.
         """
         name = getattr(self.func, "__name__", repr(self.func))

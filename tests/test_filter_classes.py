@@ -326,7 +326,7 @@ class TestFilterIrr:
             FilterIrr(low=0.8, high=1.2, ref_val="rep_irr")._execute(cd_irr)
 
 
-class TestRunLegacyMirroring:
+class TestRunSummary:
     def test_run_populates_summary(self, cd_irr):
         FilterIrr(low=200, high=800).run(cd_irr)
         gs = cd_irr.get_summary()
@@ -334,12 +334,6 @@ class TestRunLegacyMirroring:
         assert gs["pts_after_filter"].iloc[0] == 3
         assert gs["pts_removed"].iloc[0] == 2
         assert "low=200" in gs["filter_arguments"].iloc[0]
-
-    def test_run_populates_removed_and_kept(self, cd_irr):
-        FilterIrr(low=200, high=800).run(cd_irr)
-        assert list(cd_irr.removed[0]["index"]) == [0, 4]
-        assert list(cd_irr.kept[0]["index"]) == [1, 2, 3]
-        assert cd_irr.removed[0]["name"] == "FilterIrr"
 
     def test_run_enumerates_repeated_filters(self, cd_irr):
         FilterIrr(low=200, high=800).run(cd_irr)
