@@ -507,6 +507,7 @@ captest:
     - type: RepCond
       percent_filter: 20
       irr_bal: false
+      func: {poa: perc_wrap(60), t_amb: mean, w_vel: mean}
     - type: FilterRegression
       n_std: 2
 ```
