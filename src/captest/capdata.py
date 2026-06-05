@@ -11,9 +11,8 @@ instance together and exposes the cross-CapData comparison methods
 
 # standard library imports
 import difflib
-import re
 import copy
-from functools import wraps
+
 import warnings
 import importlib
 import inspect
@@ -101,7 +100,7 @@ plot_colors_brewer = {
 met_keys = ["poa", "t_amb", "w_vel", "power"]
 
 
-columns = ["pts_after_filter", "pts_removed", "filter_arguments"]
+columns = ["function_name", "pts_after_filter", "pts_removed", "filter_arguments"]
 
 
 def round_kwarg_floats(kwarg_dict, decimals=3):
@@ -147,96 +146,6 @@ def tstamp_kwarg_to_strings(kwarg_dict):
         else:
             output_vals.append(val)
     return {key: val for key, val in zip(kwarg_dict.keys(), output_vals)}
-
-
-def update_summary(func):
-    """
-    Decoratates the CapData class filter methods.
-
-    Updates the CapData.summary and CapData.summary_ix attributes, which
-    are used to generate summary data by the CapData.get_summary method.
-
-    Todo
-    ----
-    not in place
-        Check if summary is updated when function is called with inplace=False.
-        It should not be.
-    """
-
-    @wraps(func)
-    def wrapper(self, *args, **kwargs):
-        pts_before = self.data_filtered.shape[0]
-        ix_before = self.data_filtered.index
-        if pts_before == 0:
-            pts_before = self.data.shape[0]
-            self.summary_ix.append((self.name, "count"))
-            self.summary.append(
-                {columns[0]: pts_before, columns[1]: 0, columns[2]: "no filters"}
-            )
-
-        ret_val = func(self, *args, **kwargs)
-
-        if kwargs.get("ref_val") in ("rep_irr", "self_val") and self.rc is not None:
-            kwargs = {**kwargs, "ref_val": float(self.rc["poa"].iloc[0])}
-
-        arg_str = args.__repr__()
-        lst = arg_str.split(",")
-        arg_lst = [item.strip("()") for item in lst]
-        arg_lst_one = arg_lst[0]
-        if arg_lst_one == "das" or arg_lst_one == "sim":
-            arg_lst = arg_lst[1:]
-        arg_str = ", ".join(arg_lst)
-
-        func_re = re.compile("<function (.*) at", re.IGNORECASE)
-        if func_re.search(arg_str) is not None:
-            custom_func_name = func_re.search(arg_str).group(1)
-            arg_str = re.sub("<function.*>", custom_func_name, arg_str)
-
-        kwargs = round_kwarg_floats(kwargs)
-        kwargs = tstamp_kwarg_to_strings(kwargs)
-        kwarg_str = kwargs.__repr__()
-        kwarg_str = kwarg_str.strip("{}")
-        kwarg_str = kwarg_str.replace("'", "")
-
-        if len(arg_str) == 0 and len(kwarg_str) == 0:
-            arg_str = "Default arguments"
-        elif len(arg_str) == 0:
-            arg_str = kwarg_str
-        else:
-            arg_str = arg_str + ", " + kwarg_str
-
-        filter_name = func.__name__
-        if filter_name in self.filter_counts.keys():
-            filter_name_enum = filter_name + "-" + str(self.filter_counts[filter_name])
-            self.filter_counts[filter_name] += 1
-        else:
-            self.filter_counts[filter_name] = 1
-            filter_name_enum = filter_name
-
-        pts_after = self.data_filtered.shape[0]
-        pts_removed = pts_before - pts_after
-        self.summary_ix.append((self.name, filter_name_enum))
-        self.summary.append(
-            {columns[0]: pts_after, columns[1]: pts_removed, columns[2]: arg_str}
-        )
-
-        ix_after = self.data_filtered.index
-        self.removed.append(
-            {"name": filter_name_enum, "index": ix_before.difference(ix_after)}
-        )
-        self.kept.append({"name": filter_name_enum, "index": ix_after})
-
-        if pts_after == 0:
-            warnings.warn(
-                "The last filter removed all data! "
-                "Calling additional filtering or visualization "
-                "methods that reference the data_filtered attribute "
-                "will raise an error."
-            )
-
-        return ret_val
-
-    return wrapper
 
 
 def wrap_seasons(df, freq):
@@ -888,11 +797,6 @@ class CapData(param.Parameterized):
         identified by the keys of `column_groups` are the independent variables
         of the ASTM Capacity test regression equation. Set using
         `set_regression_cols` or by directly assigning a dictionary.
-    summary_ix : list of tuples
-        Holds the row index data modified by the update_summary decorator
-        function.
-    summary : list of dicts
-        Holds the data modified by the update_summary decorator function.
     rc : DataFrame
         Dataframe for the reporting conditions (poa, t_amb, and w_vel).
     regression_results : statsmodels linear regression model
@@ -933,11 +837,8 @@ class CapData(param.Parameterized):
         self.data = pd.DataFrame()
         self.column_groups = {}
         self.regression_cols = {}
-        self.summary_ix = []
-        self.summary = []
         self.removed = []
         self.kept = []
-        self.filter_counts = {}
         self.rc = None
         self.regression_results = None
         self.regression_formula = (
@@ -1025,8 +926,6 @@ class CapData(param.Parameterized):
         cd_c.data = self.data.copy()
         cd_c.column_groups = copy.deepcopy(self.column_groups)
         cd_c.regression_cols = copy.copy(self.regression_cols)
-        cd_c.summary_ix = copy.copy(self.summary_ix)
-        cd_c.summary = copy.copy(self.summary)
         cd_c.filters = copy.deepcopy(self.filters)
         cd_c.rc = copy.copy(self.rc)
         cd_c.regression_results = copy.deepcopy(self.regression_results)
@@ -1445,9 +1344,6 @@ class CapData(param.Parameterized):
         data : str
             'sim' or 'das' determines if filter is on sim or das data.
         """
-        self.summary_ix = []
-        self.summary = []
-        self.filter_counts = {}
         self.removed = []
         self.kept = []
         self.filters = []
@@ -1707,16 +1603,16 @@ class CapData(param.Parameterized):
 
         This method modifies the `data`, `data_filtered`, and `regression_cols` attributes.
         """
-        if not len(self.summary) == 0:
+        if self.filters:
             warnings.warn(
                 "The data_filtered attribute has been overwritten "
                 "and previously applied filtering steps have been "
                 "lost.  It is recommended to use agg_sensors "
                 "before any filtering methods."
             )
-        # reset summary data
-        self.summary_ix = []
-        self.summary = []
+        # reset filter-history mirrors (filters itself is cleared below)
+        self.removed = []
+        self.kept = []
 
         self.pre_agg_cols = self.data.columns.copy()
         self.pre_agg_trans = copy.deepcopy(self.column_groups)
@@ -2200,45 +2096,47 @@ class CapData(param.Parameterized):
         return labels
 
     def get_summary(self):
-        """
-        Print a summary of filtering applied to the data_filtered attribute.
+        """Return a DataFrame summarizing the applied filter chain.
 
-        The summary dataframe shows the history of the filtering steps applied
-        to the data including the timestamps remaining after each step, the
-        timestamps removed by each step and the arguments used to call each
-        filtering method.
+        Rebuilt from ``self.filters``: one row per step, with the step's class
+        name (``function_name``), the rows remaining after it
+        (``pts_after_filter``), the rows it removed (``pts_removed``, derived
+        from the prior step's ``ix_after`` via ``_pts_before``), and its
+        rendered arguments (``filter_arguments``). The row index is a MultiIndex
+        of ``(self.name, label)`` where ``label`` comes from ``_step_labels``.
 
-        If the filter arguments are cutoff, the max column width can be
-        increased by setting pd.options.display.max_colwidth.
-
-        Parameters
-        ----------
-        None
+        Returns an empty DataFrame (standard columns, no rows) when no filters
+        have been applied.
 
         Returns
         -------
-        Pandas DataFrame
+        pandas.DataFrame
         """
-        try:
-            df = pd.DataFrame(
-                data=self.summary,
-                index=pd.MultiIndex.from_tuples(self.summary_ix),
-                columns=columns,
+        if not self.filters:
+            return pd.DataFrame(columns=columns)
+        rows = []
+        index = []
+        for i, (step, label) in enumerate(zip(self.filters, self._step_labels())):
+            index.append((self.name, label))
+            pts_before = self._pts_before(i)
+            rows.append(
+                {
+                    "function_name": type(step).__name__,
+                    "pts_after_filter": step.pts_after,
+                    "pts_removed": pts_before - step.pts_after,
+                    "filter_arguments": step.args_repr,
+                }
             )
-            return df
-        except TypeError:
-            print("No filters have been run.")
+        return pd.DataFrame(
+            rows, index=pd.MultiIndex.from_tuples(index), columns=columns
+        )
 
     def describe_filters(self):
         """Return a written, human-readable summary of the filtering run.
 
-        Joins the ``explanation`` of each class-based filter step in
-        ``self.filters``, one per line. Steps without an explanation template
-        are skipped.
-
-        Note: until all filters are class-based, filters still applied via the
-        legacy decorator do not appear here. Use ``get_summary()`` for the
-        complete tabular history during the transition.
+        Joins the ``explanation`` of each filter step in ``self.filters``, one
+        per line. Steps without an explanation template are skipped; use
+        ``get_summary()`` for the complete tabular history.
         """
         lines = [
             step.explanation for step in self.filters if step.explanation is not None
@@ -2749,9 +2647,9 @@ class CapData(param.Parameterized):
         """
         Get length of test period.
 
-        Uses length of `data` unless `filter_time` has been run, then uses length
-        of the kept data after `filter_time` was run the first time. Subsequent
-        uses of `filter_time` are ignored.
+        Uses length of `data` unless a `FilterTime` step has been run, then uses
+        the length of the kept data after `FilterTime` was run the first time.
+        Subsequent uses of `FilterTime` are ignored.
 
         Rounds up to a period of full days.
 
@@ -2762,7 +2660,7 @@ class CapData(param.Parameterized):
         """
         test_period = self.data.index[-1] - self.data.index[0]
         for filter in self.kept:
-            if "filter_time" == filter["name"]:
+            if "FilterTime" == filter["name"]:
                 test_period = filter["index"][-1] - filter["index"][0]
         self.length_test_period = test_period.ceil("D").days
 
@@ -2816,16 +2714,16 @@ class CapData(param.Parameterized):
             performed while traversing the `regression_cols` dictionary.
             Set to False to prevent all output.
         """
-        if not len(self.summary) == 0:
+        if self.filters:
             warnings.warn(
                 "The data_filtered attribute has been overwritten "
                 "and previously applied filtering steps have been "
                 "lost.  It is recommended to use agg_sensors "
                 "before any filtering methods."
             )
-        # reset summary data
-        self.summary_ix = []
-        self.summary = []
+        # reset filter-history mirrors (filters itself is cleared below)
+        self.removed = []
+        self.kept = []
 
         self.regression_cols_preprocess = copy.deepcopy(self.regression_cols)
         util.process_reg_cols(self.regression_cols, cd=self, verbose=verbose)

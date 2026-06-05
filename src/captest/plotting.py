@@ -714,8 +714,8 @@ def calc_tc_power_column(
 
     This helper is intentionally isolated from
     ``CapData.process_regression_columns``: it does NOT touch
-    ``cd.regression_cols``, ``cd.regression_formula``, ``cd.summary``,
-    ``cd.kept``, or ``cd.removed``.
+    ``cd.regression_cols``, ``cd.regression_formula``, ``cd.kept``,
+    or ``cd.removed``.
 
     Parameters
     ----------

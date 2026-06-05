@@ -50,7 +50,7 @@ nrel_clear_sky are in the ./tests/conftest.py file.
 
 
 class TestUpdateSummary:
-    """Test the update_summary wrapper and functions used within."""
+    """Test the utility functions used for argument formatting."""
 
     def test_round_kwarg_floats(self):
         """Tests round kwarg_floats."""
@@ -1679,10 +1679,8 @@ class TestAggSensors:
 
     def test_reset_summary(self, meas):
         meas.agg_sensors()
-        # Summary should be empty after aggregation
-        assert len(meas.summary) == 0
-        # Summary index should be empty after aggregation
-        assert len(meas.summary_ix) == 0
+        # Aggregation clears the filter chain (and thus the summary).
+        assert len(meas.filters) == 0
 
     def test_reset_agg_method(self, meas):
         orig_df = meas.data.copy()
@@ -2287,9 +2285,10 @@ class TestGetSummary:
     def test_col_names(self, nrel):
         nrel.filter_irr(200, 500)
         smry = nrel.get_summary()
-        assert smry.columns[0] == "pts_after_filter"
-        assert smry.columns[1] == "pts_removed"
-        assert smry.columns[2] == "filter_arguments"
+        assert smry.columns[0] == "function_name"
+        assert smry.columns[1] == "pts_after_filter"
+        assert smry.columns[2] == "pts_removed"
+        assert smry.columns[3] == "filter_arguments"
 
 
 class TestFilterTime:
@@ -2454,9 +2453,9 @@ class TestFilterOutliersAndPower:
         with pytest.warns(UserWarning):
             pvsyst.filter_outliers()
 
-        filter_names = [ix[1] for ix in pvsyst.summary_ix]
-        assert filter_names.index("filter_missing") < filter_names.index(
-            "filter_outliers"
+        filter_names = [ix[1] for ix in pvsyst.get_summary().index]
+        assert filter_names.index("FilterMissing") < filter_names.index(
+            "FilterOutliers"
         )
 
     def test_filter_power_defaults(self, meas):

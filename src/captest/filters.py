@@ -282,11 +282,6 @@ class BaseSummaryStep(param.Parameterized):
     # Plain class attribute (not a param) so it is never serialized.
     _explanation_template = None
 
-    # Transitional: legacy summary label, used by run()'s mirroring until the
-    # summary-rebuild plan switches the summary table to class names. Plain
-    # class attribute (not a param) so it is never serialized.
-    _legacy_name = None
-
     def run(self, capdata):
         """Execute the step, record runtime state, and append self to filters.
 
@@ -299,9 +294,8 @@ class BaseSummaryStep(param.Parameterized):
         on NaN), it naturally picks up the post-nested-call state so
         attribution to this step counts only what this step actually removed.
 
-        These transitional instance attributes go away in the summary-rebuild
-        plan, where they're derived from the prior step's ``pts_after`` /
-        ``ix_after`` instead — see the spec's Summary Table section.
+        ``ix_before``/``pts_before`` reflect the prior chain state; the
+        summary itself is derived from the chain by ``CapData.get_summary``.
         """
         self.ix_after = self._execute(capdata)
         self.pts_after = len(self.ix_after)
@@ -309,37 +303,27 @@ class BaseSummaryStep(param.Parameterized):
         self.pts_before = len(self.ix_before)
         self.pts_removed = self.pts_before - self.pts_after
         capdata.filters = capdata.filters + [self]
-        self._record_legacy_summary(capdata)
+        self._record_removed_kept(capdata)
         if self.pts_after == 0:
             warnings.warn("The last filter removed all data!")
 
-    def _record_legacy_summary(self, capdata):
-        """Populate the legacy summary/removed/kept lists.
+    def _record_removed_kept(self, capdata):
+        """Append this step's removed/kept index entries for the viz methods.
 
-        Transitional scaffolding so get_summary() and the visualization
-        methods keep working while filters that still use @update_summary
-        coexist with class-based filters. Removed in the summary-rebuild plan.
+        Transitional: ``scatter_filters``/``timeseries_filters`` still read
+        ``capdata.removed``/``capdata.kept``. The summary table is rebuilt from
+        the filter chain by ``CapData.get_summary`` and is no longer mirrored
+        here. Both lists are removed when the visualization methods are
+        rewritten to derive removed-by-filter from the chain (chunk 6).
+
+        ``self`` has already been appended to ``capdata.filters`` by ``run`` at
+        this point, so ``capdata._step_labels()[-1]`` is this step's label.
         """
-        label = self._legacy_name or type(self).__name__
-        if label in capdata.filter_counts:
-            capdata.filter_counts[label] += 1
-            label_enum = f"{label}-{capdata.filter_counts[label] - 1}"
-        else:
-            capdata.filter_counts[label] = 1
-            label_enum = label
-
-        capdata.summary_ix.append((capdata.name, label_enum))
-        capdata.summary.append(
-            {
-                "pts_after_filter": self.pts_after,
-                "pts_removed": self.pts_removed,
-                "filter_arguments": self.args_repr,
-            }
-        )
+        label = capdata._step_labels()[-1]
         capdata.removed.append(
-            {"name": label_enum, "index": self.ix_before.difference(self.ix_after)}
+            {"name": label, "index": self.ix_before.difference(self.ix_after)}
         )
-        capdata.kept.append({"name": label_enum, "index": self.ix_after})
+        capdata.kept.append({"name": label, "index": self.ix_after})
 
     def _execute(self, capdata):
         """Return a pandas Index of rows to keep. Implemented by subclasses."""
@@ -414,7 +398,6 @@ class FilterIrr(BaseFilter):
     in which case they are treated as fractions of ``ref_val``.
     """
 
-    _legacy_name = "filter_irr"
     _explanation_template = (
         "Intervals where {col_name} is below {low} or above {high} W/m^2 were removed."
     )
@@ -510,7 +493,6 @@ class FilterSensors(BaseFilter):
     pre-aggregation columns when present.
     """
 
-    _legacy_name = "filter_sensors"
     _explanation_template = (
         "Rows with inconsistent readings within sensor group(s) {groups} "
         "(compared using {row_filter}) were removed."
@@ -585,8 +567,6 @@ class FilterTime(BaseFilter):
     wrap-year functionality has moved to CapTest's auto-wrap step at setup
     time so sim data is already contiguous before any filtering runs.
     """
-
-    _legacy_name = "filter_time"
 
     start = param.Parameter(default=None, doc="Window start (str or Timestamp).")
     end = param.Parameter(default=None, doc="Window end (str or Timestamp).")
@@ -714,7 +694,6 @@ class FilterCustom(BaseFilter):
     ``func`` (module-qualified-name string) is handled by the YAML plan.
     """
 
-    _legacy_name = "filter_custom"
     _explanation_template = "Custom filter {call} was applied."
 
     def __init__(self, func, *args, custom_name=None, **kwargs):
@@ -734,7 +713,7 @@ class FilterCustom(BaseFilter):
         Uses ``getattr(self.func, '__name__', repr(self.func))`` because some
         callables (e.g. ``functools.partial`` instances, callable class
         instances) do not expose ``__name__``. Without the guard, accessing
-        ``args_repr`` from inside ``run()``'s ``_record_legacy_summary`` would
+        ``args_repr`` from inside ``run()``'s ``_record_removed_kept`` would
         raise ``AttributeError`` *after* ``_execute`` had already mutated
         ``data_filtered``, leaving the step half-applied.
         """
@@ -761,7 +740,6 @@ class FilterOutliers(BaseFilter):
     for display.
     """
 
-    _legacy_name = "filter_outliers"
     _explanation_template = (
         "Statistical outliers in (poa, power), detected via "
         "EllipticEnvelope({kwargs}), were removed."
@@ -837,7 +815,6 @@ class FilterClearsky(BaseFilter):
     ``irr-ghi-clear_sky``); multi-column groups are averaged with a warning.
     """
 
-    _legacy_name = "filter_clearsky"
     _explanation_template = (
         "{removed_kind} intervals (detected via pvlib "
         "detect_clearsky({kwargs})) were removed."
@@ -949,7 +926,6 @@ class FilterPvsyst(BaseFilter):
     column warns and is skipped.
     """
 
-    _legacy_name = "filter_pvsyst"
     _explanation_template = (
         "PVsyst intervals operating off the maximum power point "
         "(IL Pmin/Vmin/Pmax/Vmax > 0) were removed."
@@ -984,7 +960,6 @@ class FilterShade(BaseFilter):
     a shading-loss column is available): ``"ShdLoss<=50"``.
     """
 
-    _legacy_name = "filter_shade"
     _explanation_template = (
         "Intervals of array shading (kept where {query}) were removed."
     )
@@ -1024,7 +999,6 @@ class FilterPf(BaseFilter):
     above ``pf``.
     """
 
-    _legacy_name = "filter_pf"
     _explanation_template = "Intervals with a power factor below {pf} were removed."
 
     pf = param.Number(
@@ -1059,7 +1033,6 @@ class FilterPower(BaseFilter):
     the threshold across the group; a bare column name uses that column.
     """
 
-    _legacy_name = "filter_power"
     _explanation_template = "Intervals at or above {threshold} power were removed."
 
     power = param.Number(
@@ -1117,8 +1090,6 @@ class FilterDays(BaseFilter):
     ``drop=True`` to remove them and keep everything else.
     """
 
-    _legacy_name = "filter_days"
-
     days = param.List(
         default=None,
         allow_None=True,
@@ -1157,7 +1128,6 @@ class FilterMissing(BaseFilter):
     subset.
     """
 
-    _legacy_name = "filter_missing"
     _explanation_template = (
         "Intervals with missing data in the regression columns were removed."
     )
@@ -1184,7 +1154,6 @@ class FilterRegression(BaseFilter):
     ``CapData.fit_regression``) can print its summary.
     """
 
-    _legacy_name = "fit_regression"
     _explanation_template = (
         "Intervals with regression residuals beyond {n_std} standard "
         "deviations were removed."

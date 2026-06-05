@@ -327,28 +327,32 @@ class TestFilterIrr:
 
 
 class TestRunLegacyMirroring:
-    def test_run_populates_legacy_summary(self, cd_irr):
+    def test_run_populates_summary(self, cd_irr):
         FilterIrr(low=200, high=800).run(cd_irr)
-        assert cd_irr.summary_ix == [("irr", "filter_irr")]
-        assert cd_irr.summary[0]["pts_after_filter"] == 3
-        assert cd_irr.summary[0]["pts_removed"] == 2
-        assert "low=200" in cd_irr.summary[0]["filter_arguments"]
+        gs = cd_irr.get_summary()
+        assert list(gs.index) == [("irr", "FilterIrr")]
+        assert gs["pts_after_filter"].iloc[0] == 3
+        assert gs["pts_removed"].iloc[0] == 2
+        assert "low=200" in gs["filter_arguments"].iloc[0]
 
     def test_run_populates_removed_and_kept(self, cd_irr):
         FilterIrr(low=200, high=800).run(cd_irr)
         assert list(cd_irr.removed[0]["index"]) == [0, 4]
         assert list(cd_irr.kept[0]["index"]) == [1, 2, 3]
-        assert cd_irr.removed[0]["name"] == "filter_irr"
+        assert cd_irr.removed[0]["name"] == "FilterIrr"
 
     def test_run_enumerates_repeated_filters(self, cd_irr):
         FilterIrr(low=200, high=800).run(cd_irr)
         FilterIrr(low=400, high=800).run(cd_irr)
-        assert [ix[1] for ix in cd_irr.summary_ix] == ["filter_irr", "filter_irr-1"]
+        assert [ix[1] for ix in cd_irr.get_summary().index] == [
+            "FilterIrr",
+            "FilterIrr-1",
+        ]
 
     def test_run_summary_shows_resolved_ref_val(self, cd_irr):
         cd_irr.rc = pd.DataFrame({"poa": [500.0]})
         FilterIrr(low=0.8, high=1.2, ref_val="rep_irr").run(cd_irr)
-        args = cd_irr.summary[0]["filter_arguments"]
+        args = cd_irr.get_summary()["filter_arguments"].iloc[0]
         assert "rep_irr" not in args
         assert "np." not in args
         assert "500" in args
@@ -741,10 +745,10 @@ class TestFilterOutliers:
         with pytest.warns(UserWarning, match="missing values"):
             kept = FilterOutliers()._execute(cd_pp)
         assert 0 not in kept
-        # The nested filter_missing must be recorded as its own step (the
-        # legacy @update_summary path until FilterMissing is converted).
-        assert len(cd_pp.summary_ix) == 1
-        assert cd_pp.summary_ix[0][1] == "filter_missing"
+        # The nested filter_missing is recorded as its own step in the chain.
+        gs = cd_pp.get_summary()
+        assert len(gs) == 1
+        assert gs.index[0][1] == "FilterMissing"
 
     def test_pts_removed_excludes_nan_drop(self, cd_pp):
         cd_pp.data.iloc[1, cd_pp.data.columns.get_loc("poa")] = np.nan
@@ -752,16 +756,16 @@ class TestFilterOutliers:
         f = FilterOutliers()
         with pytest.warns(UserWarning):
             f.run(cd_pp)
-        assert cd_pp.summary_ix[-2][1] == "filter_missing"
-        assert cd_pp.summary_ix[-1][1] == "filter_outliers"
-        assert f.pts_before == cd_pp.summary[-2]["pts_after_filter"]
+        gs = cd_pp.get_summary()
+        assert gs.index[-2][1] == "FilterMissing"
+        assert gs.index[-1][1] == "FilterOutliers"
+        assert f.pts_before == gs["pts_after_filter"].iloc[-2]
         assert (
-            cd_pp.summary[-1]["pts_removed"]
-            == cd_pp.summary[-2]["pts_after_filter"]
-            - cd_pp.summary[-1]["pts_after_filter"]
+            gs["pts_removed"].iloc[-1]
+            == gs["pts_after_filter"].iloc[-2] - gs["pts_after_filter"].iloc[-1]
         )
-        assert cd_pp.summary[-1]["pts_removed"] < (
-            pre_run_pts - cd_pp.summary[-1]["pts_after_filter"]
+        assert gs["pts_removed"].iloc[-1] < (
+            pre_run_pts - gs["pts_after_filter"].iloc[-1]
         )
 
     def test_args_repr_renders_envelope_call(self):
@@ -1118,9 +1122,6 @@ class TestFilterMissingClass:
     def test_execute_subset_columns(self):
         assert list(FilterMissing(columns=["poa"])._execute(self._cd())) == [0, 2]
 
-    def test_legacy_name_is_filter_missing(self):
-        assert FilterMissing._legacy_name == "filter_missing"
-
     def test_explanation(self):
         f = FilterMissing()
         f.run(self._cd())
@@ -1162,7 +1163,7 @@ class TestFilterRegression:
         with pytest.warns(UserWarning, match="missing values"):
             kept = FilterRegression(n_std=2)._execute(cd_reg)
         assert 5 not in kept  # NaN row removed
-        assert cd_reg.summary_ix[-1][1] == "filter_missing"
+        assert cd_reg.get_summary().index[-1][1] == "FilterMissing"
 
     def test_explanation(self, cd_reg):
         f = FilterRegression(n_std=2)
