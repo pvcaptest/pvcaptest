@@ -1208,3 +1208,59 @@ class FilterRegression(BaseFilter):
         self.regression_model = reg
         threshold = self.n_std * reg.scale**0.5
         return reg.resid[reg.resid.abs() < threshold].index
+
+
+class RepCond(BaseSummaryStep):
+    """Reporting-conditions calculation as a zero-removal summary step.
+
+    Computes ``capdata.rc`` from the filtered data at this point in the chain
+    and returns the index **unchanged** (``pts_removed == 0``), so the step
+    appears in the summary at its position relative to the filters that
+    preceded it. The reporting-conditions math is not duplicated here: it lives
+    in ``CapData._calc_rep_cond``, reached via the runtime ``capdata`` argument
+    so ``filters.py`` needs no import of ``capdata`` or ``ReportingIrradiance``.
+    Inherits ``BaseSummaryStep`` directly (not ``BaseFilter``) because it is not
+    a row filter; it still belongs in ``capdata.filters`` because that list
+    accepts any ``BaseSummaryStep``.
+    """
+
+    func = param.Parameter(
+        default=None,
+        doc="Aggregation(s) for each rhs variable: dict/str/callable/None.",
+    )
+    w_vel = param.Parameter(
+        default=None,
+        doc="Override for the wind-speed reporting condition.",
+    )
+    irr_bal = param.Boolean(
+        default=False,
+        doc="Use ReportingIrradiance to balance the irradiance band.",
+    )
+    percent_filter = param.Number(
+        default=20,
+        doc="Percent band around the reporting irradiance (irr_bal only).",
+    )
+    front_poa = param.String(
+        default="poa",
+        doc="regression_cols key used as the irradiance driver (irr_bal only).",
+    )
+    rc_kwargs = param.Dict(
+        default=None,
+        allow_None=True,
+        doc="Extra kwargs forwarded to ReportingIrradiance (irr_bal only).",
+    )
+
+    _explanation_template = (
+        "Reporting conditions were calculated (no intervals removed)."
+    )
+
+    def _execute(self, capdata):
+        capdata._calc_rep_cond(
+            self.func,
+            self.w_vel,
+            self.irr_bal,
+            self.percent_filter,
+            self.front_poa,
+            self.rc_kwargs,
+        )
+        return capdata.data_filtered.index

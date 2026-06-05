@@ -2113,6 +2113,15 @@ class TestRepCondNoFreq:
         )
         assert isinstance(nrel.rc, pd.core.frame.DataFrame)
 
+    def test_appends_zero_removal_step(self, nrel):
+        """rep_cond records a RepCond step in the chain that removes nothing."""
+        pts_before = nrel.data_filtered.shape[0]
+        nrel.rep_cond()
+        assert isinstance(nrel.filters[-1], filters.RepCond)
+        assert nrel.filters[-1].pts_removed == 0
+        assert nrel.data_filtered.shape[0] == pts_before
+        assert isinstance(nrel.rc, pd.core.frame.DataFrame)
+
 
 class TestRepCondFreq:
     def test_monthly_no_irr_bal(self, pvsyst):

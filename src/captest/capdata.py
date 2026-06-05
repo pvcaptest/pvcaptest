@@ -50,6 +50,7 @@ from captest.filters import (
     FilterSensors,
     FilterShade,
     FilterTime,
+    RepCond,
     check_all_perc_diff_comb,
     filter_grps,
     filter_irr,
@@ -2216,7 +2217,69 @@ class CapData(param.Parameterized):
         ]
         return "\n".join(lines)
 
-    @update_summary
+    def _calc_rep_cond(
+        self, func, w_vel, irr_bal, percent_filter, front_poa, rc_kwargs
+    ):
+        """Compute reporting conditions and store them on ``self.rc``.
+
+        Extracted verbatim from the former ``rep_cond`` body so the
+        reporting-conditions math lives in one place. Called by
+        ``filters.RepCond._execute`` (through the runtime ``capdata`` argument,
+        so ``filters.py`` needs no import of ``capdata`` or
+        ``ReportingIrradiance``) and by the thin ``rep_cond`` wrapper. Sets
+        ``self.rc`` (and ``self.rc_tool`` when ``irr_bal`` is True) as a side
+        effect; returns None.
+
+        Parameters
+        ----------
+        func : dict, str, callable, or None
+            See ``rep_cond``. When None, defaults to the mean of each
+            right-hand-side variable.
+        w_vel : numeric or None
+            See ``rep_cond``.
+        irr_bal : bool
+            See ``rep_cond``.
+        percent_filter : int
+            See ``rep_cond``.
+        front_poa : str
+            See ``rep_cond``.
+        rc_kwargs : dict or None
+            See ``rep_cond``. None is treated as an empty dict.
+        """
+        if rc_kwargs is None:
+            rc_kwargs = {}
+        lhs, rhs = util.parse_regression_formula(self.regression_formula)
+        df = self.get_reg_cols(reg_vars=rhs, filtered_data=True)
+
+        if func is None:
+            func = {var: "mean" for var in rhs}
+
+        RCs_df = pd.DataFrame(df.agg(func)).T
+
+        if irr_bal:
+            if front_poa not in df.columns:
+                raise ValueError(
+                    f"front_poa={front_poa!r} is not a right-hand-side variable "
+                    f"of the regression formula."
+                )
+            self.rc_tool = ReportingIrradiance(
+                df,
+                front_poa,
+                percent_band=percent_filter,
+                **rc_kwargs,
+            )
+            results = self.rc_tool.get_rep_irr()
+            flt_df = results[1]
+            RCs_df = pd.DataFrame(flt_df.agg(func)).T
+            RCs_df.loc[RCs_df.index[0], front_poa] = results[0]
+
+        if w_vel is not None and "w_vel" in RCs_df.columns:
+            RCs_df.loc[RCs_df.index[0], "w_vel"] = w_vel
+
+        print("Reporting conditions saved to rc attribute.")
+        print(RCs_df)
+        self.rc = RCs_df
+
     def rep_cond(
         self,
         func=None,
@@ -2224,7 +2287,7 @@ class CapData(param.Parameterized):
         irr_bal=False,
         percent_filter=20,
         front_poa="poa",
-        rc_kwargs={},
+        rc_kwargs=None,
     ):
         """
         Calculate reporting conditions for the current regression formula.
@@ -2261,7 +2324,7 @@ class CapData(param.Parameterized):
         front_poa : str, default 'poa'
             Key in ``self.regression_cols`` whose column is used as the
             irradiance driver when ``irr_bal`` is True.
-        rc_kwargs : dict
+        rc_kwargs : dict or None, default None
             Passed to ``ReportingIrradiance`` when ``irr_bal`` is True.
 
         Returns
@@ -2270,37 +2333,14 @@ class CapData(param.Parameterized):
             Reporting conditions are stored on ``self.rc`` as a one-row
             DataFrame.
         """
-        lhs, rhs = util.parse_regression_formula(self.regression_formula)
-        df = self.get_reg_cols(reg_vars=rhs, filtered_data=True)
-
-        if func is None:
-            func = {var: "mean" for var in rhs}
-
-        RCs_df = pd.DataFrame(df.agg(func)).T
-
-        if irr_bal:
-            if front_poa not in df.columns:
-                raise ValueError(
-                    f"front_poa={front_poa!r} is not a right-hand-side variable "
-                    f"of the regression formula."
-                )
-            self.rc_tool = ReportingIrradiance(
-                df,
-                front_poa,
-                percent_band=percent_filter,
-                **rc_kwargs,
-            )
-            results = self.rc_tool.get_rep_irr()
-            flt_df = results[1]
-            RCs_df = pd.DataFrame(flt_df.agg(func)).T
-            RCs_df.loc[RCs_df.index[0], front_poa] = results[0]
-
-        if w_vel is not None and "w_vel" in RCs_df.columns:
-            RCs_df.loc[RCs_df.index[0], "w_vel"] = w_vel
-
-        print("Reporting conditions saved to rc attribute.")
-        print(RCs_df)
-        self.rc = RCs_df
+        RepCond(
+            func=func,
+            w_vel=w_vel,
+            irr_bal=irr_bal,
+            percent_filter=percent_filter,
+            front_poa=front_poa,
+            rc_kwargs=rc_kwargs,
+        ).run(self)
 
     def rep_cond_freq(
         self,
