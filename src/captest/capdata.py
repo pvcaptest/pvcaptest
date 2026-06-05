@@ -1218,34 +1218,29 @@ class CapData(param.Parameterized):
         )
 
     def scatter_filters(self):
-        """
-        Returns an overlay of scatter plots of intervals removed for each filter.
+        """Overlay of power-vs-irradiance scatters attributing removed intervals.
 
-        A scatter plot of power vs irradiance is generated for the time intervals
-        removed for each filtering step. Each of these plots is labeled and
-        overlayed.
+        A baseline ``retained`` layer (rows surviving all filters) plus one
+        layer per filter step that removed intervals — together a clean
+        partition of the data. Zero-removal steps (e.g. ``RepCond``) are
+        skipped; see ``get_summary``/``describe_filters`` for the full step list.
         """
-        scatters = []
-
         data = self.get_reg_cols(reg_vars=["power", "poa"], filtered_data=False)
         data["index"] = self.data.index
-        plt_no_filtering = hv.Scatter(data, "poa", ["power", "index"]).relabel("all")
-        scatters.append(plt_no_filtering)
 
-        d1 = data.loc[self.removed[0]["index"], :]
-        plt_first_filter = hv.Scatter(d1, "poa", ["power", "index"]).relabel(
-            self.removed[0]["name"]
+        scatters = []
+        retained_ix = self.filters[-1].ix_after if self.filters else self.data.index
+        scatters.append(
+            hv.Scatter(data.loc[retained_ix, :], "poa", ["power", "index"]).relabel(
+                "retained"
+            )
         )
-        scatters.append(plt_first_filter)
-
-        for i, filtering_step in enumerate(self.kept):
-            if i >= len(self.kept) - 1:
-                break
-            else:
-                flt_legend = self.kept[i + 1]["name"]
-            d_flt = data.loc[filtering_step["index"], :]
-            plt = hv.Scatter(d_flt, "poa", ["power", "index"]).relabel(flt_legend)
-            scatters.append(plt)
+        for _i, label, removed_ix in self._removed_by_step():
+            scatters.append(
+                hv.Scatter(data.loc[removed_ix, :], "poa", ["power", "index"]).relabel(
+                    label
+                )
+            )
 
         scatter_overlay = hv.Overlay(scatters)
         hover = HoverTool(
@@ -1274,40 +1269,27 @@ class CapData(param.Parameterized):
         return scatter_overlay
 
     def timeseries_filters(self):
-        """
-        Returns an overlay of scatter plots of intervals removed for each filter.
+        """Power-vs-time line with removed intervals highlighted per filter.
 
-        A scatter plot of power vs irradiance is generated for the time intervals
-        removed for each filtering step. Each of these plots is labeled and
-        overlayed.
+        A full-data power ``Curve`` backdrop plus one scatter layer per filter
+        step that removed intervals. Zero-removal steps (e.g. ``RepCond``) are
+        skipped; see ``get_summary``/``describe_filters`` for the full step list.
         """
-        plots = []
-
         data = self.get_reg_cols(reg_vars="power", filtered_data=False)
         data["Timestamp"] = data.index
+
+        plots = []
         plt_no_filtering = hv.Curve(data, ["Timestamp"], ["power"], label="all")
         plt_no_filtering.opts(
-            line_color="black",
+            line_color="grey",
             line_width=1,
             width=1500,
             height=450,
         )
         plots.append(plt_no_filtering)
-
-        d1 = data.loc[self.removed[0]["index"], ["power", "Timestamp"]]
-        plt_first_filter = hv.Scatter(
-            d1, ["Timestamp"], ["power"], label=self.removed[0]["name"]
-        )
-        plots.append(plt_first_filter)
-
-        for i, filtering_step in enumerate(self.kept):
-            if i >= len(self.kept) - 1:
-                break
-            else:
-                flt_legend = self.kept[i + 1]["name"]
-            d_flt = data.loc[filtering_step["index"], :]
-            plt = hv.Scatter(d_flt, ["Timestamp"], ["power"], label=flt_legend)
-            plots.append(plt)
+        for _i, label, removed_ix in self._removed_by_step():
+            d_flt = data.loc[removed_ix, ["power", "Timestamp"]]
+            plots.append(hv.Scatter(d_flt, ["Timestamp"], ["power"], label=label))
 
         scatter_overlay = hv.Overlay(plots)
         hover = HoverTool(
@@ -2611,23 +2593,17 @@ class CapData(param.Parameterized):
         """
         Returns DataFrame showing which filter removed each filtered time interval.
 
-        Time intervals removed are marked with a "1".
-        Time intervals kept are marked with a "0".
-        Time intervals removed by a previous filter are np.nan/blank.
-        Columns/filters are in order they are run from left to right.
-        The last column labeled "all_filters" shows is True for intervals that were
-        not removed by any of the filters.
+        One column per filter step that removed intervals, in run order. Within a
+        column: ``1`` marks the intervals that step removed, ``0`` the intervals
+        present going into that step and kept by it, and ``NaN`` intervals already
+        removed by an earlier step. The final ``all_filters`` column is True for
+        intervals not removed by any filter. Zero-removal steps (e.g. ``RepCond``)
+        get no column, consistent with the scatter/timeseries views.
         """
         filtering_data = pd.DataFrame(index=self.data.index)
-        for i, (flt_step_kept, flt_step_removed) in enumerate(
-            zip(self.kept, self.removed)
-        ):
-            if i == 0:
-                filtering_data.loc[:, flt_step_removed["name"]] = 0
-            else:
-                filtering_data.loc[self.kept[i - 1]["index"], flt_step_kept["name"]] = 0
-            filtering_data.loc[flt_step_removed["index"], flt_step_removed["name"]] = 1
-
+        for i, label, removed_ix in self._removed_by_step():
+            filtering_data.loc[self.filters[i].ix_after, label] = 0
+            filtering_data.loc[removed_ix, label] = 1
         filtering_data["all_filters"] = filtering_data.apply(
             lambda x: all(x == 0), axis=1
         )

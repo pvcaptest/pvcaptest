@@ -3090,6 +3090,16 @@ class TestGetFilteringTable:
             flt0_removed_ix.union(flt1_removed_ix).union(flt2_removed_ix)
         )
 
+    def test_zero_removal_step_gets_no_column(self, nrel):
+        nrel.filter_irr(200, 900)
+        nrel.filter_irr(400, 800)
+        nrel.rep_cond()  # RepCond: zero-removal -> no column
+        flt_table = nrel.get_filtering_table()
+        # Pin the column-per-removing-step contract by label and order: one
+        # column per removing filter (named via _step_labels) then all_filters;
+        # the zero-removal RepCond step gets no column.
+        assert list(flt_table.columns) == ["FilterIrr", "FilterIrr-1", "all_filters"]
+
 
 @pytest.fixture
 def pts_summary(meas):
@@ -3266,6 +3276,56 @@ class TestScatterFilters:
         assert "index" not in meas.data_filtered.columns
         assert isinstance(overlay, hv.core.overlay.Overlay)
 
+    def test_layer_count_is_retained_plus_removing_filters(self, meas):
+        meas.regression_cols = {
+            "power": "meter_power",
+            "poa": ("irr_poa_pyran", "mean"),
+            "t_amb": ("temp_amb", "mean"),
+            "w_vel": ("wind", "mean"),
+        }
+        meas.process_regression_columns()
+        meas.filter_irr(200, 900)
+        meas.filter_irr(400, 800)
+        overlay = meas.scatter_filters()
+        # 1 retained baseline + 2 removing filters
+        assert len(overlay) == 3
+
+    def test_zero_removal_step_adds_no_layer(self, meas):
+        meas.regression_cols = {
+            "power": "meter_power",
+            "poa": ("irr_poa_pyran", "mean"),
+            "t_amb": ("temp_amb", "mean"),
+            "w_vel": ("wind", "mean"),
+        }
+        meas.process_regression_columns()
+        meas.filter_irr(200, 900)
+        meas.rep_cond()  # RepCond: zero-removal -> no layer
+        overlay = meas.scatter_filters()
+        # 1 retained baseline + 1 removing filter; RepCond contributes nothing
+        assert len(overlay) == 2
+
+    def test_layers_carry_the_right_rows(self, meas):
+        """Pin the row-selection glue: the retained baseline holds the survivors
+        and each removed layer holds exactly that filter's removed rows (a
+        retained/removed swap would still pass the count assertions above)."""
+        meas.regression_cols = {
+            "power": "meter_power",
+            "poa": ("irr_poa_pyran", "mean"),
+            "t_amb": ("temp_amb", "mean"),
+            "w_vel": ("wind", "mean"),
+        }
+        meas.process_regression_columns()
+        meas.filter_irr(200, 900)
+        meas.filter_irr(400, 800)
+        overlay = meas.scatter_filters()
+        # Ordered leaf elements: retained baseline first, then one per removing
+        # filter. The Scatter's backing frame carries an "index" column set to
+        # the original data index, so we can check which rows landed in a layer.
+        layers = list(overlay)
+        assert list(layers[0].data["index"]) == list(meas.filters[-1].ix_after)
+        _i, _label, removed_ix = meas._removed_by_step()[0]
+        assert list(layers[1].data["index"]) == list(removed_ix)
+
 
 class TestTimeseriesFilters:
     """Test the timeseries_filters method of the CapData class."""
@@ -3288,6 +3348,37 @@ class TestTimeseriesFilters:
         assert "index" not in meas.data.columns
         assert "index" not in meas.data_filtered.columns
         assert isinstance(overlay, hv.core.overlay.Overlay)
+
+    def test_layer_count_is_curve_plus_removing_filters(self, meas):
+        meas.regression_cols = {
+            "power": "meter_power",
+            "poa": ("irr_poa_pyran", "mean"),
+            "t_amb": ("temp_amb", "mean"),
+            "w_vel": ("wind", "mean"),
+        }
+        meas.process_regression_columns()
+        meas.filter_irr(200, 900)
+        meas.filter_irr(400, 800)
+        overlay = meas.timeseries_filters()
+        # 1 full-data curve + 2 removing-filter scatters
+        assert len(overlay) == 3
+
+    def test_removed_layer_carries_the_right_rows(self, meas):
+        """Pin that a removed-filter scatter layer holds exactly that filter's
+        removed rows (the full-data Curve baseline is layer 0)."""
+        meas.regression_cols = {
+            "power": "meter_power",
+            "poa": ("irr_poa_pyran", "mean"),
+            "t_amb": ("temp_amb", "mean"),
+            "w_vel": ("wind", "mean"),
+        }
+        meas.process_regression_columns()
+        meas.filter_irr(200, 900)
+        meas.filter_irr(400, 800)
+        overlay = meas.timeseries_filters()
+        layers = list(overlay)  # curve baseline first, then one scatter per remover
+        _i, _label, removed_ix = meas._removed_by_step()[0]
+        assert list(layers[1].data["Timestamp"]) == list(removed_ix)
 
 
 class TestPlotDashboard:
