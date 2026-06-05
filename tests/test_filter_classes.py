@@ -1211,3 +1211,45 @@ class TestChainDerivedHelpers:
         FilterIrr(low=200, high=800).run(cd_irr)
         FilterIrr(low=400, high=800).run(cd_irr)
         assert list(cd_irr._ix_before(1)) == list(cd_irr.filters[0].ix_after)
+
+
+class TestRemovedByStep:
+    def test_no_filters_returns_empty(self, cd_irr):
+        assert cd_irr._removed_by_step() == []
+
+    def test_single_filter(self, cd_irr):
+        FilterIrr(low=200, high=800).run(cd_irr)
+        result = cd_irr._removed_by_step()
+        assert len(result) == 1
+        i, label, removed_ix = result[0]
+        assert i == 0
+        assert label == "FilterIrr"
+        assert list(removed_ix) == [0, 4]
+
+    def test_two_filters_indices_and_labels(self, cd_irr):
+        FilterIrr(low=200, high=800).run(cd_irr)  # keeps [1,2,3]
+        FilterIrr(low=400, high=800).run(cd_irr)  # keeps [2,3], removes [1]
+        result = cd_irr._removed_by_step()
+        assert [(i, label) for i, label, _ in result] == [
+            (0, "FilterIrr"),
+            (1, "FilterIrr-1"),
+        ]
+        assert list(result[1][2]) == [1]
+
+    def test_skips_zero_removal_step(self, cd_irr):
+        FilterIrr(low=0, high=10000).run(cd_irr)  # keeps all 5 -> removes nothing
+        assert cd_irr._removed_by_step() == []
+
+    def test_zero_removal_step_between_real_filters(self, cd_irr):
+        FilterIrr(low=200, high=800).run(cd_irr)  # removes [0,4]
+        FilterIrr(low=0, high=10000).run(cd_irr)  # removes nothing -> skipped
+        FilterIrr(low=400, high=800).run(cd_irr)  # removes [1]
+        result = cd_irr._removed_by_step()
+        # The no-op middle filter is skipped; the third filter keeps its real
+        # index i=2 (skipping affects only which entries are returned, not the
+        # chain math).
+        assert [(i, label) for i, label, _ in result] == [
+            (0, "FilterIrr"),
+            (2, "FilterIrr-2"),
+        ]
+        assert list(result[1][2]) == [1]

@@ -2095,6 +2095,25 @@ class CapData(param.Parameterized):
             labels.append(base if n == 0 else f"{base}-{n}")
         return labels
 
+    def _removed_by_step(self):
+        """Per-step removal attribution for the visualization methods.
+
+        Returns a list of ``(i, label, removed_ix)`` for each filter step that
+        removed at least one interval, where ``removed_ix`` is
+        ``_ix_before(i)`` minus ``filters[i].ix_after`` and ``label`` is the
+        step's ``_step_labels()`` entry. Zero-removal steps (always ``RepCond``;
+        also any filter that matched everything) are skipped — they have nothing
+        to attribute. ``i`` is the step's real index in ``self.filters`` so
+        callers can recover its input set via ``_ix_before(i)`` and its
+        survivors via ``self.filters[i].ix_after``.
+        """
+        out = []
+        for i, (step, label) in enumerate(zip(self.filters, self._step_labels())):
+            removed_ix = self._ix_before(i).difference(step.ix_after)
+            if len(removed_ix) > 0:
+                out.append((i, label, removed_ix))
+        return out
+
     def get_summary(self):
         """Return a DataFrame summarizing the applied filter chain.
 
