@@ -32,7 +32,7 @@ The refactor introduces a dedicated `src/captest/filters.py` module rather than 
 Holds the entire filter-step surface:
 
 - `BaseSummaryStep`, `BaseFilter` base classes
-- All concrete filter classes (`FilterIrr` … `FilterMissing`), plus `RepCond` and `FitRegression`
+- All concrete filter classes (`FilterIrr` … `FilterMissing`, `FilterRegression`), plus `RepCond`
 - `FILTER_REGISTRY` and the YAML serialization/deserialization helpers
 - The **row-filter helper functions** moved out of `capdata.py`: `filter_irr`, `filter_grps`, `sensor_filter`, `check_all_perc_diff_comb`
 
@@ -69,12 +69,12 @@ BaseSummaryStep  (param.Parameterized)
 │   ├── FilterCustom
 │   ├── FilterSensors
 │   ├── FilterClearsky
-│   └── FilterMissing
-├── RepCond
-└── FitRegression
+│   ├── FilterMissing
+│   └── FilterRegression   # residual-outlier filter; fit_regression(filter=True) delegates to it
+└── RepCond                # zero-removal summary step; computes capdata.rc
 ```
 
-`BaseSummaryStep` is the common ancestor for everything that appears in the summary table. It holds the shared lifecycle (`run()`), summary attributes, and the `custom_name` parameter. `BaseFilter` extends it with the contract that `_execute()` returns a pandas `Index` of the rows to keep. `RepCond` and `FitRegression` inherit directly from `BaseSummaryStep` because they are not pure row filters.
+`BaseSummaryStep` is the common ancestor for everything that appears in the summary table. It holds the shared lifecycle (`run()`), summary attributes, and the `custom_name` parameter. `BaseFilter` extends it with the contract that `_execute()` returns a pandas `Index` of the rows to keep. `RepCond` inherits directly from `BaseSummaryStep` because it is not a row filter — its `_execute` computes `capdata.rc` and returns the unchanged index (zero rows removed). There is no separate `FitRegression` class: the residual-outlier filtering of `fit_regression(filter=True)` is realized as `FilterRegression(BaseFilter)`, and the `filter=False` path stays a plain method.
 
 `param.Parameterized` is used as the base for `BaseSummaryStep`. This provides typed, named parameters with default values, which serves as the serialization boundary for YAML and the widget model for a future Panel GUI.
 
@@ -152,9 +152,17 @@ def args_repr(self):
 
 **`FilterSensors`**: `row_filter` callable parameter (default `check_all_perc_diff_comb`) is stored as a plain attribute, serialized as a module-qualified name string for YAML.
 
-**`RepCond`**: The `func` dict parameter (`{'poa': perc_wrap(60), 't_amb': 'mean', 'w_vel': 'mean'}`) contains callables. The `perc_wrap` entries are serialized as `perc_wrap(N)` strings; string values like `'mean'` serialize directly.
+**`RepCond`** (implemented in chunk 5 — summary rebuild): `rep_cond` is converted to a `RepCond(BaseSummaryStep)` step so the reporting-conditions calculation appears in the summary at its position in the filter chain — letting the user see which filters preceded it. It is a **zero-removal step**: `_execute` computes `capdata.rc` as a side effect and returns the *unchanged* index (`capdata.data_filtered.index`), so it records with `pts_removed=0`.
 
-**`FitRegression`**: The `filter=True` path currently filters data internally. Under this design, when `filter=True`, `FitRegression._execute()` applies the internal filter to `capdata.data_filtered` and the resulting index is stored in `self.ix_after`. `FitRegression` inherits from `BaseSummaryStep` (not `BaseFilter`), but the `filter=True` path makes it behave like one for summary purposes.
+*Implementation strategy (minimal duplication, user-approved):* the substantial reporting-conditions math is **not** rewritten into the class. The current `rep_cond` body is extracted verbatim into a private `CapData._calc_rep_cond(func, w_vel, irr_bal, percent_filter, front_poa, rc_kwargs)` helper (which sets `self.rc`/`self.rc_tool`). `RepCond._execute` delegates to it via the runtime `capdata` argument — so `filters.py` needs no import of `capdata` or `ReportingIrradiance`. `rep_cond(...)` becomes a thin wrapper: `RepCond(...).run(self)`.
+
+`RepCond` params: `func` (`param.Parameter`, accepts dict/str/callable/None), `w_vel` (`param.Parameter`), `irr_bal` (`param.Boolean`), `percent_filter` (`param.Number`), `front_poa` (`param.String`), `rc_kwargs` (`param.Dict(default=None)` — coerced to `{}` in the helper to avoid param's shared-mutable-default pitfall). `RepCond` inherits `BaseSummaryStep` directly (not `BaseFilter`) since it is not a row filter; it still belongs in `filters` because the list accepts any `BaseSummaryStep`. `_explanation_template = "Reporting conditions were calculated (no intervals removed)."`
+
+*YAML note (chunk 7):* the `func` dict may contain callables (`{'poa': perc_wrap(60), 't_amb': 'mean', ...}`). `perc_wrap` entries serialize as `perc_wrap(N)` strings; plain string values like `'mean'` serialize directly.
+
+*Chunk-6 implication:* `RepCond` is a zero-removal step, so the visualization methods (which plot the points removed by each filter) must skip zero-removal steps.
+
+**`FitRegression`**: The `filter=True` residual-outlier filtering has already been extracted (FilterRegression plan) into a `FilterRegression(BaseFilter)` step that `fit_regression(filter=True)` delegates to via `run()`; it records in the summary like any filter. The `filter=False` path remains a plain method that fits the model and stores `regression_results` (it changes no rows and records no step). A unified `FitRegression(BaseSummaryStep)` class is not required.
 
 ---
 
@@ -455,7 +463,7 @@ pipeline = [
     FilterIrr(low=200, high=800),
     FilterPvsyst(),
     RepCond(percent_filter=20),
-    FitRegression(),
+    FilterRegression(n_std=2),
 ]
 for step in pipeline:
     step.run(cd)
@@ -499,8 +507,8 @@ captest:
     - type: RepCond
       percent_filter: 20
       irr_bal: false
-    - type: FitRegression
-      filter: false
+    - type: FilterRegression
+      n_std: 2
 ```
 
 Omitted `param` values use class defaults on load — no need to serialize defaults explicitly.
@@ -523,8 +531,8 @@ FILTER_REGISTRY = {
     'FilterSensors': FilterSensors,
     'FilterClearsky': FilterClearsky,
     'FilterMissing': FilterMissing,
+    'FilterRegression': FilterRegression,
     'RepCond': RepCond,
-    'FitRegression': FitRegression,
 }
 ```
 
