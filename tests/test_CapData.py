@@ -2290,6 +2290,30 @@ class TestGetSummary:
         assert smry.columns[2] == "pts_removed"
         assert smry.columns[3] == "filter_arguments"
 
+    def test_empty_when_no_filters(self, nrel):
+        """No filters -> empty DataFrame with the standard columns, not None.
+
+        This is the path CapTest.get_summary relies on when it concatenates the
+        meas and sim summaries; the prior None return would have raised there.
+        """
+        nrel.reset_filter()
+        smry = nrel.get_summary()
+        assert smry.empty
+        assert list(smry.columns) == pvc.columns
+
+    def test_function_name_is_class_name(self, nrel):
+        nrel.filter_irr(200, 500)
+        smry = nrel.get_summary()
+        assert smry["function_name"].iloc[0] == "FilterIrr"
+
+    def test_function_name_stays_class_name_with_custom_label(self, nrel):
+        """function_name is always the class name even when the index label is a
+        custom_name; the two are intentionally allowed to diverge."""
+        nrel.filter_custom(pd.DataFrame.head, 5, custom_name="My custom step")
+        smry = nrel.get_summary()
+        assert smry.index[0][1] == "My custom step"
+        assert smry["function_name"].iloc[0] == "FilterCustom"
+
 
 class TestFilterTime:
     def test_start_end(self, pvsyst):

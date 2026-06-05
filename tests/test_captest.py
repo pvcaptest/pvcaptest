@@ -1383,6 +1383,24 @@ class TestPortedMethods:
         assert capt.meas.name in names
         assert capt.sim.name in names
 
+    def test_get_summary_concats_empty_summaries(self, meas_cd_default, sim_cd_default):
+        """With no filters, each summary is empty; concat must not raise.
+
+        Each CapData.get_summary() returns an empty DataFrame (not None), so
+        pd.concat of the two succeeds and yields an empty DataFrame.
+        """
+        capt = CapTest.from_params(
+            test_setup="e2848_default",
+            meas=meas_cd_default,
+            sim=sim_cd_default,
+            ac_nameplate=6_000_000,
+        )
+        capt.meas.reset_filter()
+        capt.sim.reset_filter()
+        combined = capt.get_summary()
+        assert isinstance(combined, pd.DataFrame)
+        assert combined.empty
+
     def test_get_summary_requires_meas_and_sim(self):
         capt = CapTest()
         with pytest.raises(RuntimeError, match="meas"):
