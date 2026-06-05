@@ -168,7 +168,36 @@ In `tests/test_CapData.py`, add to the existing `TestScatterFilters` class (it a
         overlay = meas.scatter_filters()
         # 1 retained baseline + 1 removing filter; RepCond contributes nothing
         assert len(overlay) == 2
+
+    def test_layers_carry_the_right_rows(self, meas):
+        """Pin the row-selection glue: the retained baseline holds the survivors
+        and each removed layer holds exactly that filter's removed rows (a
+        retained/removed swap would still pass the count assertions above)."""
+        meas.regression_cols = {
+            "power": "meter_power",
+            "poa": ("irr_poa_pyran", "mean"),
+            "t_amb": ("temp_amb", "mean"),
+            "w_vel": ("wind", "mean"),
+        }
+        meas.process_regression_columns()
+        meas.filter_irr(200, 900)
+        meas.filter_irr(400, 800)
+        overlay = meas.scatter_filters()
+        # Ordered leaf elements: retained baseline first, then one per removing
+        # filter. The Scatter's backing frame carries an "index" column set to
+        # the original data index, so we can check which rows landed in a layer.
+        layers = list(overlay)
+        assert list(layers[0].data["index"]) == list(meas.filters[-1].ix_after)
+        _i, _label, removed_ix = meas._removed_by_step()[0]
+        assert list(layers[1].data["index"]) == list(removed_ix)
 ```
+
+> Note on overlay introspection: `list(overlay)` yields the leaf elements in
+> insertion order, and `element.data` is the pandas frame the layer was built
+> from. If a HoloViews version returns elements via `overlay.values()` instead,
+> use that — both give the ordered element list. The `"index"`/`"Timestamp"`
+> *column* (not the frame's row index) is what `scatter_filters`/
+> `timeseries_filters` populate with the original data index, so assert on it.
 
 Add to `TestTimeseriesFilters` (same fixture/setup pattern):
 
@@ -186,6 +215,23 @@ Add to `TestTimeseriesFilters` (same fixture/setup pattern):
         overlay = meas.timeseries_filters()
         # 1 full-data curve + 2 removing-filter scatters
         assert len(overlay) == 3
+
+    def test_removed_layer_carries_the_right_rows(self, meas):
+        """Pin that a removed-filter scatter layer holds exactly that filter's
+        removed rows (the full-data Curve baseline is layer 0)."""
+        meas.regression_cols = {
+            "power": "meter_power",
+            "poa": ("irr_poa_pyran", "mean"),
+            "t_amb": ("temp_amb", "mean"),
+            "w_vel": ("wind", "mean"),
+        }
+        meas.process_regression_columns()
+        meas.filter_irr(200, 900)
+        meas.filter_irr(400, 800)
+        overlay = meas.timeseries_filters()
+        layers = list(overlay)  # curve baseline first, then one scatter per remover
+        _i, _label, removed_ix = meas._removed_by_step()[0]
+        assert list(layers[1].data["Timestamp"]) == list(removed_ix)
 ```
 
 Add to `TestGetFilteringTable` (the existing `test_get_filtering_table` uses `nrel` with three `filter_irr` calls):
@@ -196,9 +242,10 @@ Add to `TestGetFilteringTable` (the existing `test_get_filtering_table` uses `nr
         nrel.filter_irr(400, 800)
         nrel.rep_cond()  # RepCond: zero-removal -> no column
         flt_table = nrel.get_filtering_table()
-        # two filter columns + all_filters; no RepCond column
-        assert flt_table.shape[1] == 3
-        assert "RepCond" not in flt_table.columns
+        # Pin the column-per-removing-step contract by label and order: one
+        # column per removing filter (named via _step_labels) then all_filters;
+        # the zero-removal RepCond step gets no column.
+        assert list(flt_table.columns) == ["FilterIrr", "FilterIrr-1", "all_filters"]
 ```
 
 - [ ] **Step 2: Run the new tests to verify they fail**
@@ -580,4 +627,4 @@ git commit -m "refactor: delete removed/kept mirror lists and _record_removed_ke
 **Deliberate decisions / deviations:**
 - `timeseries_filters` keeps a **full-data** `Curve` baseline (label `"all"`) rather than a "retained" layer — a line of only-retained points would draw misleading segments across removed gaps; the removed scatters highlight drops over the continuous line. `scatter_filters` uses a `"retained"` points baseline so its layers are a clean non-overlapping partition.
 - `_removed_by_step` returns the step's **real** index `i` (not a re-enumerated position), so skipping a zero-removal step does not shift later steps' `i` — `get_filtering_table` relies on `self.filters[i].ix_after` resolving to the correct step.
-- Layer/column **counts** (`len(overlay)`, `shape[1]`) are asserted rather than HoloViews internal labels, which sanitize/transform display strings; the per-point removal correctness is covered at the data level by Task 1.
+- Plot tests assert layer **counts** (`len(overlay)`) plus, for one case each, the **rows in a layer** by reading the element's backing frame `"index"`/`"Timestamp"` column (which the methods set to the original data index) — catching a retained/removed slice swap that counts alone would miss. They avoid asserting HoloViews display *labels*, which the library sanitizes/transforms. `get_filtering_table` is pinned by **column labels/order** (`list(flt_table.columns)`), making the column-per-removing-step skip contract explicit rather than positional.
