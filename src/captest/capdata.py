@@ -2654,9 +2654,10 @@ class CapData(param.Parameterized):
             Days in test period.
         """
         test_period = self.data.index[-1] - self.data.index[0]
-        for filter in self.kept:
-            if "FilterTime" == filter["name"]:
-                test_period = filter["index"][-1] - filter["index"][0]
+        for step in self.filters:
+            if isinstance(step, FilterTime):
+                test_period = step.ix_after[-1] - step.ix_after[0]
+                break
         self.length_test_period = test_period.ceil("D").days
 
     def get_pts_required(self, hrs_req=12.5):

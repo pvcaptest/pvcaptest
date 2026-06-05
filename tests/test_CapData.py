@@ -3123,6 +3123,15 @@ class TestPointsSummary:
         meas.get_length_test_period()
         assert meas.length_test_period == 4
 
+    def test_length_test_period_custom_name_filter_time(self, meas):
+        # A custom_name'd FilterTime must still be found: the period comes from
+        # isinstance(step, FilterTime), not a label-string match.
+        filters.FilterTime(
+            start="10/9/1990", end="10/12/1990 23:00", custom_name="window"
+        ).run(meas)
+        meas.get_length_test_period()
+        assert meas.length_test_period == 4
+
     def test_get_pts_required_default(self, meas):
         meas.get_pts_required()
         assert meas.pts_required == 150
