@@ -2171,6 +2171,34 @@ class CapData(param.Parameterized):
         # else:
         #     return flt_cd
 
+    def _ix_before(self, i):
+        """Index passed *into* ``self.filters[i]`` (chain state just before it).
+
+        The prior step's ``ix_after``, or ``self.data.index`` for the first step.
+        """
+        return self.filters[i - 1].ix_after if i > 0 else self.data.index
+
+    def _pts_before(self, i):
+        """Row count passed into ``self.filters[i]`` (see ``_ix_before``)."""
+        return len(self._ix_before(i))
+
+    def _step_labels(self):
+        """Per-step display labels for the summary and visualization methods.
+
+        Each label is the step's ``custom_name`` if set, otherwise its class
+        name, with a ``-N`` suffix disambiguating repeated steps (the first
+        occurrence is unsuffixed). Single source of the enumerated labels shared
+        by ``get_summary`` and (in chunk 6) ``scatter_filters``/
+        ``timeseries_filters``.
+        """
+        labels, seen = [], {}
+        for step in self.filters:
+            base = step.custom_name or type(step).__name__
+            n = seen.get(base, 0)
+            seen[base] = n + 1
+            labels.append(base if n == 0 else f"{base}-{n}")
+        return labels
+
     def get_summary(self):
         """
         Print a summary of filtering applied to the data_filtered attribute.

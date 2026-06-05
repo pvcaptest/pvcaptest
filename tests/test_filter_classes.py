@@ -1189,3 +1189,24 @@ class TestFitRegressionWrapper:
         cd_reg.fit_regression(filter=False, summary=False)
         assert cd_reg.regression_results is not None
         assert cd_reg.filters == []  # plain fit records no filter step
+
+
+class TestChainDerivedHelpers:
+    def test_step_labels_enumerate_repeats(self, cd_irr):
+        FilterIrr(low=200, high=800).run(cd_irr)
+        FilterIrr(low=400, high=800).run(cd_irr)
+        assert cd_irr._step_labels() == ["FilterIrr", "FilterIrr-1"]
+
+    def test_step_labels_use_custom_name(self, cd_irr):
+        FilterIrr(low=200, high=800, custom_name="Irradiance bounds").run(cd_irr)
+        assert cd_irr._step_labels() == ["Irradiance bounds"]
+
+    def test_pts_before_first_step_is_full_data(self, cd_irr):
+        full = cd_irr.data.shape[0]
+        FilterIrr(low=200, high=800).run(cd_irr)
+        assert cd_irr._pts_before(0) == full
+
+    def test_ix_before_second_step_is_prior_ix_after(self, cd_irr):
+        FilterIrr(low=200, high=800).run(cd_irr)
+        FilterIrr(low=400, high=800).run(cd_irr)
+        assert list(cd_irr._ix_before(1)) == list(cd_irr.filters[0].ix_after)
