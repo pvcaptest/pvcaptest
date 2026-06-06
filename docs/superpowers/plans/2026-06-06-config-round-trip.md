@@ -279,6 +279,33 @@ class TestFilterConfigRoundTrip:
         assert cfg["func"] is None
         assert step_from_config(cfg).func is None
 
+    def test_rep_cond_str_func_roundtrips(self):
+        cfg = RepCond(func="mean").to_config()
+        assert cfg["func"] == "mean"
+        assert step_from_config(cfg).func == "mean"
+
+    def test_rep_cond_bare_perc_wrap_func_roundtrips(self):
+        cfg = RepCond(func=util.perc_wrap(60)).to_config()
+        assert cfg["func"] == "perc_60"
+        assert step_from_config(cfg).func.__name__ == "perc_wrap(60)"
+
+    def test_rep_cond_bare_named_callable_func_roundtrips(self):
+        import numpy as np
+
+        cfg = RepCond(func=np.mean).to_config()
+        assert isinstance(cfg["func"], str) and ":" in cfg["func"]
+        assert step_from_config(cfg).func is np.mean
+
+    def test_rep_cond_dict_with_named_callable_roundtrips(self):
+        import numpy as np
+
+        cfg = RepCond(func={"poa": np.mean, "t_amb": "mean"}).to_config()
+        assert cfg["func"]["t_amb"] == "mean"
+        assert ":" in cfg["func"]["poa"]
+        rebuilt = step_from_config(cfg).func
+        assert rebuilt["poa"] is np.mean
+        assert rebuilt["t_amb"] == "mean"
+
     def test_filter_custom_named_func_roundtrips(self):
         cfg = FilterCustom(pd.DataFrame.head, 3).to_config()
         assert cfg["func"] == "pandas.core.generic:NDFrame.head"
@@ -371,26 +398,61 @@ Add to `FilterSensors`:
         return cls(**config)
 ```
 
-- [ ] **Step 6: Override on `RepCond`** (encode the `func` dict's `perc_wrap` callables)
+- [ ] **Step 6: Override on `RepCond`** (encode `func` in all its documented forms)
 
-Add to `RepCond`:
+`RepCond.func` accepts `dict / str / callable / None` (see its docstring). Every callable — whether `func` is a bare callable or a value inside the `func` dict — must be made yaml-safe, or `CapTest.to_yaml`'s `yaml.safe_dump` will raise. Add these two module-level helpers in `filters.py` (near `RepCond`, using the `util` primitives), which encode/decode a single value:
+
+```python
+def _encode_func_value(v):
+    """Make one RepCond.func value yaml-safe.
+
+    ``perc_wrap(N)`` callable -> ``"perc_N"``; any other named callable ->
+    ``"module:qualname"`` (lambdas/closures raise via ``callable_to_qualname``);
+    strings (e.g. ``"mean"``) and ``None`` pass through unchanged.
+    """
+    if callable(v):
+        encoded = util._perc_wrap_to_string(v)
+        if callable(encoded):  # not a perc_wrap callable -> a named callable
+            return util.callable_to_qualname(v)
+        return encoded
+    return v
+
+
+def _decode_func_value(v):
+    """Inverse of ``_encode_func_value``.
+
+    ``"module:qualname"`` -> imported callable; ``"perc_N"`` -> ``perc_wrap(N)``;
+    other strings (``"mean"``) and ``None`` pass through.
+    """
+    if isinstance(v, str) and ":" in v:
+        return util.callable_from_qualname(v)
+    return util._resolve_perc_string(v)
+```
+
+Add to `RepCond` (dispatch dict vs. bare value through the helpers):
 
 ```python
     def to_config(self):
         config = super().to_config()
-        if isinstance(self.func, dict):
-            config["func"] = {
-                k: util._perc_wrap_to_string(v) for k, v in self.func.items()
-            }
+        func = self.func
+        if isinstance(func, dict):
+            config["func"] = {k: _encode_func_value(v) for k, v in func.items()}
+        else:
+            config["func"] = _encode_func_value(func)
         return config
 
     @classmethod
     def from_config(cls, config):
         config = dict(config)
-        if isinstance(config.get("func"), dict):
-            config["func"] = util._resolve_func_strings(config["func"])
+        func = config.get("func")
+        if isinstance(func, dict):
+            config["func"] = {k: _decode_func_value(v) for k, v in func.items()}
+        else:
+            config["func"] = _decode_func_value(func)
         return cls(**config)
 ```
+
+This covers all four forms: `None` → `null`; `"mean"` → `"mean"`; a bare `perc_wrap(60)` → `"perc_60"`; a bare named callable (`np.mean`) → `"numpy:mean"`; and dict values of any of those (including non-`perc_wrap` callables like `{'poa': np.mean}`).
 
 - [ ] **Step 7: Add `FILTER_REGISTRY` and `step_from_config`** (near the end of `filters.py`, after all the classes are defined)
 
@@ -702,7 +764,7 @@ git commit -m "feat: round-trip meas/sim filter pipelines in the single CapTest 
 - `FILTER_REGISTRY` + `step_from_config` with `difflib` suggestion → Task 2 Step 7 + the `test_unknown_type_suggests_closest` test. ✓
 - Export **all params explicitly** (decision A) → base `to_config` dumps every param incl. `None`; pinned by `test_base_to_config_includes_all_params`. ✓
 - Omit `overrides.rep_conditions` when a `RepCond` step exists (decision B) → Task 4 Step 3; pinned by `test_rep_cond_step_omits_overrides_rep_conditions` / `test_rep_conditions_kept_without_rep_cond_step`. ✓
-- Callable serialization: `FilterCustom.func`/`FilterSensors.row_filter` module-qualified (`callable_to/from_qualname`), lambdas raise; `RepCond.func` perc_N → Task 1 (helpers) + Task 2 (overrides). ✓
+- Callable serialization: `FilterCustom.func`/`FilterSensors.row_filter` module-qualified (`callable_to/from_qualname`), lambdas raise; `RepCond.func` handles **all documented forms** — `None`, `str` (`"mean"`), bare `perc_wrap` (→`perc_N`), bare named callable (→`module:qualname`), and dict values of any of those — via `_encode_func_value`/`_decode_func_value` → Task 1 (helpers) + Task 2 Step 6. Covered by `test_rep_cond_*` (dict-perc, none, str, bare-perc, bare-callable, dict-with-named-callable). ✓
 - `perc_wrap` + perc helpers moved to `util.py`, re-exported from `captest.captest` → Task 1. ✓
 - Load/replay: `from_mapping`/`from_yaml` re-applies after data load + `setup()` → Task 4 Step 4; pinned by `test_from_mapping_reapplies_pipelines`. ✓
 - Errors: unknown type (difflib), malformed callable ref, lambda export → covered by Task 1/2 tests. ✓

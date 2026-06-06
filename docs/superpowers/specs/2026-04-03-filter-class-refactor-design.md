@@ -627,7 +627,7 @@ Three filter types accept callables that cannot be directly serialized. The `per
 |---|---|---|
 | `FilterCustom` | `func` (required) | Module-qualified name string (`pkg.module.func_name`); deserialize via import. Lambdas/closures are not importable — `to_config` **raises** a clear `ValueError` for them (a GUI/ipynb pipeline is limited to importable named functions). |
 | `FilterSensors` | `row_filter` (default `check_all_perc_diff_comb`) | Module-qualified name; deserialize via import. The default round-trips losslessly (`captest.filters.check_all_perc_diff_comb`). |
-| `RepCond` | `func` dict (`{'poa': perc_wrap(60), ...}`) | `perc_wrap(N)` entries → `"perc_N"` strings (the existing convention); plain string values (`'mean'`) serialize directly; `None` (the default) → `null`. |
+| `RepCond` | `func` (`dict`/`str`/`callable`/`None`) | Each callable value is encoded: a `perc_wrap(N)` callable → `"perc_N"` (the existing convention), any other named callable → `"module:qualname"`; plain strings (`'mean'`) and `None` serialize directly. Applied to a bare `func` *and* to each value when `func` is a dict (`{'poa': perc_wrap(60), 't_amb': np.mean, ...}`). |
 
 ### Errors
 
