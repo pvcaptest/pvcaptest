@@ -1,3 +1,4 @@
+import importlib
 import json
 import re
 import warnings
@@ -508,6 +509,119 @@ def process_reg_cols(
 
     original_calc_params.clear()
     original_calc_params.update(result)
+
+
+_PERC_N_PREFIX = "perc_"
+
+
+def perc_wrap(p):
+    """Return a callable that computes the ``p``-th percentile of a Series.
+
+    Used to build ``TEST_SETUPS[...]['rep_conditions']['func']`` dicts for
+    percentile-based reporting irradiance (e.g. 60th percentile POA).
+
+    Parameters
+    ----------
+    p : numeric
+        Percentile in [0, 100].
+
+    Returns
+    -------
+    callable
+        Function that takes a pandas Series or array-like and returns the
+        p-th percentile using ``method='nearest'``.
+    """
+
+    def numpy_percentile(x):
+        return np.percentile(x.T, p, method="nearest")
+
+    numpy_percentile.__name__ = f"perc_wrap({p})"
+    return numpy_percentile
+
+
+def _resolve_perc_string(val):
+    """Resolve a "perc_N" string to ``perc_wrap(N)``.
+
+    Non-matching strings pass through unchanged. Malformed ``perc_*`` strings
+    raise ``ValueError``.
+    """
+    if not isinstance(val, str) or not val.startswith(_PERC_N_PREFIX):
+        return val
+    suffix = val[len(_PERC_N_PREFIX) :]
+    if not suffix:
+        raise ValueError(f"Malformed percentile string {val!r}: expected 'perc_<int>'.")
+    try:
+        n = int(suffix)
+    except ValueError as exc:
+        raise ValueError(
+            f"Malformed percentile string {val!r}: expected 'perc_<int>', "
+            f"got suffix {suffix!r}."
+        ) from exc
+    return perc_wrap(n)
+
+
+def _resolve_func_strings(func_dict):
+    """Resolve ``perc_N`` strings inside a rep_conditions.func dict."""
+    if not isinstance(func_dict, dict):
+        return func_dict
+    return {key: _resolve_perc_string(val) for key, val in func_dict.items()}
+
+
+def _perc_wrap_to_string(val):
+    """Inverse of :func:`_resolve_perc_string`.
+
+    Converts a callable produced by :func:`perc_wrap` back into its
+    round-trippable ``"perc_N"`` string form. Non-perc_wrap values pass
+    through unchanged.
+    """
+    if not callable(val):
+        return val
+    name = getattr(val, "__name__", "")
+    prefix = "perc_wrap("
+    if name.startswith(prefix) and name.endswith(")"):
+        inner = name[len(prefix) : -1]
+        try:
+            int(inner)
+        except ValueError:
+            return val
+        return f"perc_{inner}"
+    return val
+
+
+def callable_to_qualname(func):
+    """Return a ``'module:qualname'`` import string for a named callable.
+
+    Raises ``ValueError`` for lambdas and closures (``<lambda>`` / ``<locals>``
+    in the qualname) — they are not importable and cannot round-trip.
+    """
+    module = getattr(func, "__module__", None)
+    qualname = getattr(func, "__qualname__", None)
+    if not module or not qualname:
+        raise ValueError(
+            f"Cannot serialize callable {func!r}: missing __module__/__qualname__."
+        )
+    if "<lambda>" in qualname or "<locals>" in qualname:
+        raise ValueError(
+            f"Cannot serialize callable {func!r}: lambdas and closures are not "
+            f"importable. Use a module-level named function."
+        )
+    return f"{module}:{qualname}"
+
+
+def callable_from_qualname(ref):
+    """Import a callable from a ``'module:qualname'`` string (inverse of above)."""
+    if not isinstance(ref, str) or ":" not in ref:
+        raise ValueError(
+            f"Malformed callable reference {ref!r}: expected 'module:qualname'."
+        )
+    module_name, _, qualname = ref.partition(":")
+    try:
+        obj = importlib.import_module(module_name)
+        for part in qualname.split("."):
+            obj = getattr(obj, part)
+    except (ImportError, AttributeError) as exc:
+        raise ValueError(f"Cannot import callable {ref!r}: {exc}") from exc
+    return obj
 
 
 def parse_regression_formula(formula: str) -> Tuple[List[str], List[str]]:

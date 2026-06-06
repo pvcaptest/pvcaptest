@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 
 from captest import util
+from captest.filters import check_all_perc_diff_comb
 
 ix = pd.date_range(start="1/1/2021 12:00", freq="h", periods=3)
 
@@ -394,3 +395,48 @@ class TestDetectSolarNoon:
         ghi = self._peak_at(idx, 12, 30)
         df = pd.DataFrame({"clear_sky": ghi}, index=idx)
         assert util.detect_solar_noon(df, ghi_col="clear_sky") == "12:30"
+
+
+class TestCallableQualname:
+    def test_roundtrip_module_function(self):
+        s = util.callable_to_qualname(check_all_perc_diff_comb)
+        assert s == "captest.filters:check_all_perc_diff_comb"
+        assert util.callable_from_qualname(s) is check_all_perc_diff_comb
+
+    def test_roundtrip_method(self):
+        s = util.callable_to_qualname(pd.DataFrame.head)
+        assert util.callable_from_qualname(s) is pd.DataFrame.head
+
+    def test_lambda_raises(self):
+        with pytest.raises(ValueError, match="lambdas and closures"):
+            util.callable_to_qualname(lambda df: df)
+
+    def test_malformed_reference_raises(self):
+        with pytest.raises(ValueError, match="module:qualname"):
+            util.callable_from_qualname("no_colon_here")
+
+    def test_closure_raises(self):
+        def outer():
+            def inner(df):
+                return df
+
+            return inner
+
+        with pytest.raises(ValueError, match="lambdas and closures"):
+            util.callable_to_qualname(outer())
+
+    def test_nonimportable_reference_raises(self):
+        with pytest.raises(ValueError, match="Cannot import callable"):
+            util.callable_from_qualname("captest.util:does_not_exist")
+
+
+class TestPercHelpersInUtil:
+    def test_perc_wrap_roundtrips_through_string(self):
+        f = util.perc_wrap(60)
+        assert util._perc_wrap_to_string(f) == "perc_60"
+        restored = util._resolve_perc_string("perc_60")
+        assert restored.__name__ == "perc_wrap(60)"
+
+    def test_plain_string_passes_through(self):
+        assert util._perc_wrap_to_string("mean") == "mean"
+        assert util._resolve_perc_string("mean") == "mean"

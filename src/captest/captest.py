@@ -29,6 +29,11 @@ import param
 import yaml
 
 from captest import util
+from captest.util import (
+    _perc_wrap_to_string,
+    _resolve_func_strings,
+    perc_wrap,
+)
 from captest.capdata import CapData
 from captest.filters import wrap_year_end
 from captest.plotting import ScatterBifiPowerTc, ScatterPlot
@@ -100,31 +105,6 @@ def highlight_pvals(s):
     """
     is_greaterthan = s >= 0.05
     return ["background-color: yellow" if v else "" for v in is_greaterthan]
-
-
-def perc_wrap(p):
-    """Return a callable that computes the ``p``-th percentile of a Series.
-
-    Used to build ``TEST_SETUPS[...]['rep_conditions']['func']`` dicts for
-    percentile-based reporting irradiance (e.g. 60th percentile POA).
-
-    Parameters
-    ----------
-    p : numeric
-        Percentile in [0, 100].
-
-    Returns
-    -------
-    callable
-        Function that takes a pandas Series or array-like and returns the
-        p-th percentile using ``method='nearest'``.
-    """
-
-    def numpy_percentile(x):
-        return np.percentile(x.T, p, method="nearest")
-
-    numpy_percentile.__name__ = f"perc_wrap({p})"
-    return numpy_percentile
 
 
 # --- TEST_SETUPS registry -------------------------------------------------
@@ -577,57 +557,6 @@ def resolve_test_setup(name, overrides=None):
 
 
 # --- yaml loading ---------------------------------------------------------
-
-_PERC_N_PREFIX = "perc_"
-
-
-def _resolve_perc_string(val):
-    """Resolve a "perc_N" string to ``perc_wrap(N)``.
-
-    Non-matching strings pass through unchanged. Malformed ``perc_*`` strings
-    raise ``ValueError``.
-    """
-    if not isinstance(val, str) or not val.startswith(_PERC_N_PREFIX):
-        return val
-    suffix = val[len(_PERC_N_PREFIX) :]
-    if not suffix:
-        raise ValueError(f"Malformed percentile string {val!r}: expected 'perc_<int>'.")
-    try:
-        n = int(suffix)
-    except ValueError as exc:
-        raise ValueError(
-            f"Malformed percentile string {val!r}: expected 'perc_<int>', "
-            f"got suffix {suffix!r}."
-        ) from exc
-    return perc_wrap(n)
-
-
-def _resolve_func_strings(func_dict):
-    """Resolve ``perc_N`` strings inside a rep_conditions.func dict."""
-    if not isinstance(func_dict, dict):
-        return func_dict
-    return {key: _resolve_perc_string(val) for key, val in func_dict.items()}
-
-
-def _perc_wrap_to_string(val):
-    """Inverse of :func:`_resolve_perc_string`.
-
-    Converts a callable produced by :func:`perc_wrap` back into its
-    round-trippable ``"perc_N"`` string form. Non-perc_wrap values pass
-    through unchanged.
-    """
-    if not callable(val):
-        return val
-    name = getattr(val, "__name__", "")
-    prefix = "perc_wrap("
-    if name.startswith(prefix) and name.endswith(")"):
-        inner = name[len(prefix) : -1]
-        try:
-            int(inner)
-        except ValueError:
-            return val
-        return f"perc_{inner}"
-    return val
 
 
 def _serialize_rep_conditions(rc):
