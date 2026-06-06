@@ -1333,6 +1333,22 @@ class TestFilterConfigRoundTrip:
         with pytest.raises(ValueError, match="Did you mean 'FilterIrr'"):
             step_from_config({"type": "FilterIrradiance"})
 
+    def test_from_config_direct_tolerates_type_key(self):
+        # Cls.from_config(Cls(...).to_config()) must round-trip directly, not
+        # only via step_from_config — to_config emits a "type" key, so the
+        # splatting from_config overrides must drop it.
+        base = FilterIrr.from_config(FilterIrr(low=200, high=800).to_config())
+        assert isinstance(base, FilterIrr) and base.low == 200
+
+        sensors = FilterSensors.from_config(
+            FilterSensors(perc_diff={"irr-poa-": 0.05}).to_config()
+        )
+        assert sensors.perc_diff == {"irr-poa-": 0.05}
+        assert sensors.row_filter is check_all_perc_diff_comb
+
+        rep = RepCond.from_config(RepCond(func={"poa": util.perc_wrap(60)}).to_config())
+        assert rep.func["poa"].__name__ == "perc_wrap(60)"
+
     def test_registry_covers_all_step_classes(self):
         # Every concrete step class defined in captest.filters must be
         # registered, so a future filter can't be added without a registry

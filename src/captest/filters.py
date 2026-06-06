@@ -381,7 +381,13 @@ class BaseSummaryStep(param.Parameterized):
 
     @classmethod
     def from_config(cls, config):
-        """Build an instance from a ``to_config()`` dict (``type`` removed)."""
+        """Build an instance from a ``to_config()`` dict.
+
+        The ``type`` key (emitted by ``to_config``) is dropped if present, so
+        ``Cls.from_config(Cls(...).to_config())`` round-trips directly, not only
+        through ``step_from_config``.
+        """
+        config = {k: v for k, v in config.items() if k != "type"}
         return cls(**config)
 
 
@@ -562,6 +568,7 @@ class FilterSensors(BaseFilter):
     @classmethod
     def from_config(cls, config):
         config = dict(config)
+        config.pop("type", None)
         if isinstance(config.get("row_filter"), str):
             config["row_filter"] = util.callable_from_qualname(config["row_filter"])
         return cls(**config)
@@ -1306,6 +1313,7 @@ class RepCond(BaseSummaryStep):
     @classmethod
     def from_config(cls, config):
         config = dict(config)
+        config.pop("type", None)
         func = config.get("func")
         if isinstance(func, dict):
             config["func"] = {k: _decode_func_value(v) for k, v in func.items()}
