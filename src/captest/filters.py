@@ -5,6 +5,8 @@ This module is imported one-way by ``capdata.py``; it never imports
 runtime ``capdata`` argument to ``run``/``_execute``.
 """
 
+import copy
+import difflib
 import importlib.util
 from itertools import combinations
 import warnings
@@ -13,6 +15,8 @@ import pandas as pd
 import param
 import sklearn.covariance as sk_cv
 import statsmodels.formula.api as smf
+
+from captest import util
 
 pvlib_spec = importlib.util.find_spec("pvlib")
 if pvlib_spec is not None:
@@ -360,6 +364,26 @@ class BaseSummaryStep(param.Parameterized):
         """
         return self._args_for_repr()
 
+    def to_config(self):
+        """Serialize this step to a config dict (every param, defaults
+        included; the param-system ``name`` is omitted).
+
+        Param values are deep-copied so the returned dict is an independent
+        snapshot — mutating it never reaches back into the step's params.
+        Values are expected to be YAML-safe (the normal case); subclasses
+        whose params hold callables override to encode them.
+        """
+        config = {"type": type(self).__name__}
+        config.update(
+            {k: copy.deepcopy(v) for k, v in self.param.values().items() if k != "name"}
+        )
+        return config
+
+    @classmethod
+    def from_config(cls, config):
+        """Build an instance from a ``to_config()`` dict (``type`` removed)."""
+        return cls(**config)
+
 
 class BaseFilter(BaseSummaryStep):
     """A pure row-filtering step.
@@ -529,6 +553,18 @@ class FilterSensors(BaseFilter):
             "groups": ", ".join(self.perc_diff_resolved),
             "row_filter": self.row_filter.__name__,
         }
+
+    def to_config(self):
+        config = super().to_config()
+        config["row_filter"] = util.callable_to_qualname(self.row_filter)
+        return config
+
+    @classmethod
+    def from_config(cls, config):
+        config = dict(config)
+        if isinstance(config.get("row_filter"), str):
+            config["row_filter"] = util.callable_from_qualname(config["row_filter"])
+        return cls(**config)
 
 
 class FilterTime(BaseFilter):
@@ -705,6 +741,23 @@ class FilterCustom(BaseFilter):
 
     def _explanation_values(self):
         return {"call": self.args_repr}
+
+    def to_config(self):
+        return {
+            "type": "FilterCustom",
+            "func": util.callable_to_qualname(self.func),
+            "args": list(self.args),
+            "kwargs": dict(self.kwargs),
+            "custom_name": self.custom_name,
+        }
+
+    @classmethod
+    def from_config(cls, config):
+        config = dict(config)
+        func = util.callable_from_qualname(config["func"])
+        args = config.get("args") or []
+        kwargs = config.get("kwargs") or {}
+        return cls(func, *args, custom_name=config.get("custom_name"), **kwargs)
 
 
 class FilterOutliers(BaseFilter):
@@ -1160,6 +1213,32 @@ class FilterRegression(BaseFilter):
         return reg.resid[reg.resid.abs() < threshold].index
 
 
+def _encode_func_value(v):
+    """Make one RepCond.func value yaml-safe.
+
+    ``perc_wrap(N)`` callable -> ``"perc_N"``; any other named callable ->
+    ``"module:qualname"`` (lambdas/closures raise via ``callable_to_qualname``);
+    strings (e.g. ``"mean"``) and ``None`` pass through unchanged.
+    """
+    if callable(v):
+        encoded = util._perc_wrap_to_string(v)
+        if callable(encoded):  # not a perc_wrap callable -> a named callable
+            return util.callable_to_qualname(v)
+        return encoded
+    return v
+
+
+def _decode_func_value(v):
+    """Inverse of ``_encode_func_value``.
+
+    ``"module:qualname"`` -> imported callable; ``"perc_N"`` -> ``perc_wrap(N)``;
+    other strings (``"mean"``) and ``None`` pass through.
+    """
+    if isinstance(v, str) and ":" in v:
+        return util.callable_from_qualname(v)
+    return util._resolve_perc_string(v)
+
+
 class RepCond(BaseSummaryStep):
     """Reporting-conditions calculation as a zero-removal summary step.
 
@@ -1214,3 +1293,51 @@ class RepCond(BaseSummaryStep):
             self.rc_kwargs,
         )
         return capdata.data_filtered.index
+
+    def to_config(self):
+        config = super().to_config()
+        func = self.func
+        if isinstance(func, dict):
+            config["func"] = {k: _encode_func_value(v) for k, v in func.items()}
+        else:
+            config["func"] = _encode_func_value(func)
+        return config
+
+    @classmethod
+    def from_config(cls, config):
+        config = dict(config)
+        func = config.get("func")
+        if isinstance(func, dict):
+            config["func"] = {k: _decode_func_value(v) for k, v in func.items()}
+        else:
+            config["func"] = _decode_func_value(func)
+        return cls(**config)
+
+
+FILTER_REGISTRY = {
+    "FilterIrr": FilterIrr,
+    "FilterPvsyst": FilterPvsyst,
+    "FilterShade": FilterShade,
+    "FilterTime": FilterTime,
+    "FilterDays": FilterDays,
+    "FilterOutliers": FilterOutliers,
+    "FilterPf": FilterPf,
+    "FilterPower": FilterPower,
+    "FilterCustom": FilterCustom,
+    "FilterSensors": FilterSensors,
+    "FilterClearsky": FilterClearsky,
+    "FilterMissing": FilterMissing,
+    "FilterRegression": FilterRegression,
+    "RepCond": RepCond,
+}
+
+
+def step_from_config(d):
+    """Build a filter step from a ``to_config()`` dict via ``FILTER_REGISTRY``."""
+    d = dict(d)
+    cls_name = d.pop("type")
+    if cls_name not in FILTER_REGISTRY:
+        suggestion = difflib.get_close_matches(cls_name, FILTER_REGISTRY, n=1)
+        hint = f" Did you mean {suggestion[0]!r}?" if suggestion else ""
+        raise ValueError(f"Unknown filter type {cls_name!r} in pipeline config.{hint}")
+    return FILTER_REGISTRY[cls_name].from_config(d)

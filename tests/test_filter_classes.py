@@ -7,6 +7,7 @@ import pandas as pd
 import param
 import pytest
 
+from captest import util
 from captest.capdata import CapData
 from captest.filters import (
     BaseSummaryStep,
@@ -24,9 +25,11 @@ from captest.filters import (
     FilterSensors,
     FilterShade,
     FilterTime,
+    RepCond,
     abs_diff_from_average,
     check_all_perc_diff_comb,
 )
+from captest.filters import FILTER_REGISTRY, step_from_config
 
 
 @pytest.fixture
@@ -1247,3 +1250,104 @@ class TestRemovedByStep:
             (2, "FilterIrr-2"),
         ]
         assert list(result[1][2]) == [1]
+
+
+class TestFilterConfigRoundTrip:
+    def test_base_to_config_includes_all_params(self):
+        cfg = FilterIrr(low=200, high=800).to_config()
+        assert cfg == {
+            "type": "FilterIrr",
+            "low": 200,
+            "high": 800,
+            "ref_val": None,
+            "col_name": None,
+            "custom_name": None,
+        }
+
+    def test_base_roundtrip(self):
+        cfg = FilterIrr(low=200, high=800, custom_name="bounds").to_config()
+        step = step_from_config(cfg)
+        assert isinstance(step, FilterIrr)
+        assert step.to_config() == cfg
+
+    def test_rep_cond_func_dict_roundtrips_perc(self):
+        rc = RepCond(func={"poa": util.perc_wrap(60), "t_amb": "mean"})
+        cfg = rc.to_config()
+        assert cfg["func"] == {"poa": "perc_60", "t_amb": "mean"}
+        rebuilt = step_from_config(cfg)
+        assert rebuilt.func["poa"].__name__ == "perc_wrap(60)"
+        assert rebuilt.func["t_amb"] == "mean"
+
+    def test_rep_cond_none_func_roundtrips(self):
+        cfg = RepCond().to_config()
+        assert cfg["func"] is None
+        assert step_from_config(cfg).func is None
+
+    def test_rep_cond_str_func_roundtrips(self):
+        cfg = RepCond(func="mean").to_config()
+        assert cfg["func"] == "mean"
+        assert step_from_config(cfg).func == "mean"
+
+    def test_rep_cond_bare_perc_wrap_func_roundtrips(self):
+        cfg = RepCond(func=util.perc_wrap(60)).to_config()
+        assert cfg["func"] == "perc_60"
+        assert step_from_config(cfg).func.__name__ == "perc_wrap(60)"
+
+    def test_rep_cond_bare_named_callable_func_roundtrips(self):
+        import numpy as np
+
+        cfg = RepCond(func=np.mean).to_config()
+        assert isinstance(cfg["func"], str) and ":" in cfg["func"]
+        assert step_from_config(cfg).func is np.mean
+
+    def test_rep_cond_dict_with_named_callable_roundtrips(self):
+        import numpy as np
+
+        cfg = RepCond(func={"poa": np.mean, "t_amb": "mean"}).to_config()
+        assert cfg["func"]["t_amb"] == "mean"
+        assert ":" in cfg["func"]["poa"]
+        rebuilt = step_from_config(cfg).func
+        assert rebuilt["poa"] is np.mean
+        assert rebuilt["t_amb"] == "mean"
+
+    def test_filter_custom_named_func_roundtrips(self):
+        cfg = FilterCustom(pd.DataFrame.head, 3).to_config()
+        assert cfg["func"] == "pandas.core.generic:NDFrame.head"
+        assert cfg["args"] == [3]
+        step = step_from_config(cfg)
+        assert step.func is pd.DataFrame.head
+        assert step.args == (3,)
+
+    def test_filter_custom_lambda_raises(self):
+        with pytest.raises(ValueError, match="lambdas and closures"):
+            FilterCustom(lambda df: df).to_config()
+
+    def test_filter_sensors_row_filter_roundtrips(self):
+        cfg = FilterSensors(perc_diff={"irr-poa-": 0.05}).to_config()
+        assert cfg["row_filter"] == "captest.filters:check_all_perc_diff_comb"
+        step = step_from_config(cfg)
+        assert step.row_filter is check_all_perc_diff_comb
+        assert step.perc_diff == {"irr-poa-": 0.05}
+
+    def test_unknown_type_suggests_closest(self):
+        with pytest.raises(ValueError, match="Did you mean 'FilterIrr'"):
+            step_from_config({"type": "FilterIrradiance"})
+
+    def test_registry_covers_all_step_classes(self):
+        # Every concrete step class defined in captest.filters must be
+        # registered, so a future filter can't be added without a registry
+        # entry (which would silently break its YAML round-trip).
+        import inspect
+
+        from captest import filters as filters_mod
+
+        concrete = {
+            name
+            for name, obj in inspect.getmembers(filters_mod, inspect.isclass)
+            if issubclass(obj, BaseSummaryStep)
+            and obj not in (BaseSummaryStep, BaseFilter)
+            and obj.__module__ == "captest.filters"
+        }
+        assert concrete == set(FILTER_REGISTRY)
+        assert FILTER_REGISTRY["RepCond"] is RepCond
+        assert FILTER_REGISTRY["FilterCustom"] is FilterCustom
