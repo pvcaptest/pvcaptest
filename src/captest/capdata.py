@@ -54,6 +54,7 @@ from captest.filters import (
     filter_grps,
     filter_irr,
     fit_model,
+    step_from_config,
     wrap_year_end,
 )
 
@@ -2135,6 +2136,27 @@ class CapData(param.Parameterized):
             step.explanation for step in self.filters if step.explanation is not None
         ]
         return "\n".join(lines)
+
+    def filters_to_config(self):
+        """Serialize the applied filter chain to a list of config dicts.
+
+        Each entry is a step's ``to_config()`` (a yaml-safe ``{type, ...params}``
+        dict). Inverse of :meth:`run_pipeline`. Used by ``CapTest.to_yaml`` to
+        embed this CapData's pipeline in the single config file.
+        """
+        return [step.to_config() for step in self.filters]
+
+    def run_pipeline(self, config):
+        """Rebuild and run each filter step from a list of config dicts.
+
+        ``config`` is a list of ``to_config()`` dicts (e.g. from
+        :meth:`filters_to_config` or a loaded YAML). Each step is constructed
+        via ``filters.step_from_config`` and run against this CapData in order.
+        Requires ``data`` loaded and ``regression_cols`` resolved (run
+        ``process_regression_columns`` first) for filters that need them.
+        """
+        for step_config in config:
+            step_from_config(step_config).run(self)
 
     def _calc_rep_cond(
         self, func, w_vel, irr_bal, percent_filter, front_poa, rc_kwargs

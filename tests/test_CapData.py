@@ -3563,5 +3563,30 @@ class TestProcessRegressionColumns:
         assert meas.regression_cols == {"power_tc": "power_temp_correct"}
 
 
+class TestPipelineConfig:
+    def test_filters_to_config_lists_steps(self, nrel):
+        nrel.filter_irr(200, 800)
+        nrel.filter_irr(400, 700)
+        config = nrel.filters_to_config()
+        assert [d["type"] for d in config] == ["FilterIrr", "FilterIrr"]
+        assert config[0]["low"] == 200 and config[1]["low"] == 400
+
+    def test_run_pipeline_replays_filters(self, nrel):
+        nrel.filter_irr(200, 800)
+        nrel.filter_irr(400, 700)
+        config = nrel.filters_to_config()
+        expected_ix = list(nrel.data_filtered.index)
+
+        fresh = nrel.copy()
+        fresh.reset_filter()
+        fresh.run_pipeline(config)
+        assert [type(s).__name__ for s in fresh.filters] == ["FilterIrr", "FilterIrr"]
+        assert list(fresh.data_filtered.index) == expected_ix
+
+    def test_run_pipeline_empty_is_noop(self, nrel):
+        nrel.run_pipeline([])
+        assert nrel.filters == []
+
+
 if __name__ == "__main__":
     unittest.main()
