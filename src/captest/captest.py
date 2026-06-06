@@ -713,6 +713,8 @@ _CAPTEST_YAML_KEYS = frozenset(
         "meas_path",
         "sim_path",
         "overrides",
+        "meas_filters",
+        "sim_filters",
     }
 )
 
@@ -1217,7 +1219,11 @@ class CapTest(param.Parameterized):
                 "under 'overrides'; pick one."
             )
 
-        kwargs = {k: v for k, v in sub.items() if k != "overrides"}
+        kwargs = {
+            k: v
+            for k, v in sub.items()
+            if k not in ("overrides", "meas_filters", "sim_filters")
+        }
 
         # Lift override keys into direct kwargs.
         for k in _CAPTEST_OVERRIDE_KEYS:
@@ -1275,6 +1281,28 @@ class CapTest(param.Parameterized):
             inst._meas_path = raw_meas_path
         if raw_sim_path is not None:
             inst._sim_path = raw_sim_path
+        # Re-apply serialized filter pipelines. from_params auto-runs setup()
+        # when both meas and sim are populated, so regression_cols/data are
+        # ready; guard on _resolved_setup so a partially-built CapTest doesn't
+        # try to filter un-setup data.
+        meas_filters = sub.get("meas_filters")
+        sim_filters = sub.get("sim_filters")
+        if inst._resolved_setup is not None:
+            if meas_filters and inst.meas is not None:
+                inst.meas.run_pipeline(meas_filters)
+            if sim_filters and inst.sim is not None:
+                inst.sim.run_pipeline(sim_filters)
+        elif meas_filters or sim_filters:
+            # Pipelines were serialized but setup() never ran (both meas and
+            # sim must be loaded). Don't silently drop them — warn so the
+            # write/read round-trip asymmetry is visible.
+            warnings.warn(
+                "Filter pipelines (meas_filters/sim_filters) in the config "
+                "were not applied because setup() did not run (both meas and "
+                "sim must be loaded). Load both data sources and re-apply via "
+                "CapData.run_pipeline().",
+                stacklevel=2,
+            )
         return inst
 
     def to_yaml(self, path, key="captest", merge_into_existing=True):
@@ -1286,6 +1314,14 @@ class CapTest(param.Parameterized):
         ``reg_cols_meas`` / ``reg_cols_sim`` / ``rep_conditions``,
         ``meas_path`` / ``sim_path`` (when the instance was constructed from
         paths), and non-empty ``meas_load_kwargs`` / ``sim_load_kwargs``.
+
+        The applied filter chains of ``meas`` and ``sim`` are written as
+        ``meas_filters`` / ``sim_filters`` (lists of filter-step config dicts
+        from :meth:`CapData.filters_to_config`), each only when non-empty;
+        ``from_yaml`` re-applies them after data load and ``setup()``. When a
+        ``RepCond`` step is present in either pipeline, ``overrides.rep_conditions``
+        is omitted — the step is then the authoritative reporting-conditions
+        source (avoids representing it in two places).
 
         Percentile ``perc_wrap(N)`` callables inside
         ``rep_conditions['func']`` are written back as ``"perc_N"`` strings
@@ -1358,7 +1394,11 @@ class CapTest(param.Parameterized):
         """Build the dict written under ``key:`` by :meth:`to_yaml`.
 
         Kept separate from ``to_yaml`` so it is testable in isolation and
-        so the merge/write step stays short.
+        so the merge/write step stays short. Embeds the ``meas``/``sim``
+        filter chains as ``meas_filters``/``sim_filters`` (when non-empty)
+        and omits ``overrides.rep_conditions`` when a ``RepCond`` step is
+        present in either pipeline (the step is then the single source of
+        reporting conditions).
         """
         sub = {"test_setup": self.test_setup}
 
@@ -1384,7 +1424,15 @@ class CapTest(param.Parameterized):
                 val = getattr(self, name)
                 if val is not None and val != preset.get(name):
                     overrides[name] = copy.deepcopy(val)
-        if self.rep_conditions is not None:
+        meas_filters = self.meas.filters_to_config() if self.meas is not None else []
+        sim_filters = self.sim.filters_to_config() if self.sim is not None else []
+        has_rep_cond_step = any(
+            d["type"] == "RepCond" for d in (meas_filters + sim_filters)
+        )
+        # Decision B: when a RepCond step is in either pipeline, it is the
+        # unambiguous source of reporting conditions — drop the redundant
+        # overrides.rep_conditions.
+        if self.rep_conditions is not None and not has_rep_cond_step:
             overrides["rep_conditions"] = _serialize_rep_conditions(self.rep_conditions)
         if overrides:
             sub["overrides"] = overrides
@@ -1419,6 +1467,11 @@ class CapTest(param.Parameterized):
             sub["meas_load_kwargs"] = copy.deepcopy(self.meas_load_kwargs)
         if self.sim_load_kwargs:
             sub["sim_load_kwargs"] = copy.deepcopy(self.sim_load_kwargs)
+
+        if meas_filters:
+            sub["meas_filters"] = meas_filters
+        if sim_filters:
+            sub["sim_filters"] = sim_filters
 
         return sub
 

@@ -1994,3 +1994,155 @@ class TestSetupAutoWrap:
         assert getattr(ct.sim, "_pre_wrap_data", None) is None
         assert ct.sim.data.index.min() >= pd.Timestamp("1990-01-01")
         assert ct.sim.data.index.max() <= pd.Timestamp("1990-12-31 23:00")
+
+
+class TestPipelineYaml:
+    def _capt(self, meas_cd_default, sim_cd_default):
+        return CapTest.from_params(
+            test_setup="e2848_default",
+            meas=meas_cd_default,
+            sim=sim_cd_default,
+            ac_nameplate=6_000_000,
+        )
+
+    def test_sub_mapping_embeds_filter_pipelines(self, meas_cd_default, sim_cd_default):
+        capt = self._capt(meas_cd_default, sim_cd_default)
+        capt.meas.filter_irr(200, 800)
+        capt.sim.filter_irr(200, 800)
+        sub = capt._build_yaml_sub_mapping()
+        assert sub["meas_filters"][0]["type"] == "FilterIrr"
+        assert sub["meas_filters"][0]["low"] == 200
+        assert sub["sim_filters"][0]["type"] == "FilterIrr"
+
+    def test_no_filters_omits_pipeline_keys(self, meas_cd_default, sim_cd_default):
+        capt = self._capt(meas_cd_default, sim_cd_default)
+        sub = capt._build_yaml_sub_mapping()
+        assert "meas_filters" not in sub
+        assert "sim_filters" not in sub
+
+    def test_rep_cond_step_omits_overrides_rep_conditions(
+        self, meas_cd_default, sim_cd_default
+    ):
+        capt = self._capt(meas_cd_default, sim_cd_default)
+        capt.rep_conditions = {"func": {"poa": "mean"}}  # non-None -> would serialize
+        capt.rep_cond(which="meas")  # creates a RepCond step in meas.filters
+        sub = capt._build_yaml_sub_mapping()
+        assert any(d["type"] == "RepCond" for d in sub["meas_filters"])
+        assert "rep_conditions" not in sub.get("overrides", {})
+
+    def test_rep_conditions_kept_without_rep_cond_step(
+        self, meas_cd_default, sim_cd_default
+    ):
+        capt = self._capt(meas_cd_default, sim_cd_default)
+        capt.rep_conditions = {"func": {"poa": "mean"}}
+        sub = capt._build_yaml_sub_mapping()
+        assert sub["overrides"]["rep_conditions"]["func"]["poa"] == "mean"
+
+    def test_from_mapping_reapplies_pipelines(
+        self, tmp_path, meas_cd_default, sim_cd_default
+    ):
+        meas_file = tmp_path / "meas.csv"
+        meas_file.write_text("x")
+        sim_file = tmp_path / "sim.csv"
+        sim_file.write_text("x")
+        sub = {
+            "test_setup": "e2848_default",
+            "meas_path": str(meas_file),
+            "sim_path": str(sim_file),
+            "meas_filters": [
+                {
+                    "type": "FilterIrr",
+                    "low": 200,
+                    "high": 800,
+                    "ref_val": None,
+                    "col_name": None,
+                    "custom_name": None,
+                }
+            ],
+            "sim_filters": [
+                {
+                    "type": "FilterIrr",
+                    "low": 200,
+                    "high": 800,
+                    "ref_val": None,
+                    "col_name": None,
+                    "custom_name": None,
+                }
+            ],
+        }
+        capt = CapTest.from_mapping(
+            sub,
+            meas_loader=MagicMock(return_value=meas_cd_default),
+            sim_loader=MagicMock(return_value=sim_cd_default),
+        )
+        assert [type(s).__name__ for s in capt.meas.filters] == ["FilterIrr"]
+        assert [type(s).__name__ for s in capt.sim.filters] == ["FilterIrr"]
+
+    def test_to_yaml_from_yaml_file_roundtrip(
+        self, tmp_path, meas_cd_default, sim_cd_default
+    ):
+        """End-to-end: filters written by to_yaml are re-applied by from_yaml."""
+        capt = self._capt(meas_cd_default, sim_cd_default)
+        clean_meas, clean_sim = capt.meas.copy(), capt.sim.copy()  # pre-filter
+        capt.meas.filter_irr(200, 800)
+        capt.sim.filter_irr(200, 800)
+        capt._meas_path = str(tmp_path / "meas.csv")
+        capt._sim_path = str(tmp_path / "sim.csv")
+        path = tmp_path / "config.yaml"
+        capt.to_yaml(path)
+
+        reloaded = CapTest.from_yaml(
+            path,
+            meas_loader=MagicMock(return_value=clean_meas),
+            sim_loader=MagicMock(return_value=clean_sim),
+        )
+        assert [type(s).__name__ for s in reloaded.meas.filters] == ["FilterIrr"]
+        assert [type(s).__name__ for s in reloaded.sim.filters] == ["FilterIrr"]
+
+    def test_file_roundtrip_with_rep_cond_step_reconstitutes_rc(
+        self, tmp_path, meas_cd_default, sim_cd_default
+    ):
+        """A RepCond step round-trips and recomputes rc on load, even though
+        overrides.rep_conditions is omitted from the file (decision B)."""
+        capt = self._capt(meas_cd_default, sim_cd_default)
+        clean_meas, clean_sim = capt.meas.copy(), capt.sim.copy()
+        capt.rep_conditions = {"func": {"poa": "mean"}}
+        capt.rep_cond(which="meas")  # creates a RepCond step on meas
+        capt._meas_path = str(tmp_path / "meas.csv")
+        capt._sim_path = str(tmp_path / "sim.csv")
+        path = tmp_path / "config.yaml"
+        capt.to_yaml(path)
+
+        reloaded = CapTest.from_yaml(
+            path,
+            meas_loader=MagicMock(return_value=clean_meas),
+            sim_loader=MagicMock(return_value=clean_sim),
+        )
+        assert any(type(s).__name__ == "RepCond" for s in reloaded.meas.filters)
+        assert reloaded.meas.rc is not None
+
+    def test_from_mapping_warns_when_pipelines_cannot_be_applied(
+        self, tmp_path, meas_cd_default
+    ):
+        """Partial CapTest (only meas) can't run setup(); serialized pipelines
+        are skipped with a warning rather than silently dropped."""
+        meas_file = tmp_path / "meas.csv"
+        meas_file.write_text("x")
+        sub = {
+            "test_setup": "e2848_default",
+            "meas_path": str(meas_file),
+            "meas_filters": [
+                {
+                    "type": "FilterIrr",
+                    "low": 200,
+                    "high": 800,
+                    "ref_val": None,
+                    "col_name": None,
+                    "custom_name": None,
+                }
+            ],
+        }
+        with pytest.warns(UserWarning, match="were not applied because setup"):
+            CapTest.from_mapping(
+                sub, meas_loader=MagicMock(return_value=meas_cd_default)
+            )
