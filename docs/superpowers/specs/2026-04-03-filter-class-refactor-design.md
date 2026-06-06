@@ -158,7 +158,7 @@ def args_repr(self):
 
 `RepCond` params: `func` (`param.Parameter`, accepts dict/str/callable/None), `w_vel` (`param.Parameter`), `irr_bal` (`param.Boolean`), `percent_filter` (`param.Number`), `front_poa` (`param.String`), `rc_kwargs` (`param.Dict(default=None)` — coerced to `{}` in the helper to avoid param's shared-mutable-default pitfall). `RepCond` inherits `BaseSummaryStep` directly (not `BaseFilter`) since it is not a row filter; it still belongs in `filters` because the list accepts any `BaseSummaryStep`. `_explanation_template = "Reporting conditions were calculated (no intervals removed)."`
 
-*YAML note (chunk 7):* the `func` dict may contain callables (`{'poa': perc_wrap(60), 't_amb': 'mean', ...}`). `perc_wrap` entries serialize as `perc_wrap(N)` strings; plain string values like `'mean'` serialize directly.
+*YAML note (chunk 7):* the `func` dict may contain callables (`{'poa': perc_wrap(60), 't_amb': 'mean', ...}`). `perc_wrap(N)` entries serialize as `perc_N` strings (e.g. `perc_60`, the existing convention shared with `CapTest`'s `rep_conditions`); plain string values like `'mean'` serialize directly. See [[Config Round-Trip (chunk 7)]].
 
 *Chunk-6 implication:* `RepCond` is a zero-removal step, so the visualization methods (which plot the points removed by each filter) must skip zero-removal steps.
 
@@ -516,115 +516,122 @@ def rerun_from(self, index):
 
 ---
 
-## YAML Round-Trip
+## Config Round-Trip (chunk 7)
+
+### Goal and architecture
+
+The driving goal is a **single config file** that captures both the test-level parameters *and* the applied filtering steps, so a future GUI (or an ipynb user) can export it and a different user can reload it — in the GUI or a notebook — to re-run the test identically.
+
+`CapData` owns its filter-pipeline serialization as reusable, I/O-free building blocks; `CapTest` integrates both the `meas` and `sim` pipelines into the single `captest:` config file it already writes (`CapTest.to_yaml`/`from_yaml`). There is no separate pipeline file and no new top-level key — the pipelines live inside the existing `captest:` sub-mapping, so one file round-trips everything.
 
 ### Serialization Boundary
 
-`param` parameters on each filter class are the serialization boundary. Runtime state (`pts_after`, `ix_after`) is stored as plain Python attributes and is never serialized. The chain-derived counterparts (`pts_before`, `ix_before`, `pts_removed`) are computed on demand from prior steps' `ix_after` (see [[Chain-derived per-step counts]]).
+`param` parameters on each filter class are the serialization boundary. Runtime state (`pts_after`, `ix_after`, and the chain-derived `pts_before`/`ix_before`/`pts_removed`) is never serialized. **Every param is exported explicitly — defaults and `None` values included** — so a reviewer can read the config and understand exactly what each step does without having memorized the class defaults. Only the param-system `name` identity is omitted.
 
-### YAML Format
+### Per-step encode/decode
 
-```yaml
-captest:
-  name: system_a_2023
-  filters:
-    - type: FilterIrr
-      custom_name: Irradiance bounds
-      low: 200
-      high: 800
-    - type: FilterPvsyst
-    - type: FilterTime
-      start: "2023-03-01"
-      end: "2023-09-30"
-    - type: RepCond
-      percent_filter: 20
-      irr_bal: false
-      func: {poa: perc_wrap(60), t_amb: mean, w_vel: mean}
-    - type: FilterRegression
-      n_std: 2
+Each filter class owns its (de)serialization so callable-handling lives next to the class that needs it:
+
+```python
+class BaseSummaryStep:
+    def to_config(self):
+        """Return a yaml-safe dict: {'type': ClassName, **all params except name}."""
+        d = {"type": type(self).__name__}
+        d.update({k: v for k, v in self.param.values().items() if k != "name"})
+        return d
+
+    @classmethod
+    def from_config(cls, d):
+        """Build an instance from a to_config() dict (already has 'type' popped)."""
+        return cls(**d)
 ```
 
-Omitted `param` values use class defaults on load — no need to serialize defaults explicitly.
+`FilterCustom`, `FilterSensors`, and `RepCond` override `to_config`/`from_config` to encode/decode their callable params (see Callable Parameters below). All params are emitted; e.g. a `FilterIrr` exports `low`, `high`, `ref_val`, `col_name`, and `custom_name` even when some are `None`.
 
 ### Filter Registry
 
-A module-level registry maps class name strings to classes, used for deserialization:
+A module-level registry in `filters.py` maps class-name strings to classes, with a `step_from_config` helper used by deserialization:
 
 ```python
 FILTER_REGISTRY = {
-    'FilterIrr': FilterIrr,
-    'FilterPvsyst': FilterPvsyst,
-    'FilterShade': FilterShade,
-    'FilterTime': FilterTime,
-    'FilterDays': FilterDays,
-    'FilterOutliers': FilterOutliers,
-    'FilterPf': FilterPf,
-    'FilterPower': FilterPower,
-    'FilterCustom': FilterCustom,
-    'FilterSensors': FilterSensors,
-    'FilterClearsky': FilterClearsky,
-    'FilterMissing': FilterMissing,
-    'FilterRegression': FilterRegression,
-    'RepCond': RepCond,
+    'FilterIrr': FilterIrr, 'FilterPvsyst': FilterPvsyst, 'FilterShade': FilterShade,
+    'FilterTime': FilterTime, 'FilterDays': FilterDays, 'FilterOutliers': FilterOutliers,
+    'FilterPf': FilterPf, 'FilterPower': FilterPower, 'FilterCustom': FilterCustom,
+    'FilterSensors': FilterSensors, 'FilterClearsky': FilterClearsky,
+    'FilterMissing': FilterMissing, 'FilterRegression': FilterRegression, 'RepCond': RepCond,
 }
+
+def step_from_config(d):
+    d = dict(d)
+    cls_name = d.pop("type")
+    if cls_name not in FILTER_REGISTRY:
+        # Fuzzy-match the bad name against the registry (stdlib difflib) to
+        # suggest the likely intended type — helps GUI/hand-edited configs.
+        suggestion = difflib.get_close_matches(cls_name, FILTER_REGISTRY, n=1)
+        hint = f" Did you mean {suggestion[0]!r}?" if suggestion else ""
+        raise ValueError(
+            f"Unknown filter type {cls_name!r} in pipeline config.{hint}"
+        )
+    return FILTER_REGISTRY[cls_name].from_config(d)
 ```
 
-### Serialization
+### CapData building blocks
 
 ```python
-def to_yaml(self, path):
-    steps = []
-    for f in self.filters:
-        d = {'type': type(f).__name__}
-        d.update({
-            k: v for k, v in f.param.values().items()
-            if k not in ('name',) and v is not None
-        })
-        steps.append(d)
-    config = {'captest': {'name': self.name, 'filters': steps}}
-    with open(path, 'w') as fh:
-        yaml.dump(config, fh, default_flow_style=False)
+def filters_to_config(self):
+    """Serialize this CapData's filter chain to a list of dicts."""
+    return [f.to_config() for f in self.filters]
+
+def run_pipeline(self, config):
+    """Build each step from its config dict and run it on this CapData."""
+    for d in config:
+        step_from_config(d).run(self)
 ```
 
-### Deserialization
+These are pure data ⇄ filters (no file I/O), so they compose into `CapTest`'s single-file YAML and are independently testable. Standalone notebook use:
 
 ```python
-@classmethod
-def load_pipeline(cls, path):
-    """Return a list of filter instances from a YAML pipeline definition."""
-    with open(path) as fh:
-        config = yaml.safe_load(fh)
-    steps = []
-    for d in config['captest']['filters']:
-        d = dict(d)
-        cls_name = d.pop('type')
-        steps.append(FILTER_REGISTRY[cls_name](**d))
-    return steps
-
-def run_pipeline(self, pipeline):
-    for step in pipeline:
-        step.run(self)
+cd = CapData('system_a'); cd.load_data(...)
+cd.process_regression_columns()
+cd.run_pipeline(config['captest']['meas_filters'])
 ```
 
-Typical notebook usage:
+### CapTest integration: one file
 
-```python
-cd = CapData('system_a')
-cd.load_data(...)
-pipeline = CapData.load_pipeline('captest_config.yaml')
-cd.run_pipeline(pipeline)
-cd.get_summary()
+`CapTest._build_yaml_sub_mapping` adds `meas_filters` and `sim_filters` (from `self.meas.filters_to_config()` / `self.sim.filters_to_config()`) to the `captest:` sub-mapping it already builds; `CapTest.from_mapping` (reached by `from_yaml`) rebuilds and re-applies them **after** data load and `setup()` (filters need `regression_cols`/data in place), via `run_pipeline`. The result: a single `from_yaml(..., meas_loader=, sim_loader=)` call reconstructs the whole test.
+
+```yaml
+captest:
+  test_setup: e2848_default
+  meas_path: ./meas.csv
+  sim_path: ./sim.csv
+  overrides: {}                 # rep_conditions omitted — see below
+  ac_nameplate: 6000000
+  # ... remaining scalar params ...
+  meas_filters:
+    - {type: FilterIrr, low: 200, high: 800, ref_val: null, col_name: null, custom_name: null}
+    - {type: RepCond, func: {poa: perc_60, t_amb: mean, w_vel: mean},
+       w_vel: null, irr_bal: false, percent_filter: 20, front_poa: poa,
+       rc_kwargs: null, custom_name: null}
+  sim_filters:
+    - {type: FilterPvsyst, custom_name: null}
 ```
+
+**`rep_conditions` vs `RepCond` step (decision B).** `rep_conditions` is a CapTest-level param (the default feeding `CapTest.rep_cond`); a `RepCond` pipeline step is the *applied* reporting-conditions calculation at its chain position. To keep the file unambiguous about when and with what arguments reporting conditions run, `_build_yaml_sub_mapping` **omits `overrides.rep_conditions` whenever a `RepCond` step is present in `meas.filters` or `sim.filters`** — the step(s) are then the single source of truth. When no `RepCond` step exists, `overrides.rep_conditions` is written as today. Because `setup()` never auto-runs `rep_cond`, replaying a pipeline that contains a `RepCond` step applies it exactly once (no double-apply).
 
 ### Callable Parameters
 
-Three filter types accept callables that cannot be directly serialized:
+Three filter types accept callables that cannot be directly serialized. The `perc_wrap` factory and the `perc_N` string helpers (`_perc_wrap_to_string`, `_resolve_func_strings`) move from `captest.py` to `util.py` (re-exported from `captest.captest` for backward compatibility) so `RepCond` (in `filters.py`) and the existing `CapTest` `rep_conditions` serialization share one implementation. `util.py` is import-safe for this (it imports no captest/capdata modules).
 
 | Class | Parameter | Serialization approach |
 |---|---|---|
-| `FilterCustom` | `func` (required, arbitrary) | Module-qualified name string (`mypackage.module.func_name`). Lambdas and closures are not supported for YAML round-trip; `FilterCustom` in a YAML pipeline is limited to importable named functions. |
-| `FilterSensors` | `row_filter` (default: `check_all_perc_diff_comb`) | Serialize as module-qualified name; deserialize via `importlib.import_module`. Default round-trips losslessly. |
-| `RepCond` | `func` dict (`{'poa': perc_wrap(60), ...}`) | `perc_wrap(N)` entries serialized as `perc_wrap:60` or similar tagged string; plain string values (`'mean'`) serialize directly. |
+| `FilterCustom` | `func` (required) | Module-qualified name string (`pkg.module.func_name`); deserialize via import. Lambdas/closures are not importable — `to_config` **raises** a clear `ValueError` for them (a GUI/ipynb pipeline is limited to importable named functions). |
+| `FilterSensors` | `row_filter` (default `check_all_perc_diff_comb`) | Module-qualified name; deserialize via import. The default round-trips losslessly (`captest.filters.check_all_perc_diff_comb`). |
+| `RepCond` | `func` dict (`{'poa': perc_wrap(60), ...}`) | `perc_wrap(N)` entries → `"perc_N"` strings (the existing convention); plain string values (`'mean'`) serialize directly; `None` (the default) → `null`. |
+
+### Errors
+
+Deserialization raises explicit errors: an unknown `type` not in `FILTER_REGISTRY`, a non-importable module-qualified callable name, or (on export) an unserializable lambda/closure each raise with a message naming the offending value. For an unknown `type`, the message includes a `difflib.get_close_matches` suggestion of the nearest valid type name when one is close enough (e.g. `FilterIrradiance` → "Did you mean 'FilterIrr'?").
 
 ---
 
