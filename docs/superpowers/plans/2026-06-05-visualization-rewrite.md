@@ -328,7 +328,7 @@ Replace the entire body of `timeseries_filters` with the version below. Note the
         plots = []
         plt_no_filtering = hv.Curve(data, ["Timestamp"], ["power"], label="all")
         plt_no_filtering.opts(
-            line_color="black",
+            line_color="grey",
             line_width=1,
             width=1500,
             height=450,
