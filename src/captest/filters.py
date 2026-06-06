@@ -272,8 +272,10 @@ class BaseSummaryStep(param.Parameterized):
     Subclasses implement `_execute`, returning the pandas ``Index`` of rows
     to keep after the step.
 
-    Runtime state (`pts_before`, `pts_after`, `pts_removed`, `ix_before`,
-    `ix_after`) is set by `run` as plain attributes and is never serialized.
+    Runtime state (`pts_after`, `ix_after`) is set by `run` as plain attributes
+    and is never serialized. A step's "before" index/count and points-removed
+    are not stored — they are chain-derived on demand via
+    `CapData._ix_before`/`_pts_before`.
     """
 
     custom_name = param.String(
@@ -289,23 +291,19 @@ class BaseSummaryStep(param.Parameterized):
     def run(self, capdata):
         """Execute the step, record runtime state, and append self to filters.
 
-        ``ix_before``/``pts_before`` are snapshotted **after** ``_execute``
-        returns so they reflect whatever state the chain is in just before
-        ``ix_after`` is applied. For filters whose ``_execute`` doesn't touch
-        ``capdata.data_filtered`` this is identical to a pre-``_execute``
-        snapshot; for filters that make nested filter calls during
-        ``_execute`` (e.g. ``FilterOutliers`` invoking ``filter_missing``
-        on NaN), it naturally picks up the post-nested-call state so
-        attribution to this step counts only what this step actually removed.
-
-        ``ix_before``/``pts_before`` reflect the prior chain state; the
-        summary itself is derived from the chain by ``CapData.get_summary``.
+        Records only ``ix_after``/``pts_after`` (the rows this step kept and
+        their count). A step's "before" index/count and points-removed are not
+        stored — they are derived from the chain on demand by
+        ``CapData._ix_before(i)``/``_pts_before(i)`` and surfaced through
+        ``get_summary`` / ``_removed_by_step``. This keeps attribution correct
+        for filters that make nested filter calls during ``_execute`` (e.g.
+        ``FilterOutliers`` invoking ``filter_missing`` on NaN): the nested step
+        is appended to ``capdata.filters`` before this one, so this step's
+        ``_ix_before`` resolves to the post-nested-call state and counts only
+        what this step itself removed.
         """
         self.ix_after = self._execute(capdata)
         self.pts_after = len(self.ix_after)
-        self.ix_before = capdata.data_filtered.index
-        self.pts_before = len(self.ix_before)
-        self.pts_removed = self.pts_before - self.pts_after
         capdata.filters = capdata.filters + [self]
         if self.pts_after == 0:
             warnings.warn("The last filter removed all data!")
@@ -811,10 +809,10 @@ class FilterOutliers(BaseFilter):
             )
             capdata.filter_missing(columns=XandY.columns.tolist())
             XandY = capdata.floc[["poa", "power"]]
-            # No manual re-snapshot needed: run() reads pts_before / ix_before
-            # AFTER _execute, so the post-filter_missing state is picked up
-            # automatically and FilterOutliers' pts_removed counts only the
-            # outlier drop.
+            # The nested filter_missing step is appended to capdata.filters
+            # before this FilterOutliers step, so this step's chain-derived
+            # _ix_before resolves to the post-filter_missing state — its
+            # removed count reflects only the outlier drop, not the NaN rows.
 
         resolved = dict(self._default_envelope_kwargs)
         if self.envelope_kwargs:

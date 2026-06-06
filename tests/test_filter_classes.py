@@ -137,11 +137,12 @@ class TestBaseSummaryStep:
         cd = make_capdata(n=5)
         step = _DropFirstRow()
         step.run(cd)
-        assert step.pts_before == 5
+        # run() stores only ix_after/pts_after; before/removed are chain-derived.
         assert step.pts_after == 4
-        assert step.pts_removed == 1
-        assert list(step.ix_before) == [0, 1, 2, 3, 4]
         assert list(step.ix_after) == [1, 2, 3, 4]
+        assert cd._pts_before(0) == 5
+        assert list(cd._ix_before(0)) == [0, 1, 2, 3, 4]
+        assert cd._pts_before(0) - step.pts_after == 1
 
     def test_run_appends_to_filters(self, make_capdata):
         cd = make_capdata()
@@ -756,7 +757,9 @@ class TestFilterOutliers:
         gs = cd_pp.get_summary()
         assert gs.index[-2][1] == "FilterMissing"
         assert gs.index[-1][1] == "FilterOutliers"
-        assert f.pts_before == gs["pts_after_filter"].iloc[-2]
+        # f's chain-derived "before" count == the prior step's surviving count.
+        f_index = len(cd_pp.filters) - 1
+        assert cd_pp._pts_before(f_index) == gs["pts_after_filter"].iloc[-2]
         assert (
             gs["pts_removed"].iloc[-1]
             == gs["pts_after_filter"].iloc[-2] - gs["pts_after_filter"].iloc[-1]

@@ -2116,7 +2116,7 @@ class TestRepCondNoFreq:
         pts_before = nrel.data_filtered.shape[0]
         nrel.rep_cond()
         assert isinstance(nrel.filters[-1], filters.RepCond)
-        assert nrel.filters[-1].pts_removed == 0
+        assert nrel.get_summary()["pts_removed"].iloc[-1] == 0
         assert nrel.data_filtered.shape[0] == pts_before
         assert isinstance(nrel.rc, pd.core.frame.DataFrame)
 
