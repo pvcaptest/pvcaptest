@@ -1884,17 +1884,14 @@ class TestAutoWrapSim:
         ct = _ct_with(meas_idx, sim.index)
         ct._maybe_wrap_sim_year_end()
         assert ct.sim.data.index.min() < pd.Timestamp("1990-01-01")
-        assert ct.sim.data.index.max() <= pd.Timestamp("1990-02-15")
+        assert ct.sim.data.index.max() == pd.Timestamp("1990-06-30 23:00")
         assert "index" not in ct.sim.data.columns
         assert getattr(ct.sim, "_pre_wrap_data", None) is not None
         assert ct.sim.filters == []
 
     def test_wraps_when_meas_ends_near_year_end(self):
-        # meas Nov 1 -> Dec 15 -> end is within 60 days of Dec 31.
-        # The wrap prepends sim's Nov-Dec data shifted into 1989; the post-
-        # 1989 portion is df.loc[:1990-12-15] so the max is 1990-12-15, not
-        # anything past 1990-12-31. The observable effect is the prepended
-        # 1989 data — assert min < 1990-01-01 instead.
+        # meas Nov 1 -> Dec 15; end is within 60 days of Dec 31.
+        # The fixed window prepends 1989-shifted data so min < 1990-01-01.
         meas_idx = pd.date_range("2023-11-01", "2023-12-15", freq="h")
         sim = _hourly_typical_year(1990)
         ct = _ct_with(meas_idx, sim.index)
@@ -1916,11 +1913,12 @@ class TestAutoWrapSim:
         sim = _hourly_typical_year(1990)
         ct = _ct_with(meas_idx, sim.index)
         ct._maybe_wrap_sim_year_end()
-        wrapped_len = len(ct.sim.data)
+        wrapped_min = ct.sim.data.index.min()
         ct.auto_wrap_sim = False
         ct._maybe_wrap_sim_year_end()
         assert len(ct.sim.data) == len(sim)
-        assert wrapped_len != len(sim)
+        assert wrapped_min < pd.Timestamp("1990-01-01")  # wrap shifted into 1989
+        assert ct.sim.data.index.min() >= pd.Timestamp("1990-01-01")  # restored
         assert getattr(ct.sim, "_pre_wrap_data", None) is None
 
     def test_idempotent_repeated_runs(self):
@@ -1949,8 +1947,8 @@ class TestAutoWrapSim:
         assert getattr(ct.sim, "_pre_wrap_data", None) is None
 
     def test_leap_day_meas_start_does_not_raise(self):
-        # meas_start = 2024-02-29 (leap day); sim_year-1 = 1989 (non-leap).
-        # Without the day-clip guard, pd.Timestamp(1989, 2, 29) would raise.
+        # The wrap fires for a leap-day measured test; the fixed window
+        # (July 1 -> June 30) does not raise because it never uses the measured day.
         meas_idx = pd.date_range("2024-02-29", "2024-03-15", freq="h")
         sim = _hourly_typical_year(1990)
         ct = _ct_with(meas_idx, sim.index)
@@ -1958,12 +1956,25 @@ class TestAutoWrapSim:
         assert getattr(ct.sim, "_pre_wrap_data", None) is not None
 
     def test_leap_day_meas_end_does_not_raise(self):
-        # meas_end = 2024-02-29; sim_year = 1990 (non-leap).
+        # The wrap fires for a leap-day measured test; the fixed window
+        # (July 1 -> June 30) does not raise because it never uses the measured day.
         meas_idx = pd.date_range("2024-01-15", "2024-02-29 23:00", freq="h")
         sim = _hourly_typical_year(1990)
         ct = _ct_with(meas_idx, sim.index)
         ct._maybe_wrap_sim_year_end()
         assert getattr(ct.sim, "_pre_wrap_data", None) is not None
+
+    def test_wrapped_frame_has_8760_rows(self):
+        # Fixed July 1 1989 -> June 30 1990 window is a full, contiguous year.
+        meas_idx = pd.date_range("2023-11-01", "2023-12-15", freq="h")
+        sim = _hourly_typical_year(1990)
+        ct = _ct_with(meas_idx, sim.index)
+        ct._maybe_wrap_sim_year_end()
+        assert len(ct.sim.data) == 8760
+        assert ct.sim.data.index.min() == pd.Timestamp("1989-07-01 00:00")
+        assert ct.sim.data.index.max() == pd.Timestamp("1990-06-30 23:00")
+        assert ct.sim.data.index.is_monotonic_increasing
+        assert not ct.sim.data.index.has_duplicates
 
 
 class TestSetupAutoWrap:

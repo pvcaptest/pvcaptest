@@ -16,7 +16,6 @@ anything from this module at import time; the single-CapData helper
 ``CapTest.captest_results``.
 """
 
-import calendar
 import copy
 import difflib
 import importlib.util
@@ -1569,31 +1568,13 @@ class CapTest(param.Parameterized):
         ):
             return
 
+        # Use a fixed July 1 -> June 30 window so the wrapped sim is a
+        # contiguous full year centered on the Jan 1 boundary, regardless of
+        # where the measured test falls. Years are derived from sim_year
+        # (1989/1990 for pvsyst data, which load_pvsyst normalizes to 1990).
         sim_year = sim_idx[0].year
-        # Clip to the last valid day of the target month so a Feb 29 meas date
-        # mapped onto a non-leap sim year doesn't raise.
-        start_day = min(
-            meas_start.day,
-            calendar.monthrange(sim_year - 1, meas_start.month)[1],
-        )
-        end_day = min(
-            meas_end.day,
-            calendar.monthrange(sim_year, meas_end.month)[1],
-        )
-        start = pd.Timestamp(
-            year=sim_year - 1,
-            month=meas_start.month,
-            day=start_day,
-            hour=meas_start.hour,
-            minute=meas_start.minute,
-        )
-        end = pd.Timestamp(
-            year=sim_year,
-            month=meas_end.month,
-            day=end_day,
-            hour=meas_end.hour,
-            minute=meas_end.minute,
-        )
+        start = pd.Timestamp(year=sim_year - 1, month=7, day=1, hour=0, minute=0)
+        end = pd.Timestamp(year=sim_year, month=6, day=30, hour=23, minute=59)
 
         self.sim._pre_wrap_data = self.sim.data.copy()
         wrapped = wrap_year_end(self.sim.data, start, end)
