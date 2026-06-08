@@ -1272,8 +1272,10 @@ class CapData(param.Parameterized):
         """Power-vs-time line with removed intervals highlighted per filter.
 
         A full-data power ``Curve`` backdrop plus one scatter layer per filter
-        step that removed intervals. Zero-removal steps (e.g. ``RepCond``) are
-        skipped; see ``get_summary``/``describe_filters`` for the full step list.
+        step that removed intervals, followed by a final scatter of the points
+        retained after all filtering. Zero-removal steps (e.g. ``RepCond``) are
+        skipped for the per-step scatter layers; see ``get_summary``/
+        ``describe_filters`` for the full step list.
         """
         data = self.get_reg_cols(reg_vars="power", filtered_data=False)
         data["Timestamp"] = data.index
@@ -1290,6 +1292,10 @@ class CapData(param.Parameterized):
         for _i, label, removed_ix in self._removed_by_step():
             d_flt = data.loc[removed_ix, ["power", "Timestamp"]]
             plots.append(hv.Scatter(d_flt, ["Timestamp"], ["power"], label=label))
+
+        retained_ix = self.filters[-1].ix_after if self.filters else self.data.index
+        d_retained = data.loc[retained_ix, ["power", "Timestamp"]]
+        plots.append(hv.Scatter(d_retained, ["Timestamp"], ["power"], label="retained"))
 
         scatter_overlay = hv.Overlay(plots)
         hover = HoverTool(

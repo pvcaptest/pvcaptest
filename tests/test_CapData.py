@@ -3349,8 +3349,23 @@ class TestTimeseriesFilters:
         meas.filter_irr(200, 900)
         meas.filter_irr(400, 800)
         overlay = meas.timeseries_filters()
-        # 1 full-data curve + 2 removing-filter scatters
-        assert len(overlay) == 3
+        # 1 full-data curve + 2 removing-filter scatters + 1 retained scatter
+        assert len(overlay) == 4
+
+    def test_retained_scatter_is_last(self, meas):
+        meas.regression_cols = {
+            "power": "meter_power",
+            "poa": ("irr_poa_pyran", "mean"),
+            "t_amb": ("temp_amb", "mean"),
+            "w_vel": ("wind", "mean"),
+        }
+        meas.process_regression_columns()
+        meas.filter_irr(200, 900)
+        meas.filter_irr(400, 800)
+        overlay = meas.timeseries_filters()
+        last = list(overlay)[-1]
+        assert last.label == "retained"
+        assert list(last.data["Timestamp"]) == list(meas.filters[-1].ix_after)
 
     def test_removed_layer_carries_the_right_rows(self, meas):
         """Pin that a removed-filter scatter layer holds exactly that filter's
