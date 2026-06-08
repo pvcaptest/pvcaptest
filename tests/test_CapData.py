@@ -2109,6 +2109,11 @@ class TestRepCondNoFreq:
         assert nrel.data_filtered.shape[0] == pts_before
         assert isinstance(nrel.rc, pd.core.frame.DataFrame)
 
+    def test_custom_name_sets_step_label(self, nrel):
+        """rep_cond forwards custom_name onto the recorded RepCond step."""
+        nrel.rep_cond(custom_name="rc step")
+        assert nrel.filters[-1].custom_name == "rc step"
+
 
 class TestRepCondFreq:
     def test_monthly_no_irr_bal(self, pvsyst):

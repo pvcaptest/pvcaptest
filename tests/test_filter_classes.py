@@ -243,6 +243,10 @@ class TestCapDataFiltersParam:
 
 
 class TestFilterIrr:
+    def test_wrapper_custom_name_sets_step_label(self, cd_irr):
+        cd_irr.filter_irr(200, 800, custom_name="my irr step")
+        assert cd_irr.filters[-1].custom_name == "my irr step"
+
     def test_execute_absolute_bounds(self, cd_irr):
         f = Irradiance(low=200, high=800)
         assert list(f._execute(cd_irr)) == [1, 2, 3]
@@ -599,6 +603,10 @@ class TestFilterTime:
         from captest import capdata
 
         assert callable(capdata.wrap_year_end)
+
+    def test_wrapper_custom_name_sets_step_label(self, cd_time):
+        cd_time.filter_time(start="2023-02-01", end="2023-02-15", custom_name="window")
+        assert cd_time.filters[-1].custom_name == "window"
 
 
 class TestFilterTimeWrapper:
