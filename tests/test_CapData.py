@@ -3294,13 +3294,26 @@ class TestScatterFilters:
         meas.filter_irr(200, 900)
         meas.filter_irr(400, 800)
         overlay = meas.scatter_filters()
-        # Ordered leaf elements: retained baseline first, then one per removing
-        # filter. The Scatter's backing frame carries an "index" column set to
+        # Ordered leaf elements: removing-filter layers first, retained survivors
+        # last. The Scatter's backing frame carries an "index" column set to
         # the original data index, so we can check which rows landed in a layer.
         layers = list(overlay)
-        assert list(layers[0].data["index"]) == list(meas.filters[-1].ix_after)
+        assert list(layers[-1].data["index"]) == list(meas.filters[-1].ix_after)
         _i, _label, removed_ix = meas._removed_by_step()[0]
-        assert list(layers[1].data["index"]) == list(removed_ix)
+        assert list(layers[0].data["index"]) == list(removed_ix)
+
+    def test_retained_layer_is_last(self, meas):
+        meas.regression_cols = {
+            "power": "meter_power",
+            "poa": ("irr_poa_pyran", "mean"),
+            "t_amb": ("temp_amb", "mean"),
+            "w_vel": ("wind", "mean"),
+        }
+        meas.process_regression_columns()
+        meas.filter_irr(200, 900)
+        meas.filter_irr(400, 800)
+        overlay = meas.scatter_filters()
+        assert list(overlay)[-1].label == "retained"
 
 
 class TestTimeseriesFilters:

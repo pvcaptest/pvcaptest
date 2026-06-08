@@ -1219,27 +1219,28 @@ class CapData(param.Parameterized):
     def scatter_filters(self):
         """Overlay of power-vs-irradiance scatters attributing removed intervals.
 
-        A baseline ``retained`` layer (rows surviving all filters) plus one
-        layer per filter step that removed intervals — together a clean
-        partition of the data. Zero-removal steps (e.g. ``RepCond``) are
-        skipped; see ``get_summary``/``describe_filters`` for the full step list.
+        One layer per filter step that removed intervals is added first, then
+        the ``retained`` layer (rows surviving all filters) is appended last so
+        it renders on top — together a clean partition of the data.
+        Zero-removal steps (e.g. ``RepCond``) are skipped; see
+        ``get_summary``/``describe_filters`` for the full step list.
         """
         data = self.get_reg_cols(reg_vars=["power", "poa"], filtered_data=False)
         data["index"] = self.data.index
 
         scatters = []
         retained_ix = self.filters[-1].ix_after if self.filters else self.data.index
-        scatters.append(
-            hv.Scatter(data.loc[retained_ix, :], "poa", ["power", "index"]).relabel(
-                "retained"
-            )
-        )
         for _i, label, removed_ix in self._removed_by_step():
             scatters.append(
                 hv.Scatter(data.loc[removed_ix, :], "poa", ["power", "index"]).relabel(
                     label
                 )
             )
+        scatters.append(
+            hv.Scatter(data.loc[retained_ix, :], "poa", ["power", "index"]).relabel(
+                "retained"
+            )
+        )
 
         scatter_overlay = hv.Overlay(scatters)
         hover = HoverTool(
