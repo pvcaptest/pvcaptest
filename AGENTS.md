@@ -87,7 +87,7 @@ There are two levels of API.
 **CapData (single dataset):**
 1. Load data with `load_data(...)` (measured) or `load_pvsyst(...)` (simulated).
 2. Set `regression_cols` / `regression_formula` (or run `process_regression_columns()`); optionally aggregate sensors.
-3. Apply filters. Each filter is a `param`-based step class in `filters.py` (`FilterIrr`, `FilterTime`, ...); the `CapData.filter_*(...)` methods are thin wrappers that build the step and `run()` it, appending it to the `filters` list. `data_filtered` is a **derived read-only property** over that list (no setter; clear with `reset_filter()`).
+3. Apply filters. Each filter is a `param`-based step class in `filters.py` (`Irradiance`, `Time`, ...); the `CapData.filter_*(...)` methods are thin wrappers that build the step and `run()` it, appending it to the `filters` list. The wrappers always act in place (there is no `inplace` kwarg) and accept an optional `custom_name` label. `data_filtered` is a **derived read-only property** over that list (no setter; clear with `reset_filter()`).
 4. Compute reporting conditions with `rep_cond(...)` — a thin wrapper that appends a zero-removal `RepCond` step.
 5. Fit regression with `fit_regression(...)`.
 6. Inspect via `get_summary()` / `describe_filters()`; serialize/replay the pipeline with `filters_to_config()` / `run_pipeline(config)`.
@@ -119,11 +119,11 @@ There are two levels of API.
 - `to_yaml(path)` writes the single config file (scalar params + `meas_filters` / `sim_filters` pipelines); `_serialize_rep_conditions` / `perc_wrap` handle the `perc_N` percentile encoding (now shared via `util`).
 
 **`src/captest/filters.py`** — Filter step classes
-- `BaseSummaryStep` / `BaseFilter` base classes plus concrete steps (`FilterIrr`, `FilterTime`, `FilterPvsyst`, `FilterShade`, `FilterDays`, `FilterPf`, `FilterPower`, `FilterMissing`, `FilterSensors`, `FilterOutliers`, `FilterClearsky`, `FilterCustom`, `FilterRegression`, `RepCond`). Each declares its config as `param` parameters and implements `_execute(capdata)` returning the kept index; `run()` records `ix_after` / `pts_after` and appends itself to `capdata.filters`.
+- `BaseSummaryStep` / `BaseFilter` base classes plus concrete steps (`Irradiance`, `Time`, `Pvsyst`, `Shade`, `Days`, `PowerFactor`, `Power`, `Missing`, `Sensors`, `Outliers`, `Clearsky`, `Custom`, `Regression`, `RepCond`). Each declares its config as `param` parameters and implements `_execute(capdata)` returning the kept index; `run()` records `ix_after` / `pts_after` and appends itself to `capdata.filters`.
 - `FILTER_REGISTRY` + `step_from_config()` (de)serialize steps via each class's `to_config` / `from_config`; callable params encode through `util` helpers. Also holds the moved row-filter helpers (`filter_irr`, `sensor_filter`, `check_all_perc_diff_comb`, ...). **Imported one-way by `capdata.py`; it never imports `capdata`** — steps touch a `CapData` only through the runtime `capdata` argument.
 
 **`src/captest/clearsky.py`** — Clear-sky modeling
-- pvlib-based clear-sky GHI/POA modeling used by `io.load_data` when site metadata is supplied. Clear-sky *filtering* (`FilterClearsky`) is separate and uses `pvlib.clearsky.detect_clearsky` directly.
+- pvlib-based clear-sky GHI/POA modeling used by `io.load_data` when site metadata is supplied. Clear-sky *filtering* (`Clearsky`) is separate and uses `pvlib.clearsky.detect_clearsky` directly.
 
 **`src/captest/calcparams.py`** — Derived measured values
 - Functions to calculate derived values from measured data (e.g. back-of-module temperature from POA, wind speed, and ambient temperature via the Sandia model).
