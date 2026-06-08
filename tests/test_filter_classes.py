@@ -362,11 +362,9 @@ class TestFilterIrrWrapper:
         assert len(cd_irr.filters) == 1
         assert isinstance(cd_irr.filters[0], Irradiance)
 
-    def test_wrapper_inplace_false_records_no_step(self, cd_irr):
-        result = cd_irr.filter_irr(200, 800, inplace=False)
-        assert cd_irr.filters == []
-        assert result.shape[0] == 3
-        assert cd_irr.data_filtered.shape[0] == 5
+    def test_wrapper_rejects_inplace_kwarg(self, cd_irr):
+        with pytest.raises(TypeError):
+            cd_irr.filter_irr(200, 800, inplace=False)
 
 
 class TestDescribeFilters:
@@ -445,12 +443,6 @@ class TestFilterSensorsWrapper:
         capdata_irr.filter_sensors()
         assert len(capdata_irr.filters) == 1
         assert isinstance(capdata_irr.filters[0], Sensors)
-
-    def test_wrapper_inplace_false_records_no_step(self, capdata_irr):
-        result = capdata_irr.filter_sensors(perc_diff={"poa": 0.05}, inplace=False)
-        assert capdata_irr.filters == []
-        assert result.shape[0] == capdata_irr.data_filtered.shape[0]
-        assert capdata_irr.data_filtered.shape[0] == capdata_irr.data.shape[0]
 
 
 class TestFilterTime:
@@ -614,15 +606,6 @@ class TestFilterTimeWrapper:
         cd_time.filter_time(start="2023-02-01", end="2023-02-15")
         assert len(cd_time.filters) == 1
         assert isinstance(cd_time.filters[0], Time)
-
-    def test_wrapper_inplace_false_records_no_step(self, cd_time):
-        n_before = cd_time.data_filtered.shape[0]
-        result = cd_time.filter_time(
-            start="2023-02-01", end="2023-02-15", inplace=False
-        )
-        assert cd_time.filters == []
-        assert cd_time.data_filtered.shape[0] == n_before
-        assert result.shape[0] == 15
 
 
 class TestFilterCustom:
@@ -803,12 +786,6 @@ class TestFilterOutliersWrapper:
         cd_pp.filter_outliers(contamination=0.10)
         assert cd_pp.filters[0].envelope_kwargs_resolved["contamination"] == 0.10
 
-    def test_wrapper_inplace_false_records_no_step(self, cd_pp):
-        result = cd_pp.filter_outliers(inplace=False)
-        assert cd_pp.filters == []
-        assert result is not None
-        assert result.shape[0] < cd_pp.data.shape[0]
-
 
 class TestFilterClearsky:
     def test_execute_keeps_clear_periods(self, nrel_clear_sky):
@@ -931,13 +908,6 @@ class TestFilterClearskyWrapper:
         resolved = nrel_clear_sky.filters[0].detect_kwargs_resolved
         assert resolved["infer_limits"] is False
         assert resolved["window_length"] == 30
-
-    def test_wrapper_inplace_false_records_no_step(self, nrel_clear_sky):
-        original = nrel_clear_sky.data_filtered.copy()
-        result = nrel_clear_sky.filter_clearsky(inplace=False)
-        assert nrel_clear_sky.filters == []
-        pd.testing.assert_frame_equal(nrel_clear_sky.data_filtered, original)
-        assert result.shape[0] < original.shape[0]
 
 
 class TestFilterPvsyst:

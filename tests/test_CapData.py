@@ -1099,11 +1099,6 @@ class TestCapDataMethodsSim:
         pvsyst.filter_pvsyst()
         assert pvsyst.data_filtered.shape[0] == 8670
 
-    def test_filter_pvsyst_not_inplace(self, pvsyst):
-        df = pvsyst.filter_pvsyst(inplace=False)
-        assert isinstance(df, pd.core.frame.DataFrame)
-        assert df.shape[0] == 8670
-
     def test_filter_pvsyst_missing_column(self, pvsyst):
         pvsyst.data.drop(columns="IL Pmin", inplace=True)
         with pytest.warns(
@@ -1121,11 +1116,6 @@ class TestCapDataMethodsSim:
     def test_filter_shade_default(self, pvsyst):
         pvsyst.filter_shade()
         assert pvsyst.data_filtered.shape[0] == 8645
-
-    def test_filter_shade_default_not_inplace(self, pvsyst):
-        df = pvsyst.filter_shade(inplace=False)
-        assert isinstance(df, pd.core.frame.DataFrame)
-        assert df.shape[0] == 8645
 
     def test_filter_shade_query(self, pvsyst):
         # create PVsyst ShdLoss type values for testing query string
@@ -1975,7 +1965,7 @@ class TestAggGroupCutoff:
 class TestFilterSensors:
     def test_perc_diff_none(self, meas):
         rows_before_flt = meas.data_filtered.shape[0]
-        meas.filter_sensors(perc_diff=None, inplace=True)
+        meas.filter_sensors(perc_diff=None)
         # Check that data_filtered is still a dataframe
         assert isinstance(meas.data_filtered, pd.core.frame.DataFrame)
         # Check that rows were removed
@@ -1984,7 +1974,7 @@ class TestFilterSensors:
     def test_perc_diff(self, meas):
         rows_before_flt = meas.data_filtered.shape[0]
         meas.filter_sensors(
-            perc_diff={"irr_poa_ref_cell": 0.05, "temp_amb": 0.1}, inplace=True
+            perc_diff={"irr_poa_ref_cell": 0.05, "temp_amb": 0.1},
         )
         # Check that data_filtered is still a dataframe
         assert isinstance(meas.data_filtered, pd.core.frame.DataFrame)
@@ -2003,7 +1993,6 @@ class TestFilterSensors:
         )
         meas.filter_sensors(
             perc_diff={"irr_poa_ref_cell": 0.05, "temp_amb": 0.1},
-            inplace=True,
         )
         assert isinstance(meas.data_filtered, pd.core.frame.DataFrame)
         assert meas.data_filtered.shape[0] < rows_before_flt
@@ -2213,43 +2202,39 @@ class TestFilterIrr:
 
     def test_lowhigh_nocol(self, nrel):
         pts_before = nrel.data_filtered.shape[0]
-        nrel.filter_irr(500, 600, ref_val=None, col_name=None, inplace=True)
+        nrel.filter_irr(500, 600, ref_val=None, col_name=None)
         assert nrel.data_filtered.shape[0] < pts_before
 
     def test_lowhigh_colname(self, nrel):
         pts_before = nrel.data_filtered.shape[0]
         nrel.data["POA second column"] = nrel.loc["poa"].values
         nrel.column_groups["irr-poa-"].append("POA second column")
-        nrel.filter_irr(
-            500, 600, ref_val=None, col_name="POA second column", inplace=True
-        )
+        nrel.filter_irr(500, 600, ref_val=None, col_name="POA second column")
         assert nrel.data_filtered.shape[0] < pts_before
 
     def test_refval_nocol(self, nrel):
         pts_before = nrel.data_filtered.shape[0]
-        nrel.filter_irr(0.8, 1.2, ref_val=500, col_name=None, inplace=True)
+        nrel.filter_irr(0.8, 1.2, ref_val=500, col_name=None)
         assert nrel.data_filtered.shape[0] < pts_before
 
     def test_refval_withcol(self, nrel):
         pts_before = nrel.data_filtered.shape[0]
         nrel.data["POA second column"] = nrel.loc["poa"].values
         nrel.column_groups["irr-poa-"].append("POA second column")
-        nrel.filter_irr(
-            0.8, 1.2, ref_val=500, col_name="POA second column", inplace=True
-        )
+        nrel.filter_irr(0.8, 1.2, ref_val=500, col_name="POA second column")
         assert nrel.data_filtered.shape[0] < pts_before
 
     def test_refval_use_attribute(self, nrel):
         nrel.rc = pd.DataFrame({"poa": 500, "w_vel": 1, "t_amb": 20}, index=[0])
         pts_before = nrel.data_filtered.shape[0]
-        nrel.filter_irr(0.8, 1.2, ref_val="rep_irr", col_name=None, inplace=True)
+        nrel.filter_irr(0.8, 1.2, ref_val="rep_irr", col_name=None)
         assert nrel.data_filtered.shape[0] < pts_before
 
     def test_refval_self_val_translation(self, nrel):
         """'self_val' is silently translated to 'rep_irr' and filters correctly."""
         nrel.rc = pd.DataFrame({"poa": 500, "w_vel": 1, "t_amb": 20}, index=[0])
         pts_before = nrel.data_filtered.shape[0]
-        nrel.filter_irr(0.8, 1.2, ref_val="self_val", col_name=None, inplace=True)
+        nrel.filter_irr(0.8, 1.2, ref_val="self_val", col_name=None)
         assert nrel.data_filtered.shape[0] < pts_before
 
     def test_refval_rep_irr_shows_in_summary(self, nrel):
@@ -2272,13 +2257,6 @@ class TestFilterIrr:
         nrel.rc = pd.DataFrame({"irr": 500, "w_vel": 1, "t_amb": 20}, index=[0])
         with pytest.raises(ValueError, match="does not have a 'poa' column"):
             nrel.filter_irr(0.8, 1.2, ref_val="rep_irr")
-
-    def test_refval_withcol_notinplace(self, nrel):
-        pts_before = nrel.data_filtered.shape[0]
-        df = nrel.filter_irr(500, 600, ref_val=None, col_name=None, inplace=False)
-        assert nrel.data_filtered.shape[0] == pts_before
-        assert isinstance(df, pd.core.frame.DataFrame)
-        assert df.shape[0] < pts_before
 
 
 class TestGetSummary:
@@ -2362,11 +2340,6 @@ class TestFilterTime:
             year=1990, month=3, day=3, hour=00
         )
 
-    def test_start_end_not_inplace(self, pvsyst):
-        df = pvsyst.filter_time(start="2/1/90", end="2/15/90", inplace=False)
-        assert df.index[0] == pd.Timestamp(year=1990, month=2, day=1, hour=0)
-        assert df.index[-1] == pd.Timestamp(year=1990, month=2, day=15, hour=00)
-
     def test_start_no_end_uses_last_timestamp(self, pvsyst):
         """Verify that omitting end defaults to the last timestamp of data_filtered."""
         last_ts = pvsyst.data_filtered.index[-1]
@@ -2402,43 +2375,34 @@ class TestFilterTime:
 
 class TestFilterDays:
     def test_keep_one_day(self, pvsyst):
-        pvsyst.filter_days(["10/5/1990"], drop=False, inplace=True)
+        pvsyst.filter_days(["10/5/1990"], drop=False)
         assert pvsyst.data_filtered.shape[0] == 24
         assert pvsyst.data_filtered.index[0].day == 5
 
     def test_keep_two_contiguous_days(self, pvsyst):
-        pvsyst.filter_days(["10/5/1990", "10/6/1990"], drop=False, inplace=True)
+        pvsyst.filter_days(["10/5/1990", "10/6/1990"], drop=False)
         assert pvsyst.data_filtered.shape[0] == 48
         assert pvsyst.data_filtered.index[-1].day == 6
 
     def test_keep_three_noncontiguous_days(self, pvsyst):
-        pvsyst.filter_days(
-            ["10/5/1990", "10/7/1990", "10/9/1990"], drop=False, inplace=True
-        )
+        pvsyst.filter_days(["10/5/1990", "10/7/1990", "10/9/1990"], drop=False)
         assert pvsyst.data_filtered.shape[0] == 72
         assert pvsyst.data_filtered.index[0].day == 5
         assert pvsyst.data_filtered.index[25].day == 7
         assert pvsyst.data_filtered.index[49].day == 9
 
     def test_drop_one_day(self, pvsyst):
-        pvsyst.filter_days(["1/1/1990"], drop=True, inplace=True)
+        pvsyst.filter_days(["1/1/1990"], drop=True)
         assert pvsyst.data_filtered.shape[0] == (8760 - 24)
         assert pvsyst.data_filtered.index[0].day == 2
         assert pvsyst.data_filtered.index[0].hour == 0
 
     def test_drop_three_days(self, pvsyst):
-        pvsyst.filter_days(
-            ["1/1/1990", "1/3/1990", "1/5/1990"], drop=True, inplace=True
-        )
+        pvsyst.filter_days(["1/1/1990", "1/3/1990", "1/5/1990"], drop=True)
         assert pvsyst.data_filtered.shape[0] == (8760 - 24 * 3)
         assert pvsyst.data_filtered.index[0].day == 2
         assert pvsyst.data_filtered.index[25].day == 4
         assert pvsyst.data_filtered.index[49].day == 6
-
-    def test_not_inplace(self, pvsyst):
-        df = pvsyst.filter_days(["10/5/1990"], drop=False, inplace=False)
-        assert pvsyst.data_filtered.shape[0] == 8760
-        assert df.shape[0] == 24
 
 
 class TestFilterPF:
@@ -2481,20 +2445,20 @@ class TestFilterOutliersAndPower:
         assert filter_names.index("Missing") < filter_names.index("Outliers")
 
     def test_filter_power_defaults(self, meas):
-        meas.filter_power(5_000_000, percent=None, columns=None, inplace=True)
+        meas.filter_power(5_000_000, percent=None, columns=None)
         assert meas.data_filtered.shape[0] == 1289
 
     def test_filter_power_percent(self, meas):
-        meas.filter_power(6_000_000, percent=0.05, columns=None, inplace=True)
+        meas.filter_power(6_000_000, percent=0.05, columns=None)
         assert meas.data_filtered.shape[0] == 1388
 
     def test_filter_power_a_column(self, meas):
         print(meas.data.columns)
-        meas.filter_power(5_000_000, percent=None, columns="meter_power", inplace=True)
+        meas.filter_power(5_000_000, percent=None, columns="meter_power")
         assert meas.data_filtered.shape[0] == 1289
 
     def test_filter_power_column_group(self, meas):
-        meas.filter_power(500_000, percent=None, columns="power_inv", inplace=True)
+        meas.filter_power(500_000, percent=None, columns="power_inv")
         assert meas.data_filtered.shape[0] == 1138
 
     def test_filter_power_column_group_with_nan(self, meas):
@@ -2502,13 +2466,13 @@ class TestFilterOutliersAndPower:
         # Introduce NaN in one inverter column
         meas.data.iloc[0, meas.data.columns.get_loc("inv1_power")] = np.nan
         meas.data.iloc[1, meas.data.columns.get_loc("inv2_power")] = np.nan
-        meas.filter_power(500_000, percent=None, columns="power_inv", inplace=True)
+        meas.filter_power(500_000, percent=None, columns="power_inv")
         # Rows with NaN should still be present (NaN < threshold is treated as True)
         assert meas.data_filtered.shape[0] == 1138
 
     def test_filter_power_columns_not_str(self, meas):
         with pytest.warns(UserWarning):
-            meas.filter_power(500_000, percent=None, columns=1, inplace=True)
+            meas.filter_power(500_000, percent=None, columns=1)
 
 
 class TestCskyFilter:
