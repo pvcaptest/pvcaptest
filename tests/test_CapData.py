@@ -2304,7 +2304,7 @@ class TestGetSummary:
     def test_function_name_is_class_name(self, nrel):
         nrel.filter_irr(200, 500)
         smry = nrel.get_summary()
-        assert smry["function_name"].iloc[0] == "FilterIrr"
+        assert smry["function_name"].iloc[0] == "Irradiance"
 
     def test_function_name_stays_class_name_with_custom_label(self, nrel):
         """function_name is always the class name even when the index label is a
@@ -2312,7 +2312,7 @@ class TestGetSummary:
         nrel.filter_custom(pd.DataFrame.head, 5, custom_name="My custom step")
         smry = nrel.get_summary()
         assert smry.index[0][1] == "My custom step"
-        assert smry["function_name"].iloc[0] == "FilterCustom"
+        assert smry["function_name"].iloc[0] == "Custom"
 
 
 class TestFilterTime:
@@ -2478,9 +2478,7 @@ class TestFilterOutliersAndPower:
             pvsyst.filter_outliers()
 
         filter_names = [ix[1] for ix in pvsyst.get_summary().index]
-        assert filter_names.index("FilterMissing") < filter_names.index(
-            "FilterOutliers"
-        )
+        assert filter_names.index("Missing") < filter_names.index("Outliers")
 
     def test_filter_power_defaults(self, meas):
         meas.filter_power(5_000_000, percent=None, columns=None, inplace=True)
@@ -3098,7 +3096,7 @@ class TestGetFilteringTable:
         # Pin the column-per-removing-step contract by label and order: one
         # column per removing filter (named via _step_labels) then all_filters;
         # the zero-removal RepCond step gets no column.
-        assert list(flt_table.columns) == ["FilterIrr", "FilterIrr-1", "all_filters"]
+        assert list(flt_table.columns) == ["Irradiance", "Irradiance-1", "all_filters"]
 
 
 @pytest.fixture
@@ -3124,9 +3122,9 @@ class TestPointsSummary:
         assert meas.length_test_period == 4
 
     def test_length_test_period_custom_name_filter_time(self, meas):
-        # A custom_name'd FilterTime must still be found: the period comes from
-        # isinstance(step, FilterTime), not a label-string match.
-        filters.FilterTime(
+        # A custom_name'd Time must still be found: the period comes from
+        # isinstance(step, Time), not a label-string match.
+        filters.Time(
             start="10/9/1990", end="10/12/1990 23:00", custom_name="window"
         ).run(meas)
         meas.get_length_test_period()
@@ -3568,7 +3566,7 @@ class TestPipelineConfig:
         nrel.filter_irr(200, 800)
         nrel.filter_irr(400, 700)
         config = nrel.filters_to_config()
-        assert [d["type"] for d in config] == ["FilterIrr", "FilterIrr"]
+        assert [d["type"] for d in config] == ["Irradiance", "Irradiance"]
         assert config[0]["low"] == 200 and config[1]["low"] == 400
 
     def test_run_pipeline_replays_filters(self, nrel):
@@ -3580,7 +3578,7 @@ class TestPipelineConfig:
         fresh = nrel.copy()
         fresh.reset_filter()
         fresh.run_pipeline(config)
-        assert [type(s).__name__ for s in fresh.filters] == ["FilterIrr", "FilterIrr"]
+        assert [type(s).__name__ for s in fresh.filters] == ["Irradiance", "Irradiance"]
         assert list(fresh.data_filtered.index) == expected_ix
 
     def test_run_pipeline_empty_is_noop(self, nrel):

@@ -1,7 +1,7 @@
 """Clear-sky irradiance modeling built on pvlib.
 
 These functions model clear-sky GHI/POA (used by ``io.load_data`` when site
-metadata is supplied). Clear-sky *filtering* (``FilterClearsky``) is separate
+metadata is supplied). Clear-sky *filtering* (``Clearsky``) is separate
 and uses ``pvlib.clearsky.detect_clearsky`` directly.
 """
 

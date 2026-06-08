@@ -36,19 +36,19 @@ from captest import util
 from captest import plotting
 from captest.filters import (
     BaseSummaryStep,
-    FilterClearsky,
-    FilterCustom,
-    FilterDays,
-    FilterIrr,
-    FilterMissing,
-    FilterOutliers,
-    FilterPf,
-    FilterPower,
-    FilterPvsyst,
-    FilterRegression,
-    FilterSensors,
-    FilterShade,
-    FilterTime,
+    Clearsky,
+    Custom,
+    Days,
+    Irradiance,
+    Missing,
+    Outliers,
+    PowerFactor,
+    Power,
+    Pvsyst,
+    Regression,
+    Sensors,
+    Shade,
+    Time,
     RepCond,
     check_all_perc_diff_comb,
     filter_grps,
@@ -1694,7 +1694,7 @@ class CapData(param.Parameterized):
         DataFrame
             Filtered dataframe if inplace is False.
         """
-        flt = FilterIrr(low=low, high=high, ref_val=ref_val, col_name=col_name)
+        flt = Irradiance(low=low, high=high, ref_val=ref_val, col_name=col_name)
         if inplace:
             flt.run(self)
         else:
@@ -1712,7 +1712,7 @@ class CapData(param.Parameterized):
             If True, record the filter step and update data_filtered. If False,
             return the filtered DataFrame without recording a step.
         """
-        flt = FilterPvsyst()
+        flt = Pvsyst()
         if inplace:
             flt.run(self)
         else:
@@ -1736,7 +1736,7 @@ class CapData(param.Parameterized):
             If True, record the filter step and update data_filtered. If False,
             return the filtered DataFrame without recording a step.
         """
-        flt = FilterShade(fshdbm=fshdbm, query_str=query_str)
+        flt = Shade(fshdbm=fshdbm, query_str=query_str)
         if inplace:
             flt.run(self)
         else:
@@ -1776,7 +1776,7 @@ class CapData(param.Parameterized):
         removed. Year-end-spanning data is now handled by an auto-wrap step at
         CapTest load time (see CapTest.auto_wrap_sim).
         """
-        flt = FilterTime(
+        flt = Time(
             start=start,
             end=end,
             drop=drop,
@@ -1801,7 +1801,7 @@ class CapData(param.Parameterized):
             If True, record the filter step and update data_filtered. If False,
             return the filtered DataFrame without recording a step.
         """
-        flt = FilterDays(days=days, drop=drop)
+        flt = Days(days=days, drop=drop)
         if inplace:
             flt.run(self)
         else:
@@ -1827,7 +1827,7 @@ class CapData(param.Parameterized):
         invoked first (and recorded as a separate filter step). This
         preserves the legacy auto-handling behavior.
         """
-        flt = FilterOutliers(envelope_kwargs=kwargs or None)
+        flt = Outliers(envelope_kwargs=kwargs or None)
         if inplace:
             flt.run(self)
         else:
@@ -1849,7 +1849,7 @@ class CapData(param.Parameterized):
             If True, record the filter step and update data_filtered. If False,
             return the filtered DataFrame without recording a step.
         """
-        flt = FilterPf(pf=pf)
+        flt = PowerFactor(pf=pf)
         if inplace:
             flt.run(self)
         else:
@@ -1871,7 +1871,7 @@ class CapData(param.Parameterized):
             If True, record the filter step and update data_filtered. If False,
             return the filtered DataFrame without recording a step.
         """
-        flt = FilterPower(power=power, percent=percent, columns=columns)
+        flt = Power(power=power, percent=percent, columns=columns)
         if inplace:
             flt.run(self)
         else:
@@ -1902,7 +1902,7 @@ class CapData(param.Parameterized):
         transforms columns will see its column changes discarded — pass
         column-transforming logic outside the filter pipeline.
         """
-        FilterCustom(func, *args, custom_name=custom_name, **kwargs).run(self)
+        Custom(func, *args, custom_name=custom_name, **kwargs).run(self)
 
     def filter_sensors(
         self, perc_diff=None, inplace=True, row_filter=check_all_perc_diff_comb
@@ -1931,7 +1931,7 @@ class CapData(param.Parameterized):
         DataFrame
             Returns filtered dataframe if inplace is False.
         """
-        flt = FilterSensors(perc_diff=perc_diff, row_filter=row_filter)
+        flt = Sensors(perc_diff=perc_diff, row_filter=row_filter)
         if inplace:
             flt.run(self)
         else:
@@ -1953,7 +1953,7 @@ class CapData(param.Parameterized):
             Forwarded to pvlib ``detect_clearsky``. Default
             ``infer_limits=True`` is applied when not overridden.
         """
-        flt = FilterClearsky(
+        flt = Clearsky(
             ghi_col=ghi_col,
             keep_clear=keep_clear,
             detect_kwargs=kwargs or None,
@@ -1972,7 +1972,7 @@ class CapData(param.Parameterized):
             Subset of columns to check for NaN. By default uses the regression
             columns identified in ``regression_cols``.
         """
-        FilterMissing(columns=columns).run(self)
+        Missing(columns=columns).run(self)
 
     def filter_op_state(self, op_state, mult_inv=None, inplace=True):
         """
@@ -2458,7 +2458,7 @@ class CapData(param.Parameterized):
         ----------
         filter : bool, default False
             When True, removes timestamps whose residuals exceed two standard
-            deviations (recorded as a FilterRegression step). When False, just
+            deviations (recorded as a Regression step). When False, just
             fits ordinary least squares and stores the result in
             ``regression_results``.
         inplace : bool, default True
@@ -2475,7 +2475,7 @@ class CapData(param.Parameterized):
         """
         if filter:
             print("NOTE: Regression used to filter outlying points.\n\n")
-            flt = FilterRegression(n_std=2)
+            flt = Regression(n_std=2)
             if inplace:
                 flt.run(self)
                 if summary:
@@ -2656,9 +2656,9 @@ class CapData(param.Parameterized):
         """
         Get length of test period.
 
-        Uses length of `data` unless a `FilterTime` step has been run, then uses
-        the length of the kept data after `FilterTime` was run the first time.
-        Subsequent uses of `FilterTime` are ignored.
+        Uses length of `data` unless a `Time` step has been run, then uses
+        the length of the kept data after `Time` was run the first time.
+        Subsequent uses of `Time` are ignored.
 
         Rounds up to a period of full days.
 
@@ -2669,7 +2669,7 @@ class CapData(param.Parameterized):
         """
         test_period = self.data.index[-1] - self.data.index[0]
         for step in self.filters:
-            if isinstance(step, FilterTime):
+            if isinstance(step, Time):
                 test_period = step.ix_after[-1] - step.ix_after[0]
                 break
         self.length_test_period = test_period.ceil("D").days

@@ -297,7 +297,7 @@ class BaseSummaryStep(param.Parameterized):
         ``CapData._ix_before(i)``/``_pts_before(i)`` and surfaced through
         ``get_summary`` / ``_removed_by_step``. This keeps attribution correct
         for filters that make nested filter calls during ``_execute`` (e.g.
-        ``FilterOutliers`` invoking ``filter_missing`` on NaN): the nested step
+        ``Outliers`` invoking ``filter_missing`` on NaN): the nested step
         is appended to ``capdata.filters`` before this one, so this step's
         ``_ix_before`` resolves to the post-nested-call state and counts only
         what this step itself removed.
@@ -400,7 +400,7 @@ class BaseFilter(BaseSummaryStep):
     pass
 
 
-class FilterIrr(BaseFilter):
+class Irradiance(BaseFilter):
     """Filter rows by an irradiance column to a low/high band.
 
     ``low``/``high`` are absolute values (W/m^2) unless ``ref_val`` is set,
@@ -493,7 +493,7 @@ class FilterIrr(BaseFilter):
         }
 
 
-class FilterSensors(BaseFilter):
+class Sensors(BaseFilter):
     """Drop rows where redundant sensors in a group disagree beyond a threshold.
 
     For each sensor group named in ``perc_diff``, ``row_filter`` is applied
@@ -572,7 +572,7 @@ class FilterSensors(BaseFilter):
         return cls(**config)
 
 
-class FilterTime(BaseFilter):
+class Time(BaseFilter):
     """Filter rows to a time window described by start/end/days/test_date.
 
     Multiple parameter combinations are supported:
@@ -702,7 +702,7 @@ class FilterTime(BaseFilter):
         return None
 
 
-class FilterCustom(BaseFilter):
+class Custom(BaseFilter):
     """Apply an arbitrary callable to ``capdata.data_filtered`` as a row filter.
 
     ``func`` is a callable that takes a DataFrame as its first argument and
@@ -749,7 +749,7 @@ class FilterCustom(BaseFilter):
 
     def to_config(self):
         return {
-            "type": "FilterCustom",
+            "type": "Custom",
             "func": util.callable_to_qualname(self.func),
             "args": list(self.args),
             "kwargs": dict(self.kwargs),
@@ -765,7 +765,7 @@ class FilterCustom(BaseFilter):
         return cls(func, *args, custom_name=config.get("custom_name"), **kwargs)
 
 
-class FilterOutliers(BaseFilter):
+class Outliers(BaseFilter):
     """Remove statistical outliers in the (poa, power) plane via sklearn EllipticEnvelope.
 
     Reads ``capdata.floc[["poa", "power"]]`` (the regression-mapped columns),
@@ -810,7 +810,7 @@ class FilterOutliers(BaseFilter):
             capdata.filter_missing(columns=XandY.columns.tolist())
             XandY = capdata.floc[["poa", "power"]]
             # The nested filter_missing step is appended to capdata.filters
-            # before this FilterOutliers step, so this step's chain-derived
+            # before this Outliers step, so this step's chain-derived
             # _ix_before resolves to the post-filter_missing state — its
             # removed count reflects only the outlier drop, not the NaN rows.
 
@@ -840,7 +840,7 @@ class FilterOutliers(BaseFilter):
         return {"kwargs": kw}
 
 
-class FilterClearsky(BaseFilter):
+class Clearsky(BaseFilter):
     """Remove intervals where measured GHI doesn't match modeled clear-sky GHI.
 
     Uses ``pvlib.clearsky.detect_clearsky`` to classify each timestamp as
@@ -956,7 +956,7 @@ class FilterClearsky(BaseFilter):
         }
 
 
-class FilterPvsyst(BaseFilter):
+class Pvsyst(BaseFilter):
     """Remove PVsyst intervals operating off the maximum power point.
 
     Drops rows where any of the PVsyst current-limit columns
@@ -990,7 +990,7 @@ class FilterPvsyst(BaseFilter):
         return index
 
 
-class FilterShade(BaseFilter):
+class Shade(BaseFilter):
     """Remove intervals of array shading.
 
     By default removes rows where the PVsyst ``FShdBm`` shading-fraction
@@ -1030,7 +1030,7 @@ class FilterShade(BaseFilter):
         return {"query": self.query_str}
 
 
-class FilterPf(BaseFilter):
+class PowerFactor(BaseFilter):
     """Remove intervals with a power factor below a threshold.
 
     Keeps rows where every column in the power-factor group (the first
@@ -1063,7 +1063,7 @@ class FilterPf(BaseFilter):
         return capdata.data_filtered.index[mask]
 
 
-class FilterPower(BaseFilter):
+class Power(BaseFilter):
     """Remove intervals at or above a power threshold.
 
     With ``percent`` set, ``power`` is treated as nameplate and the effective
@@ -1121,7 +1121,7 @@ class FilterPower(BaseFilter):
         return {"threshold": getattr(self, "power_threshold", self.power)}
 
 
-class FilterDays(BaseFilter):
+class Days(BaseFilter):
     """Keep (or drop) the timestamps belonging to a list of days.
 
     Each entry in ``days`` selects all timestamps on that calendar day
@@ -1159,7 +1159,7 @@ class FilterDays(BaseFilter):
         return f"All timestamps except the days [{days}] were removed."
 
 
-class FilterMissing(BaseFilter):
+class Missing(BaseFilter):
     """Remove rows with missing data (NaN) in the regression columns.
 
     By default checks the columns identified by ``regression_cols`` (via the
@@ -1183,7 +1183,7 @@ class FilterMissing(BaseFilter):
         return capdata.floc[self.columns].dropna().index
 
 
-class FilterRegression(BaseFilter):
+class Regression(BaseFilter):
     """Remove intervals whose regression residuals are statistical outliers.
 
     Fits the CapData regression formula (``capdata.regression_formula``) to the
@@ -1321,19 +1321,19 @@ class RepCond(BaseSummaryStep):
 
 
 FILTER_REGISTRY = {
-    "FilterIrr": FilterIrr,
-    "FilterPvsyst": FilterPvsyst,
-    "FilterShade": FilterShade,
-    "FilterTime": FilterTime,
-    "FilterDays": FilterDays,
-    "FilterOutliers": FilterOutliers,
-    "FilterPf": FilterPf,
-    "FilterPower": FilterPower,
-    "FilterCustom": FilterCustom,
-    "FilterSensors": FilterSensors,
-    "FilterClearsky": FilterClearsky,
-    "FilterMissing": FilterMissing,
-    "FilterRegression": FilterRegression,
+    "Irradiance": Irradiance,
+    "Pvsyst": Pvsyst,
+    "Shade": Shade,
+    "Time": Time,
+    "Days": Days,
+    "Outliers": Outliers,
+    "PowerFactor": PowerFactor,
+    "Power": Power,
+    "Custom": Custom,
+    "Sensors": Sensors,
+    "Clearsky": Clearsky,
+    "Missing": Missing,
+    "Regression": Regression,
     "RepCond": RepCond,
 }
 

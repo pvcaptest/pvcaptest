@@ -2010,9 +2010,9 @@ class TestPipelineYaml:
         capt.meas.filter_irr(200, 800)
         capt.sim.filter_irr(200, 800)
         sub = capt._build_yaml_sub_mapping()
-        assert sub["meas_filters"][0]["type"] == "FilterIrr"
+        assert sub["meas_filters"][0]["type"] == "Irradiance"
         assert sub["meas_filters"][0]["low"] == 200
-        assert sub["sim_filters"][0]["type"] == "FilterIrr"
+        assert sub["sim_filters"][0]["type"] == "Irradiance"
 
     def test_no_filters_omits_pipeline_keys(self, meas_cd_default, sim_cd_default):
         capt = self._capt(meas_cd_default, sim_cd_default)
@@ -2051,7 +2051,7 @@ class TestPipelineYaml:
             "sim_path": str(sim_file),
             "meas_filters": [
                 {
-                    "type": "FilterIrr",
+                    "type": "Irradiance",
                     "low": 200,
                     "high": 800,
                     "ref_val": None,
@@ -2061,7 +2061,7 @@ class TestPipelineYaml:
             ],
             "sim_filters": [
                 {
-                    "type": "FilterIrr",
+                    "type": "Irradiance",
                     "low": 200,
                     "high": 800,
                     "ref_val": None,
@@ -2075,8 +2075,8 @@ class TestPipelineYaml:
             meas_loader=MagicMock(return_value=meas_cd_default),
             sim_loader=MagicMock(return_value=sim_cd_default),
         )
-        assert [type(s).__name__ for s in capt.meas.filters] == ["FilterIrr"]
-        assert [type(s).__name__ for s in capt.sim.filters] == ["FilterIrr"]
+        assert [type(s).__name__ for s in capt.meas.filters] == ["Irradiance"]
+        assert [type(s).__name__ for s in capt.sim.filters] == ["Irradiance"]
 
     def test_to_yaml_from_yaml_file_roundtrip(
         self, tmp_path, meas_cd_default, sim_cd_default
@@ -2096,8 +2096,8 @@ class TestPipelineYaml:
             meas_loader=MagicMock(return_value=clean_meas),
             sim_loader=MagicMock(return_value=clean_sim),
         )
-        assert [type(s).__name__ for s in reloaded.meas.filters] == ["FilterIrr"]
-        assert [type(s).__name__ for s in reloaded.sim.filters] == ["FilterIrr"]
+        assert [type(s).__name__ for s in reloaded.meas.filters] == ["Irradiance"]
+        assert [type(s).__name__ for s in reloaded.sim.filters] == ["Irradiance"]
 
     def test_file_roundtrip_with_rep_cond_step_reconstitutes_rc(
         self, tmp_path, meas_cd_default, sim_cd_default
@@ -2133,7 +2133,7 @@ class TestPipelineYaml:
             "meas_path": str(meas_file),
             "meas_filters": [
                 {
-                    "type": "FilterIrr",
+                    "type": "Irradiance",
                     "low": 200,
                     "high": 800,
                     "ref_val": None,
