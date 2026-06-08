@@ -8,9 +8,20 @@
 
 Integration testing of the `filters-refactor` branch surfaced six issues across
 three groups: API cleanup, filter-attribution plotting, and a sim year-end
-wrapping bug. Each is small and independent; they are documented together here
-but will be implemented as **six separate, sequentially reviewed plans** (one
-per change) per the maintainer's fine-grained-plan preference.
+wrapping bug. They are documented together here and will be implemented as
+**four sequentially reviewed chunks**:
+
+1. **Chunk A — cleanup (combined).** A1 (`custom_name`), A2 (remove `inplace`),
+   and A3 (rename classes) are merged into a single chunk because they edit the
+   **same wrapper methods and lines** in `capdata.py` (and the same shared test
+   files) — they are one edit pass, not three independent tasks.
+2. **Chunk B1** — `scatter_filters` retained-layer order.
+3. **Chunk B2** — `timeseries_filters` retained-points scatter.
+4. **Chunk C1** — `_maybe_wrap_sim_year_end` wrap window.
+
+Chunks B1, B2, and C1 are mutually independent (disjoint methods / a separate
+file); they are still reviewed sequentially per the maintainer's fine-grained-
+plan preference.
 
 ## Decisions (settled during brainstorming)
 
@@ -22,7 +33,13 @@ per change) per the maintainer's fine-grained-plan preference.
 
 ---
 
-## Group A — Cleanup
+## Group A — Cleanup (Chunk A, combined)
+
+A1, A2, and A3 are implemented together as one pass over the `CapData` wrappers,
+`filters.py`, `clearsky.py`, and the shared test files. Suggested order within
+the chunk: rename classes (A3) first, then strip `inplace` (A2) and add
+`custom_name` (A1) while reworking each wrapper body, so each wrapper is touched
+once. The three are documented separately below for clarity only.
 
 ### A1. Add `custom_name` to wrapper methods
 
