@@ -22,6 +22,7 @@
       ~CapData.create_column_group_attributes
       ~CapData.custom_param
       ~CapData.data_columns_to_excel
+      ~CapData.describe_filters
       ~CapData.drop_cols
       ~CapData.empty
       ~CapData.expand_agg_map
@@ -39,6 +40,7 @@
       ~CapData.filter_sensors
       ~CapData.filter_shade
       ~CapData.filter_time
+      ~CapData.filters_to_config
       ~CapData.fit_regression
       ~CapData.get_filtering_table
       ~CapData.get_length_test_period
@@ -56,6 +58,7 @@
       ~CapData.reset_agg
       ~CapData.reset_filter
       ~CapData.review_column_groups
+      ~CapData.run_pipeline
       ~CapData.scatter
       ~CapData.scatter_filters
       ~CapData.scatter_hv
@@ -68,5 +71,14 @@
    
 
    
+   
+   .. rubric:: Attributes
+
+   .. autosummary::
+   
+      ~CapData.data_filtered
+      ~CapData.filters
+      ~CapData.name
+      ~CapData.param
    
    

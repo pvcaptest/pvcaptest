@@ -2366,7 +2366,7 @@ class CapData(param.Parameterized):
 
         return results
 
-    def fit_regression(self, filter=False, inplace=True, summary=True):
+    def fit_regression(self, filter=False, summary=True):
         """
         Perform a regression with statsmodels on the filtered data.
 
@@ -2374,33 +2374,19 @@ class CapData(param.Parameterized):
         ----------
         filter : bool, default False
             When True, removes timestamps whose residuals exceed two standard
-            deviations (recorded as a Regression step). When False, just
-            fits ordinary least squares and stores the result in
-            ``regression_results``.
-        inplace : bool, default True
-            With filter=True: if True, record the filter step and update
-            data_filtered; if False, return the filtered DataFrame without
-            recording a step.
+            deviations (recorded as a Regression step). ``regression_results``
+            is not updated in this case; call ``fit_regression(filter=False)``
+            afterwards to store the final fit. When False, just fits ordinary
+            least squares and stores the result in ``regression_results``.
         summary : bool, default True
             Set False to suppress printing the regression summary.
-
-        Returns
-        -------
-        DataFrame
-            Filtered DataFrame when filter=True and inplace=False.
         """
         if filter:
             print("NOTE: Regression used to filter outlying points.\n\n")
             flt = Regression(n_std=2)
-            if inplace:
-                flt.run(self)
-                if summary:
-                    print(flt.regression_model.summary())
-            else:
-                kept = flt._execute(self)
-                if summary:
-                    print(flt.regression_model.summary())
-                return self.data_filtered.loc[kept, :]
+            flt.run(self)
+            if summary:
+                print(flt.regression_model.summary())
         else:
             df = self.get_reg_cols()
             reg = fit_model(df, fml=self.regression_formula)

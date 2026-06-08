@@ -1150,12 +1150,10 @@ class TestFitRegressionWrapper:
         assert len(cd_reg.filters) == 1
         assert isinstance(cd_reg.filters[0], Regression)
 
-    def test_filter_true_not_inplace_records_no_step(self, cd_reg):
-        n_before = cd_reg.data_filtered.shape[0]
-        out = cd_reg.fit_regression(filter=True, inplace=False, summary=False)
+    def test_fit_regression_rejects_inplace_kwarg(self, cd_reg):
+        with pytest.raises(TypeError):
+            cd_reg.fit_regression(filter=True, inplace=False, summary=False)
         assert cd_reg.filters == []
-        assert cd_reg.data_filtered.shape[0] == n_before
-        assert out.shape[0] < n_before  # the outlier is removed
 
     def test_filter_false_stores_regression_results(self, cd_reg):
         cd_reg.fit_regression(filter=False, summary=False)

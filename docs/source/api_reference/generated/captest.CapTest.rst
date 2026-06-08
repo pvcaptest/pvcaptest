@@ -37,6 +37,7 @@
    .. autosummary::
    
       ~CapTest.ac_nameplate
+      ~CapTest.auto_wrap_sim
       ~CapTest.base_temp
       ~CapTest.bifaciality
       ~CapTest.clipping_irr
