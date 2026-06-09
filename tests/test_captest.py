@@ -22,6 +22,8 @@ from captest.calcparams import (
     e_total,
     poa_spec_corrected,
     power_temp_correct,
+    rpoa_pvsyst,
+    scale,
     spectral_factor_firstsolar,
 )
 
@@ -112,6 +114,50 @@ class TestTestSetupsRegistry:
         zenith_node = abs_airmass_node[1]["apparent_zenith"]
         assert isinstance(zenith_node, tuple)
         assert zenith_node[0] is apparent_zenith_pvsyst
+
+    def test_spec_corrected_etotal_sim_front_spec_corrected_rear_raw(self):
+        """_sim meas poa = e_total(front=poa_spec_corrected, rear=raw irr_rpoa)."""
+        entry = ct.TEST_SETUPS["bifi_e2848_spec_corrected_etotal_rear_shade_sim"]
+        meas_poa = entry["reg_cols_meas"]["poa"]
+        assert isinstance(meas_poa, tuple)
+        assert meas_poa[0] is e_total
+        assert meas_poa[1]["poa"][0] is poa_spec_corrected
+        assert meas_poa[1]["rpoa"] == ("irr_rpoa", "mean")
+
+    def test_spec_corrected_etotal_sim_rear_uses_rpoa_pvsyst(self):
+        """_sim sim-side rear routes through rpoa_pvsyst (shading in model)."""
+        entry = ct.TEST_SETUPS["bifi_e2848_spec_corrected_etotal_rear_shade_sim"]
+        sim_rear = entry["reg_cols_sim"]["poa"][1]["rpoa"]
+        assert isinstance(sim_rear, tuple)
+        assert sim_rear[0] is rpoa_pvsyst
+
+    def test_spec_corrected_etotal_meas_rear_maps_to_globbak(self):
+        """_meas sim-side rear maps directly to GlobBak; meas side matches _sim."""
+        entry = ct.TEST_SETUPS["bifi_e2848_spec_corrected_etotal_rear_shade_meas"]
+        assert entry["reg_cols_sim"]["poa"][1]["rpoa"] == "GlobBak"
+        meas_poa = entry["reg_cols_meas"]["poa"]
+        assert meas_poa[0] is e_total
+        assert meas_poa[1]["poa"][0] is poa_spec_corrected
+        assert meas_poa[1]["rpoa"] == ("irr_rpoa", "mean")
+
+    def test_spec_corrected_etotal_sim_routes_through_pvsyst_zenith_and_scale(self):
+        """_sim sim-side spectral tree uses apparent_zenith_pvsyst + scale(PrecWat)."""
+        entry = ct.TEST_SETUPS["bifi_e2848_spec_corrected_etotal_rear_shade_sim"]
+        front = entry["reg_cols_sim"]["poa"][1]["poa"]  # poa_spec_corrected tuple
+        assert front[0] is poa_spec_corrected
+        spec_node = front[1]["spectral_correction"]
+        assert spec_node[0] is spectral_factor_firstsolar
+        zenith = spec_node[1]["absolute_airmass"][1]["apparent_zenith"]
+        assert zenith[0] is apparent_zenith_pvsyst
+        assert spec_node[1]["precipitable_water"][0] is scale
+
+    def test_spec_corrected_etotal_presets_use_scatter_etotal(self):
+        """Both presets use scatter_etotal, matching the other e_total presets."""
+        for name in (
+            "bifi_e2848_spec_corrected_etotal_rear_shade_sim",
+            "bifi_e2848_spec_corrected_etotal_rear_shade_meas",
+        ):
+            assert ct.TEST_SETUPS[name]["scatter_plots"] is ct.scatter_etotal
 
     def test_validate_rejects_unknown_keys(self):
         bad = dict(ct.TEST_SETUPS["e2848_default"])

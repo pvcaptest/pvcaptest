@@ -490,6 +490,206 @@ TEST_SETUPS = {
             },
         },
     },
+    "bifi_e2848_spec_corrected_etotal_rear_shade_sim": {
+        "description": (
+            "Standard ASTM E2848 regression with total effective irradiance replacing "
+            "front POA and a First Solar spectral correction applied to "
+            "front-side POA irradiance used to calculate the total POA irradiance. "
+            "Requires relative humidity and atmospheric "
+            "pressure on the measured side and precipitable water from the PVsyst output. "
+            "Rear shading and IAM losses are handled in the modeled (PVsyst) "
+            "data: the modeled rear irradiance is rpoa_pvsyst = GlobBak + "
+            "BackShd, while the measured rear sensor (irr_rpoa) is used "
+            "as-measured (no rear_shade factor, i.e. rear_shade = 0). For the "
+            "variant that instead applies rear shading on the measured side, "
+            "see 'bifi_e2848_spec_corrected_etotal_rear_shade_meas'. Total irradiance is "
+            "E_Total = E_POA + E_Rear * bifaciality with the spectral correction "
+            "applied to E_POA. "
+        ),
+        "reg_cols_meas": {
+            "power": ("real_pwr_mtr", "sum"),
+            "poa": (
+                e_total,
+                {
+                    "poa": (  # front POA: spectrally corrected
+                        poa_spec_corrected,
+                        {
+                            "poa": ("irr_poa", "mean"),
+                            "spectral_correction": (
+                                spectral_factor_firstsolar,
+                                {
+                                    "precipitable_water": (
+                                        precipitable_water_gueymard,
+                                        {
+                                            "temp_amb": ("temp_amb", "mean"),
+                                            "rel_humidity": ("humidity", "mean"),
+                                        },
+                                    ),
+                                    "absolute_airmass": (
+                                        absolute_airmass,
+                                        {
+                                            "apparent_zenith": (apparent_zenith, {}),
+                                            "pressure": ("pressure", "mean"),
+                                        },
+                                    ),
+                                },
+                            ),
+                        },
+                    ),
+                    "rpoa": ("irr_rpoa", "mean"),  # rear POA: unchanged
+                },
+            ),
+            "t_amb": ("temp_amb", "mean"),
+            "w_vel": ("wind_speed", "mean"),
+        },
+        "reg_cols_sim": {
+            "power": "E_Grid",
+            "poa": (
+                e_total,
+                {
+                    "poa": (  # front POA: spectrally corrected
+                        poa_spec_corrected,
+                        {
+                            "poa": "GlobInc",
+                            "spectral_correction": (
+                                spectral_factor_firstsolar,
+                                {
+                                    "precipitable_water": (
+                                        scale,
+                                        {"col": "PrecWat", "factor": 100},
+                                    ),
+                                    "absolute_airmass": (
+                                        absolute_airmass,
+                                        {
+                                            "apparent_zenith": (
+                                                apparent_zenith_pvsyst,
+                                                {},
+                                            ),
+                                            # no pressure col: PVsyst uses sea-level default
+                                        },
+                                    ),
+                                },
+                            ),
+                        },
+                    ),
+                    "rpoa": (  # rear POA: unchanged
+                        rpoa_pvsyst,
+                        {"globbak": "GlobBak", "backshd": "BackShd"},
+                    ),
+                },
+            ),
+            "t_amb": "T_Amb",
+            "w_vel": "WindVel",
+        },
+        "reg_fml": "power ~ poa + I(poa * poa) + I(poa * t_amb) + I(poa * w_vel) - 1",
+        "scatter_plots": scatter_etotal,
+        "rep_conditions": {
+            "irr_bal": False,
+            "percent_filter": 20,
+            "func": {
+                "poa": perc_wrap(60),
+                "t_amb": "mean",
+                "w_vel": "mean",
+            },
+        },
+    },
+    "bifi_e2848_spec_corrected_etotal_rear_shade_meas": {
+        "description": (
+            "Standard ASTM E2848 regression with total effective irradiance replacing "
+            "front POA and a First Solar spectral correction applied to "
+            "front-side POA irradiance used to calculate the total POA irradiance. "
+            "Requires relative humidity and atmospheric "
+            "pressure on the measured side and precipitable water from the PVsyst output. "
+            "The modeled rear irradiance maps directly to PVsyst's unshaded global rear "
+            "('GlobBak') instead of rpoa_pvsyst, and rear shading is applied "
+            "to the measured side through the e_total 'rear_shade' factor "
+            "(propagated by CapTest to the measured CapData only). Total "
+            "irradiance is E_Total = E_POA + E_Rear * bifaciality * (1 - rear_shade)."
+        ),
+        "reg_cols_meas": {
+            "power": ("real_pwr_mtr", "sum"),
+            "poa": (
+                e_total,
+                {
+                    "poa": (
+                        poa_spec_corrected,
+                        {
+                            "poa": ("irr_poa", "mean"),
+                            "spectral_correction": (
+                                spectral_factor_firstsolar,
+                                {
+                                    "precipitable_water": (
+                                        precipitable_water_gueymard,
+                                        {
+                                            "temp_amb": ("temp_amb", "mean"),
+                                            "rel_humidity": ("humidity", "mean"),
+                                        },
+                                    ),
+                                    "absolute_airmass": (
+                                        absolute_airmass,
+                                        {
+                                            "apparent_zenith": (apparent_zenith, {}),
+                                            "pressure": ("pressure", "mean"),
+                                        },
+                                    ),
+                                },
+                            ),
+                        },
+                    ),
+                    "rpoa": ("irr_rpoa", "mean"),
+                },
+            ),
+            "t_amb": ("temp_amb", "mean"),
+            "w_vel": ("wind_speed", "mean"),
+        },
+        "reg_cols_sim": {
+            "power": "E_Grid",
+            "poa": (
+                e_total,
+                {
+                    "poa": (  # front POA: spectrally corrected
+                        poa_spec_corrected,
+                        {
+                            "poa": "GlobInc",
+                            "spectral_correction": (
+                                spectral_factor_firstsolar,
+                                {
+                                    "precipitable_water": (
+                                        scale,
+                                        {"col": "PrecWat", "factor": 100},
+                                    ),
+                                    "absolute_airmass": (
+                                        absolute_airmass,
+                                        {
+                                            "apparent_zenith": (
+                                                apparent_zenith_pvsyst,
+                                                {},
+                                            ),
+                                            # no pressure col: PVsyst uses sea-level default
+                                        },
+                                    ),
+                                },
+                            ),
+                        },
+                    ),
+                    "rpoa": "GlobBak",
+                },
+            ),
+            "t_amb": "T_Amb",
+            "w_vel": "WindVel",
+        },
+        "reg_fml": "power ~ poa + I(poa * poa) + I(poa * t_amb) + I(poa * w_vel) - 1",
+        "scatter_plots": scatter_etotal,
+        "rep_conditions": {
+            "irr_bal": False,
+            "percent_filter": 20,
+            "func": {
+                "poa": perc_wrap(60),
+                "t_amb": "mean",
+                "w_vel": "mean",
+            },
+        },
+    },
 }
 
 _TEST_SETUP_REQUIRED_KEYS = frozenset(
