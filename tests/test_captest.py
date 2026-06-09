@@ -1352,6 +1352,24 @@ class TestCapTestSpectralCorrection:
         assert capt.sim.spectral_module_type == "monosi"
 
 
+class TestSpecCorrectedEtotalColumns:
+    """Both poa_spec_corrected and e_total materialize on meas and sim."""
+
+    def test_sim_variant_materializes_both_columns(self, ct_spec_corrected_etotal_sim):
+        capt = ct_spec_corrected_etotal_sim
+        for cd in (capt.meas, capt.sim):
+            assert "poa_spec_corrected" in cd.data.columns
+            assert "e_total" in cd.data.columns
+
+    def test_meas_variant_materializes_both_columns(
+        self, ct_spec_corrected_etotal_meas
+    ):
+        capt = ct_spec_corrected_etotal_meas
+        for cd in (capt.meas, capt.sim):
+            assert "poa_spec_corrected" in cd.data.columns
+            assert "e_total" in cd.data.columns
+
+
 class TestLoaderInjection:
     """Loader callable defaults, overrides, and kwarg splatting."""
 
@@ -2134,3 +2152,25 @@ class TestIntegration:
         self._run_canonical_sequence(ct_bifi_power_tc_meas_tbom)
         cap_ratio = ct_bifi_power_tc_meas_tbom.captest_results(print_res=False)
         assert 0.8 < cap_ratio < 1.2
+
+    def test_end_to_end_spec_corrected_etotal_sim(self, ct_spec_corrected_etotal_sim):
+        """Spectral-corrected e_total (_sim) runs end-to-end to a plausible ratio."""
+        capt = ct_spec_corrected_etotal_sim
+        assert "e_total" in capt.meas.data.columns
+        assert "poa_spec_corrected" in capt.meas.data.columns
+        self._run_canonical_sequence(capt)
+        cap_ratio = capt.captest_results(print_res=False)
+        assert 0.8 < cap_ratio < 1.2
+        assert capt.meas.regression_cols["poa"] == "e_total"
+        assert capt.sim.regression_cols["poa"] == "e_total"
+
+    def test_end_to_end_spec_corrected_etotal_meas(self, ct_spec_corrected_etotal_meas):
+        """Spectral-corrected e_total (_meas) runs end-to-end to a plausible ratio."""
+        capt = ct_spec_corrected_etotal_meas
+        assert "e_total" in capt.meas.data.columns
+        assert "poa_spec_corrected" in capt.meas.data.columns
+        self._run_canonical_sequence(capt)
+        cap_ratio = capt.captest_results(print_res=False)
+        assert 0.8 < cap_ratio < 1.2
+        assert capt.meas.regression_cols["poa"] == "e_total"
+        assert capt.sim.regression_cols["poa"] == "e_total"
