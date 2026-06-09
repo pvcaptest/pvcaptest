@@ -32,7 +32,13 @@ from captest.calcparams import (
 _DEFAULT_FIXTURE_PRESETS = [
     p
     for p in ct.TEST_SETUPS.keys()
-    if p not in {"e2848_spec_corrected_poa", "bifi_power_tc_meas_tbom"}
+    if p
+    not in {
+        "e2848_spec_corrected_poa",
+        "bifi_power_tc_meas_tbom",
+        "bifi_e2848_spec_corrected_etotal_rear_shade_sim",
+        "bifi_e2848_spec_corrected_etotal_rear_shade_meas",
+    }
 ]
 
 
