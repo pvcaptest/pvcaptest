@@ -1,3 +1,5 @@
+import warnings
+
 import pytest
 import numpy as np
 import pandas as pd
@@ -369,6 +371,46 @@ def sim_cd_spec_corrected(sim_cd_default):
     cd.data["PrecWat"] = rng.uniform(0.005, 0.03, n)  # meters
     cd.data_filtered = cd.data.copy(deep=True)
     return cd
+
+
+@pytest.fixture
+def ct_spec_corrected_etotal_sim(meas_cd_spec_corrected, sim_cd_spec_corrected):
+    """CapTest for the bifi_e2848_spec_corrected_etotal_rear_shade_sim preset.
+
+    The "Propagating meas.site" UserWarning (sim has no site) is suppressed at
+    setup; that auto-propagation behavior is covered separately by the
+    e2848_spec_corrected_poa tests.
+    """
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", message="Propagating meas.site")
+        return CapTest.from_params(
+            test_setup="bifi_e2848_spec_corrected_etotal_rear_shade_sim",
+            meas=meas_cd_spec_corrected,
+            sim=sim_cd_spec_corrected,
+            ac_nameplate=6_000_000,
+            bifaciality=0.15,
+            test_tolerance="- 4",
+        )
+
+
+@pytest.fixture
+def ct_spec_corrected_etotal_meas(meas_cd_spec_corrected, sim_cd_spec_corrected):
+    """CapTest for the bifi_e2848_spec_corrected_etotal_rear_shade_meas preset.
+
+    The "Propagating meas.site" UserWarning (sim has no site) is suppressed at
+    setup; that auto-propagation behavior is covered separately by the
+    e2848_spec_corrected_poa tests.
+    """
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", message="Propagating meas.site")
+        return CapTest.from_params(
+            test_setup="bifi_e2848_spec_corrected_etotal_rear_shade_meas",
+            meas=meas_cd_spec_corrected,
+            sim=sim_cd_spec_corrected,
+            ac_nameplate=6_000_000,
+            bifaciality=0.15,
+            test_tolerance="- 4",
+        )
 
 
 @pytest.fixture

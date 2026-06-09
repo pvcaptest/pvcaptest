@@ -1077,6 +1077,47 @@ class TestDownstreamPropagation:
         s = sim_df.loc[sim_df["GlobInc"] > 0].iloc[0]
         assert s["e_total"] == pytest.approx(s["GlobInc"] + s["GlobBak"] * 0.5)
 
+    def test_spec_correction_applied_to_front_inside_e_total(
+        self, ct_spec_corrected_etotal_sim
+    ):
+        """Meas e_total front term is poa_spec_corrected (not raw irr_poa),
+        and rear is discounted by bifaciality (rear_shade=0 by default)."""
+        capt = ct_spec_corrected_etotal_sim
+        meas_df = capt.meas.data
+        assert "poa_spec_corrected" in meas_df.columns
+        # Pick a daytime row with a valid spectral factor; the First Solar model
+        # returns NaN near sunrise/sunset (outside its valid airmass/pw range).
+        mask = meas_df["poa_spec_corrected"].notna() & (
+            meas_df["poa_spec_corrected"] > 0
+        )
+        first = meas_df.loc[mask].iloc[0]
+        expected = first["poa_spec_corrected"] + first["irr_rpoa_mean_agg"] * 0.15
+        assert first["e_total"] == pytest.approx(expected)
+        # The corrected front differs from the raw front (spectral factor != 1).
+        assert first["poa_spec_corrected"] != pytest.approx(first["irr_poa_mean_agg"])
+
+    def test_rear_shade_meas_only_for_spec_corrected_etotal(
+        self, meas_cd_spec_corrected, sim_cd_spec_corrected
+    ):
+        """rear_shade discounts the measured rear but is absent on sim."""
+        with pytest.warns(UserWarning, match="Propagating meas.site"):
+            capt = CapTest.from_params(
+                test_setup="bifi_e2848_spec_corrected_etotal_rear_shade_meas",
+                meas=meas_cd_spec_corrected,
+                sim=sim_cd_spec_corrected,
+                bifaciality=0.5,
+                rear_shade=0.12,
+            )
+        assert capt.meas.rear_shade == 0.12
+        assert not hasattr(capt.sim, "rear_shade")
+        meas_df = capt.meas.data
+        mask = meas_df["poa_spec_corrected"].notna() & (
+            meas_df["poa_spec_corrected"] > 0
+        )
+        m = meas_df.loc[mask].iloc[0]
+        expected = m["poa_spec_corrected"] + m["irr_rpoa_mean_agg"] * 0.5 * (1 - 0.12)
+        assert m["e_total"] == pytest.approx(expected)
+
     def test_bifacial_frac_flows_into_e_total(self, meas_cd_default, sim_cd_default):
         capt = CapTest.from_params(
             test_setup="bifi_e2848_etotal_rear_shade_sim",
