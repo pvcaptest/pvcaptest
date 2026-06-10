@@ -332,6 +332,12 @@ def _get_or_create_aggregation(group_id, agg_func, cd, agg_cache, verbose):
     """
     Get an aggregated column name, creating it if necessary.
 
+    If a column named ``<group_id>_<agg_func>_agg`` already exists in
+    ``cd.data`` (e.g. measured data was loaded from a previously exported
+    test-data file), that column is reused instead of re-aggregating the
+    group, and a "Reusing existing column ..." message is printed when
+    ``verbose`` is True.
+
     Parameters
     ----------
     group_id : str
@@ -357,6 +363,11 @@ def _get_or_create_aggregation(group_id, agg_func, cd, agg_cache, verbose):
     expected_agg_name = get_agg_column_name(group_id, agg_func)
     if expected_agg_name in cd.data.columns:
         agg_name = expected_agg_name
+        if verbose:
+            print(
+                f"Reusing existing column '{expected_agg_name}'; skipping "
+                f"aggregation of the {group_id} group.\n"
+            )
     else:
         agg_name = cd.agg_group(group_id=group_id, agg_func=agg_func, verbose=verbose)
 
