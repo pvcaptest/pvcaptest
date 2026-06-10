@@ -40,6 +40,8 @@ _DEFAULT_FIXTURE_PRESETS = [
         "bifi_power_tc_meas_tbom",
         "bifi_e2848_etotal_rear_shade_sim_spec_corrected",
         "bifi_e2848_etotal_rear_shade_meas_spec_corrected",
+        "bifi_power_tc_etotal_rear_shade_sim",
+        "bifi_power_tc_etotal_rear_shade_meas",
     }
 ]
 
@@ -158,6 +160,43 @@ class TestTestSetupsRegistry:
             "bifi_e2848_etotal_rear_shade_meas_spec_corrected",
         ):
             assert ct.TEST_SETUPS[name]["scatter_plots"] is ct.scatter_etotal
+
+    def test_power_tc_etotal_power_is_temp_corrected_with_measured_bom(self):
+        """power_tc_etotal meas power is power_temp_correct over measured BOM."""
+        entry = ct.TEST_SETUPS["bifi_power_tc_etotal_rear_shade_sim"]
+        meas_power = entry["reg_cols_meas"]["power"]
+        assert meas_power[0] is power_temp_correct
+        bom_spec = meas_power[1]["cell_temp"][1]["bom"]
+        assert bom_spec == ("temp_bom", "mean")
+
+    def test_power_tc_etotal_poa_is_e_total_over_front_and_rear(self):
+        """power_tc_etotal meas poa is an e_total calc-tuple over front + rear."""
+        entry = ct.TEST_SETUPS["bifi_power_tc_etotal_rear_shade_sim"]
+        meas_poa = entry["reg_cols_meas"]["poa"]
+        assert meas_poa[0] is e_total
+        assert meas_poa[1]["poa"] == ("irr_poa", "mean")
+        assert meas_poa[1]["rpoa"] == ("irr_rpoa", "mean")
+
+    def test_power_tc_etotal_sim_rear_uses_rpoa_pvsyst(self):
+        """_sim sim-side e_total rear routes through rpoa_pvsyst (shading in model)."""
+        entry = ct.TEST_SETUPS["bifi_power_tc_etotal_rear_shade_sim"]
+        sim_rear = entry["reg_cols_sim"]["poa"][1]["rpoa"]
+        assert isinstance(sim_rear, tuple)
+        assert sim_rear[0] is rpoa_pvsyst
+
+    def test_power_tc_etotal_meas_rear_maps_to_globbak(self):
+        """_meas sim-side e_total rear maps directly to GlobBak (no rpoa_pvsyst)."""
+        entry = ct.TEST_SETUPS["bifi_power_tc_etotal_rear_shade_meas"]
+        assert entry["reg_cols_sim"]["poa"][1]["rpoa"] == "GlobBak"
+
+    def test_power_tc_etotal_presets_use_scatter_etotal_and_single_term_formula(self):
+        """Both presets use scatter_etotal and the single-term 'power ~ poa' formula."""
+        for name in (
+            "bifi_power_tc_etotal_rear_shade_sim",
+            "bifi_power_tc_etotal_rear_shade_meas",
+        ):
+            assert ct.TEST_SETUPS[name]["scatter_plots"] is ct.scatter_etotal
+            assert ct.TEST_SETUPS[name]["reg_fml"] == "power ~ poa"
 
     def test_validate_rejects_unknown_keys(self):
         bad = dict(ct.TEST_SETUPS["e2848_default"])
@@ -1118,6 +1157,30 @@ class TestDownstreamPropagation:
         expected = m["poa_spec_corrected"] + m["irr_rpoa_mean_agg"] * 0.5 * (1 - 0.12)
         assert m["e_total"] == pytest.approx(expected)
 
+    def test_power_tc_etotal_meas_composition_and_temp_corrected_power(
+        self, meas_cd_bom_temp, sim_cd_default
+    ):
+        """power_tc_etotal _meas: e_total = poa + rpoa*bifaciality*(1-rear_shade),
+        temp-corrected power materializes, and rear_shade is meas-only."""
+        capt = CapTest.from_params(
+            test_setup="bifi_power_tc_etotal_rear_shade_meas",
+            meas=meas_cd_bom_temp,
+            sim=sim_cd_default,
+            bifaciality=0.5,
+            rear_shade=0.12,
+            power_temp_coeff=-0.32,
+            base_temp=25,
+        )
+        assert capt.meas.rear_shade == 0.12
+        assert not hasattr(capt.sim, "rear_shade")
+        meas_df = capt.meas.data
+        assert "power_temp_correct" in meas_df.columns
+        first = meas_df.loc[meas_df["irr_poa_mean_agg"] > 0].iloc[0]
+        expected = first["irr_poa_mean_agg"] + first["irr_rpoa_mean_agg"] * 0.5 * (
+            1 - 0.12
+        )
+        assert first["e_total"] == pytest.approx(expected)
+
     def test_bifacial_frac_flows_into_e_total(self, meas_cd_default, sim_cd_default):
         capt = CapTest.from_params(
             test_setup="bifi_e2848_etotal_rear_shade_sim",
@@ -1367,6 +1430,22 @@ class TestSpecCorrectedEtotalColumns:
         capt = ct_spec_corrected_etotal_meas
         for cd in (capt.meas, capt.sim):
             assert "poa_spec_corrected" in cd.data.columns
+            assert "e_total" in cd.data.columns
+
+
+class TestPowerTcEtotalColumns:
+    """power_temp_correct and e_total materialize on meas and sim."""
+
+    def test_sim_variant_materializes_both_columns(self, ct_power_tc_etotal_sim):
+        capt = ct_power_tc_etotal_sim
+        for cd in (capt.meas, capt.sim):
+            assert "power_temp_correct" in cd.data.columns
+            assert "e_total" in cd.data.columns
+
+    def test_meas_variant_materializes_both_columns(self, ct_power_tc_etotal_meas):
+        capt = ct_power_tc_etotal_meas
+        for cd in (capt.meas, capt.sim):
+            assert "power_temp_correct" in cd.data.columns
             assert "e_total" in cd.data.columns
 
 
@@ -2169,6 +2248,28 @@ class TestIntegration:
         capt = ct_spec_corrected_etotal_meas
         assert "e_total" in capt.meas.data.columns
         assert "poa_spec_corrected" in capt.meas.data.columns
+        self._run_canonical_sequence(capt)
+        cap_ratio = capt.captest_results(print_res=False)
+        assert 0.8 < cap_ratio < 1.2
+        assert capt.meas.regression_cols["poa"] == "e_total"
+        assert capt.sim.regression_cols["poa"] == "e_total"
+
+    def test_end_to_end_power_tc_etotal_sim(self, ct_power_tc_etotal_sim):
+        """power_tc e_total (_sim) runs end-to-end to a plausible cap ratio."""
+        capt = ct_power_tc_etotal_sim
+        assert "power_temp_correct" in capt.meas.data.columns
+        assert "e_total" in capt.meas.data.columns
+        self._run_canonical_sequence(capt)
+        cap_ratio = capt.captest_results(print_res=False)
+        assert 0.8 < cap_ratio < 1.2
+        assert capt.meas.regression_cols["poa"] == "e_total"
+        assert capt.sim.regression_cols["poa"] == "e_total"
+
+    def test_end_to_end_power_tc_etotal_meas(self, ct_power_tc_etotal_meas):
+        """power_tc e_total (_meas) runs end-to-end to a plausible cap ratio."""
+        capt = ct_power_tc_etotal_meas
+        assert "power_temp_correct" in capt.meas.data.columns
+        assert "e_total" in capt.meas.data.columns
         self._run_canonical_sequence(capt)
         cap_ratio = capt.captest_results(print_res=False)
         assert 0.8 < cap_ratio < 1.2

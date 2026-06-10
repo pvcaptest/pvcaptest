@@ -321,6 +321,36 @@ def ct_bifi_power_tc_meas_tbom(meas_cd_bom_temp, sim_cd_default):
 
 
 @pytest.fixture
+def ct_power_tc_etotal_sim(meas_cd_bom_temp, sim_cd_default):
+    """CapTest for the bifi_power_tc_etotal_rear_shade_sim preset with setup() run."""
+    return CapTest.from_params(
+        test_setup="bifi_power_tc_etotal_rear_shade_sim",
+        meas=meas_cd_bom_temp,
+        sim=sim_cd_default,
+        ac_nameplate=6_000_000,
+        bifaciality=0.15,
+        power_temp_coeff=-0.32,
+        base_temp=25,
+        test_tolerance="- 4",
+    )
+
+
+@pytest.fixture
+def ct_power_tc_etotal_meas(meas_cd_bom_temp, sim_cd_default):
+    """CapTest for the bifi_power_tc_etotal_rear_shade_meas preset with setup() run."""
+    return CapTest.from_params(
+        test_setup="bifi_power_tc_etotal_rear_shade_meas",
+        meas=meas_cd_bom_temp,
+        sim=sim_cd_default,
+        ac_nameplate=6_000_000,
+        bifaciality=0.15,
+        power_temp_coeff=-0.32,
+        base_temp=25,
+        test_tolerance="- 4",
+    )
+
+
+@pytest.fixture
 def meas_cd_spec_corrected(meas_cd_default):
     """Measured CapData extended with humidity, pressure, and a site dict.
 

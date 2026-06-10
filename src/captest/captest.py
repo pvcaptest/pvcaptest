@@ -410,6 +410,137 @@ TEST_SETUPS = {
             },
         },
     },
+    "bifi_power_tc_etotal_rear_shade_sim": {
+        "description": (
+            "The regression equation is temperature corrected power regressed against "
+            "total POA irradiance. The back of module temperature is from field "
+            "measurements and the cell temperature is calculated using the Sandia PV Array "
+            "Performance Model from the POA irradiance and measured BOM temperature. "
+            "Note that the PVsyst temperature correction uses the 'TArray' output variable. "
+            "Rear shading and IAM losses are handled in the modeled (PVsyst) "
+            "data: the modeled rear irradiance is rpoa_pvsyst = GlobBak + "
+            "BackShd, while the measured rear sensor (irr_rpoa) is used "
+            "as-measured (no rear_shade factor, i.e. rear_shade = 0). For the "
+            "variant that instead applies rear shading on the measured side, "
+            "see 'bifi_power_tc_etotal_rear_shade_meas'. Total irradiance is "
+            "E_Total = E_POA + E_Rear * bifaciality, following the NREL "
+            "modified bifacial approach."
+        ),
+        "reg_cols_meas": {
+            "power": (
+                power_temp_correct,
+                {
+                    "power": ("real_pwr_mtr", "sum"),
+                    "cell_temp": (
+                        cell_temp,
+                        {
+                            "poa": ("irr_poa", "mean"),
+                            "bom": ("temp_bom", "mean"),
+                        },
+                    ),
+                },
+            ),
+            "poa": (
+                e_total,
+                {
+                    "poa": ("irr_poa", "mean"),
+                    "rpoa": ("irr_rpoa", "mean"),
+                },
+            ),
+        },
+        "reg_cols_sim": {
+            "power": (
+                power_temp_correct,
+                {
+                    "power": "E_Grid",
+                    "cell_temp": "TArray",
+                },
+            ),
+            "poa": (
+                e_total,
+                {
+                    "poa": "GlobInc",
+                    "rpoa": (
+                        rpoa_pvsyst,
+                        {"globbak": "GlobBak", "backshd": "BackShd"},
+                    ),
+                },
+            ),
+        },
+        "reg_fml": "power ~ poa",
+        "scatter_plots": scatter_etotal,
+        "rep_conditions": {
+            "irr_bal": False,
+            "percent_filter": 20,
+            "func": {
+                "poa": perc_wrap(60),
+            },
+        },
+    },
+    "bifi_power_tc_etotal_rear_shade_meas": {
+        "description": (
+            "The regression equation is temperature corrected power regressed against "
+            "total POA irradiance. The back of module temperature is from field "
+            "measurements and the cell temperature is calculated using the Sandia PV Array "
+            "Performance Model from the POA irradiance and measured BOM temperature. "
+            "Note that the PVsyst temperature correction uses the 'TArray' output variable. "
+            "Variant of 'bifi_power_tc_etotal_rear_shade_sim' for applying "
+            "rear-shading losses on the measured side. The modeled rear "
+            "irradiance maps directly to PVsyst's unshaded global rear "
+            "('GlobBak') instead of rpoa_pvsyst, and rear shading is applied "
+            "to the measured side through the e_total 'rear_shade' factor "
+            "(propagated by CapTest to the measured CapData only). Total "
+            "irradiance is E_Total = E_POA + E_Rear * bifaciality * "
+            "(1 - rear_shade)."
+        ),
+        "reg_cols_meas": {
+            "power": (
+                power_temp_correct,
+                {
+                    "power": ("real_pwr_mtr", "sum"),
+                    "cell_temp": (
+                        cell_temp,
+                        {
+                            "poa": ("irr_poa", "mean"),
+                            "bom": ("temp_bom", "mean"),
+                        },
+                    ),
+                },
+            ),
+            "poa": (
+                e_total,
+                {
+                    "poa": ("irr_poa", "mean"),
+                    "rpoa": ("irr_rpoa", "mean"),
+                },
+            ),
+        },
+        "reg_cols_sim": {
+            "power": (
+                power_temp_correct,
+                {
+                    "power": "E_Grid",
+                    "cell_temp": "TArray",
+                },
+            ),
+            "poa": (
+                e_total,
+                {
+                    "poa": "GlobInc",
+                    "rpoa": "GlobBak",
+                },
+            ),
+        },
+        "reg_fml": "power ~ poa",
+        "scatter_plots": scatter_etotal,
+        "rep_conditions": {
+            "irr_bal": False,
+            "percent_filter": 20,
+            "func": {
+                "poa": perc_wrap(60),
+            },
+        },
+    },
     "e2848_spec_corrected_poa": {
         "description": (
             "Standard ASTM E2848 regression with a First Solar spectral correction applied to "
