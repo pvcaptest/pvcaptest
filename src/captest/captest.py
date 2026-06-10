@@ -312,9 +312,9 @@ TEST_SETUPS = {
     "bifi_power_tc_meas_tbom": {
         "description": (
             "The regression equation is temperature corrected power regressed against "
-            "front POA and rear POA. The back of module temperature is from field"
+            "front POA and rear POA. The back of module temperature is from field "
             "measurements and the cell temperature is calculated using the Sandia PV Array "
-            "Performance Model from the POA irradiance and measured BOM temperature."
+            "Performance Model from the POA irradiance and measured BOM temperature. "
             "Note that the PVsyst temperature correction uses the 'TArray' output variable."
         ),
         "reg_cols_meas": {
