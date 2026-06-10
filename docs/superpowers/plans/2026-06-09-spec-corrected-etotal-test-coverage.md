@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Bring the two new `TEST_SETUPS` presets (`bifi_e2848_spec_corrected_etotal_rear_shade_sim` / `_meas`) to full test-coverage parity with the existing presets, and fix the test breakage their addition caused.
+**Goal:** Bring the two new `TEST_SETUPS` presets (`bifi_e2848_etotal_rear_shade_sim_spec_corrected` / `_meas`) to full test-coverage parity with the existing presets, and fix the test breakage their addition caused.
 
 **Architecture:** Four sequential tasks, each TDD red→green→commit. Task 1 fixes the existing parametrized-test breakage. Tasks 2–4 add the four coverage layers (structural calc-tree, downstream propagation, column existence, end-to-end integration), reusing the existing `*_spec_corrected` data fixtures.
 
@@ -53,8 +53,8 @@ _DEFAULT_FIXTURE_PRESETS = [
     not in {
         "e2848_spec_corrected_poa",
         "bifi_power_tc_meas_tbom",
-        "bifi_e2848_spec_corrected_etotal_rear_shade_sim",
-        "bifi_e2848_spec_corrected_etotal_rear_shade_meas",
+        "bifi_e2848_etotal_rear_shade_sim_spec_corrected",
+        "bifi_e2848_etotal_rear_shade_meas_spec_corrected",
     }
 ]
 ```
@@ -122,7 +122,7 @@ Add these methods to `class TestTestSetupsRegistry` (after
 ```python
     def test_spec_corrected_etotal_sim_front_spec_corrected_rear_raw(self):
         """_sim meas poa = e_total(front=poa_spec_corrected, rear=raw irr_rpoa)."""
-        entry = ct.TEST_SETUPS["bifi_e2848_spec_corrected_etotal_rear_shade_sim"]
+        entry = ct.TEST_SETUPS["bifi_e2848_etotal_rear_shade_sim_spec_corrected"]
         meas_poa = entry["reg_cols_meas"]["poa"]
         assert isinstance(meas_poa, tuple)
         assert meas_poa[0] is e_total
@@ -131,14 +131,14 @@ Add these methods to `class TestTestSetupsRegistry` (after
 
     def test_spec_corrected_etotal_sim_rear_uses_rpoa_pvsyst(self):
         """_sim sim-side rear routes through rpoa_pvsyst (shading in model)."""
-        entry = ct.TEST_SETUPS["bifi_e2848_spec_corrected_etotal_rear_shade_sim"]
+        entry = ct.TEST_SETUPS["bifi_e2848_etotal_rear_shade_sim_spec_corrected"]
         sim_rear = entry["reg_cols_sim"]["poa"][1]["rpoa"]
         assert isinstance(sim_rear, tuple)
         assert sim_rear[0] is rpoa_pvsyst
 
     def test_spec_corrected_etotal_meas_rear_maps_to_globbak(self):
         """_meas sim-side rear maps directly to GlobBak; meas side matches _sim."""
-        entry = ct.TEST_SETUPS["bifi_e2848_spec_corrected_etotal_rear_shade_meas"]
+        entry = ct.TEST_SETUPS["bifi_e2848_etotal_rear_shade_meas_spec_corrected"]
         assert entry["reg_cols_sim"]["poa"][1]["rpoa"] == "GlobBak"
         meas_poa = entry["reg_cols_meas"]["poa"]
         assert meas_poa[0] is e_total
@@ -147,7 +147,7 @@ Add these methods to `class TestTestSetupsRegistry` (after
 
     def test_spec_corrected_etotal_sim_routes_through_pvsyst_zenith_and_scale(self):
         """_sim sim-side spectral tree uses apparent_zenith_pvsyst + scale(PrecWat)."""
-        entry = ct.TEST_SETUPS["bifi_e2848_spec_corrected_etotal_rear_shade_sim"]
+        entry = ct.TEST_SETUPS["bifi_e2848_etotal_rear_shade_sim_spec_corrected"]
         front = entry["reg_cols_sim"]["poa"][1]["poa"]  # poa_spec_corrected tuple
         assert front[0] is poa_spec_corrected
         spec_node = front[1]["spectral_correction"]
@@ -159,8 +159,8 @@ Add these methods to `class TestTestSetupsRegistry` (after
     def test_spec_corrected_etotal_presets_use_scatter_etotal(self):
         """Both presets use scatter_etotal, matching the other e_total presets."""
         for name in (
-            "bifi_e2848_spec_corrected_etotal_rear_shade_sim",
-            "bifi_e2848_spec_corrected_etotal_rear_shade_meas",
+            "bifi_e2848_etotal_rear_shade_sim_spec_corrected",
+            "bifi_e2848_etotal_rear_shade_meas_spec_corrected",
         ):
             assert ct.TEST_SETUPS[name]["scatter_plots"] is ct.scatter_etotal
 ```
@@ -172,7 +172,7 @@ Expected: FAIL — only `test_spec_corrected_etotal_presets_use_scatter_etotal` 
 
 - [ ] **Step 4: Switch the source scatter callable on both new presets**
 
-In `src/captest/captest.py`, inside `bifi_e2848_spec_corrected_etotal_rear_shade_sim` and `bifi_e2848_spec_corrected_etotal_rear_shade_meas`, change each `"scatter_plots": scatter_default,` to:
+In `src/captest/captest.py`, inside `bifi_e2848_etotal_rear_shade_sim_spec_corrected` and `bifi_e2848_etotal_rear_shade_meas_spec_corrected`, change each `"scatter_plots": scatter_default,` to:
 
 ```python
             "scatter_plots": scatter_etotal,
@@ -228,7 +228,7 @@ After the `sim_cd_spec_corrected` fixture in `tests/conftest.py`, add:
 ```python
 @pytest.fixture
 def ct_spec_corrected_etotal_sim(meas_cd_spec_corrected, sim_cd_spec_corrected):
-    """CapTest for the bifi_e2848_spec_corrected_etotal_rear_shade_sim preset.
+    """CapTest for the bifi_e2848_etotal_rear_shade_sim_spec_corrected preset.
 
     The "Propagating meas.site" UserWarning (sim has no site) is suppressed at
     setup; that auto-propagation behavior is covered separately by the
@@ -237,7 +237,7 @@ def ct_spec_corrected_etotal_sim(meas_cd_spec_corrected, sim_cd_spec_corrected):
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", message="Propagating meas.site")
         return CapTest.from_params(
-            test_setup="bifi_e2848_spec_corrected_etotal_rear_shade_sim",
+            test_setup="bifi_e2848_etotal_rear_shade_sim_spec_corrected",
             meas=meas_cd_spec_corrected,
             sim=sim_cd_spec_corrected,
             ac_nameplate=6_000_000,
@@ -248,7 +248,7 @@ def ct_spec_corrected_etotal_sim(meas_cd_spec_corrected, sim_cd_spec_corrected):
 
 @pytest.fixture
 def ct_spec_corrected_etotal_meas(meas_cd_spec_corrected, sim_cd_spec_corrected):
-    """CapTest for the bifi_e2848_spec_corrected_etotal_rear_shade_meas preset.
+    """CapTest for the bifi_e2848_etotal_rear_shade_meas_spec_corrected preset.
 
     The "Propagating meas.site" UserWarning (sim has no site) is suppressed at
     setup; that auto-propagation behavior is covered separately by the
@@ -257,7 +257,7 @@ def ct_spec_corrected_etotal_meas(meas_cd_spec_corrected, sim_cd_spec_corrected)
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", message="Propagating meas.site")
         return CapTest.from_params(
-            test_setup="bifi_e2848_spec_corrected_etotal_rear_shade_meas",
+            test_setup="bifi_e2848_etotal_rear_shade_meas_spec_corrected",
             meas=meas_cd_spec_corrected,
             sim=sim_cd_spec_corrected,
             ac_nameplate=6_000_000,
@@ -294,7 +294,7 @@ Add to `class TestDownstreamPropagation` in `tests/test_captest.py`:
         """rear_shade discounts the measured rear but is absent on sim."""
         with pytest.warns(UserWarning, match="Propagating meas.site"):
             capt = CapTest.from_params(
-                test_setup="bifi_e2848_spec_corrected_etotal_rear_shade_meas",
+                test_setup="bifi_e2848_etotal_rear_shade_meas_spec_corrected",
                 meas=meas_cd_spec_corrected,
                 sim=sim_cd_spec_corrected,
                 bifaciality=0.5,

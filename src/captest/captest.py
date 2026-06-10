@@ -490,7 +490,7 @@ TEST_SETUPS = {
             },
         },
     },
-    "bifi_e2848_spec_corrected_etotal_rear_shade_sim": {
+    "bifi_e2848_etotal_rear_shade_sim_spec_corrected": {
         "description": (
             "Standard ASTM E2848 regression with total effective irradiance replacing "
             "front POA and a First Solar spectral correction applied to "
@@ -502,7 +502,7 @@ TEST_SETUPS = {
             "BackShd, while the measured rear sensor (irr_rpoa) is used "
             "as-measured (no rear_shade factor, i.e. rear_shade = 0). For the "
             "variant that instead applies rear shading on the measured side, "
-            "see 'bifi_e2848_spec_corrected_etotal_rear_shade_meas'. Total irradiance is "
+            "see 'bifi_e2848_etotal_rear_shade_meas_spec_corrected'. Total irradiance is "
             "E_Total = E_POA + E_Rear * bifaciality with the spectral correction "
             "applied to E_POA. "
         ),
@@ -593,7 +593,7 @@ TEST_SETUPS = {
             },
         },
     },
-    "bifi_e2848_spec_corrected_etotal_rear_shade_meas": {
+    "bifi_e2848_etotal_rear_shade_meas_spec_corrected": {
         "description": (
             "Standard ASTM E2848 regression with total effective irradiance replacing "
             "front POA and a First Solar spectral correction applied to "

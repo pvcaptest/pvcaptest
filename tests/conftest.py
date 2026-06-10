@@ -375,7 +375,7 @@ def sim_cd_spec_corrected(sim_cd_default):
 
 @pytest.fixture
 def ct_spec_corrected_etotal_sim(meas_cd_spec_corrected, sim_cd_spec_corrected):
-    """CapTest for the bifi_e2848_spec_corrected_etotal_rear_shade_sim preset.
+    """CapTest for the bifi_e2848_etotal_rear_shade_sim_spec_corrected preset.
 
     The "Propagating meas.site" UserWarning (sim has no site) is suppressed at
     setup; that auto-propagation behavior is covered separately by the
@@ -384,7 +384,7 @@ def ct_spec_corrected_etotal_sim(meas_cd_spec_corrected, sim_cd_spec_corrected):
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", message="Propagating meas.site")
         return CapTest.from_params(
-            test_setup="bifi_e2848_spec_corrected_etotal_rear_shade_sim",
+            test_setup="bifi_e2848_etotal_rear_shade_sim_spec_corrected",
             meas=meas_cd_spec_corrected,
             sim=sim_cd_spec_corrected,
             ac_nameplate=6_000_000,
@@ -395,7 +395,7 @@ def ct_spec_corrected_etotal_sim(meas_cd_spec_corrected, sim_cd_spec_corrected):
 
 @pytest.fixture
 def ct_spec_corrected_etotal_meas(meas_cd_spec_corrected, sim_cd_spec_corrected):
-    """CapTest for the bifi_e2848_spec_corrected_etotal_rear_shade_meas preset.
+    """CapTest for the bifi_e2848_etotal_rear_shade_meas_spec_corrected preset.
 
     The "Propagating meas.site" UserWarning (sim has no site) is suppressed at
     setup; that auto-propagation behavior is covered separately by the
@@ -404,7 +404,7 @@ def ct_spec_corrected_etotal_meas(meas_cd_spec_corrected, sim_cd_spec_corrected)
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", message="Propagating meas.site")
         return CapTest.from_params(
-            test_setup="bifi_e2848_spec_corrected_etotal_rear_shade_meas",
+            test_setup="bifi_e2848_etotal_rear_shade_meas_spec_corrected",
             meas=meas_cd_spec_corrected,
             sim=sim_cd_spec_corrected,
             ac_nameplate=6_000_000,

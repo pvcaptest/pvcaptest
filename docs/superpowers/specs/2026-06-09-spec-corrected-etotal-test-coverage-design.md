@@ -7,8 +7,8 @@
 
 Two new entries were added to `TEST_SETUPS` in `src/captest/captest.py`:
 
-- `bifi_e2848_spec_corrected_etotal_rear_shade_sim`
-- `bifi_e2848_spec_corrected_etotal_rear_shade_meas`
+- `bifi_e2848_etotal_rear_shade_sim_spec_corrected`
+- `bifi_e2848_etotal_rear_shade_meas_spec_corrected`
 
 They combine the First Solar spectral correction (front POA) with the bifacial
 total-effective-irradiance (`e_total`) regression, splitting rear-shade handling
