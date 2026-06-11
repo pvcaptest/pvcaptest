@@ -119,8 +119,8 @@ The built-in presets are:
    handled in the modeled (PVsyst) data (``rpoa_pvsyst = GlobBak + BackShd``)
    while the measured rear sensor is used as-measured (``rear_shade = 0``).
    :math:`E_{Total} = E_{POA} + E_{Rear} \cdot \varphi`, following the NREL
-   modified bifacial approach. See the *Choosing a test setup* section of the
-   CapTest user guide for the per-side formulas.
+   modified bifacial approach. See :ref:`choosing-test-setup` in the CapTest
+   user guide for the per-side formulas.
 
 ``bifi_e2848_etotal_rear_shade_meas``
    Same regression form as ``bifi_e2848_etotal_rear_shade_sim``, but rear-shading
@@ -140,7 +140,44 @@ The built-in presets are:
    ambient temperature, and wind speed via the Sandia model; no dedicated BOM
    sensor is required.
 
+``bifi_power_tc_etotal_rear_shade_sim``
+   Temperature-corrected power regressed against total effective irradiance.
+   Back-of-module temperature is taken from field measurements and used to
+   calculate cell temperature via the Sandia PV Array Performance Model. Rear
+   shading and IAM losses are handled in the modeled (PVsyst) data
+   (``rpoa_pvsyst = GlobBak + BackShd``) while the measured rear sensor is used
+   as-measured (``rear_shade = 0``).
+   :math:`E_{Total} = E_{POA} + E_{Rear} \cdot \varphi`, following the NREL
+   modified bifacial approach.
+
+``bifi_power_tc_etotal_rear_shade_meas``
+   Same regression form as ``bifi_power_tc_etotal_rear_shade_sim``, but
+   rear-shading losses are applied on the measured side via the ``e_total``
+   ``rear_shade`` factor while the modeled rear maps directly to PVsyst's
+   unshaded ``GlobBak``.
+   :math:`E_{Total} = E_{POA} + E_{Rear} \cdot \varphi \cdot (1 - s)` on the
+   measured side, where :math:`s` is the ``rear_shade`` fraction.
+
 ``e2848_spec_corrected_poa``
    Standard ASTM E2848 regression with a First Solar spectral correction applied
    to front-side POA before fitting. Requires relative humidity and atmospheric
    pressure on the measured side and precipitable water from the PVsyst output.
+
+``bifi_e2848_etotal_rear_shade_sim_spec_corrected``
+   Standard ASTM E2848 regression with total effective irradiance replacing
+   front-side POA and a First Solar spectral correction applied to the
+   front-side POA used to calculate the total irradiance. Requires relative
+   humidity and atmospheric pressure on the measured side and precipitable
+   water from the PVsyst output. Rear shading and IAM losses are handled in
+   the modeled (PVsyst) data (``rpoa_pvsyst = GlobBak + BackShd``) while the
+   measured rear sensor is used as-measured (``rear_shade = 0``).
+   :math:`E_{Total} = E_{POA} + E_{Rear} \cdot \varphi` with the spectral
+   correction applied to :math:`E_{POA}`.
+
+``bifi_e2848_etotal_rear_shade_meas_spec_corrected``
+   Same regression form as ``bifi_e2848_etotal_rear_shade_sim_spec_corrected``,
+   but rear-shading losses are applied on the measured side via the ``e_total``
+   ``rear_shade`` factor while the modeled rear maps directly to PVsyst's
+   unshaded ``GlobBak``.
+   :math:`E_{Total} = E_{POA} + E_{Rear} \cdot \varphi \cdot (1 - s)` on the
+   measured side, where :math:`s` is the ``rear_shade`` fraction.

@@ -53,6 +53,8 @@ directly. That workflow is mostly unchanged and may be helpful while learning pv
   :py:meth:`~captest.captest.CapTest.residual_plot` to use the same measured
   and modeled data automatically.
 
+.. _choosing-test-setup:
+
 Choosing a test setup
 ---------------------
 The ``test_setup`` value tells pvcaptest which regression equation and default
@@ -78,7 +80,9 @@ the regression for a capacity test. Each setup defines:
 
 See :ref:`custom_test_setups` for additional details and example.
 
-The built-in options are:
+The complete list of built-in presets, with a description of each, is in
+:ref:`test-setups` in the API reference. The most commonly used options are
+described below:
 
 ``e2848_default``
     Standard ASTM E2848 regression:
@@ -140,6 +144,15 @@ The built-in options are:
     precipitable water from the PVsyst output. See :ref:`spec_corrected_poa`
     for the additional inputs.
 
+The remaining built-in presets combine the pieces above — total-irradiance
+variants of the temperature-corrected power setups
+(``bifi_power_tc_etotal_rear_shade_sim``,
+``bifi_power_tc_etotal_rear_shade_meas``) and spectrally corrected
+total-irradiance setups
+(``bifi_e2848_etotal_rear_shade_sim_spec_corrected``,
+``bifi_e2848_etotal_rear_shade_meas_spec_corrected``). See :ref:`test-setups`
+in the API reference for their descriptions.
+
 .. note::
 
     The built-in setup names are strings. For example,
@@ -154,17 +167,16 @@ The built-in options are:
     The IDs hardcoded into the built-in setups are:
 
     - ``irr_poa`` — front-side plane-of-array irradiance (all setups)
-    - ``irr_rpoa`` — rear-side plane-of-array irradiance
-      (``bifi_e2848_etotal_rear_shade_sim``,
-      ``bifi_e2848_etotal_rear_shade_meas``, ``bifi_power_tc_meas_tbom``,
-      ``bifi_power_tc_calc_tbom``)
-    - ``temp_bom`` — back-of-module temperature
-      (``bifi_power_tc_meas_tbom`` only)
+    - ``irr_rpoa`` — rear-side plane-of-array irradiance (all bifacial setups)
+    - ``temp_bom`` — back-of-module temperature (temperature-corrected setups
+      using measured BOM temperature: ``bifi_power_tc_meas_tbom``,
+      ``bifi_power_tc_etotal_rear_shade_sim``,
+      ``bifi_power_tc_etotal_rear_shade_meas``)
     - ``real_pwr_mtr`` — AC power meter (all setups)
     - ``temp_amb`` — ambient temperature (all setups)
     - ``wind_speed`` — wind speed (all setups)
-    - ``humidity`` — relative humidity (``e2848_spec_corrected_poa`` only)
-    - ``pressure`` — station pressure (``e2848_spec_corrected_poa`` only)
+    - ``humidity`` — relative humidity (spectrally corrected setups)
+    - ``pressure`` — station pressure (spectrally corrected setups)
 
     .. warning::
 
@@ -292,6 +304,7 @@ setup and the temperature-corrected power setup.
     ct_power_tc = CapTest.from_yaml('./project.yaml', key='captest_bifi_power_tc')
 
 .. _what-setup-does:
+
 What setup does
 ---------------
 When ``CapTest`` has both measured and modeled data, it prepares each

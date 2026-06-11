@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Added `bifi_power_tc_meas_tbom` preset test setup using field-measured back-of-module temperature.
 - Added `bifi_e2848_etotal_rear_shade_meas` preset test setup that applies rear-shading losses on the measured side via the `e_total` `rear_shade` factor (the modeled rear maps directly to PVsyst `GlobBak`).
+- Added `bifi_power_tc_etotal_rear_shade_sim` and `bifi_power_tc_etotal_rear_shade_meas` preset test setups: temperature-corrected power regressed against total effective irradiance, with rear shading handled in the modeled data or on the measured side, respectively.
+- Added `bifi_e2848_etotal_rear_shade_sim_spec_corrected` and `bifi_e2848_etotal_rear_shade_meas_spec_corrected` preset test setups combining the total-irradiance regression with the First Solar spectral correction applied to front-side POA.
 - Added a required `description` key to `TEST_SETUPS` registry entries and updated validation.
 - Added a "Predefined Test Setups" section to the API reference and updated user guides for new presets.
 - Added Sphinx documentation stubs for `validate_test_setup`, `resolve_test_setup`, and `perc_wrap`.
