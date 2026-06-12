@@ -21,6 +21,7 @@ import difflib
 import importlib.util
 import warnings
 from pathlib import Path
+import textwrap
 
 import numpy as np
 import pandas as pd
@@ -834,6 +835,26 @@ _TEST_SETUP_REQUIRED_KEYS = frozenset(
     }
 )
 
+def test_setups(options=True, descriptions=False):
+    """
+    Display test setups available.
+    """
+    if options:
+        print('All options')
+        print('=' * 60)
+        for name in TEST_SETUPS.keys():
+            print(name)
+
+    if descriptions:
+        if options:
+            print('\n\n')
+        print('Descriptions')
+        print('=' * 60)
+        for name, setup in TEST_SETUPS.items():
+            print('\n')
+            print(f'{name}')
+            print('-' * 60)
+            print(textwrap.fill(setup['description'], 60))
 
 def validate_test_setup(entry):
     """Validate a single ``TEST_SETUPS`` entry dict.
