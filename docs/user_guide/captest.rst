@@ -65,7 +65,8 @@ A test setup is a named preset that bundles everything needed to configure
 the regression for a capacity test. Each setup defines:
 
 - **Regression formula** — the model equation, such as the standard ASTM E2848
-  four-term formula or the bifacial temperature-corrected power formula.
+  four-term formula or the bifacial temperature-corrected power formula (see
+  :ref:`identifying-regression-data`).
 - **Measured column mappings** (``reg_cols_meas``) — which measured data columns
   map to each regression variable, how multiple sensors are aggregated (sum or
   mean), and any calculated columns required by the setup (e.g. ``e_total``,
@@ -81,8 +82,25 @@ the regression for a capacity test. Each setup defines:
 See :ref:`custom_test_setups` for additional details and example.
 
 The complete list of built-in presets, with a description of each, is in
-:ref:`test-setups` in the API reference. The most commonly used options are
-described below:
+:ref:`test-setups` in the API reference. You can also print the available
+setup names at any time by calling ``captest.captest.test_setups()`` (pass
+``descriptions=True`` to also print each setup's summary):
+
+.. code-block:: Python
+
+    >>> from captest import captest
+    >>> captest.captest.test_setups()
+    All options
+    ============================================================
+    e2848_default
+    bifi_e2848_etotal_rear_shade_sim
+    bifi_e2848_etotal_rear_shade_meas
+    bifi_power_tc_meas_tbom
+    bifi_power_tc_calc_tbom
+    ...
+    bifi_e2848_etotal_rear_shade_meas_spec_corrected
+
+The most commonly used options are described below:
 
 ``e2848_default``
     Standard ASTM E2848 regression:
@@ -105,8 +123,7 @@ described below:
     .. math::
         E_{Total}^{meas} = E_{POA} + E_{Rear}\,\varphi
 
-    where :math:`\varphi` is the bifaciality factor. This is useful for the
-    NREL modified bifacial approach described in :ref:`bifacial`.
+    where :math:`\varphi` is the bifaciality factor.
 
 ``bifi_e2848_etotal_rear_shade_meas``
     Same regression form as ``bifi_e2848_etotal_rear_shade_sim``, but rear
@@ -115,14 +132,14 @@ described below:
     unshaded global rear (``GlobBak``).
 
     .. math::
-        E_{Total}^{meas} = E_{POA} + E_{Rear}\,\varphi\left(1 - s\right)
-
-    .. math::
         E_{Total}^{model} = E_{POA} + GlobBak \cdot \varphi
 
+    .. math::
+        E_{Total}^{meas} = E_{POA} + E_{Rear}\,\varphi\left(1 - s\right)
+
+
     where :math:`\varphi` is the bifaciality factor and :math:`s` is the
-    ``rear_shade`` fraction. Use this when rear-shading losses are better
-    characterized from the measured array than from the PVsyst model.
+    ``rear_shade`` fraction. 
 
 ``bifi_power_tc_meas_tbom``
     Uses temperature-corrected power as the dependent variable and regresses it
