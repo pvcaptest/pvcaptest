@@ -838,6 +838,17 @@ _TEST_SETUP_REQUIRED_KEYS = frozenset(
 def test_setups(options=True, descriptions=False):
     """
     Display test setups available.
+
+    Parameters
+    ----------
+    options: bool, default True
+        List the names of the test setups.
+    descriptions: bool, default False
+        List the descriptions of the test setups.
+
+    Returns
+    -------
+    None
     """
     if options:
         print('All options')
@@ -2524,5 +2535,6 @@ __all__ = [
     "scatter_bifi_power_tc",
     "scatter_default",
     "scatter_etotal",
+    "test_setups",
     "validate_test_setup",
 ]

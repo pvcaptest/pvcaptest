@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added a required `description` key to `TEST_SETUPS` registry entries and updated validation.
 - Added a "Predefined Test Setups" section to the API reference and updated user guides for new presets.
 - Added Sphinx documentation stubs for `validate_test_setup`, `resolve_test_setup`, and `perc_wrap`.
+- Exposed `test_setups` as a top-level export (`captest.test_setups`) so the available preset names and descriptions can be printed directly.
 
 ### Changed
 - Renamed the `bifi_power_tc` preset test setup to `bifi_power_tc_calc_tbom`.

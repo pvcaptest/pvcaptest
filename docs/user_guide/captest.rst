@@ -83,13 +83,13 @@ See :ref:`custom_test_setups` for additional details and example.
 
 The complete list of built-in presets, with a description of each, is in
 :ref:`test-setups` in the API reference. You can also print the available
-setup names at any time by calling ``captest.captest.test_setups()`` (pass
-``descriptions=True`` to also print each setup's summary):
+setup names at any time by calling :py:func:`~captest.captest.test_setups`
+(pass ``descriptions=True`` to also print each setup's summary):
 
 .. code-block:: Python
 
-    >>> from captest import captest
-    >>> captest.captest.test_setups()
+    >>> import captest as ct
+    >>> ct.test_setups()
     All options
     ============================================================
     e2848_default
@@ -118,7 +118,7 @@ The most commonly used options are described below:
     (``irr_rpoa``) is used as-measured (``rear_shade = 0``).
 
     .. math::
-        E_{Total}^{model} = E_{POA} + \left(E_{Rear} + E_{BackShd}\right)\varphi
+        E_{Total}^{model} = E_{POA} + \left(GlobBak + BackShd\right)\varphi
 
     .. math::
         E_{Total}^{meas} = E_{POA} + E_{Rear}\,\varphi

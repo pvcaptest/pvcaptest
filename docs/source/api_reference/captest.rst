@@ -80,6 +80,7 @@ Standalone functions used alongside :py:class:`~captest.captest.CapTest`.
    :toctree: generated/
 
    captest.load_config
+   captest.captest.test_setups
    captest.captest.validate_test_setup
    captest.captest.resolve_test_setup
    captest.captest.perc_wrap
