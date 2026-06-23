@@ -200,7 +200,7 @@ def perf_ratio_temp_corr_nrel(
     temp_cell = temp_bom + (poa / 1000) * coeffs["del_tcnd"]
     if single_irr_weighted_temp:
         temp_cell = (poa * temp_cell).sum() / poa.sum()
-    dc_nameplate_temp_corr = dc_nameplate / (
+    dc_nameplate_temp_corr = dc_nameplate * (
         1 + ((power_temp_coeff / 100) * (temp_cell - base_temp))
     )
     # below is same as the perf_ratio function
