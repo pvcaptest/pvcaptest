@@ -281,13 +281,16 @@ class DataLoader:
                 )
             )
 
-    def reindex_loaded_files(self, verbose=False):
+    def reindex_loaded_files(self, verbose=False, report=False):
         """Reindex files to ensure no missing indices and find frequency for each file.
 
         Parameters
         ----------
         verbose : bool, default False
             Set to True for more detailed output.
+        report : bool, default False
+            Set to True AND set verbose to TRUE to show frequency used when reindexing
+            and quantity of intervals added to the index.
 
         Returns
         -------
@@ -298,6 +301,8 @@ class DataLoader:
         file_frequencies : list
             The index frequencies for each file.
         """
+        if not verbose:
+            report = False
         reindexed_dfs = {}
         file_frequencies = []
         for name, file in self.loaded_files.items():
@@ -307,7 +312,7 @@ class DataLoader:
             current_file, missing_intervals, freq_str = util.reindex_datetime(
                 file,
                 file_name=name,
-                report=False,
+                report=report,
             )
             reindexed_dfs[name] = current_file
             file_frequencies.append(freq_str)
@@ -422,6 +427,7 @@ class DataLoader:
         None
             Resulting DataFrame of data is stored to the `data` attribute.
         """
+        report = kwargs.pop("report", False)
         if verbose:
             summary = True
         if self.path.is_file():
@@ -470,7 +476,7 @@ class DataLoader:
                     self.loaded_files,
                     self.common_freq,
                     self.file_frequencies,
-                ) = self.reindex_loaded_files(verbose=verbose)
+                ) = self.reindex_loaded_files(verbose=verbose, report=report)
                 data = self.join_files()
             elif len(self.loaded_files) == 1:
                 data = list(self.loaded_files.values())[0]
@@ -489,10 +495,10 @@ class DataLoader:
     def drop_duplicate_rows(self):
         self.data.drop_duplicates(inplace=True)
 
-    def reindex(self):
+    def reindex(self, report=False):
         self.data, self.missing_intervals, self.freq_str = util.reindex_datetime(
             self.data,
-            report=False,
+            report=report,
         )
 
 
@@ -569,9 +575,9 @@ def load_data(
     **kwargs
         Passed to `DataLoader.load`. Any kwargs not used by `DataLoader.load` are
         passed to the `file_reader` function, which by default passes
-        them to pandas.read_csv. `DataLoader.load` accepts a summary kwarg to show files
+        them to pandas.read_csv. `DataLoader.load` accepts a `summary` kwarg to show files
         loaded from a directory without reindexing status shown when verbose is set to
-        True.
+        True. Reindexing accepts a `report` kwarg.
     """
     dl = DataLoader(
         path=path,

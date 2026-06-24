@@ -79,9 +79,7 @@ def reindex_datetime(data, file_name=None, report=False):
     data_index_length = data.shape[0]
     df = data.copy()
     df.sort_index(inplace=True)
-    print("before calling get common timestep")
     freq_str = get_common_timestep(data, string_output=True)
-    print(freq_str)
     full_ix = pd.date_range(start=df.index[0], end=df.index[-1], freq=freq_str)
     try:
         df = df.reindex(index=full_ix)
