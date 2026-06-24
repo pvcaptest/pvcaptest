@@ -6,6 +6,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+
+[0.16.0]: https://github.com/pvcaptest/pvcaptest/compare/v0.15.1...v0.16.0
+## [0.16.0] - 2026-06-24
 ### Added
 - Added `bifi_power_tc_meas_tbom` preset test setup using field-measured back-of-module temperature.
 - Added `bifi_e2848_etotal_rear_shade_meas` preset test setup that applies rear-shading losses on the measured side via the `e_total` `rear_shade` factor (the modeled rear maps directly to PVsyst `GlobBak`).
