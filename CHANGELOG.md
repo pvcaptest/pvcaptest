@@ -8,16 +8,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - Added `bifi_power_tc_meas_tbom` preset test setup using field-measured back-of-module temperature.
+- Added `bifi_e2848_etotal_rear_shade_meas` preset test setup that applies rear-shading losses on the measured side via the `e_total` `rear_shade` factor (the modeled rear maps directly to PVsyst `GlobBak`).
+- Added `bifi_power_tc_etotal_rear_shade_sim` and `bifi_power_tc_etotal_rear_shade_meas` preset test setups: temperature-corrected power regressed against total effective irradiance, with rear shading handled in the modeled data or on the measured side, respectively.
+- Added `bifi_e2848_etotal_rear_shade_sim_spec_corrected` and `bifi_e2848_etotal_rear_shade_meas_spec_corrected` preset test setups combining the total-irradiance regression with the First Solar spectral correction applied to front-side POA.
 - Added a required `description` key to `TEST_SETUPS` registry entries and updated validation.
 - Added a "Predefined Test Setups" section to the API reference and updated user guides for new presets.
 - Added Sphinx documentation stubs for `validate_test_setup`, `resolve_test_setup`, and `perc_wrap`.
+- Exposed `test_setups` as a top-level export (`captest.test_setups`) so the available preset names and descriptions can be printed directly.
 
 ### Changed
 - Renamed the `bifi_power_tc` preset test setup to `bifi_power_tc_calc_tbom`.
+- **Breaking:** Renamed the `bifi_e2848_etotal` preset test setup to `bifi_e2848_etotal_rear_shade_sim` so the name states that rear shading is handled in the modeled (PVsyst) data (`rpoa_pvsyst = GlobBak + BackShd`). The new `bifi_e2848_etotal_rear_shade_meas` variant handles rear shading on the measured side.
 - Modified `CapData.rep_cond` parameter order! If you were relying on the ability to pass kwargs as positional args
 you will now be passing the WRONG arguments.
 - Updated `CapData.rep_cond` doc string to more clearly describe default calculations defined in `captest.TEST_SETUPS`
 - Removed the redundant `front_poa` parameter from `TEST_SETUPS` presets where `irr_bal` is `False`.
+- `CapData.process_regression_columns` (and `CapTest.setup`) now print a "Reusing existing column '<group>_<func>_agg'; skipping aggregation of the <group> group." message when a pre-aggregated column already exists in the data and aggregation is skipped. Previously the reuse was silent, so verbose output only showed "Aggregating ..." blocks for groups whose agg column was missing.
+- Allowed fully suppressing printed output from load_data function by passing verbose=False, summary=False, and report=False.
+
+### Fixed
+- `CapData.agg_group` now passes `min_count=1` for `sum` aggregations so a row where every column in the group is `NaN` aggregates to `NaN` instead of `0.0`. This was most visible for single-column power groups (e.g. mapping `power` to `('real_pwr_mtr', 'sum')` in `regression_cols`), where summing is a no-op but previously converted missing values into a real zero that then flowed into filtering and regression.
 
 [0.15.1]: https://github.com/pvcaptest/pvcaptest/compare/v0.15.0...v0.15.1
 ## [0.15.1] - 2026-05-12

@@ -37,7 +37,10 @@
    .. autosummary::
    
       ~CapTest.ac_nameplate
+      ~CapTest.airmass_model
+      ~CapTest.altitude_override
       ~CapTest.base_temp
+      ~CapTest.bifacial_frac
       ~CapTest.bifaciality
       ~CapTest.clipping_irr
       ~CapTest.fshdbm
@@ -49,9 +52,12 @@
       ~CapTest.meas_load_kwargs
       ~CapTest.meas_loader
       ~CapTest.min_irr
+      ~CapTest.module_type
       ~CapTest.name
       ~CapTest.param
       ~CapTest.power_temp_coeff
+      ~CapTest.racking
+      ~CapTest.rear_shade
       ~CapTest.reg_cols_meas
       ~CapTest.reg_cols_sim
       ~CapTest.reg_fml

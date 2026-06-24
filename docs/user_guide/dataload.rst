@@ -167,6 +167,8 @@ simulated :py:class:`~captest.capdata.CapData` instances bound to a
 the two models differ across the range of each predictor variable. See
 :ref:`captest` for the full workflow.
 
+.. _identifying-regression-data:
+
 Identifying Regression Data
 ---------------------------
 To perform the regression pvcaptest uses `statsmodels <https://www.statsmodels.org/stable/index.html>`_, which in turn `relies on patsy <https://www.statsmodels.org/stable/examples/notebooks/generated/formulas.html>`_ to simplify specifying regression equations.
