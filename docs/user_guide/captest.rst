@@ -53,6 +53,8 @@ directly. That workflow is mostly unchanged and may be helpful while learning pv
   :py:meth:`~captest.captest.CapTest.residual_plot` to use the same measured
   and modeled data automatically.
 
+.. _choosing-test-setup:
+
 Choosing a test setup
 ---------------------
 The ``test_setup`` value tells pvcaptest which regression equation and default
@@ -63,7 +65,8 @@ A test setup is a named preset that bundles everything needed to configure
 the regression for a capacity test. Each setup defines:
 
 - **Regression formula** — the model equation, such as the standard ASTM E2848
-  four-term formula or the bifacial temperature-corrected power formula.
+  four-term formula or the bifacial temperature-corrected power formula (see
+  :ref:`identifying-regression-data`).
 - **Measured column mappings** (``reg_cols_meas``) — which measured data columns
   map to each regression variable, how multiple sensors are aggregated (sum or
   mean), and any calculated columns required by the setup (e.g. ``e_total``,
@@ -78,7 +81,26 @@ the regression for a capacity test. Each setup defines:
 
 See :ref:`custom_test_setups` for additional details and example.
 
-The built-in options are:
+The complete list of built-in presets, with a description of each, is in
+:ref:`test-setups` in the API reference. You can also print the available
+setup names at any time by calling :py:func:`~captest.captest.test_setups`
+(pass ``descriptions=True`` to also print each setup's summary):
+
+.. code-block:: Python
+
+    >>> import captest as ct
+    >>> ct.test_setups()
+    All options
+    ============================================================
+    e2848_default
+    bifi_e2848_etotal_rear_shade_sim
+    bifi_e2848_etotal_rear_shade_meas
+    bifi_power_tc_meas_tbom
+    bifi_power_tc_calc_tbom
+    ...
+    bifi_e2848_etotal_rear_shade_meas_spec_corrected
+
+The most commonly used options are described below:
 
 ``e2848_default``
     Standard ASTM E2848 regression:
@@ -88,15 +110,36 @@ The built-in options are:
 
     This is the default setup for monofacial capacity tests.
 
-``bifi_e2848_etotal``
+``bifi_e2848_etotal_rear_shade_sim``
     Uses the standard ASTM E2848 regression form, but replaces front-side POA
-    with total irradiance:
+    with total irradiance. Rear shading and IAM losses are handled in the
+    modeled (PVsyst) data: the modeled rear irradiance is
+    ``rpoa_pvsyst = GlobBak + BackShd``, while the measured rear sensor
+    (``irr_rpoa``) is used as-measured (``rear_shade = 0``).
 
     .. math::
-        E_{Total} = E_{POA} + E_{Rear} \varphi
+        E_{Total}^{model} = E_{POA} + \left(GlobBak + BackShd\right)\varphi
 
-    where :math:`\varphi` is the bifaciality factor. This is useful for the
-    NREL modified bifacial approach described in :ref:`bifacial`.
+    .. math::
+        E_{Total}^{meas} = E_{POA} + E_{Rear}\,\varphi
+
+    where :math:`\varphi` is the bifaciality factor.
+
+``bifi_e2848_etotal_rear_shade_meas``
+    Same regression form as ``bifi_e2848_etotal_rear_shade_sim``, but rear
+    shading is applied on the measured side as a flat fraction :math:`s` (the
+    ``rear_shade`` factor), while the modeled rear maps directly to PVsyst's
+    unshaded global rear (``GlobBak``).
+
+    .. math::
+        E_{Total}^{model} = E_{POA} + GlobBak \cdot \varphi
+
+    .. math::
+        E_{Total}^{meas} = E_{POA} + E_{Rear}\,\varphi\left(1 - s\right)
+
+
+    where :math:`\varphi` is the bifaciality factor and :math:`s` is the
+    ``rear_shade`` fraction. 
 
 ``bifi_power_tc_meas_tbom``
     Uses temperature-corrected power as the dependent variable and regresses it
@@ -118,11 +161,21 @@ The built-in options are:
     precipitable water from the PVsyst output. See :ref:`spec_corrected_poa`
     for the additional inputs.
 
+The remaining built-in presets combine the pieces above — total-irradiance
+variants of the temperature-corrected power setups
+(``bifi_power_tc_etotal_rear_shade_sim``,
+``bifi_power_tc_etotal_rear_shade_meas``) and spectrally corrected
+total-irradiance setups
+(``bifi_e2848_etotal_rear_shade_sim_spec_corrected``,
+``bifi_e2848_etotal_rear_shade_meas_spec_corrected``). See :ref:`test-setups`
+in the API reference for their descriptions.
+
 .. note::
 
     The built-in setup names are strings. For example,
     ``test_setup='e2848_default'`` uses the standard ASTM E2848 setup, and
-    ``test_setup='bifi_e2848_etotal'`` uses the total-irradiance bifacial setup.
+    ``test_setup='bifi_e2848_etotal_rear_shade_sim'`` uses the total-irradiance
+    bifacial setup.
 
 .. note:: 
 
@@ -131,16 +184,16 @@ The built-in options are:
     The IDs hardcoded into the built-in setups are:
 
     - ``irr_poa`` — front-side plane-of-array irradiance (all setups)
-    - ``irr_rpoa`` — rear-side plane-of-array irradiance
-      (``bifi_e2848_etotal``, ``bifi_power_tc_meas_tbom``,
-      ``bifi_power_tc_calc_tbom``)
-    - ``temp_bom`` — back-of-module temperature
-      (``bifi_power_tc_meas_tbom`` only)
+    - ``irr_rpoa`` — rear-side plane-of-array irradiance (all bifacial setups)
+    - ``temp_bom`` — back-of-module temperature (temperature-corrected setups
+      using measured BOM temperature: ``bifi_power_tc_meas_tbom``,
+      ``bifi_power_tc_etotal_rear_shade_sim``,
+      ``bifi_power_tc_etotal_rear_shade_meas``)
     - ``real_pwr_mtr`` — AC power meter (all setups)
     - ``temp_amb`` — ambient temperature (all setups)
     - ``wind_speed`` — wind speed (all setups)
-    - ``humidity`` — relative humidity (``e2848_spec_corrected_poa`` only)
-    - ``pressure`` — station pressure (``e2848_spec_corrected_poa`` only)
+    - ``humidity`` — relative humidity (spectrally corrected setups)
+    - ``pressure`` — station pressure (spectrally corrected setups)
 
     .. warning::
 
@@ -166,7 +219,7 @@ If you provide paths to your data, ``CapTest`` will load the data for you.
 .. code-block:: Python
 
     ct = CapTest.from_params(
-        test_setup='bifi_e2848_etotal',
+        test_setup='bifi_e2848_etotal_rear_shade_sim',
         meas_path='./data/measured/',
         sim_path='./data/pvsyst_results.csv',
         bifaciality=0.15,
@@ -225,7 +278,7 @@ file and loaded with :py:meth:`~captest.captest.CapTest.from_yaml`.
 .. code-block:: yaml
 
     captest:
-      test_setup: bifi_e2848_etotal
+      test_setup: bifi_e2848_etotal_rear_shade_sim
       meas_path: ./data/measured/
       sim_path: ./data/pvsyst.csv
       ac_nameplate: 6_000_000
@@ -249,7 +302,7 @@ setup and the temperature-corrected power setup.
 .. code-block:: yaml
 
     captest_bifi_etotal:
-      test_setup: bifi_e2848_etotal
+      test_setup: bifi_e2848_etotal_rear_shade_sim
       meas_path: ./data/measured/
       sim_path: ./data/pvsyst.csv
       ac_nameplate: 6_000_000
@@ -268,6 +321,7 @@ setup and the temperature-corrected power setup.
     ct_power_tc = CapTest.from_yaml('./project.yaml', key='captest_bifi_power_tc')
 
 .. _what-setup-does:
+
 What setup does
 ---------------
 When ``CapTest`` has both measured and modeled data, it prepares each

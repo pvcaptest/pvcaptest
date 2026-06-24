@@ -262,8 +262,8 @@ def e_total(
         print(
             f'Calculating and adding "{e_total.__name__}" column as '
             f"{poa} + {rpoa} * "
-            f"{bifaciality} * {bifacial_frac} * "
-            f"(1 - {rear_shade})"
+            f"{bifaciality} (bifaciality) * {bifacial_frac} (bifacial fraction) * "
+            f"(1 - {rear_shade} (rear shade))"
         )
     return data[poa] + data[rpoa] * bifaciality * bifacial_frac * (1 - rear_shade)
 

@@ -301,7 +301,8 @@ class TestEtotal:
         _ = calcparams.e_total(df, "poa", "rear")
         captured = capsys.readouterr()
         assert captured.out.rstrip("\n") == (
-            'Calculating and adding "e_total" column as poa + rear * 0.7 * 1 * (1 - 0)'
+            'Calculating and adding "e_total" column as poa + rear * '
+            "0.7 (bifaciality) * 1 (bifacial fraction) * (1 - 0 (rear shade))"
         )
 
 

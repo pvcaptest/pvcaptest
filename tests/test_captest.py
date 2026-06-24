@@ -23,6 +23,8 @@ from captest.calcparams import (
     e_total,
     poa_spec_corrected,
     power_temp_correct,
+    rpoa_pvsyst,
+    scale,
     spectral_factor_firstsolar,
 )
 
@@ -33,7 +35,15 @@ from captest.calcparams import (
 _DEFAULT_FIXTURE_PRESETS = [
     p
     for p in ct.TEST_SETUPS.keys()
-    if p not in {"e2848_spec_corrected_poa", "bifi_power_tc_meas_tbom"}
+    if p
+    not in {
+        "e2848_spec_corrected_poa",
+        "bifi_power_tc_meas_tbom",
+        "bifi_e2848_etotal_rear_shade_sim_spec_corrected",
+        "bifi_e2848_etotal_rear_shade_meas_spec_corrected",
+        "bifi_power_tc_etotal_rear_shade_sim",
+        "bifi_power_tc_etotal_rear_shade_meas",
+    }
 ]
 
 
@@ -63,9 +73,9 @@ class TestTestSetupsRegistry:
         assert set(entry["reg_cols_meas"].keys()) == {"power", "poa", "t_amb", "w_vel"}
         assert set(entry["reg_cols_sim"].keys()) == {"power", "poa", "t_amb", "w_vel"}
 
-    def test_bifi_e2848_etotal_uses_e_total(self):
-        """bifi_e2848_etotal preset wraps poa in an e_total calc-tuple."""
-        entry = ct.TEST_SETUPS["bifi_e2848_etotal"]
+    def test_bifi_e2848_etotal_rear_shade_sim_uses_e_total(self):
+        """bifi_e2848_etotal_rear_shade_sim preset wraps poa in an e_total calc-tuple."""
+        entry = ct.TEST_SETUPS["bifi_e2848_etotal_rear_shade_sim"]
         meas_poa = entry["reg_cols_meas"]["poa"]
         assert isinstance(meas_poa, tuple)
         assert meas_poa[0] is e_total
@@ -107,6 +117,87 @@ class TestTestSetupsRegistry:
         zenith_node = abs_airmass_node[1]["apparent_zenith"]
         assert isinstance(zenith_node, tuple)
         assert zenith_node[0] is apparent_zenith_pvsyst
+
+    def test_spec_corrected_etotal_sim_front_spec_corrected_rear_raw(self):
+        """_sim meas poa = e_total(front=poa_spec_corrected, rear=raw irr_rpoa)."""
+        entry = ct.TEST_SETUPS["bifi_e2848_etotal_rear_shade_sim_spec_corrected"]
+        meas_poa = entry["reg_cols_meas"]["poa"]
+        assert isinstance(meas_poa, tuple)
+        assert meas_poa[0] is e_total
+        assert meas_poa[1]["poa"][0] is poa_spec_corrected
+        assert meas_poa[1]["rpoa"] == ("irr_rpoa", "mean")
+
+    def test_spec_corrected_etotal_sim_rear_uses_rpoa_pvsyst(self):
+        """_sim sim-side rear routes through rpoa_pvsyst (shading in model)."""
+        entry = ct.TEST_SETUPS["bifi_e2848_etotal_rear_shade_sim_spec_corrected"]
+        sim_rear = entry["reg_cols_sim"]["poa"][1]["rpoa"]
+        assert isinstance(sim_rear, tuple)
+        assert sim_rear[0] is rpoa_pvsyst
+
+    def test_spec_corrected_etotal_meas_rear_maps_to_globbak(self):
+        """_meas sim-side rear maps directly to GlobBak; meas side matches _sim."""
+        entry = ct.TEST_SETUPS["bifi_e2848_etotal_rear_shade_meas_spec_corrected"]
+        assert entry["reg_cols_sim"]["poa"][1]["rpoa"] == "GlobBak"
+        meas_poa = entry["reg_cols_meas"]["poa"]
+        assert meas_poa[0] is e_total
+        assert meas_poa[1]["poa"][0] is poa_spec_corrected
+        assert meas_poa[1]["rpoa"] == ("irr_rpoa", "mean")
+
+    def test_spec_corrected_etotal_sim_routes_through_pvsyst_zenith_and_scale(self):
+        """_sim sim-side spectral tree uses apparent_zenith_pvsyst + scale(PrecWat)."""
+        entry = ct.TEST_SETUPS["bifi_e2848_etotal_rear_shade_sim_spec_corrected"]
+        front = entry["reg_cols_sim"]["poa"][1]["poa"]  # poa_spec_corrected tuple
+        assert front[0] is poa_spec_corrected
+        spec_node = front[1]["spectral_correction"]
+        assert spec_node[0] is spectral_factor_firstsolar
+        zenith = spec_node[1]["absolute_airmass"][1]["apparent_zenith"]
+        assert zenith[0] is apparent_zenith_pvsyst
+        assert spec_node[1]["precipitable_water"][0] is scale
+
+    def test_spec_corrected_etotal_presets_use_scatter_etotal(self):
+        """Both presets use scatter_etotal, matching the other e_total presets."""
+        for name in (
+            "bifi_e2848_etotal_rear_shade_sim_spec_corrected",
+            "bifi_e2848_etotal_rear_shade_meas_spec_corrected",
+        ):
+            assert ct.TEST_SETUPS[name]["scatter_plots"] is ct.scatter_etotal
+
+    def test_power_tc_etotal_power_is_temp_corrected_with_measured_bom(self):
+        """power_tc_etotal meas power is power_temp_correct over measured BOM."""
+        entry = ct.TEST_SETUPS["bifi_power_tc_etotal_rear_shade_sim"]
+        meas_power = entry["reg_cols_meas"]["power"]
+        assert meas_power[0] is power_temp_correct
+        bom_spec = meas_power[1]["cell_temp"][1]["bom"]
+        assert bom_spec == ("temp_bom", "mean")
+
+    def test_power_tc_etotal_poa_is_e_total_over_front_and_rear(self):
+        """power_tc_etotal meas poa is an e_total calc-tuple over front + rear."""
+        entry = ct.TEST_SETUPS["bifi_power_tc_etotal_rear_shade_sim"]
+        meas_poa = entry["reg_cols_meas"]["poa"]
+        assert meas_poa[0] is e_total
+        assert meas_poa[1]["poa"] == ("irr_poa", "mean")
+        assert meas_poa[1]["rpoa"] == ("irr_rpoa", "mean")
+
+    def test_power_tc_etotal_sim_rear_uses_rpoa_pvsyst(self):
+        """_sim sim-side e_total rear routes through rpoa_pvsyst (shading in model)."""
+        entry = ct.TEST_SETUPS["bifi_power_tc_etotal_rear_shade_sim"]
+        sim_rear = entry["reg_cols_sim"]["poa"][1]["rpoa"]
+        assert isinstance(sim_rear, tuple)
+        assert sim_rear[0] is rpoa_pvsyst
+
+    def test_power_tc_etotal_meas_rear_maps_to_globbak(self):
+        """_meas sim-side e_total rear maps directly to GlobBak (no rpoa_pvsyst)."""
+        entry = ct.TEST_SETUPS["bifi_power_tc_etotal_rear_shade_meas"]
+        assert entry["reg_cols_sim"]["poa"][1]["rpoa"] == "GlobBak"
+
+    def test_power_tc_etotal_presets_use_scatter_etotal_and_single_term_formula(self):
+        """Both presets use scatter_etotal and the single-term 'power ~ poa' formula."""
+        for name in (
+            "bifi_power_tc_etotal_rear_shade_sim",
+            "bifi_power_tc_etotal_rear_shade_meas",
+        ):
+            assert ct.TEST_SETUPS[name]["scatter_plots"] is ct.scatter_etotal
+            assert ct.TEST_SETUPS[name]["reg_fml"] == "power ~ poa"
 
     def test_validate_rejects_unknown_keys(self):
         bad = dict(ct.TEST_SETUPS["e2848_default"])
@@ -233,11 +324,11 @@ class TestLoadConfig:
             ct.load_config(p)
 
     def test_custom_key(self, tmp_path):
-        yaml_text = "captest_bifi:\n  test_setup: bifi_e2848_etotal\n"
+        yaml_text = "captest_bifi:\n  test_setup: bifi_e2848_etotal_rear_shade_sim\n"
         p = tmp_path / "cfg.yaml"
         p.write_text(yaml_text)
         sub = ct.load_config(p, key="captest_bifi")
-        assert sub["test_setup"] == "bifi_e2848_etotal"
+        assert sub["test_setup"] == "bifi_e2848_etotal_rear_shade_sim"
 
     def test_top_level_not_a_mapping_raises(self, tmp_path):
         p = tmp_path / "cfg.yaml"
@@ -347,17 +438,23 @@ class TestConstruction:
         assert capt.sim is None
         assert capt.test_tolerance == "- 4"
         assert capt.bifaciality == 0.0
+        assert capt.rear_shade == 0.0
         assert capt.power_temp_coeff == -0.32
         assert capt.base_temp == 25
+        assert capt.bifacial_frac == 1.0
+        assert capt.module_type == "glass_cell_poly"
+        assert capt.racking == "open_rack"
+        assert capt.airmass_model == "kastenyoung1989"
+        assert capt.altitude_override == 0
         assert capt._resolved_setup is None
 
     def test_bare_init_accepts_kwargs(self):
         capt = CapTest(
-            test_setup="bifi_e2848_etotal",
+            test_setup="bifi_e2848_etotal_rear_shade_sim",
             ac_nameplate=125_000,
             bifaciality=0.15,
         )
-        assert capt.test_setup == "bifi_e2848_etotal"
+        assert capt.test_setup == "bifi_e2848_etotal_rear_shade_sim"
         assert capt.ac_nameplate == 125_000
         assert capt.bifaciality == 0.15
 
@@ -368,9 +465,24 @@ class TestConstruction:
     def test_class_level_downstream_attrs(self):
         assert CapTest._downstream_attrs == (
             "bifaciality",
+            "bifacial_frac",
+            "rear_shade",
             "power_temp_coeff",
             "base_temp",
+            "module_type",
+            "racking",
             "spectral_module_type",
+            "airmass_model",
+            "altitude_override",
+        )
+        assert CapTest._downstream_attrs_meas_only == ("rear_shade",)
+
+    def test_downstream_attrs_meas_only_is_subset(self):
+        """meas-only attrs must be a subset of _downstream_attrs; setup()
+        iterates _downstream_attrs, so an orphaned meas-only name would never
+        propagate to either CapData instance."""
+        assert set(CapTest._downstream_attrs_meas_only).issubset(
+            CapTest._downstream_attrs
         )
 
     def test_from_params_with_capdata_instances_triggers_setup(
@@ -768,12 +880,12 @@ class TestLoadConfigPublicExport:
     def test_returns_sub_mapping(self, tmp_path):
         p = tmp_path / "cfg.yaml"
         p.write_text(
-            "captest:\n  test_setup: bifi_e2848_etotal\n  ac_nameplate: 1234\n"
+            "captest:\n  test_setup: bifi_e2848_etotal_rear_shade_sim\n  ac_nameplate: 1234\n"
         )
         import captest
 
         sub = captest.load_config(p)
-        assert sub["test_setup"] == "bifi_e2848_etotal"
+        assert sub["test_setup"] == "bifi_e2848_etotal_rear_shade_sim"
         assert sub["ac_nameplate"] == 1234
 
     def test_missing_key_raises_keyerror_listing_available_keys(self, tmp_path):
@@ -831,7 +943,7 @@ class TestSetup:
         self, meas_cd_default, sim_cd_default
     ):
         capt = CapTest.from_params(
-            test_setup="bifi_e2848_etotal",
+            test_setup="bifi_e2848_etotal_rear_shade_sim",
             meas=meas_cd_default,
             sim=sim_cd_default,
             bifaciality=0.22,
@@ -840,7 +952,11 @@ class TestSetup:
         )
         for attr in CapTest._downstream_attrs:
             assert getattr(capt.meas, attr) == getattr(capt, attr)
-            assert getattr(capt.sim, attr) == getattr(capt, attr)
+            if attr in CapTest._downstream_attrs_meas_only:
+                # meas-only attrs must NOT be propagated to sim.
+                assert not hasattr(capt.sim, attr)
+            else:
+                assert getattr(capt.sim, attr) == getattr(capt, attr)
 
     @pytest.mark.parametrize("preset", _DEFAULT_FIXTURE_PRESETS)
     def test_setup_wires_regression_formula(
@@ -928,7 +1044,7 @@ class TestDownstreamPropagation:
 
     def test_bifaciality_flows_into_e_total(self, meas_cd_default, sim_cd_default):
         capt = CapTest.from_params(
-            test_setup="bifi_e2848_etotal",
+            test_setup="bifi_e2848_etotal_rear_shade_sim",
             meas=meas_cd_default,
             sim=sim_cd_default,
             bifaciality=0.5,
@@ -940,6 +1056,227 @@ class TestDownstreamPropagation:
         first = meas_df.loc[mask].iloc[0]
         expected = first["irr_poa_mean_agg"] + first["irr_rpoa_mean_agg"] * 0.5
         assert first["e_total"] == pytest.approx(expected)
+
+    def test_rear_shade_flows_into_e_total(self, meas_cd_default, sim_cd_default):
+        capt = CapTest.from_params(
+            test_setup="bifi_e2848_etotal_rear_shade_sim",
+            meas=meas_cd_default,
+            sim=sim_cd_default,
+            bifaciality=0.5,
+            rear_shade=0.12,
+        )
+        # Sanity: e_total = poa + rpoa * bifaciality * (1 - rear_shade)
+        meas_df = capt.meas.data
+        mask = meas_df["irr_poa_mean_agg"] > 0
+        first = meas_df.loc[mask].iloc[0]
+        expected = first["irr_poa_mean_agg"] + first["irr_rpoa_mean_agg"] * 0.5 * (
+            1 - 0.12
+        )
+        assert first["e_total"] == pytest.approx(expected)
+
+    def test_rear_shade_not_propagated_to_sim(self, meas_cd_default, sim_cd_default):
+        """rear_shade is meas-only: set on meas, absent on sim, no sim discount."""
+        capt = CapTest.from_params(
+            test_setup="bifi_e2848_etotal_rear_shade_sim",
+            meas=meas_cd_default,
+            sim=sim_cd_default,
+            bifaciality=0.5,
+            rear_shade=0.12,
+        )
+        assert capt.meas.rear_shade == 0.12
+        assert not hasattr(capt.sim, "rear_shade")
+        # Sim e_total uses the e_total default rear_shade=0 (no shade discount).
+        # sim rpoa = rpoa_pvsyst(GlobBak, BackShd) = GlobBak (BackShd is 0).
+        sim_df = capt.sim.data
+        first = sim_df.loc[sim_df["GlobInc"] > 0].iloc[0]
+        expected_sim = first["GlobInc"] + first["GlobBak"] * 0.5
+        assert first["e_total"] == pytest.approx(expected_sim)
+
+    def test_meas_shade_setup_applies_shade_to_meas_only(
+        self, meas_cd_default, sim_cd_default
+    ):
+        """bifi_e2848_etotal_rear_shade_meas discounts the measured rear by
+        rear_shade while mapping sim rpoa directly to GlobBak (no discount).
+        """
+        capt = CapTest.from_params(
+            test_setup="bifi_e2848_etotal_rear_shade_meas",
+            meas=meas_cd_default,
+            sim=sim_cd_default,
+            bifaciality=0.5,
+            rear_shade=0.12,
+        )
+        # Meas: e_total = poa + rpoa * bifaciality * (1 - rear_shade).
+        meas_df = capt.meas.data
+        m = meas_df.loc[meas_df["irr_poa_mean_agg"] > 0].iloc[0]
+        assert m["e_total"] == pytest.approx(
+            m["irr_poa_mean_agg"] + m["irr_rpoa_mean_agg"] * 0.5 * (1 - 0.12)
+        )
+        # Sim: rpoa maps directly to GlobBak with no rear_shade discount.
+        assert not hasattr(capt.sim, "rear_shade")
+        sim_df = capt.sim.data
+        s = sim_df.loc[sim_df["GlobInc"] > 0].iloc[0]
+        assert s["e_total"] == pytest.approx(s["GlobInc"] + s["GlobBak"] * 0.5)
+
+    def test_spec_correction_applied_to_front_inside_e_total(
+        self, ct_spec_corrected_etotal_sim
+    ):
+        """Meas e_total front term is poa_spec_corrected (not raw irr_poa),
+        and rear is discounted by bifaciality (rear_shade=0 by default)."""
+        capt = ct_spec_corrected_etotal_sim
+        meas_df = capt.meas.data
+        assert "poa_spec_corrected" in meas_df.columns
+        # Pick a daytime row with a valid spectral factor; the First Solar model
+        # returns NaN near sunrise/sunset (outside its valid airmass/pw range).
+        mask = meas_df["poa_spec_corrected"].notna() & (
+            meas_df["poa_spec_corrected"] > 0
+        )
+        first = meas_df.loc[mask].iloc[0]
+        expected = first["poa_spec_corrected"] + first["irr_rpoa_mean_agg"] * 0.15
+        assert first["e_total"] == pytest.approx(expected)
+        # The corrected front differs from the raw front (spectral factor != 1).
+        assert first["poa_spec_corrected"] != pytest.approx(first["irr_poa_mean_agg"])
+
+    def test_rear_shade_meas_only_for_spec_corrected_etotal(
+        self, meas_cd_spec_corrected, sim_cd_spec_corrected
+    ):
+        """rear_shade discounts the measured rear but is absent on sim."""
+        with pytest.warns(UserWarning, match="Propagating meas.site"):
+            capt = CapTest.from_params(
+                test_setup="bifi_e2848_etotal_rear_shade_meas_spec_corrected",
+                meas=meas_cd_spec_corrected,
+                sim=sim_cd_spec_corrected,
+                bifaciality=0.5,
+                rear_shade=0.12,
+            )
+        assert capt.meas.rear_shade == 0.12
+        assert not hasattr(capt.sim, "rear_shade")
+        meas_df = capt.meas.data
+        mask = meas_df["poa_spec_corrected"].notna() & (
+            meas_df["poa_spec_corrected"] > 0
+        )
+        m = meas_df.loc[mask].iloc[0]
+        expected = m["poa_spec_corrected"] + m["irr_rpoa_mean_agg"] * 0.5 * (1 - 0.12)
+        assert m["e_total"] == pytest.approx(expected)
+
+    def test_power_tc_etotal_meas_composition_and_temp_corrected_power(
+        self, meas_cd_bom_temp, sim_cd_default
+    ):
+        """power_tc_etotal _meas: e_total = poa + rpoa*bifaciality*(1-rear_shade),
+        temp-corrected power materializes, and rear_shade is meas-only."""
+        capt = CapTest.from_params(
+            test_setup="bifi_power_tc_etotal_rear_shade_meas",
+            meas=meas_cd_bom_temp,
+            sim=sim_cd_default,
+            bifaciality=0.5,
+            rear_shade=0.12,
+            power_temp_coeff=-0.32,
+            base_temp=25,
+        )
+        assert capt.meas.rear_shade == 0.12
+        assert not hasattr(capt.sim, "rear_shade")
+        meas_df = capt.meas.data
+        assert "power_temp_correct" in meas_df.columns
+        first = meas_df.loc[meas_df["irr_poa_mean_agg"] > 0].iloc[0]
+        expected = first["irr_poa_mean_agg"] + first["irr_rpoa_mean_agg"] * 0.5 * (
+            1 - 0.12
+        )
+        assert first["e_total"] == pytest.approx(expected)
+
+    def test_bifacial_frac_flows_into_e_total(self, meas_cd_default, sim_cd_default):
+        capt = CapTest.from_params(
+            test_setup="bifi_e2848_etotal_rear_shade_sim",
+            meas=meas_cd_default,
+            sim=sim_cd_default,
+            bifaciality=0.5,
+            bifacial_frac=0.8,
+        )
+        # e_total = poa + rpoa * bifaciality * bifacial_frac (rear_shade=0).
+        meas_df = capt.meas.data
+        first = meas_df.loc[meas_df["irr_poa_mean_agg"] > 0].iloc[0]
+        expected = first["irr_poa_mean_agg"] + first["irr_rpoa_mean_agg"] * 0.5 * 0.8
+        assert first["e_total"] == pytest.approx(expected)
+        # bifacial_frac propagates to both sides; sim e_total reflects it too.
+        # sim rpoa = rpoa_pvsyst(GlobBak, BackShd) = GlobBak (BackShd is 0).
+        assert capt.sim.bifacial_frac == 0.8
+        sim_df = capt.sim.data
+        sim_first = sim_df.loc[sim_df["GlobInc"] > 0].iloc[0]
+        expected_sim = sim_first["GlobInc"] + sim_first["GlobBak"] * 0.5 * 0.8
+        assert sim_first["e_total"] == pytest.approx(expected_sim)
+
+    def test_module_type_and_racking_flow_into_temp_model(
+        self, meas_cd_default, sim_cd_default
+    ):
+        """module_type/racking propagate into the Sandia temp model so a
+        non-default racking changes the calculated cell_temp column."""
+        ct_open = CapTest.from_params(
+            test_setup="bifi_power_tc_calc_tbom",
+            meas=meas_cd_default,
+            sim=sim_cd_default,
+            bifaciality=0.15,
+        )
+        cell_temp_open = ct_open.meas.data["cell_temp"].copy()
+        ct_ins = CapTest.from_params(
+            test_setup="bifi_power_tc_calc_tbom",
+            meas=meas_cd_default,
+            sim=sim_cd_default,
+            bifaciality=0.15,
+            racking="insulated_back",
+        )
+        assert ct_ins.meas.racking == "insulated_back"
+        assert ct_ins.sim.racking == "insulated_back"
+        # open_rack del_tcnd=3 vs insulated_back del_tcnd=0 -> cell_temp differs.
+        assert not np.allclose(
+            cell_temp_open.to_numpy(), ct_ins.meas.data["cell_temp"].to_numpy()
+        )
+
+    def test_airmass_model_flows_into_absolute_airmass(
+        self, meas_cd_spec_corrected, sim_cd_spec_corrected
+    ):
+        """A non-default airmass_model changes the absolute_airmass column."""
+        with pytest.warns(UserWarning, match="Propagating meas.site"):
+            ct_default_model = CapTest.from_params(
+                test_setup="e2848_spec_corrected_poa",
+                meas=meas_cd_spec_corrected,
+                sim=sim_cd_spec_corrected,
+            )
+            am_default = ct_default_model.meas.data["absolute_airmass"].copy()
+            ct_alt = CapTest.from_params(
+                test_setup="e2848_spec_corrected_poa",
+                meas=meas_cd_spec_corrected,
+                sim=sim_cd_spec_corrected,
+                airmass_model="simple",
+            )
+        assert ct_alt.meas.airmass_model == "simple"
+        assert ct_alt.sim.airmass_model == "simple"
+        assert not np.allclose(
+            am_default.to_numpy(),
+            ct_alt.meas.data["absolute_airmass"].to_numpy(),
+            equal_nan=True,
+        )
+
+    def test_altitude_override_flows_into_apparent_zenith(
+        self, meas_cd_spec_corrected, sim_cd_spec_corrected
+    ):
+        """A non-zero altitude_override changes the apparent_zenith column."""
+        with pytest.warns(UserWarning, match="Propagating meas.site"):
+            ct_sea = CapTest.from_params(
+                test_setup="e2848_spec_corrected_poa",
+                meas=meas_cd_spec_corrected,
+                sim=sim_cd_spec_corrected,
+            )
+            zen_sea = ct_sea.meas.data["apparent_zenith"].copy()
+            ct_alt = CapTest.from_params(
+                test_setup="e2848_spec_corrected_poa",
+                meas=meas_cd_spec_corrected,
+                sim=sim_cd_spec_corrected,
+                altitude_override=5000,
+            )
+        assert ct_alt.meas.altitude_override == 5000
+        assert not np.allclose(
+            zen_sea.to_numpy(),
+            ct_alt.meas.data["apparent_zenith"].to_numpy(),
+            equal_nan=True,
+        )
 
     def test_power_temp_coeff_flows_into_power_temp_correct(
         self, meas_cd_default, sim_cd_default
@@ -1077,6 +1414,40 @@ class TestCapTestSpectralCorrection:
             )
         assert capt.meas.spectral_module_type == "monosi"
         assert capt.sim.spectral_module_type == "monosi"
+
+
+class TestSpecCorrectedEtotalColumns:
+    """Both poa_spec_corrected and e_total materialize on meas and sim."""
+
+    def test_sim_variant_materializes_both_columns(self, ct_spec_corrected_etotal_sim):
+        capt = ct_spec_corrected_etotal_sim
+        for cd in (capt.meas, capt.sim):
+            assert "poa_spec_corrected" in cd.data.columns
+            assert "e_total" in cd.data.columns
+
+    def test_meas_variant_materializes_both_columns(
+        self, ct_spec_corrected_etotal_meas
+    ):
+        capt = ct_spec_corrected_etotal_meas
+        for cd in (capt.meas, capt.sim):
+            assert "poa_spec_corrected" in cd.data.columns
+            assert "e_total" in cd.data.columns
+
+
+class TestPowerTcEtotalColumns:
+    """power_temp_correct and e_total materialize on meas and sim."""
+
+    def test_sim_variant_materializes_both_columns(self, ct_power_tc_etotal_sim):
+        capt = ct_power_tc_etotal_sim
+        for cd in (capt.meas, capt.sim):
+            assert "power_temp_correct" in cd.data.columns
+            assert "e_total" in cd.data.columns
+
+    def test_meas_variant_materializes_both_columns(self, ct_power_tc_etotal_meas):
+        capt = ct_power_tc_etotal_meas
+        for cd in (capt.meas, capt.sim):
+            assert "power_temp_correct" in cd.data.columns
+            assert "e_total" in cd.data.columns
 
 
 class TestLoaderInjection:
@@ -1587,6 +1958,38 @@ class TestToYamlAndRoundTrip:
         capt2 = CapTest.from_yaml(p2)
         assert capt2.ac_nameplate == 6_000_000
 
+    def test_to_yaml_round_trips_calc_param_scalars(self, tmp_path):
+        """New calc-param scalars + rear_shade survive a to_yaml/from_yaml trip."""
+        p = tmp_path / "cfg.yaml"
+        capt = CapTest(
+            test_setup="bifi_e2848_etotal_rear_shade_sim",
+            bifaciality=0.3,
+            bifacial_frac=0.8,
+            rear_shade=0.12,
+            module_type="glass_cell_glass",
+            racking="close_roof_mount",
+            airmass_model="kasten1966",
+            altitude_override=500,
+        )
+        capt.to_yaml(p, merge_into_existing=False)
+        loaded = CapTest.from_yaml(p)
+        assert loaded.bifaciality == 0.3
+        assert loaded.bifacial_frac == 0.8
+        assert loaded.rear_shade == 0.12
+        assert loaded.module_type == "glass_cell_glass"
+        assert loaded.racking == "close_roof_mount"
+        assert loaded.airmass_model == "kasten1966"
+        assert loaded.altitude_override == 500
+
+    def test_to_yaml_round_trips_altitude_override_none(self, tmp_path):
+        """altitude_override=None (respect site altitude) survives the round
+        trip as None rather than being coerced to the default of 0."""
+        p = tmp_path / "cfg.yaml"
+        capt = CapTest(test_setup="e2848_default", altitude_override=None)
+        capt.to_yaml(p, merge_into_existing=False)
+        loaded = CapTest.from_yaml(p)
+        assert loaded.altitude_override is None
+
     def test_to_yaml_warns_when_scatter_plots_is_user_mutated(
         self, tmp_path, ct_default
     ):
@@ -1677,18 +2080,20 @@ class TestYamlKeyParametrization:
 
     def test_from_yaml_reads_under_captest_key_by_default(self, tmp_path):
         p = tmp_path / "cfg.yaml"
-        p.write_text("captest:\n  test_setup: bifi_e2848_etotal\n  ac_nameplate: 1\n")
+        p.write_text(
+            "captest:\n  test_setup: bifi_e2848_etotal_rear_shade_sim\n  ac_nameplate: 1\n"
+        )
         capt = CapTest.from_yaml(p)
-        assert capt.test_setup == "bifi_e2848_etotal"
+        assert capt.test_setup == "bifi_e2848_etotal_rear_shade_sim"
         assert capt.ac_nameplate == 1
 
     def test_from_yaml_reads_under_custom_key(self, tmp_path):
         p = tmp_path / "cfg.yaml"
         p.write_text(
-            "captest_bifi:\n  test_setup: bifi_e2848_etotal\n  ac_nameplate: 2\n"
+            "captest_bifi:\n  test_setup: bifi_e2848_etotal_rear_shade_sim\n  ac_nameplate: 2\n"
         )
         capt = CapTest.from_yaml(p, key="captest_bifi")
-        assert capt.test_setup == "bifi_e2848_etotal"
+        assert capt.test_setup == "bifi_e2848_etotal_rear_shade_sim"
         assert capt.ac_nameplate == 2
 
     def test_from_yaml_missing_key_lists_available_keys(self, tmp_path):
@@ -1719,7 +2124,7 @@ class TestYamlKeyParametrization:
             "  test_setup: e2848_default\n"
             "  ac_nameplate: 10\n"
         )
-        capt = CapTest(test_setup="bifi_e2848_etotal", ac_nameplate=20)
+        capt = CapTest(test_setup="bifi_e2848_etotal_rear_shade_sim", ac_nameplate=20)
         capt.to_yaml(p, key="captest_bifi", merge_into_existing=True)
         doc = yaml.safe_load(p.read_text())
         # Other top-level keys preserved.
@@ -1729,7 +2134,7 @@ class TestYamlKeyParametrization:
         assert doc["captest"]["test_setup"] == "e2848_default"
         assert doc["captest"]["ac_nameplate"] == 10
         # New captest_bifi sub-map written.
-        assert doc["captest_bifi"]["test_setup"] == "bifi_e2848_etotal"
+        assert doc["captest_bifi"]["test_setup"] == "bifi_e2848_etotal_rear_shade_sim"
         assert doc["captest_bifi"]["ac_nameplate"] == 20
 
     def test_to_yaml_merge_false_overwrites_existing_file(self, tmp_path):
@@ -1786,7 +2191,7 @@ class TestIntegration:
         assert ct_default.meas.regression_cols["poa"] == "irr_poa_mean_agg"
         assert ct_default.sim.regression_cols["poa"] == "GlobInc"
 
-    def test_end_to_end_bifi_e2848_etotal(self, ct_etotal):
+    def test_end_to_end_bifi_e2848_etotal_rear_shade_sim(self, ct_etotal):
         """Bifacial e_total preset runs end-to-end; e_total column materialized."""
         # setup() (called by from_params) already ran process_regression_columns
         # which adds the e_total column to both CapData instances.
@@ -1843,6 +2248,50 @@ class TestIntegration:
         self._run_canonical_sequence(ct_bifi_power_tc_meas_tbom)
         cap_ratio = ct_bifi_power_tc_meas_tbom.captest_results(print_res=False)
         assert 0.8 < cap_ratio < 1.2
+
+    def test_end_to_end_spec_corrected_etotal_sim(self, ct_spec_corrected_etotal_sim):
+        """Spectral-corrected e_total (_sim) runs end-to-end to a plausible ratio."""
+        capt = ct_spec_corrected_etotal_sim
+        assert "e_total" in capt.meas.data.columns
+        assert "poa_spec_corrected" in capt.meas.data.columns
+        self._run_canonical_sequence(capt)
+        cap_ratio = capt.captest_results(print_res=False)
+        assert 0.8 < cap_ratio < 1.2
+        assert capt.meas.regression_cols["poa"] == "e_total"
+        assert capt.sim.regression_cols["poa"] == "e_total"
+
+    def test_end_to_end_spec_corrected_etotal_meas(self, ct_spec_corrected_etotal_meas):
+        """Spectral-corrected e_total (_meas) runs end-to-end to a plausible ratio."""
+        capt = ct_spec_corrected_etotal_meas
+        assert "e_total" in capt.meas.data.columns
+        assert "poa_spec_corrected" in capt.meas.data.columns
+        self._run_canonical_sequence(capt)
+        cap_ratio = capt.captest_results(print_res=False)
+        assert 0.8 < cap_ratio < 1.2
+        assert capt.meas.regression_cols["poa"] == "e_total"
+        assert capt.sim.regression_cols["poa"] == "e_total"
+
+    def test_end_to_end_power_tc_etotal_sim(self, ct_power_tc_etotal_sim):
+        """power_tc e_total (_sim) runs end-to-end to a plausible cap ratio."""
+        capt = ct_power_tc_etotal_sim
+        assert "power_temp_correct" in capt.meas.data.columns
+        assert "e_total" in capt.meas.data.columns
+        self._run_canonical_sequence(capt)
+        cap_ratio = capt.captest_results(print_res=False)
+        assert 0.8 < cap_ratio < 1.2
+        assert capt.meas.regression_cols["poa"] == "e_total"
+        assert capt.sim.regression_cols["poa"] == "e_total"
+
+    def test_end_to_end_power_tc_etotal_meas(self, ct_power_tc_etotal_meas):
+        """power_tc e_total (_meas) runs end-to-end to a plausible cap ratio."""
+        capt = ct_power_tc_etotal_meas
+        assert "power_temp_correct" in capt.meas.data.columns
+        assert "e_total" in capt.meas.data.columns
+        self._run_canonical_sequence(capt)
+        cap_ratio = capt.captest_results(print_res=False)
+        assert 0.8 < cap_ratio < 1.2
+        assert capt.meas.regression_cols["poa"] == "e_total"
+        assert capt.sim.regression_cols["poa"] == "e_total"
 
 
 def _hourly_typical_year(year=1990):

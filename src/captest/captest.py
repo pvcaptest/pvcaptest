@@ -21,6 +21,7 @@ import difflib
 import importlib.util
 import warnings
 from pathlib import Path
+import textwrap
 
 import numpy as np
 import pandas as pd
@@ -139,7 +140,8 @@ def scatter_default(cd, **kwargs):
 def scatter_etotal(cd, **kwargs):
     """Single scatter of regression lhs vs. the ``e_total`` column.
 
-    Intended for the ``bifi_e2848_etotal`` preset. Thin wrapper around
+    Intended for the ``bifi_e2848_etotal_rear_shade_sim`` /
+    ``bifi_e2848_etotal_rear_shade_meas`` presets. Thin wrapper around
     :class:`captest.plotting.ScatterPlot`; resolves the x column from
     ``cd.regression_cols['poa']`` after ``process_regression_columns``
     has materialized the calculated e_total column.
@@ -190,11 +192,18 @@ TEST_SETUPS = {
             },
         },
     },
-    "bifi_e2848_etotal": {
+    "bifi_e2848_etotal_rear_shade_sim": {
         "description": (
-            "Standard ASTM E2848 regression form with total effective irradiance replacing "
-            "front-side POA as the independent variable. Total irradiance is calculated as "
-            "E_Total = E_POA + E_Rear * bifaciality, following the NREL modified bifacial approach."
+            "Standard ASTM E2848 regression form with total effective "
+            "irradiance replacing front-side POA as the independent variable. "
+            "Rear shading and IAM losses are handled in the modeled (PVsyst) "
+            "data: the modeled rear irradiance is rpoa_pvsyst = GlobBak + "
+            "BackShd, while the measured rear sensor (irr_rpoa) is used "
+            "as-measured (no rear_shade factor, i.e. rear_shade = 0). For the "
+            "variant that instead applies rear shading on the measured side, "
+            "see 'bifi_e2848_etotal_rear_shade_meas'. Total irradiance is "
+            "E_Total = E_POA + E_Rear * bifaciality, following the NREL "
+            "modified bifacial approach."
         ),
         "reg_cols_meas": {
             "power": ("real_pwr_mtr", "sum"),
@@ -235,12 +244,59 @@ TEST_SETUPS = {
             },
         },
     },
+    "bifi_e2848_etotal_rear_shade_meas": {
+        "description": (
+            "Variant of 'bifi_e2848_etotal_rear_shade_sim' for applying "
+            "rear-shading losses on the measured side. The modeled rear "
+            "irradiance maps directly to PVsyst's unshaded global rear "
+            "('GlobBak') instead of rpoa_pvsyst, and rear shading is applied "
+            "to the measured side through the e_total 'rear_shade' factor "
+            "(propagated by CapTest to the measured CapData only). Total "
+            "irradiance is E_Total = E_POA + E_Rear * bifaciality * "
+            "(1 - rear_shade)."
+        ),
+        "reg_cols_meas": {
+            "power": ("real_pwr_mtr", "sum"),
+            "poa": (
+                e_total,
+                {
+                    "poa": ("irr_poa", "mean"),
+                    "rpoa": ("irr_rpoa", "mean"),
+                },
+            ),
+            "t_amb": ("temp_amb", "mean"),
+            "w_vel": ("wind_speed", "mean"),
+        },
+        "reg_cols_sim": {
+            "power": "E_Grid",
+            "poa": (
+                e_total,
+                {
+                    "poa": "GlobInc",
+                    "rpoa": "GlobBak",
+                },
+            ),
+            "t_amb": "T_Amb",
+            "w_vel": "WindVel",
+        },
+        "reg_fml": "power ~ poa + I(poa * poa) + I(poa * t_amb) + I(poa * w_vel) - 1",
+        "scatter_plots": scatter_etotal,
+        "rep_conditions": {
+            "irr_bal": False,
+            "percent_filter": 20,
+            "func": {
+                "poa": perc_wrap(60),
+                "t_amb": "mean",
+                "w_vel": "mean",
+            },
+        },
+    },
     "bifi_power_tc_meas_tbom": {
         "description": (
             "The regression equation is temperature corrected power regressed against "
-            "front POA and rear POA. The back of module temperature is from field"
+            "front POA and rear POA. The back of module temperature is from field "
             "measurements and the cell temperature is calculated using the Sandia PV Array "
-            "Performance Model from the POA irradiance and measured BOM temperature."
+            "Performance Model from the POA irradiance and measured BOM temperature. "
             "Note that the PVsyst temperature correction uses the 'TArray' output variable."
         ),
         "reg_cols_meas": {
@@ -336,6 +392,137 @@ TEST_SETUPS = {
             },
         },
     },
+    "bifi_power_tc_etotal_rear_shade_sim": {
+        "description": (
+            "The regression equation is temperature corrected power regressed against "
+            "total POA irradiance. The back of module temperature is from field "
+            "measurements and the cell temperature is calculated using the Sandia PV Array "
+            "Performance Model from the POA irradiance and measured BOM temperature. "
+            "Note that the PVsyst temperature correction uses the 'TArray' output variable. "
+            "Rear shading and IAM losses are handled in the modeled (PVsyst) "
+            "data: the modeled rear irradiance is rpoa_pvsyst = GlobBak + "
+            "BackShd, while the measured rear sensor (irr_rpoa) is used "
+            "as-measured (no rear_shade factor, i.e. rear_shade = 0). For the "
+            "variant that instead applies rear shading on the measured side, "
+            "see 'bifi_power_tc_etotal_rear_shade_meas'. Total irradiance is "
+            "E_Total = E_POA + E_Rear * bifaciality, following the NREL "
+            "modified bifacial approach."
+        ),
+        "reg_cols_meas": {
+            "power": (
+                power_temp_correct,
+                {
+                    "power": ("real_pwr_mtr", "sum"),
+                    "cell_temp": (
+                        cell_temp,
+                        {
+                            "poa": ("irr_poa", "mean"),
+                            "bom": ("temp_bom", "mean"),
+                        },
+                    ),
+                },
+            ),
+            "poa": (
+                e_total,
+                {
+                    "poa": ("irr_poa", "mean"),
+                    "rpoa": ("irr_rpoa", "mean"),
+                },
+            ),
+        },
+        "reg_cols_sim": {
+            "power": (
+                power_temp_correct,
+                {
+                    "power": "E_Grid",
+                    "cell_temp": "TArray",
+                },
+            ),
+            "poa": (
+                e_total,
+                {
+                    "poa": "GlobInc",
+                    "rpoa": (
+                        rpoa_pvsyst,
+                        {"globbak": "GlobBak", "backshd": "BackShd"},
+                    ),
+                },
+            ),
+        },
+        "reg_fml": "power ~ poa",
+        "scatter_plots": scatter_etotal,
+        "rep_conditions": {
+            "irr_bal": False,
+            "percent_filter": 20,
+            "func": {
+                "poa": perc_wrap(60),
+            },
+        },
+    },
+    "bifi_power_tc_etotal_rear_shade_meas": {
+        "description": (
+            "The regression equation is temperature corrected power regressed against "
+            "total POA irradiance. The back of module temperature is from field "
+            "measurements and the cell temperature is calculated using the Sandia PV Array "
+            "Performance Model from the POA irradiance and measured BOM temperature. "
+            "Note that the PVsyst temperature correction uses the 'TArray' output variable. "
+            "Variant of 'bifi_power_tc_etotal_rear_shade_sim' for applying "
+            "rear-shading losses on the measured side. The modeled rear "
+            "irradiance maps directly to PVsyst's unshaded global rear "
+            "('GlobBak') instead of rpoa_pvsyst, and rear shading is applied "
+            "to the measured side through the e_total 'rear_shade' factor "
+            "(propagated by CapTest to the measured CapData only). Total "
+            "irradiance is E_Total = E_POA + E_Rear * bifaciality * "
+            "(1 - rear_shade)."
+        ),
+        "reg_cols_meas": {
+            "power": (
+                power_temp_correct,
+                {
+                    "power": ("real_pwr_mtr", "sum"),
+                    "cell_temp": (
+                        cell_temp,
+                        {
+                            "poa": ("irr_poa", "mean"),
+                            "bom": ("temp_bom", "mean"),
+                        },
+                    ),
+                },
+            ),
+            "poa": (
+                e_total,
+                {
+                    "poa": ("irr_poa", "mean"),
+                    "rpoa": ("irr_rpoa", "mean"),
+                },
+            ),
+        },
+        "reg_cols_sim": {
+            "power": (
+                power_temp_correct,
+                {
+                    "power": "E_Grid",
+                    "cell_temp": "TArray",
+                },
+            ),
+            "poa": (
+                e_total,
+                {
+                    "poa": "GlobInc",
+                    "rpoa": "GlobBak",
+                },
+            ),
+        },
+        "reg_fml": "power ~ poa",
+        "scatter_plots": scatter_etotal,
+        "rep_conditions": {
+            "irr_bal": False,
+            "percent_filter": 20,
+            "func": {
+                "poa": perc_wrap(60),
+            },
+        },
+    },
     "e2848_spec_corrected_poa": {
         "description": (
             "Standard ASTM E2848 regression with a First Solar spectral correction applied to "
@@ -416,6 +603,206 @@ TEST_SETUPS = {
             },
         },
     },
+    "bifi_e2848_etotal_rear_shade_sim_spec_corrected": {
+        "description": (
+            "Standard ASTM E2848 regression with total effective irradiance replacing "
+            "front POA and a First Solar spectral correction applied to "
+            "front-side POA irradiance used to calculate the total POA irradiance. "
+            "Requires relative humidity and atmospheric "
+            "pressure on the measured side and precipitable water from the PVsyst output. "
+            "Rear shading and IAM losses are handled in the modeled (PVsyst) "
+            "data: the modeled rear irradiance is rpoa_pvsyst = GlobBak + "
+            "BackShd, while the measured rear sensor (irr_rpoa) is used "
+            "as-measured (no rear_shade factor, i.e. rear_shade = 0). For the "
+            "variant that instead applies rear shading on the measured side, "
+            "see 'bifi_e2848_etotal_rear_shade_meas_spec_corrected'. Total irradiance is "
+            "E_Total = E_POA + E_Rear * bifaciality with the spectral correction "
+            "applied to E_POA. "
+        ),
+        "reg_cols_meas": {
+            "power": ("real_pwr_mtr", "sum"),
+            "poa": (
+                e_total,
+                {
+                    "poa": (  # front POA: spectrally corrected
+                        poa_spec_corrected,
+                        {
+                            "poa": ("irr_poa", "mean"),
+                            "spectral_correction": (
+                                spectral_factor_firstsolar,
+                                {
+                                    "precipitable_water": (
+                                        precipitable_water_gueymard,
+                                        {
+                                            "temp_amb": ("temp_amb", "mean"),
+                                            "rel_humidity": ("humidity", "mean"),
+                                        },
+                                    ),
+                                    "absolute_airmass": (
+                                        absolute_airmass,
+                                        {
+                                            "apparent_zenith": (apparent_zenith, {}),
+                                            "pressure": ("pressure", "mean"),
+                                        },
+                                    ),
+                                },
+                            ),
+                        },
+                    ),
+                    "rpoa": ("irr_rpoa", "mean"),  # rear POA: unchanged
+                },
+            ),
+            "t_amb": ("temp_amb", "mean"),
+            "w_vel": ("wind_speed", "mean"),
+        },
+        "reg_cols_sim": {
+            "power": "E_Grid",
+            "poa": (
+                e_total,
+                {
+                    "poa": (  # front POA: spectrally corrected
+                        poa_spec_corrected,
+                        {
+                            "poa": "GlobInc",
+                            "spectral_correction": (
+                                spectral_factor_firstsolar,
+                                {
+                                    "precipitable_water": (
+                                        scale,
+                                        {"col": "PrecWat", "factor": 100},
+                                    ),
+                                    "absolute_airmass": (
+                                        absolute_airmass,
+                                        {
+                                            "apparent_zenith": (
+                                                apparent_zenith_pvsyst,
+                                                {},
+                                            ),
+                                            # no pressure col: PVsyst uses sea-level default
+                                        },
+                                    ),
+                                },
+                            ),
+                        },
+                    ),
+                    "rpoa": (  # rear POA: unchanged
+                        rpoa_pvsyst,
+                        {"globbak": "GlobBak", "backshd": "BackShd"},
+                    ),
+                },
+            ),
+            "t_amb": "T_Amb",
+            "w_vel": "WindVel",
+        },
+        "reg_fml": "power ~ poa + I(poa * poa) + I(poa * t_amb) + I(poa * w_vel) - 1",
+        "scatter_plots": scatter_etotal,
+        "rep_conditions": {
+            "irr_bal": False,
+            "percent_filter": 20,
+            "func": {
+                "poa": perc_wrap(60),
+                "t_amb": "mean",
+                "w_vel": "mean",
+            },
+        },
+    },
+    "bifi_e2848_etotal_rear_shade_meas_spec_corrected": {
+        "description": (
+            "Standard ASTM E2848 regression with total effective irradiance replacing "
+            "front POA and a First Solar spectral correction applied to "
+            "front-side POA irradiance used to calculate the total POA irradiance. "
+            "Requires relative humidity and atmospheric "
+            "pressure on the measured side and precipitable water from the PVsyst output. "
+            "The modeled rear irradiance maps directly to PVsyst's unshaded global rear "
+            "('GlobBak') instead of rpoa_pvsyst, and rear shading is applied "
+            "to the measured side through the e_total 'rear_shade' factor "
+            "(propagated by CapTest to the measured CapData only). Total "
+            "irradiance is E_Total = E_POA + E_Rear * bifaciality * (1 - rear_shade)."
+        ),
+        "reg_cols_meas": {
+            "power": ("real_pwr_mtr", "sum"),
+            "poa": (
+                e_total,
+                {
+                    "poa": (
+                        poa_spec_corrected,
+                        {
+                            "poa": ("irr_poa", "mean"),
+                            "spectral_correction": (
+                                spectral_factor_firstsolar,
+                                {
+                                    "precipitable_water": (
+                                        precipitable_water_gueymard,
+                                        {
+                                            "temp_amb": ("temp_amb", "mean"),
+                                            "rel_humidity": ("humidity", "mean"),
+                                        },
+                                    ),
+                                    "absolute_airmass": (
+                                        absolute_airmass,
+                                        {
+                                            "apparent_zenith": (apparent_zenith, {}),
+                                            "pressure": ("pressure", "mean"),
+                                        },
+                                    ),
+                                },
+                            ),
+                        },
+                    ),
+                    "rpoa": ("irr_rpoa", "mean"),
+                },
+            ),
+            "t_amb": ("temp_amb", "mean"),
+            "w_vel": ("wind_speed", "mean"),
+        },
+        "reg_cols_sim": {
+            "power": "E_Grid",
+            "poa": (
+                e_total,
+                {
+                    "poa": (  # front POA: spectrally corrected
+                        poa_spec_corrected,
+                        {
+                            "poa": "GlobInc",
+                            "spectral_correction": (
+                                spectral_factor_firstsolar,
+                                {
+                                    "precipitable_water": (
+                                        scale,
+                                        {"col": "PrecWat", "factor": 100},
+                                    ),
+                                    "absolute_airmass": (
+                                        absolute_airmass,
+                                        {
+                                            "apparent_zenith": (
+                                                apparent_zenith_pvsyst,
+                                                {},
+                                            ),
+                                            # no pressure col: PVsyst uses sea-level default
+                                        },
+                                    ),
+                                },
+                            ),
+                        },
+                    ),
+                    "rpoa": "GlobBak",
+                },
+            ),
+            "t_amb": "T_Amb",
+            "w_vel": "WindVel",
+        },
+        "reg_fml": "power ~ poa + I(poa * poa) + I(poa * t_amb) + I(poa * w_vel) - 1",
+        "scatter_plots": scatter_etotal,
+        "rep_conditions": {
+            "irr_bal": False,
+            "percent_filter": 20,
+            "func": {
+                "poa": perc_wrap(60),
+                "t_amb": "mean",
+                "w_vel": "mean",
+            },
+        },
+    },
 }
 
 _TEST_SETUP_REQUIRED_KEYS = frozenset(
@@ -428,6 +815,39 @@ _TEST_SETUP_REQUIRED_KEYS = frozenset(
         "rep_conditions",
     }
 )
+
+
+def test_setups(options=True, descriptions=False):
+    """
+    Display test setups available.
+
+    Parameters
+    ----------
+    options: bool, default True
+        List the names of the test setups.
+    descriptions: bool, default False
+        List the descriptions of the test setups.
+
+    Returns
+    -------
+    None
+    """
+    if options:
+        print("All options")
+        print("=" * 60)
+        for name in TEST_SETUPS.keys():
+            print(name)
+
+    if descriptions:
+        if options:
+            print("\n\n")
+        print("Descriptions")
+        print("=" * 60)
+        for name, setup in TEST_SETUPS.items():
+            print("\n")
+            print(f"{name}")
+            print("-" * 60)
+            print(textwrap.fill(setup["description"], 60))
 
 
 def validate_test_setup(entry):
@@ -704,9 +1124,15 @@ _CAPTEST_YAML_KEYS = frozenset(
         "irrad_stability_threshold",
         "hrs_req",
         "bifaciality",
+        "bifacial_frac",
+        "rear_shade",
         "power_temp_coeff",
         "base_temp",
+        "module_type",
+        "racking",
         "spectral_module_type",
+        "airmass_model",
+        "altitude_override",
         "meas_load_kwargs",
         "sim_load_kwargs",
         "meas_path",
@@ -721,6 +1147,14 @@ _CAPTEST_YAML_KEYS = frozenset(
 _CAPTEST_OVERRIDE_KEYS = frozenset(
     {"reg_cols_meas", "reg_cols_sim", "reg_fml", "rep_conditions"}
 )
+
+# Keys whose ``None`` (yaml ``null``) value is a distinct, meaningful value
+# rather than a request to fall back to the param default. These are NOT
+# stripped by ``from_mapping`` so the value round-trips through ``to_yaml`` /
+# ``from_yaml``. ``altitude_override`` is the only such key: it has a non-None
+# default (0, the sea-level convention) but allows ``None`` to mean "respect
+# the site's own altitude".
+_CAPTEST_NONE_MEANINGFUL_KEYS = frozenset({"altitude_override"})
 
 
 def _default_meas_loader():
@@ -775,7 +1209,7 @@ class CapTest(param.Parameterized):
 
     3. Bare + manual::
 
-        ct = CapTest(test_setup="bifi_e2848_etotal", bifaciality=0.15)
+        ct = CapTest(test_setup="bifi_e2848_etotal_rear_shade_sim", bifaciality=0.15)
         ct.meas = my_meas_cd
         ct.sim = my_sim_cd
         ct.setup()
@@ -824,9 +1258,21 @@ class CapTest(param.Parameterized):
         Threshold value for ``irrad_stability``.
     hrs_req : float
         Hours of data required for a complete test. Default 12.5.
-    bifaciality, power_temp_coeff, base_temp : float
-        Calc-params scalars propagated onto both ``CapData`` instances at
-        ``setup()``. See ``_downstream_attrs``.
+    bifaciality, bifacial_frac, power_temp_coeff, base_temp, altitude_override : float
+        Numeric calc-params scalars propagated to both CapData instances at
+        setup(). See ``_downstream_attrs``.
+    module_type, racking, airmass_model, spectral_module_type : str
+        String calc-params options propagated to both CapData instances at
+        setup(). ``module_type``/``racking`` feed the Sandia temperature
+        model (``calcparams.bom_temp`` / ``calcparams.cell_temp``);
+        ``airmass_model`` feeds ``calcparams.absolute_airmass``;
+        ``spectral_module_type`` feeds
+        ``calcparams.spectral_factor_firstsolar``.
+    rear_shade : float
+        Fraction of rear irradiance lost to shading, propagated to the
+        measured CapData instance only (see ``_downstream_attrs_meas_only``).
+        Applied by ``calcparams.e_total`` on the measured side; the modeled
+        side handles rear shading through its own ``reg_cols_sim`` definition.
     meas_loader, sim_loader : callable or None
         Programmatic-only data-loader callables. Default resolution when
         ``None``: ``captest.io.load_data`` and ``captest.io.load_pvsyst``
@@ -964,11 +1410,30 @@ class CapTest(param.Parameterized):
         doc="Hours of data required for a complete test.",
     )
 
-    # Calc-params scalars propagated to both CapData instances at setup().
+    # Calc-params scalars propagated to the CapData instances at setup().
+    # All are propagated onto both meas and sim except rear_shade, which is
+    # meas-only (see _downstream_attrs_meas_only).
     bifaciality = param.Number(
         default=0.0,
         bounds=(0.0, 1.0),
         doc="Bifaciality factor propagated onto both CapData instances.",
+    )
+    bifacial_frac = param.Number(
+        default=1.0,
+        bounds=(0.0, 1.0),
+        doc=(
+            "Fraction of array nameplate power that is bifacial, passed to "
+            "calcparams.e_total. Propagated onto both CapData instances."
+        ),
+    )
+    rear_shade = param.Number(
+        default=0.0,
+        bounds=(0.0, 1.0),
+        doc=(
+            "Fraction of rear irradiance lost due to shading, passed to "
+            "calcparams.e_total. Propagated onto the measured CapData "
+            "instance only (see _downstream_attrs_meas_only)."
+        ),
     )
     power_temp_coeff = param.Number(
         default=-0.32,
@@ -977,6 +1442,26 @@ class CapTest(param.Parameterized):
     base_temp = param.Number(
         default=25,
         doc="Base temperature for temperature correction (deg C).",
+    )
+    module_type = param.String(
+        default="glass_cell_poly",
+        doc=(
+            "Module construction passed to the Sandia temperature model via "
+            "calcparams.bom_temp and calcparams.cell_temp. One of "
+            "'glass_cell_poly', 'glass_cell_glass', or 'poly_tf_steel'. "
+            "Propagated onto both CapData instances at setup(). Distinct from "
+            "spectral_module_type, which feeds "
+            "calcparams.spectral_factor_firstsolar."
+        ),
+    )
+    racking = param.String(
+        default="open_rack",
+        doc=(
+            "Racking configuration passed to the Sandia temperature model via "
+            "calcparams.bom_temp and calcparams.cell_temp. One of 'open_rack', "
+            "'close_roof_mount', or 'insulated_back'. Propagated onto both "
+            "CapData instances at setup()."
+        ),
     )
     spectral_module_type = param.String(
         default="cdte",
@@ -987,6 +1472,25 @@ class CapTest(param.Parameterized):
             "CapData.custom_param. Named to avoid collision with the "
             "'module_type' kwarg of calcparams.bom_temp and "
             "calcparams.cell_temp."
+        ),
+    )
+    airmass_model = param.String(
+        default="kastenyoung1989",
+        doc=(
+            "Relative airmass model passed to calcparams.absolute_airmass "
+            "(pvlib.atmosphere.get_relative_airmass). Propagated onto both "
+            "CapData instances at setup()."
+        ),
+    )
+    altitude_override = param.Number(
+        default=0,
+        allow_None=True,
+        doc=(
+            "Altitude (m) used when building the pvlib.Location in "
+            "calcparams.apparent_zenith / apparent_zenith_pvsyst. Defaults to "
+            "0 (sea level) per the First Solar spectral-correction reference; "
+            "set to None to respect the site's own altitude. Propagated onto "
+            "both CapData instances at setup()."
         ),
     )
 
@@ -1012,14 +1516,25 @@ class CapTest(param.Parameterized):
         doc="Extra kwargs splatted into sim_loader.",
     )
 
-    # Class-level tuple of param names to copy onto both CapData instances
-    # during setup(). Extending is a one-line edit.
+    # Class-level tuple of param names to copy onto the CapData instances
+    # during setup(). Names also listed in _downstream_attrs_meas_only are
+    # copied onto meas only; all others are copied onto both meas and sim.
+    # Extending is a one-line edit. Invariant: every name in
+    # _downstream_attrs_meas_only MUST also appear in _downstream_attrs, since
+    # setup() iterates _downstream_attrs (guarded by a subset test).
     _downstream_attrs = (
         "bifaciality",
+        "bifacial_frac",
+        "rear_shade",
         "power_temp_coeff",
         "base_temp",
+        "module_type",
+        "racking",
         "spectral_module_type",
+        "airmass_model",
+        "altitude_override",
     )
+    _downstream_attrs_meas_only = ("rear_shade",)
 
     def __init__(self, **kwargs):  # noqa: D107
         super().__init__(**kwargs)
@@ -1256,8 +1771,14 @@ class CapTest(param.Parameterized):
                 )
             kwargs[path_key] = _join_base_and_relative(base_dir, val_str)
 
-        # ``null`` (None) in yaml is equivalent to omitting the key.
-        kwargs = {k: v for k, v in kwargs.items() if v is not None}
+        # ``null`` (None) in yaml is equivalent to omitting the key, except
+        # for keys where None is a distinct, meaningful value (see
+        # _CAPTEST_NONE_MEANINGFUL_KEYS) and must survive the round trip.
+        kwargs = {
+            k: v
+            for k, v in kwargs.items()
+            if v is not None or k in _CAPTEST_NONE_MEANINGFUL_KEYS
+        }
 
         # Inject programmatic-only loader callables. Explicit kwargs win
         # over any value that happened to slip through the sub-mapping
@@ -1453,9 +1974,15 @@ class CapTest(param.Parameterized):
             "irrad_stability_threshold",
             "hrs_req",
             "bifaciality",
+            "bifacial_frac",
+            "rear_shade",
             "power_temp_coeff",
             "base_temp",
+            "module_type",
+            "racking",
             "spectral_module_type",
+            "airmass_model",
+            "altitude_override",
         )
         for name in scalar_names:
             sub[name] = getattr(self, name)
@@ -1622,10 +2149,13 @@ class CapTest(param.Parameterized):
         resolved = resolve_test_setup(self.test_setup, overrides=overrides)
         self._resolved_setup = resolved
 
-        # Propagate scalar calc-params onto both CapData instances.
+        # Propagate scalar calc-params onto the CapData instances. Names in
+        # _downstream_attrs_meas_only are copied onto meas only; all others
+        # are copied onto both meas and sim.
         for name in self._downstream_attrs:
             setattr(self.meas, name, getattr(self, name))
-            setattr(self.sim, name, getattr(self, name))
+            if name not in self._downstream_attrs_meas_only:
+                setattr(self.sim, name, getattr(self, name))
 
         # Propagate site from meas -> sim with Etc/GMT±N tz for PVsyst.
         self._propagate_sim_site()
@@ -1671,7 +2201,8 @@ class CapTest(param.Parameterized):
 
         Built-in setup behavior:
 
-        - ``e2848_default``, ``bifi_e2848_etotal``, and
+        - ``e2848_default``, ``bifi_e2848_etotal_rear_shade_sim``,
+          ``bifi_e2848_etotal_rear_shade_meas``, and
           ``e2848_spec_corrected_poa`` use ``ScatterPlot`` through the
           ``scatter_default`` / ``scatter_etotal`` wrappers. These create a
           formula-driven scatter of the regression left-hand-side variable
@@ -2065,5 +2596,6 @@ __all__ = [
     "scatter_bifi_power_tc",
     "scatter_default",
     "scatter_etotal",
+    "test_setups",
     "validate_test_setup",
 ]

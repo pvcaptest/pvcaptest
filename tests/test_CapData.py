@@ -1962,6 +1962,59 @@ class TestAggGroupCutoff:
             assert f"    {col}" in captured.out
 
 
+class TestAggGroupSumNaN:
+    """Verify sum aggregation preserves NaN for all-NaN rows (min_count=1)."""
+
+    def _build_cd(self, data, column_groups):
+        """Build a minimal CapData from a DataFrame and column_groups dict."""
+        cd = pvc.CapData("cd")
+        cd.data = data
+        cd.data_filtered = data.copy()
+        cd.column_groups = column_groups
+        return cd
+
+    def test_agg_group_sum_single_column_all_nan_row_stays_nan(self):
+        """Summing a one-column group yields NaN, not 0.0, for an all-NaN row."""
+        idx = pd.date_range("2023-11-18 09:55", periods=3, freq="1min")
+        data = pd.DataFrame({"mtr_power": [np.nan, 1.5, 2.5]}, index=idx)
+        cd = self._build_cd(data, {"real_pwr_mtr": ["mtr_power"]})
+
+        agg_result, col_name = cd.agg_group(
+            "real_pwr_mtr", "sum", inplace=False, verbose=False
+        )
+
+        assert col_name == "real_pwr_mtr_sum_agg"
+        # All-NaN row stays NaN instead of collapsing to 0.0.
+        assert np.isnan(agg_result.iloc[0, 0])
+        # Rows with a value pass through unchanged.
+        assert agg_result.iloc[1, 0] == pytest.approx(1.5)
+        assert agg_result.iloc[2, 0] == pytest.approx(2.5)
+
+    def test_agg_group_sum_multi_column_all_nan_row_stays_nan(self):
+        """Summing a multi-column group yields NaN for a fully-NaN row while
+        still skipping NaN in a partially-populated row."""
+        idx = pd.date_range("2023-11-18 09:55", periods=3, freq="1min")
+        data = pd.DataFrame(
+            {
+                "mtr_a": [np.nan, np.nan, 3.0],
+                "mtr_b": [np.nan, 5.0, 4.0],
+            },
+            index=idx,
+        )
+        cd = self._build_cd(data, {"real_pwr_mtr": ["mtr_a", "mtr_b"]})
+
+        agg_result, col_name = cd.agg_group(
+            "real_pwr_mtr", "sum", inplace=False, verbose=False
+        )
+
+        # All-NaN row stays NaN instead of collapsing to 0.0.
+        assert np.isnan(agg_result.iloc[0, 0])
+        # Partially-populated row skips the NaN and sums the present value.
+        assert agg_result.iloc[1, 0] == pytest.approx(5.0)
+        # Fully-populated row sums normally.
+        assert agg_result.iloc[2, 0] == pytest.approx(7.0)
+
+
 class TestFilterSensors:
     def test_perc_diff_none(self, meas):
         rows_before_flt = meas.data_filtered.shape[0]

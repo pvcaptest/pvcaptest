@@ -303,6 +303,38 @@ class TestProcessRegCols:
             assert v == test_dict[k]
 
 
+class TestGetOrCreateAggregationReuse:
+    """A pre-existing <group>_<func>_agg column is reused, not re-aggregated.
+
+    This happens e.g. when measured data is loaded from a previously
+    exported test-data csv that already contains aggregated columns. The
+    reuse should be reported when verbose so the absence of an
+    'Aggregating ...' block is explained.
+    """
+
+    def test_reuses_existing_column_and_prints_message(self, nested_calc_dict, capsys):
+        dummy_cd, _ = nested_calc_dict
+        dummy_cd.data["irr_poa_mean_agg"] = np.full(10, 7)
+        reg_cols = {"poa": ("irr_poa", "mean")}
+        util.process_reg_cols(reg_cols, cd=dummy_cd)
+        captured = capsys.readouterr()
+        assert (
+            "Reusing existing column 'irr_poa_mean_agg'; skipping "
+            "aggregation of the irr_poa group." in captured.out
+        )
+        assert reg_cols["poa"] == "irr_poa_mean_agg"
+        assert not hasattr(dummy_cd, "agg_group_kwargs")
+
+    def test_reuse_is_silent_when_verbose_false(self, nested_calc_dict, capsys):
+        dummy_cd, _ = nested_calc_dict
+        dummy_cd.data["irr_poa_mean_agg"] = np.full(10, 7)
+        reg_cols = {"poa": ("irr_poa", "mean")}
+        util.process_reg_cols(reg_cols, cd=dummy_cd, verbose=False)
+        assert capsys.readouterr().out == ""
+        assert reg_cols["poa"] == "irr_poa_mean_agg"
+        assert not hasattr(dummy_cd, "agg_group_kwargs")
+
+
 class TestParseRegressionFormula:
     def test_astm(self):
         lhs, rhs = util.parse_regression_formula(

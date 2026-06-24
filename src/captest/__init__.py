@@ -20,6 +20,7 @@ from captest.captest import (
     CapTest as CapTest,
     TEST_SETUPS as TEST_SETUPS,
     load_config as load_config,
+    test_setups as test_setups,
 )
 
 try:
