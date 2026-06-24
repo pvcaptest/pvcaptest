@@ -1969,7 +1969,6 @@ class TestAggGroupSumNaN:
         """Build a minimal CapData from a DataFrame and column_groups dict."""
         cd = pvc.CapData("cd")
         cd.data = data
-        cd.data_filtered = data.copy()
         cd.column_groups = column_groups
         return cd
 
