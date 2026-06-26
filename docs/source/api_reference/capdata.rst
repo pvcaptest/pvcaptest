@@ -62,8 +62,12 @@ Methods for aggregating sensor readings into single representative columns.
 Filtering
 ---------
 
-Methods that apply filters to ``data_filtered``. Each method records the
-rows kept and removed in the filter history.
+Thin wrappers that build a step class from :py:mod:`captest.filters` and
+``run()`` it, appending it to the ``CapData.filters`` chain (the single source
+of truth from which ``data_filtered`` is derived). Each accepts an optional
+``custom_name`` label. ``describe_filters`` returns a written summary of the
+run, while ``filters_to_config`` / ``run_pipeline`` serialize and replay the
+chain. See :doc:`filters` for the underlying step classes.
 
 .. autosummary::
    :toctree: generated/
@@ -82,6 +86,9 @@ rows kept and removed in the filter history.
    capdata.CapData.filter_missing
    capdata.CapData.filter_op_state
    capdata.CapData.reset_filter
+   capdata.CapData.describe_filters
+   capdata.CapData.filters_to_config
+   capdata.CapData.run_pipeline
 
 Reporting Conditions
 --------------------
