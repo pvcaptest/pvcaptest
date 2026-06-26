@@ -33,6 +33,7 @@ from captest.util import (
     _perc_wrap_to_string,
     _resolve_func_strings,
     perc_wrap,
+    to_native,
 )
 from captest.capdata import CapData
 from captest.filters import wrap_year_end
@@ -982,8 +983,9 @@ def _serialize_rep_conditions(rc):
     """Return a yaml-safe copy of a ``rep_conditions`` dict.
 
     Recursively walks the dict; ``func`` sub-dict values that are
-    ``perc_wrap(N)`` callables are converted to ``"perc_N"`` strings so the
-    dict survives a yaml.safe_dump round-trip.
+    ``perc_wrap(N)`` callables are converted to ``"perc_N"`` strings, and
+    numpy scalars are coerced to native Python types via ``util.to_native``,
+    so the dict survives a yaml.safe_dump round-trip.
     """
     if not isinstance(rc, dict):
         return rc
@@ -992,7 +994,7 @@ def _serialize_rep_conditions(rc):
         if key == "func" and isinstance(val, dict):
             serialized[key] = {k: _perc_wrap_to_string(v) for k, v in val.items()}
         else:
-            serialized[key] = copy.deepcopy(val)
+            serialized[key] = to_native(copy.deepcopy(val))
     return serialized
 
 

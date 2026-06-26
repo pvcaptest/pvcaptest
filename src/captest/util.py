@@ -576,6 +576,31 @@ def _resolve_func_strings(func_dict):
     return {key: _resolve_perc_string(val) for key, val in func_dict.items()}
 
 
+def to_native(value):
+    """Coerce a numpy scalar to its native Python equivalent for YAML output.
+
+    ``yaml.safe_dump`` cannot represent numpy scalar types (e.g.
+    ``np.float64``), so values that originate from pandas/numpy (such as a
+    reporting-irradiance ``ref_val`` pulled from ``cd.rc['poa'].iloc[0]``)
+    raise ``yaml.representer.RepresenterError`` when serialized. This converts
+    any ``np.generic`` scalar to a plain ``int``/``float``/etc.; all other
+    values pass through unchanged.
+
+    Parameters
+    ----------
+    value : object
+        Any value bound for serialization.
+
+    Returns
+    -------
+    object
+        ``value.item()`` when ``value`` is a numpy scalar, otherwise ``value``.
+    """
+    if isinstance(value, np.generic):
+        return value.item()
+    return value
+
+
 def _perc_wrap_to_string(val):
     """Inverse of :func:`_resolve_perc_string`.
 

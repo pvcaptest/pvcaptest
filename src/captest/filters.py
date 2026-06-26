@@ -368,12 +368,18 @@ class BaseSummaryStep(param.Parameterized):
 
         Param values are deep-copied so the returned dict is an independent
         snapshot — mutating it never reaches back into the step's params.
-        Values are expected to be YAML-safe (the normal case); subclasses
-        whose params hold callables override to encode them.
+        Numpy scalars (e.g. a ``ref_val`` taken from ``cd.rc['poa'].iloc[0]``)
+        are coerced to native Python types via ``util.to_native`` so the dict
+        survives ``yaml.safe_dump``; subclasses whose params hold callables
+        override to encode them.
         """
         config = {"type": type(self).__name__}
         config.update(
-            {k: copy.deepcopy(v) for k, v in self.param.values().items() if k != "name"}
+            {
+                k: util.to_native(copy.deepcopy(v))
+                for k, v in self.param.values().items()
+                if k != "name"
+            }
         )
         return config
 

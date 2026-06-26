@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 import statsmodels.formula.api as smf
 import holoviews as hv
+import yaml
 from patsy import dmatrix
 
 import pvlib
@@ -3633,6 +3634,28 @@ class TestPipelineConfig:
     def test_run_pipeline_empty_is_noop(self, nrel):
         nrel.run_pipeline([])
         assert nrel.filters == []
+
+    def test_filters_to_config_numpy_ref_val_is_yaml_safe(self, pvsyst):
+        """Verify a numpy-float ref_val serializes to plain yaml without error.
+
+        Passing ``ref_val=cd.rc['poa'].iloc[0]`` (a ``np.float64``) to
+        ``filter_irr`` previously left the numpy scalar in the step's config,
+        so ``yaml.safe_dump`` (used by ``CapTest.to_yaml``) raised
+        ``yaml.representer.RepresenterError``.
+        """
+        pvsyst.filter_irr(200, 800)
+        pvsyst.rep_cond()
+        ref_val = pvsyst.rc["poa"].iloc[0]
+        assert isinstance(ref_val, np.floating)
+        pvsyst.filter_irr(0.8, 1.2, ref_val=ref_val)
+
+        config = pvsyst.filters_to_config()
+
+        # Must not raise RepresenterError on the numpy-float ref_val.
+        dumped = yaml.safe_dump(config)
+        reloaded = yaml.safe_load(dumped)
+        irr_steps = [d for d in reloaded if d["type"] == "Irradiance"]
+        assert irr_steps[-1]["ref_val"] == pytest.approx(float(ref_val))
 
 
 if __name__ == "__main__":
