@@ -188,19 +188,25 @@ self-filtering pipelines stay correct. During `from_yaml`, a `_loading` flag on
 the CapTest modifies the §4.3 auto-update for the duration of replay:
 
 1. Warnings are suppressed.
-2. The auto-update applies **only when the CapData is the configured `rc_source`
+2. **The configured `rc_source` side's pipeline is replayed first** (not a fixed
+   meas-before-sim order). This is required: the *other* side's pipeline may
+   contain `filter_irr(ref_val="rep_irr")` (the standard "filter one dataset
+   around the other's rep irr" pattern), which resolves against `ct.rc`. `ct.rc`
+   is populated only by the configured source's `RepCond` (point 3), so that side
+   must run first or the other side's filter raises on a `None` `ct.rc`. For
+   `rc_source="meas"` this is meas→sim; for `rc_source="sim"` it is **sim→meas**.
+3. The auto-update applies **only when the CapData is the configured `rc_source`
    side** (config-seeded, not last-writer-wins). So the configured source's
    `RepCond` step populates `ct.rc` *mid-replay*, making `ref_val="rep_irr"`
-   resolvable for that side's own filters during replay, while the other side's
+   resolvable for both sides' filters during replay, while the other side's
    `RepCond` (if any) updates only its `cd.rc`.
-3. For `rc_source="manual"`, `ct.rc` is set from `reporting_conditions_values`
+4. For `rc_source="manual"`, `ct.rc` is set from `reporting_conditions_values`
    **before** replay; no `RepCond` step overwrites it (no side matches a
    `"manual"` source), so the manual values are in effect for any self-filtering
-   pipeline during replay.
+   pipeline during replay regardless of order (meas→sim is fine).
 
 After replay, `_loading` is cleared; `ct.rc` / `rc_source` reflect the configured
-state and interactive last-writer-wins (§4.3) takes over. The existing
-meas-before-sim replay order must be retained (see §10).
+state and interactive last-writer-wins (§4.3) takes over.
 
 ### 4.8 `setup()` changes
 
@@ -241,6 +247,10 @@ meas-before-sim replay order must be retained (see §10).
 
 - Internal-only removals (added this session, unreleased): `rc_source_resolved`
   attribute, its `setup()` wiring, and the `rep_irr` branch that read it.
+- Implementation change: `from_yaml` currently replays meas then sim
+  (captest.py:1818-1821, the unconditional order). It must instead replay the
+  configured `rc_source` side first (§4.7), falling back to meas→sim for
+  `rc_source="manual"`.
 - Behavior change: `captest_results` now reads `ct.rc`. Existing flows that call
   `cd.rep_cond()` (e.g. via `run_test`) and then `captest_results` keep working —
   last-writer-wins means the bare `cd.rep_cond()` now populates `ct.rc`. With the
@@ -277,10 +287,19 @@ meas-before-sim replay order must be retained (see §10).
 9. **Load determinism:** a config where both pipelines contain a `RepCond` step
    restores `ct.rc`/`rc_source` to the configured source (config-seeded, not the
    last replayed step); no warnings emit during load.
-10. **Mid-replay self-filtering:** a meas pipeline of
-    `RepCond → filter_irr(ref_val="rep_irr")` round-trips through `to_yaml`/
-    `from_yaml` without error (regression guard for the load path).
-11. Standalone `CapData` regression tests remain green (no behavior change).
+10. **Mid-replay self-filtering, both source sides:**
+    - `rc_source="meas"`: a meas pipeline of
+      `RepCond → filter_irr(ref_val="rep_irr")` (plus a sim pipeline whose
+      `filter_irr(ref_val="rep_irr")` references `ct.rc`) round-trips through
+      `to_yaml`/`from_yaml` without error.
+    - `rc_source="sim"`: the **other** side carries the `rep_irr` filter — a meas
+      pipeline with `filter_irr(ref_val="rep_irr")` and a sim pipeline with the
+      `RepCond` — round-trips without error, proving the sim→meas replay order
+      (the configured-source-first rule); this case fails under a fixed
+      meas-before-sim order, so it is the explicit regression guard.
+11. **Replay order:** `from_yaml` replays the configured `rc_source` side first
+    (sim→meas when `rc_source="sim"`).
+12. Standalone `CapData` regression tests remain green (no behavior change).
 
 ## 9. Open questions
 
@@ -319,6 +338,9 @@ to accommodate it; notes for the future implementer:
   changes `ct.rc`, leaving meas's `rep_irr`-based filters stale. This is inherent
   to "filter one dataset around the other's rep irr," not a flaw here; the future
   work should add staleness detection at the `_set_rc` hook.
-- **Retain the meas-before-sim replay order** in `from_yaml` (§4.7) so a
-  meas-sourced `ct.rc` exists before sim's filters at initial load. At re-run time
-  `ct.rc` persists, so ordering no longer matters then.
+- **Replay the configured `rc_source` side first** in `from_yaml` (§4.7) so the
+  source's `ct.rc` exists before the other side's `rep_irr` filters at initial
+  load (sim→meas when `rc_source="sim"`; meas→sim when `"meas"`). At re-run time
+  `ct.rc` persists, so ordering no longer matters then — but a future
+  `setup(which=...)` re-run must still ensure `ct.rc` is current for the source
+  side before re-filtering the dependent side.
