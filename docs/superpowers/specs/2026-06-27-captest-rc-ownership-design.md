@@ -94,18 +94,17 @@ In a test, resolution reads **only** `CapTest.rc` (no silent fallback to
 CapData that belongs to a test (`cd._captest is not None`) does what it does
 standalone — appends the `RepCond` step and sets `cd.rc` — and then updates the
 test RC by calling `ct._set_rc(cd.rc.copy(), <this cd's side>)`, which sets
-`ct.rc` and flips `ct.rc_source` to that side. It emits a `UserWarning` that the
-test reporting conditions and `rc_source` were updated, so a CapData-level call's
-side effect on test-level state is visible. The warning fires on every such
-update, including recomputing the same source.
+`ct.rc` and sets `ct.rc_source` to that side. When this **changes the source**
+(§4.5) it emits a `UserWarning` so the flip is visible; recomputing the current
+source is silent.
 
 `ct.rep_cond(which="meas", **overrides)` remains the convenience entry point: it
 picks the CapData, merges the preset / `self.rep_conditions` config as today, and
-calls `cd.rep_cond(...)`, so the test RC is updated through the same path. Because
-updating `ct.rc` is the explicit purpose of `ct.rep_cond`, it **suppresses** the
-side-effect warning (the warning targets the bare `cd.rep_cond()` case). `which`
-defaults to the current `self.rc_source` when it is `"meas"`/`"sim"`, else
-`"meas"`.
+calls `cd.rep_cond(...)`, so the test RC is updated through the same path. The
+source-change warning rule (§4.5) applies uniformly — there is no path-specific
+suppression — so a flip warns whether triggered via `cd.rep_cond()` or
+`ct.rep_cond(other_side)`. `which` defaults to the current `self.rc_source` when
+it is `"meas"`/`"sim"`, else `"meas"`.
 
 `ct.rc` stores a **copy** of `cd.rc` (avoids aliasing); a later direct
 `cd.rep_cond()` re-runs the whole update, so `ct.rc` simply tracks the most recent
@@ -140,7 +139,7 @@ The setter:
    `setup()`; if they differ, raise pointing to the mismatch. If `df` is missing
    any required variable, raise `ValueError` listing the missing names. (Extra
    columns are allowed and preserved.)
-3. Coerces to a one-row DataFrame, applies the §4.5 manual-override warning, then
+3. Coerces to a one-row DataFrame, applies the §4.5 source-change warning, then
    records the override via `self._set_rc(df, "manual")`.
 
 **Internal vs public path.** Because the public setter always means "manual", the
@@ -151,16 +150,19 @@ property setter is exactly that helper with `source="manual"`, preceded by the
 validation above. This preserves a single public spelling (`ct.rc = df`) while
 keeping provenance correct for internally-computed RCs.
 
-### 4.5 Update / overwrite warnings
+### 4.5 Source-change warning
 
-- **`cd.rep_cond()` in a test (runtime):** always warn that the test reporting
-  conditions and `rc_source` were updated, naming the new source — e.g.
-  *"Test reporting conditions updated from the 'sim' CapData; rc_source set to
-  'sim'."* Suppressed when invoked via `ct.rep_cond` (the explicit path) and
-  during `from_yaml` load (§4.7).
-- **`ct.rc = df` (manual setter):** if `self.rc is not None` and the current
-  `self.rc_source` differs from `"manual"`, warn that a computed RC is being
-  replaced by a manual override.
+A single rule governs **every** runtime path that sets the test RC
+(`cd.rep_cond()` in a test, `ct.rep_cond(which)`, and the `ct.rc = df` manual
+setter): warn **only when the source changes** — i.e. `self.rc is not None` *and*
+the new source differs from the current `self.rc_source`. This covers a meas↔sim
+flip and any change to or from `"manual"`. Recomputing the current source (same
+`rc_source`) and the first time an RC is established (`self.rc is None`) are
+**silent**.
+
+The warning names the old and new source, e.g. *"Test reporting conditions
+rc_source changed from 'meas' to 'sim'."* It is suppressed during `from_yaml`
+load (§4.7).
 
 ### 4.6 `captest_results`
 
@@ -215,8 +217,8 @@ meas-before-sim replay order must be retained (see §10).
 | `CapTest.rc` (property) / `rc_source` | Hold the one test RC + provenance; getter over `_rc` | `_set_rc` |
 | `CapTest._set_rc(df, source)` (private) | Single internal write point for `_rc` + `rc_source` | — |
 | `CapTest.rc` setter | Manual override: validate RHS coverage → `_set_rc(df, "manual")` | `util.parse_regression_formula` |
-| `CapTest.rep_cond(which)` | Convenience: pick cd, merge config, call `cd.rep_cond` (warning suppressed) | `CapData.rep_cond` |
-| `CapData.rep_cond` / `_calc_rep_cond` | Set `cd.rc`; if in a test, update `ct.rc` (last-writer) + warn | `_captest`, `_set_rc` |
+| `CapTest.rep_cond(which)` | Convenience: pick cd, merge config, call `cd.rep_cond` | `CapData.rep_cond` |
+| `CapData.rep_cond` / `_calc_rep_cond` | Set `cd.rc`; if in a test, update `ct.rc` (last-writer) + warn on source change | `_captest`, `_set_rc` |
 | `CapData.rep_irr` | Resolve reporting POA (test → `ct.rc`, else `self.rc`) | `_captest` |
 | `Irradiance._execute` | `ref_val="rep_irr"` → `capdata.rep_irr` | unchanged |
 | `CapTest.captest_results` | Predict at `ct.rc` | `ct.rc` |
@@ -227,9 +229,9 @@ meas-before-sim replay order must be retained (see §10).
 - `rep_irr` with no resolvable RC → `ValueError` naming the in-test vs standalone
   remedy.
 - `captest_results` with `ct.rc is None` → `ValueError` directing to `rep_cond`.
-- `cd.rep_cond()` in a test updating `ct.rc` → `UserWarning` (§4.5), suppressed via
-  `ct.rep_cond` and during load.
-- `ct.rc = df` replacing a non-manual RC → `UserWarning` (§4.5).
+- Test RC **source change** (meas↔sim, or to/from `"manual"`) via any runtime
+  path → `UserWarning` (§4.5); silent on same-source recompute and first
+  establishment; suppressed during load.
 - `rc` setter when `setup()` has not run → `ValueError` (`_require_setup`).
 - `rc` setter when `df` omits a required RHS regression variable → `ValueError`
   listing the missing names (§4.4).
@@ -241,10 +243,11 @@ meas-before-sim replay order must be retained (see §10).
   attribute, its `setup()` wiring, and the `rep_irr` branch that read it.
 - Behavior change: `captest_results` now reads `ct.rc`. Existing flows that call
   `cd.rep_cond()` (e.g. via `run_test`) and then `captest_results` keep working —
-  last-writer-wins means the bare `cd.rep_cond()` now populates `ct.rc` — but they
-  emit the §4.5 side-effect warning. Flows can quiet the warning by using
-  `ct.rep_cond(which)`. The example notebook is being reworked by the user
-  separately.
+  last-writer-wins means the bare `cd.rep_cond()` now populates `ct.rc`. With the
+  default `rc_source` matching the computed side (the common case) this is silent
+  (first establishment / same source); the §4.5 warning fires only if a flow
+  computes RC on the other side and flips the source. The example notebook is
+  being reworked by the user separately.
 - Tests added this session (`TestRepIrrCrossInstance`, the `rc_source_resolved`
   wiring asserts in `TestSetup`) are updated to the `_captest` / `ct.rc` model.
 
@@ -252,15 +255,18 @@ meas-before-sim replay order must be retained (see §10).
 
 1. `CapTest.rc`/`rc_source` defaults; `_captest` wired on both CapData by
    `setup()`.
-2. `ct.rep_cond("meas")` sets `ct.rc` (== meas computation) and `rc_source="meas"`
-   without a warning; same for `"sim"`.
-3. **Last-writer-wins:** bare `meas.rep_cond()` in a test sets `ct.rc` +
-   `rc_source="meas"` and warns; a following `sim.rep_cond()` flips to `sim` and
-   warns. Standalone `cd.rep_cond()` (no `_captest`) does neither.
+2. `ct.rep_cond("meas")` sets `ct.rc` (== meas computation) and `rc_source="meas"`;
+   same for `"sim"`.
+3. **Last-writer-wins + source-change warning:** with `rc_source="meas"`,
+   `meas.rep_cond()` again is **silent** (same source, recomputed values); a
+   following `sim.rep_cond()` flips to `sim` and **warns**; the first
+   establishment (when `ct.rc` was None) is silent. Standalone `cd.rep_cond()`
+   (no `_captest`) updates only `cd.rc` and never warns.
 4. `ct.rc = df` sets `ct.rc` and `rc_source="manual"`; raises when `setup()` has
    not run, when a required RHS variable is missing (message lists them), and when
-   `meas`/`sim` formulas differ; extra columns are preserved; warns when replacing
-   a non-manual RC.
+   `meas`/`sim` formulas differ; extra columns are preserved; **warns** when it
+   changes the source (e.g. meas→manual), silent if the prior source was already
+   `"manual"`.
 5. `rep_irr`: in-test reads `ct.rc`; standalone reads `cd.rc`; `ValueError` when
    `ct.rc` is None in a test.
 6. `filter_irr(ref_val="rep_irr")` on sim uses `ct.rc` set from meas, without a
@@ -282,9 +288,9 @@ None outstanding. Resolved during brainstorming:
 
 - Standalone CapData keeps owning `cd.rc` (yes).
 - **Runtime: last-writer-wins.** Any `cd.rep_cond()` in a test updates `ct.rc` +
-  `rc_source` and warns; `ct.rep_cond(which)` is the convenience path and
-  suppresses the warning. Config/constructor `rc_source` seeds the value but does
-  not pin it after load.
+  `rc_source`; a `UserWarning` fires **only on a source change** (meas↔sim or to/
+  from `"manual"`), uniformly across paths (no per-path suppression).
+  Config/constructor `rc_source` seeds the value but does not pin it after load.
 - Load is config-seeded and warning-suppressed for deterministic round-trips
   (§4.7).
 - Manual override is a first-class source (`rc_source="manual"`), serialized by
