@@ -330,7 +330,7 @@ class TestFilterIrr:
 
     def test_execute_rep_irr_without_poa_col_raises(self, cd_irr):
         cd_irr.rc = pd.DataFrame({"irr": [500.0]})
-        with pytest.raises(ValueError, match="does not have a 'poa' column"):
+        with pytest.raises(ValueError, match="requires a 'poa' column"):
             Irradiance(low=0.8, high=1.2, ref_val="rep_irr")._execute(cd_irr)
 
 

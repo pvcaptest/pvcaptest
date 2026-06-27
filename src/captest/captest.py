@@ -1111,7 +1111,7 @@ _CAPTEST_YAML_KEYS = frozenset(
         "reg_cols_meas",
         "reg_cols_sim",
         "rep_conditions",
-        "rep_cond_source",
+        "rc_source",
         "sim_days",
         "shade_filter_start",
         "shade_filter_end",
@@ -1237,8 +1237,11 @@ class CapTest(param.Parameterized):
         ``setup()``. Top-level keys replace; the nested ``func`` dict is
         merged one level deep so users can override only a single
         variable's aggregation.
-    rep_cond_source : {"meas", "sim"}
-        Which ``CapData.rc`` is used by ``captest_results``. Default
+    rc_source : {"meas", "sim"}
+        Which ``CapData`` provides reporting conditions. Used by
+        ``captest_results`` and wired onto both ``meas`` and ``sim`` at
+        ``setup()`` so ``filter_irr(ref_val='rep_irr')`` resolves against the
+        same instance regardless of which dataset is being filtered. Default
         ``"meas"``.
     sim_days : int
         Days of simulated data used for the test. Default 30.
@@ -1341,10 +1344,12 @@ class CapTest(param.Parameterized):
         allow_None=True,
         doc="If set, partial-merged onto the preset rep_conditions at setup().",
     )
-    rep_cond_source = param.Selector(
+    rc_source = param.Selector(
         objects=["meas", "sim"],
         default="meas",
-        doc="Which CapData.rc is used by captest_results.",
+        doc="Which CapData provides reporting conditions: used by "
+        "captest_results and as the source that filter_irr(ref_val='rep_irr') "
+        "resolves against on both meas and sim.",
     )
 
     # Test scope / time
@@ -1961,7 +1966,7 @@ class CapTest(param.Parameterized):
 
         # Remaining scalar params (always written).
         scalar_names = (
-            "rep_cond_source",
+            "rc_source",
             "ac_nameplate",
             "test_tolerance",
             "sim_days",
@@ -2177,6 +2182,16 @@ class CapTest(param.Parameterized):
         self.meas.process_regression_columns(verbose=verbose)
         self.sim.process_regression_columns(verbose=verbose)
 
+        # Wire the reporting-conditions source onto both CapData instances so
+        # filter_irr(ref_val='rep_irr') resolves against the rc_source dataset
+        # (e.g. sim filtered around meas's reporting irradiance), regardless of
+        # which instance is being filtered. Stored as a lazy reference and read
+        # at filter time, so it reflects rep_cond() runs that happen after
+        # setup().
+        rc_source_cd = self.meas if self.rc_source == "meas" else self.sim
+        self.meas.rc_source_resolved = rc_source_cd
+        self.sim.rc_source_resolved = rc_source_cd
+
         return self
 
     def scatter_plots(self, which="meas", **kwargs):
@@ -2329,7 +2344,7 @@ class CapTest(param.Parameterized):
         """Compute the capacity test ratio for ``self.meas`` vs ``self.sim``.
 
         Picks reporting conditions from ``self.meas.rc`` or ``self.sim.rc``
-        based on ``self.rep_cond_source``. Uses ``self.ac_nameplate`` for the
+        based on ``self.rc_source``. Uses ``self.ac_nameplate`` for the
         tested-capacity printout and ``self.test_tolerance`` (via
         ``self.determine_pass_or_fail``) for the pass/fail result.
 
@@ -2354,13 +2369,13 @@ class CapTest(param.Parameterized):
                 "CapData objects do not have the same regression formula."
             )
 
-        if self.rep_cond_source == "meas":
+        if self.rc_source == "meas":
             rc = self.meas.rc
         else:
             rc = self.sim.rc
 
         if print_res:
-            print(f"Using reporting conditions from {self.rep_cond_source}. \n")
+            print(f"Using reporting conditions from {self.rc_source}. \n")
 
         # predict_with_pvalue_check is a single-CapData helper that stays in
         # capdata.py. Imported lazily to avoid importing holoviews-heavy

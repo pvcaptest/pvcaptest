@@ -839,6 +839,7 @@ class CapData(param.Parameterized):
         self.column_groups = {}
         self.regression_cols = {}
         self.rc = None
+        self.rc_source_resolved = None
         self.regression_results = None
         self.regression_formula = (
             "power ~ poa + I(poa * poa) + I(poa * t_amb) + I(poa * w_vel) - 1"
@@ -938,6 +939,45 @@ class CapData(param.Parameterized):
         """Return a boolean indicating if the CapData object contains data."""
         tests_indicating_empty = [self.data.empty, len(self.column_groups) == 0]
         return all(tests_indicating_empty)
+
+    @property
+    def rep_irr(self):
+        """Reporting POA irradiance anchoring relative irradiance filters.
+
+        This is the value resolved when ``filter_irr`` is called with
+        ``ref_val='rep_irr'`` (or the legacy ``'self_val'``). It is read from
+        ``rc_source_resolved.rc`` when a source has been wired (by
+        ``CapTest.setup``, so e.g. a ``sim`` filter can anchor on the ``meas``
+        reporting irradiance), and otherwise from this instance's own ``rc``.
+        Resolved lazily on access, so it reflects ``rep_cond()`` runs that
+        happen after the source is wired.
+
+        Returns
+        -------
+        float
+            The ``'poa'`` reporting condition of the resolved source.
+
+        Raises
+        ------
+        ValueError
+            If the resolved source has no reporting conditions, or its ``rc``
+            lacks a ``'poa'`` column.
+        """
+        source = (
+            self.rc_source_resolved if self.rc_source_resolved is not None else self
+        )
+        if source.rc is None:
+            raise ValueError(
+                "ref_val='rep_irr' requires reporting conditions on the "
+                f"'{source.name}' dataset. Call rep_cond() on it before "
+                "filtering with ref_val='rep_irr'."
+            )
+        if "poa" not in source.rc.columns:
+            raise ValueError(
+                "ref_val='rep_irr' requires a 'poa' column in the reporting "
+                f"conditions of the '{source.name}' dataset."
+            )
+        return float(source.rc["poa"].iloc[0])
 
     def drop_cols(self, columns):
         """
@@ -1701,8 +1741,11 @@ class CapData(param.Parameterized):
             Max value as fraction (1.2) or absolute 800 (W/m^2).
         ref_val : float or int or 'rep_irr'
             Must provide arg when `low` and `high` are fractions.
-            Pass ``'rep_irr'`` to use the reporting irradiance from ``self.rc``
-            (set by calling :meth:`rep_cond` first).
+            Pass ``'rep_irr'`` to use the reporting irradiance from
+            :attr:`rep_irr` (set by calling :meth:`rep_cond` first). Within a
+            :class:`~captest.captest.CapTest`, ``'rep_irr'`` resolves against
+            the ``rc_source`` instance, so a ``sim`` filter can anchor on the
+            ``meas`` reporting irradiance without passing the value manually.
         col_name : str, default None
             Column name of irradiance data to filter.  By default uses the POA
             irradiance set in regression_cols attribute or average of the POA

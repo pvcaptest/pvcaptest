@@ -445,17 +445,10 @@ class Irradiance(BaseFilter):
         if ref_val == "self_val":
             ref_val = "rep_irr"
         if ref_val == "rep_irr":
-            if capdata.rc is None:
-                raise ValueError(
-                    "ref_val='rep_irr' requires reporting conditions to be set. "
-                    "Call rep_cond() before filtering with ref_val='rep_irr'."
-                )
-            if "poa" not in capdata.rc.columns:
-                raise ValueError(
-                    "ref_val='rep_irr' requires a 'poa' column in capdata.rc. "
-                    "The reporting conditions DataFrame does not have a 'poa' column."
-                )
-            ref_val = float(capdata.rc["poa"].iloc[0])
+            # Resolve the reporting irradiance via the CapData, which honors a
+            # CapTest-wired rc_source (so e.g. a sim filter can anchor on the
+            # meas reporting irradiance) and falls back to its own rc.
+            ref_val = capdata.rep_irr
 
         # Store effective/resolved values as runtime state (NOT params, so they
         # are never serialized). The ref_val param keeps the user's intent

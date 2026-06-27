@@ -976,6 +976,25 @@ class TestSetup:
         assert ct_default.meas.tolerance == "- 4"
         assert ct_default.sim.tolerance == "- 4"
 
+    def test_setup_wires_rc_source_resolved_to_meas(self, ct_default):
+        """setup() points both CapData.rc_source_resolved at meas by default."""
+        assert ct_default.meas.rc_source_resolved is ct_default.meas
+        assert ct_default.sim.rc_source_resolved is ct_default.meas
+
+    def test_setup_wires_rc_source_resolved_to_sim(
+        self, meas_cd_default, sim_cd_default
+    ):
+        """rc_source='sim' points both CapData.rc_source_resolved at sim."""
+        capt = CapTest.from_params(
+            test_setup="e2848_default",
+            meas=meas_cd_default,
+            sim=sim_cd_default,
+            ac_nameplate=6_000_000,
+            rc_source="sim",
+        )
+        assert capt.meas.rc_source_resolved is capt.sim
+        assert capt.sim.rc_source_resolved is capt.sim
+
     def test_setup_assigns_resolved_setup(self, ct_default):
         resolved = ct_default._resolved_setup
         assert resolved is not None
@@ -1037,6 +1056,44 @@ class TestSetup:
         # Non-overridden preset keys are preserved.
         assert resolved_rc["irr_bal"] is False
         assert set(resolved_rc["func"].keys()) == {"poa", "t_amb", "w_vel"}
+
+
+class TestRepIrrCrossInstance:
+    """filter_irr(ref_val='rep_irr') resolving against the rc_source instance."""
+
+    def test_sim_rep_irr_filter_uses_meas_reporting_irradiance(self, ct_default):
+        """A sim filter_irr(ref_val='rep_irr') anchors on meas's reporting
+        irradiance (the default rc_source), without any rc set on sim and
+        without manually passing the value."""
+        ct_default.meas.filter_irr(200, 800)
+        ct_default.meas.rep_cond()
+        meas_rep_irr = float(ct_default.meas.rc["poa"].iloc[0])
+
+        # sim never computed its own reporting conditions.
+        assert ct_default.sim.rc is None
+
+        ct_default.sim.filter_irr(0.8, 1.2, ref_val="rep_irr")
+        step = ct_default.sim.filters[-1]
+        assert step.ref_val_resolved == pytest.approx(meas_rep_irr)
+
+    def test_sim_rep_irr_filter_roundtrips_through_yaml(self, ct_default, tmp_path):
+        """ref_val='rep_irr' serializes as a string and the rc_source wiring is
+        rebuilt on setup(), so the value is never written as a numpy float."""
+        import yaml
+
+        ct_default.meas.filter_irr(200, 800)
+        ct_default.meas.rep_cond()
+        ct_default.sim.filter_irr(0.8, 1.2, ref_val="rep_irr")
+
+        path = tmp_path / "ct.yaml"
+        # Must not raise RepresenterError on a numpy-float ref_val.
+        ct_default.to_yaml(path, merge_into_existing=False)
+
+        doc = yaml.safe_load(path.read_text())
+        sim_irr_steps = [
+            d for d in doc["captest"]["sim_filters"] if d["type"] == "Irradiance"
+        ]
+        assert sim_irr_steps[-1]["ref_val"] == "rep_irr"
 
 
 class TestDownstreamPropagation:
@@ -1693,9 +1750,9 @@ class TestPortedMethods:
 
         assert cp_rat == pytest.approx(expected_ratio, rel=1e-10)
 
-    def test_captest_results_uses_rep_cond_source_meas_by_default(self):
+    def test_captest_results_uses_rc_source_meas_by_default(self):
         capt = self._build_ct()
-        # Set sim.rc to a different value; default rep_cond_source="meas"
+        # Set sim.rc to a different value; default rc_source="meas"
         # should keep the meas rc.
         capt.sim.rc = pd.DataFrame({"poa": [99], "t_amb": [99], "w_vel": [99]})
         expected_actual = capt.meas.regression_results.predict(capt.meas.rc)[0]
@@ -1705,9 +1762,9 @@ class TestPortedMethods:
         cp_rat = capt.captest_results(print_res=False)
         assert cp_rat == pytest.approx(expected_ratio, rel=1e-10)
 
-    def test_captest_results_uses_rep_cond_source_sim(self):
+    def test_captest_results_uses_rc_source_sim(self):
         capt = self._build_ct()
-        capt.rep_cond_source = "sim"
+        capt.rc_source = "sim"
         capt.sim.rc = pd.DataFrame({"poa": [8], "t_amb": [4], "w_vel": [2]})
         expected_actual = capt.meas.regression_results.predict(capt.sim.rc)[0]
         expected_expected = capt.sim.regression_results.predict(capt.sim.rc)[0]
