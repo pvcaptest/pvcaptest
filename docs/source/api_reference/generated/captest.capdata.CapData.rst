@@ -80,5 +80,6 @@
       ~CapData.filters
       ~CapData.name
       ~CapData.param
+      ~CapData.rep_irr
    
    
