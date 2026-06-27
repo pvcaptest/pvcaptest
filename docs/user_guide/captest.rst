@@ -587,21 +587,6 @@ For example:
     setups. Confirm that the measured and modeled columns use consistent units
     and represent the same physical quantities before comparing results.
 
-Saving a test setup
--------------------
-:py:meth:`~captest.captest.CapTest.to_yaml` writes the main test settings back
-to a yaml file. This can be useful after adjusting a setup in a notebook and
-wanting to save the settings for a future run.
-
-.. code-block:: Python
-
-    ct.to_yaml('./project.yaml')
-
-By default, ``to_yaml`` updates the selected section of an existing yaml file
-and preserves other top-level sections, such as project metadata. It writes
-test settings and paths, but it does not write the measured data, modeled data,
-fitted regression results, or plots.
-
 .. _spec_corrected_poa:
 
 Spectrally corrected POA (``e2848_spec_corrected_poa``)
