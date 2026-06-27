@@ -88,49 +88,37 @@ In a test, resolution reads **only** `CapTest.rc` (no silent fallback to
 `cd.rc`). `Irradiance._execute` is unchanged — it already delegates to
 `capdata.rep_irr`.
 
-### 4.3 Computing RC inside a test (`CapTest.rep_cond`)
+### 4.3 Updating the test RC from a CapData (`rep_cond`)
 
-`ct.rep_cond(which="meas", **overrides)` is the single in-test entry point
-(point 3, confirmed). It keeps its current behavior — delegating to
-`cd.rep_cond(...)`, which appends the `RepCond` step to that CapData's pipeline
-and populates `cd.rc` — and then:
+**Runtime rule (after construction): last-writer-wins.** Any `cd.rep_cond()` on a
+CapData that belongs to a test (`cd._captest is not None`) does what it does
+standalone — appends the `RepCond` step and sets `cd.rc` — and then updates the
+test RC by calling `ct._set_rc(cd.rc.copy(), <this cd's side>)`, which sets
+`ct.rc` and flips `ct.rc_source` to that side. It emits a `UserWarning` that the
+test reporting conditions and `rc_source` were updated, so a CapData-level call's
+side effect on test-level state is visible. The warning fires on every such
+update, including recomputing the same source.
 
-1. Emits the overwrite warning per §4.5 **before** overwriting.
-2. Records the result via `self._set_rc(cd.rc, which)` (a **copy**, per §4.3),
-   which sets both `self._rc` and `self.rc_source = which`.
+`ct.rep_cond(which="meas", **overrides)` remains the convenience entry point: it
+picks the CapData, merges the preset / `self.rep_conditions` config as today, and
+calls `cd.rep_cond(...)`, so the test RC is updated through the same path. Because
+updating `ct.rc` is the explicit purpose of `ct.rep_cond`, it **suppresses** the
+side-effect warning (the warning targets the bare `cd.rep_cond()` case). `which`
+defaults to the current `self.rc_source` when it is `"meas"`/`"sim"`, else
+`"meas"`.
 
-`which` defaults to the current `self.rc_source` when it is `"meas"`/`"sim"`,
-else `"meas"`.
+`ct.rc` stores a **copy** of `cd.rc` (avoids aliasing); a later direct
+`cd.rep_cond()` re-runs the whole update, so `ct.rc` simply tracks the most recent
+`rep_cond` across either dataset.
 
-**Drift decision (point 3).** Inside a test there are two RC stores: each
-CapData's own `cd.rc` and the test-level `CapTest.rc`. `ct.rep_cond(which)` is the
-**only** supported way to populate the test RC from data. `cd.rep_cond()` is not
-removed — it still works on a CapData that happens to belong to a test (it
-updates that CapData's own `cd.rc` and appends the `RepCond` step to its
-pipeline) — but it deliberately does **not** propagate to `CapTest.rc`.
+**Standalone unaffected:** when `cd._captest is None`, `cd.rep_cond()` only sets
+`cd.rc` — no test-level update, no warning.
 
-Rationale:
-
-1. **Unambiguous ownership.** The test RC changes only when a `CapTest` method is
-   called, so "what are the test's reporting conditions?" has one answer with one
-   place to look.
-2. **No hidden cross-dataset coupling.** Filtering on either dataset resolves
-   `ref_val="rep_irr"` from `CapTest.rc` (§4.2). If a bare `cd.rep_cond()` on
-   `meas` silently became the test RC, it would change `sim`'s filtering behavior
-   from across the pair — exactly the kind of action-at-a-distance this design
-   removes.
-3. **Drift fails loudly, not silently.** Because in-test resolution reads only
-   `CapTest.rc` (never `cd.rc`), a user who calls `cd.rep_cond()` but never
-   `ct.rep_cond(...)` will hit the "`CapTest.rc` is None" error from `rep_irr` /
-   `captest_results` (§6), which points them at `ct.rep_cond(which)`. They cannot
-   accidentally filter or compute results against a stale or mismatched per-
-   dataset value.
-
-Consistency note: `ct.rep_cond(which)` calls `cd.rep_cond` internally, so
-immediately afterward `CapTest.rc` equals a **copy** of that CapData's `cd.rc`
-(copied to avoid aliasing). A *subsequent* direct `cd.rep_cond()` may then
-diverge `cd.rc` from `CapTest.rc`; that divergence is intentional and affects
-only standalone-style reads of `cd.rc`, never in-test behavior.
+**Why last-writer-wins (vs pinning to config).** Chosen for the interactive
+post-load workflow: a user adjusting filters and recomputing `rep_cond` wants the
+latest computation to become the test RC, flagged by a warning rather than
+blocked by an error. Config/constructor `rc_source` *seeds* the value (and is
+restored deterministically on load, §4.7) but does not lock it afterward.
 
 ### 4.4 Manual override
 
@@ -152,7 +140,7 @@ The setter:
    `setup()`; if they differ, raise pointing to the mismatch. If `df` is missing
    any required variable, raise `ValueError` listing the missing names. (Extra
    columns are allowed and preserved.)
-3. Coerces to a one-row DataFrame, applies the §4.5 overwrite warning, then
+3. Coerces to a one-row DataFrame, applies the §4.5 manual-override warning, then
    records the override via `self._set_rc(df, "manual")`.
 
 **Internal vs public path.** Because the public setter always means "manual", the
@@ -163,16 +151,16 @@ property setter is exactly that helper with `source="manual"`, preceded by the
 validation above. This preserves a single public spelling (`ct.rc = df`) while
 keeping provenance correct for internally-computed RCs.
 
-### 4.5 Overwrite warning
+### 4.5 Update / overwrite warnings
 
-When setting RC (via `rep_cond` or the `rc` setter): if `self.rc is
-not None` **and** the new source differs from the current `self.rc_source`, warn:
-
-> "Overwriting test reporting conditions sourced from '{old}' with conditions
-> from '{new}'."
-
-Re-running the **same** source (e.g. recomputing meas RC after changing filters)
-does not warn.
+- **`cd.rep_cond()` in a test (runtime):** always warn that the test reporting
+  conditions and `rc_source` were updated, naming the new source — e.g.
+  *"Test reporting conditions updated from the 'sim' CapData; rc_source set to
+  'sim'."* Suppressed when invoked via `ct.rep_cond` (the explicit path) and
+  during `from_yaml` load (§4.7).
+- **`ct.rc = df` (manual setter):** if `self.rc is not None` and the current
+  `self.rc_source` differs from `"manual"`, warn that a computed RC is being
+  replaced by a manual override.
 
 ### 4.6 `captest_results`
 
@@ -181,24 +169,36 @@ Replace the `rc_source`-based pick of `meas.rc`/`sim.rc` with `self.rc`. If
 `ct.rep_cond(which)` or assign `ct.rc = df`. The printed provenance line uses
 `self.rc_source`.
 
-### 4.7 Serialization
+### 4.7 Serialization and load
 
-Two cases, distinguished by `rc_source`:
+`rc_source` serializes via the existing `scalar_names` list. RC *values* are
+serialized only for the manual case:
 
-- **Computed (`"meas"`/`"sim"`)** — RC *values* are not serialized; they are
-  recomputed by replaying the source pipeline's `RepCond` step on `from_yaml`.
-  The existing "drop `overrides.rep_conditions` when a `RepCond` step is present"
-  rule is unchanged. After pipeline replay, `from_yaml` calls
-  `_set_rc(<rc_source cd>.rc, rc_source)` to populate `ct.rc` from the recomputed
-  per-dataset `rc`.
-- **Manual (`"manual"`)** — RC values *are* data, not config, so they cannot be
-  recomputed. Serialize the one-row RC as a yaml-safe mapping under a new
-  optional key `reporting_conditions_values` in the captest sub-mapping (numpy
-  scalars coerced via `util.to_native`). On load, reconstruct the DataFrame and
-  call `_set_rc(df, "manual")` **after** pipeline replay so the manual override
-  wins over anything a `RepCond` step produced.
+- **Computed (`"meas"`/`"sim"`)** — values are not serialized; they are recomputed
+  by replaying the source pipeline's `RepCond` step. The existing "drop
+  `overrides.rep_conditions` when a `RepCond` step is present" rule is unchanged.
+- **Manual (`"manual"`)** — values *are* data; serialize the one-row RC as a
+  yaml-safe mapping under a new optional key `reporting_conditions_values`
+  (numpy scalars coerced via `util.to_native`).
 
-`rc_source` continues to serialize via the existing `scalar_names` list.
+**Load differs from interactive runtime** so round-trips are deterministic and
+self-filtering pipelines stay correct. During `from_yaml`, a `_loading` flag on
+the CapTest modifies the §4.3 auto-update for the duration of replay:
+
+1. Warnings are suppressed.
+2. The auto-update applies **only when the CapData is the configured `rc_source`
+   side** (config-seeded, not last-writer-wins). So the configured source's
+   `RepCond` step populates `ct.rc` *mid-replay*, making `ref_val="rep_irr"`
+   resolvable for that side's own filters during replay, while the other side's
+   `RepCond` (if any) updates only its `cd.rc`.
+3. For `rc_source="manual"`, `ct.rc` is set from `reporting_conditions_values`
+   **before** replay; no `RepCond` step overwrites it (no side matches a
+   `"manual"` source), so the manual values are in effect for any self-filtering
+   pipeline during replay.
+
+After replay, `_loading` is cleared; `ct.rc` / `rc_source` reflect the configured
+state and interactive last-writer-wins (§4.3) takes over. The existing
+meas-before-sim replay order must be retained (see §10).
 
 ### 4.8 `setup()` changes
 
@@ -215,7 +215,8 @@ Two cases, distinguished by `rc_source`:
 | `CapTest.rc` (property) / `rc_source` | Hold the one test RC + provenance; getter over `_rc` | `_set_rc` |
 | `CapTest._set_rc(df, source)` (private) | Single internal write point for `_rc` + `rc_source` | — |
 | `CapTest.rc` setter | Manual override: validate RHS coverage → `_set_rc(df, "manual")` | `util.parse_regression_formula` |
-| `CapTest.rep_cond(which)` | Compute via a CapData, store onto `ct.rc` | `CapData.rep_cond` |
+| `CapTest.rep_cond(which)` | Convenience: pick cd, merge config, call `cd.rep_cond` (warning suppressed) | `CapData.rep_cond` |
+| `CapData.rep_cond` / `_calc_rep_cond` | Set `cd.rc`; if in a test, update `ct.rc` (last-writer) + warn | `_captest`, `_set_rc` |
 | `CapData.rep_irr` | Resolve reporting POA (test → `ct.rc`, else `self.rc`) | `_captest` |
 | `Irradiance._execute` | `ref_val="rep_irr"` → `capdata.rep_irr` | unchanged |
 | `CapTest.captest_results` | Predict at `ct.rc` | `ct.rc` |
@@ -226,7 +227,9 @@ Two cases, distinguished by `rc_source`:
 - `rep_irr` with no resolvable RC → `ValueError` naming the in-test vs standalone
   remedy.
 - `captest_results` with `ct.rc is None` → `ValueError` directing to `rep_cond`.
-- Source-change overwrite → `UserWarning` (§4.5).
+- `cd.rep_cond()` in a test updating `ct.rc` → `UserWarning` (§4.5), suppressed via
+  `ct.rep_cond` and during load.
+- `ct.rc = df` replacing a non-manual RC → `UserWarning` (§4.5).
 - `rc` setter when `setup()` has not run → `ValueError` (`_require_setup`).
 - `rc` setter when `df` omits a required RHS regression variable → `ValueError`
   listing the missing names (§4.4).
@@ -237,7 +240,9 @@ Two cases, distinguished by `rc_source`:
 - Internal-only removals (added this session, unreleased): `rc_source_resolved`
   attribute, its `setup()` wiring, and the `rep_irr` branch that read it.
 - Behavior change: `captest_results` now reads `ct.rc`. Existing flows that call
-  `cd.rep_cond()` (e.g. via `run_test`) and then `captest_results` must switch to
+  `cd.rep_cond()` (e.g. via `run_test`) and then `captest_results` keep working —
+  last-writer-wins means the bare `cd.rep_cond()` now populates `ct.rc` — but they
+  emit the §4.5 side-effect warning. Flows can quiet the warning by using
   `ct.rep_cond(which)`. The example notebook is being reworked by the user
   separately.
 - Tests added this session (`TestRepIrrCrossInstance`, the `rc_source_resolved`
@@ -247,27 +252,67 @@ Two cases, distinguished by `rc_source`:
 
 1. `CapTest.rc`/`rc_source` defaults; `_captest` wired on both CapData by
    `setup()`.
-2. `ct.rep_cond("meas")` sets `ct.rc` (== meas computation) and
-   `rc_source="meas"`; same for `"sim"`.
-3. `ct.rc = df` sets `ct.rc` and `rc_source="manual"`; raises when `setup()` has
-   not run, when a required RHS variable is missing (message lists them), and
-   when `meas`/`sim` formulas differ; extra columns are preserved.
-4. Overwrite warning fires on source change; no warning on same-source recompute.
+2. `ct.rep_cond("meas")` sets `ct.rc` (== meas computation) and `rc_source="meas"`
+   without a warning; same for `"sim"`.
+3. **Last-writer-wins:** bare `meas.rep_cond()` in a test sets `ct.rc` +
+   `rc_source="meas"` and warns; a following `sim.rep_cond()` flips to `sim` and
+   warns. Standalone `cd.rep_cond()` (no `_captest`) does neither.
+4. `ct.rc = df` sets `ct.rc` and `rc_source="manual"`; raises when `setup()` has
+   not run, when a required RHS variable is missing (message lists them), and when
+   `meas`/`sim` formulas differ; extra columns are preserved; warns when replacing
+   a non-manual RC.
 5. `rep_irr`: in-test reads `ct.rc`; standalone reads `cd.rc`; `ValueError` when
    `ct.rc` is None in a test.
 6. `filter_irr(ref_val="rep_irr")` on sim uses `ct.rc` set from meas, without a
    manual value pass (the original bug's real-world scenario).
 7. `captest_results` predicts at `ct.rc`; `ValueError` when None.
-8. Serialization round-trip: computed source recomputes `ct.rc` on load; manual
+8. Serialization round-trip — computed source recomputes `ct.rc` on load; manual
    override serializes values and restores `ct.rc` + `rc_source="manual"`.
-9. Standalone `CapData` regression tests remain green (no behavior change).
+9. **Load determinism:** a config where both pipelines contain a `RepCond` step
+   restores `ct.rc`/`rc_source` to the configured source (config-seeded, not the
+   last replayed step); no warnings emit during load.
+10. **Mid-replay self-filtering:** a meas pipeline of
+    `RepCond → filter_irr(ref_val="rep_irr")` round-trips through `to_yaml`/
+    `from_yaml` without error (regression guard for the load path).
+11. Standalone `CapData` regression tests remain green (no behavior change).
 
 ## 9. Open questions
 
 None outstanding. Resolved during brainstorming:
 
 - Standalone CapData keeps owning `cd.rc` (yes).
-- `ct.rep_cond(which)` is the single in-test entry point; `cd.rep_cond()` does
-  not sync to `ct.rc` (point 3).
+- **Runtime: last-writer-wins.** Any `cd.rep_cond()` in a test updates `ct.rc` +
+  `rc_source` and warns; `ct.rep_cond(which)` is the convenience path and
+  suppresses the warning. Config/constructor `rc_source` seeds the value but does
+  not pin it after load.
+- Load is config-seeded and warning-suppressed for deterministic round-trips
+  (§4.7).
 - Manual override is a first-class source (`rc_source="manual"`), serialized by
-  value.
+  value, set only via the `ct.rc = df` setter.
+
+## 10. Forward compatibility: separate meas/sim setup + filter re-runs
+
+Known future work (not started; deferred until after this branch merges and
+releases): support re-running **all of one side's** setup + filtering when its
+source data changes — e.g. new `sim` data, re-run sim only. This design is built
+to accommodate it; notes for the future implementer:
+
+- **The common case is already decoupled.** With `rc_source="meas"`, re-running
+  sim's setup + filter pipeline needs nothing from meas: sim's
+  `filter_irr(ref_val="rep_irr")` reads the test-level `ct.rc` (meas-derived,
+  unchanged), sim refits, `captest_results` recomputes. Moving RC to the test
+  level is what removes the old per-CapData dependency.
+- **`_set_rc` is the single mutation point** for `ct.rc` — the natural hook for a
+  future "RC changed → invalidate dependent filters" mechanism.
+- **`_captest` wiring and any per-side RC (re)population must stay decomposable**
+  so a future `setup(which="sim")` / per-side re-run can touch one side without
+  disturbing the other. Keep the two `_captest` assignments and the
+  `process_regression_columns` calls independently invokable per side.
+- **Directional staleness to handle later.** When `rc_source` points at the side
+  *not* being re-run, dependents can go stale: e.g. `rc_source="sim"` + re-run-sim
+  changes `ct.rc`, leaving meas's `rep_irr`-based filters stale. This is inherent
+  to "filter one dataset around the other's rep irr," not a flaw here; the future
+  work should add staleness detection at the `_set_rc` hook.
+- **Retain the meas-before-sim replay order** in `from_yaml` (§4.7) so a
+  meas-sourced `ct.rc` exists before sim's filters at initial load. At re-run time
+  `ct.rc` persists, so ordering no longer matters then.
