@@ -2849,3 +2849,22 @@ class TestRepCondSync:
         assert ct_default.meas.rc is not None  # member CapData rc is set
         assert ct_default.rc is None  # test rc untouched
         assert ct_default.rc_source == "meas"  # default, unchanged
+
+    def test_ct_rep_cond_default_which_follows_rc_source(self, ct_default, recwarn):
+        ct_default.sim.rep_cond()  # rc_source -> 'sim'
+        ct_default.rep_cond()  # which=None -> should pick 'sim'
+        assert ct_default.rc_source == "sim"
+        # If the default had picked 'meas', this would flip+warn.
+        assert not any("rc_source changed" in str(w.message) for w in recwarn)
+
+    def test_ct_rep_cond_explicit_which_sim(self, ct_default):
+        ct_default.rep_cond("sim")
+        assert ct_default.rc_source == "sim"
+        assert ct_default.rc is not None
+
+    def test_ct_rep_cond_default_which_meas_when_rc_source_manual(self, ct_default):
+        # Seed a manual source, then default rep_cond should fall back to 'meas'.
+        ct_default.rc = pd.DataFrame({"poa": [800.0], "t_amb": [25.0], "w_vel": [2.0]})
+        assert ct_default.rc_source == "manual"
+        ct_default.rep_cond()  # which=None, rc_source='manual' -> 'meas'
+        assert ct_default.rc_source == "meas"

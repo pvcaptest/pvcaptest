@@ -2394,7 +2394,7 @@ class CapTest(param.Parameterized):
         self._require_setup()
         return self._resolved_setup["scatter_plots"](cd, **kwargs)
 
-    def rep_cond(self, which="meas", **overrides):
+    def rep_cond(self, which=None, **overrides):
         """Call ``cd.rep_cond`` with the resolved preset's rep_conditions.
 
         The preset's ``rep_conditions`` dict (after any ``self.rep_conditions``
@@ -2407,8 +2407,11 @@ class CapTest(param.Parameterized):
 
         Parameters
         ----------
-        which : {'meas', 'sim'}
-            Which CapData instance's ``rep_cond`` to call.
+        which : {'meas', 'sim', None}, default None
+            Which CapData to compute reporting conditions on. When None, defaults
+            to the current ``rc_source`` if it is ``'meas'``/``'sim'``, otherwise
+            ``'meas'``. The computed conditions become the test ``rc`` (and set
+            ``rc_source`` to ``which``) via the last-writer-wins sync.
         **overrides
             Partial-merged onto the resolved ``rep_conditions`` dict.
 
@@ -2417,6 +2420,8 @@ class CapTest(param.Parameterized):
         None
             ``cd.rep_cond`` writes to ``cd.rc``.
         """
+        if which is None:
+            which = self.rc_source if self.rc_source in ("meas", "sim") else "meas"
         cd = self._pick_cd(which)
         self._require_setup()
         resolved_rc = _merge_rep_conditions(
