@@ -152,18 +152,25 @@ PVsyst-specific (`FShdBm` shading fraction).
 Parameters:
 - `column` — `param.String(default=None, allow_None=True)`. Required at run
   time (a `None` column raises a clear `ValueError`).
+- `invert` — `param.Boolean(default=False)`. Flips the filter: with the default
+  `False`, rows where `column` is truthy are removed (keep the `False` rows);
+  with `True`, rows where `column` is falsy are removed (keep the `True` rows).
 
 `_execute`:
 ```python
 if self.column is None:
     raise ValueError("BooleanFlag requires a column.")
 df = capdata.data_filtered
-return df.index[~df[self.column].astype(bool)]
+mask = df[self.column].astype(bool)
+keep = mask if self.invert else ~mask
+return df.index[keep]
 ```
 
 `.astype(bool)` coerces 0/1, real booleans, and `NaN` (truthy) consistently;
-covered by a test. `_explanation_template`: `"Intervals flagged True in
-{column} were removed."`
+covered by a test. `_explanation_template` (phrasing depends on `invert`, so the
+`explanation` property is overridden rather than templated): removed intervals
+are those flagged `True` in `{column}` when `invert=False`, or those flagged
+`False` when `invert=True`.
 
 ### Serialization
 
@@ -228,8 +235,8 @@ def filter_rolling_std(self, window, threshold, column=None, custom_name=None): 
 def filter_abs_diff_prev(self, threshold=0.05, column=None, custom_name=None): ...
     # -> AbsDiffPrev(threshold=threshold, column=column, ...)
 
-def filter_flag(self, column, custom_name=None): ...
-    # -> BooleanFlag(column=column, ...)
+def filter_flag(self, column, invert=False, custom_name=None): ...
+    # -> BooleanFlag(column=column, invert=invert, ...)
 
 def filter_threshold(self, column, low=None, high=None, custom_name=None): ...
     # -> Irradiance(low=low, high=high, col_name=column, ...)
@@ -265,7 +272,8 @@ Following existing patterns in `tests/test_filters.py` / `tests/test_CapData.py`
   resolve to the regression POA column.
 - **`filter_threshold`:** one-sided low-only and high-only cases; inclusive
   boundary semantics; serializes/replays as an `Irradiance` step.
-- **`BooleanFlag`:** truthy coercion across `0`/`1`, real booleans, and `NaN`.
+- **`BooleanFlag`:** truthy coercion across `0`/`1`, real booleans, and `NaN`;
+  `invert=True` keeps the truthy rows (and `invert=False` removes them).
 - **`Sensors`:** `method` selector resolves both built-ins; a custom callable
   assigned to `method` is used; `abs_diff`/custom with `thresholds=None` raises;
   `percent_diff` with `thresholds=None` defaults to `{poa: 0.05}`.
