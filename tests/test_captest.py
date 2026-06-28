@@ -1069,12 +1069,6 @@ class TestRepIrrCrossInstance:
         assert step.ref_val_resolved == pytest.approx(500.0)
         assert step.low_effective == pytest.approx(0.8 * 500.0)
 
-    @pytest.mark.xfail(
-        reason="rep_cond->ct.rc auto-sync lands in Plan 3 and the rep_irr YAML "
-        "round-trip in Plan 5; placeholder keeps the deferred end-to-end "
-        "coverage gap visible. Plan 5 removes this marker.",
-        strict=False,
-    )
     def test_meas_rep_cond_then_sim_rep_irr_roundtrips(self, ct_default, tmp_path):
         """End-to-end: meas.rep_cond seeds ct.rc, sim filters around it, and the
         pipeline round-trips through to_yaml. Enabled in Plan 5."""
@@ -2230,8 +2224,11 @@ class TestIntegration:
         # applicable to the sim CapData.
         capt.sim.filter_shade(fshdbm=capt.fshdbm)
         capt.sim.filter_time(start=_SIM_WINDOW[0], end=_SIM_WINDOW[1])
+        # Single test RC from the rc_source side (default 'meas'). Under
+        # last-writer-wins a second rep_cond(which='sim') would flip rc_source
+        # to 'sim' and change captest_results; the canonical workflow uses one
+        # source.
         capt.rep_cond()
-        capt.rep_cond(which="sim")
         capt.meas.fit_regression(summary=False)
         capt.sim.fit_regression(summary=False)
 
