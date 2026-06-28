@@ -23,7 +23,7 @@
 
 **Files:**
 - Modify: `src/captest/captest.py` — add an `@rc.setter` immediately after the `rc` getter (added in Plan 1, just after `__init__`).
-- Test: `tests/test_captest.py` — new class `TestManualRc`.
+- Test: `tests/test_captest.py` — add `from captest import util` to imports; new class `TestManualRc`.
 
 **Interfaces:**
 - Consumes: `CapTest._set_rc(rc, source, warn=True)`, `CapTest._require_setup()`, `util.parse_regression_formula(formula) -> (lhs_list, rhs_list)`, `CapData.regression_formula`.
@@ -32,7 +32,9 @@
 
 - [ ] **Step 1: Write the failing tests**
 
-Add to `tests/test_captest.py` (the module already imports `pytest`, `pandas as pd`, `CapTest`; `ct_default` is a fixture in `conftest.py` providing a `setup()`-run CapTest with the `e2848_default` formula `power ~ poa + I(poa * poa) + I(poa * t_amb) + I(poa * w_vel) - 1`, whose RHS variables are `poa, t_amb, w_vel`):
+First add `from captest import util` to the imports of `tests/test_captest.py` (the module imports `pytest`, `pandas as pd`, `CapTest` but not `util`; one new test calls `util.parse_regression_formula`). Then add the test class below.
+
+`ct_default` is a fixture in `conftest.py` providing a `setup()`-run CapTest with the `e2848_default` formula `power ~ poa + I(poa * poa) + I(poa * t_amb) + I(poa * w_vel) - 1`. Its RHS variables appear *only* inside `I(...)` interaction blocks; `util.parse_regression_formula` unwraps them to the component set `poa, t_amb, w_vel`, which is what coverage is validated against:
 
 ```python
 class TestManualRc:
@@ -60,6 +62,31 @@ class TestManualRc:
     def test_set_rc_preserves_extra_columns(self, ct_default):
         ct_default.rc = {"poa": 805.0, "t_amb": 25.0, "w_vel": 2.0, "note": 1.0}
         assert "note" in ct_default.rc.columns
+
+    def test_set_rc_series_preserves_extra_columns(self, ct_default):
+        """Extra fields survive the Series -> one-row DataFrame coercion."""
+        s = pd.Series({"poa": 805.0, "t_amb": 25.0, "w_vel": 2.0, "note": 9.0})
+        ct_default.rc = s
+        assert "note" in ct_default.rc.columns
+        assert ct_default.rc["note"].iloc[0] == pytest.approx(9.0)
+
+    def test_required_vars_are_unwrapped_interaction_components(self, ct_default):
+        """Coverage keys off RHS *component* variables (poa, t_amb, w_vel), not
+        the I(...) interaction terms, for the default formula. Guards against a
+        parse_regression_formula change silently weakening validation."""
+        _, rhs = util.parse_regression_formula(ct_default.meas.regression_formula)
+        assert sorted(rhs) == ["poa", "t_amb", "w_vel"]
+        # A df with only the component vars (no I(poa*poa) columns) is accepted.
+        ct_default.rc = {"poa": 805.0, "t_amb": 25.0, "w_vel": 2.0}
+        assert ct_default.rc_source == "manual"
+
+    def test_set_rc_multirow_raises(self, ct_default):
+        """A multi-row DataFrame is rejected with a clear error at set time."""
+        df = pd.DataFrame(
+            {"poa": [805.0, 810.0], "t_amb": [25.0, 26.0], "w_vel": [2.0, 2.1]}
+        )
+        with pytest.raises(ValueError, match="single row"):
+            ct_default.rc = df
 
     def test_set_rc_missing_rhs_var_raises_listing_names(self, ct_default):
         with pytest.raises(ValueError, match=r"missing required regression"):
@@ -130,8 +157,9 @@ In `src/captest/captest.py`, immediately after the `rc` getter (added in Plan 1)
         RuntimeError
             If :meth:`setup` has not run (the regression formula is unknown).
         ValueError
-            If ``meas`` and ``sim`` have different regression formulas, or
-            ``value`` omits a required right-hand-side variable.
+            If ``meas`` and ``sim`` have different regression formulas, if
+            ``value`` coerces to more than one row, or if ``value`` omits a
+            required right-hand-side variable.
         TypeError
             If ``value`` is not a DataFrame, Series, or dict.
         """
@@ -155,6 +183,10 @@ In `src/captest/captest.py`, immediately after the `rc` getter (added in Plan 1)
                 "ct.rc must be a one-row DataFrame, a pandas Series, or a dict "
                 f"mapping regression variable -> value; got "
                 f"{type(value).__name__}."
+            )
+        if len(df) != 1:
+            raise ValueError(
+                f"Reporting conditions must be a single row; got {len(df)} rows."
             )
         missing = [var for var in rhs if var not in df.columns]
         if missing:
@@ -200,7 +232,8 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 **Spec coverage (Plan 2 scope = §4.4 manual override):**
 - §4.4 "only public way is `ct.rc = df`" → setter is the sole public write path; `_set_rc` stays internal. ✓
 - §4.4 step 1 requires `setup()` → `self._require_setup()`. ✓
-- §4.4 step 2 RHS validation via `util.parse_regression_formula(self.meas.regression_formula)[1]`; formula-mismatch raises; missing vars listed; extra columns preserved → covered, with tests. ✓
+- §4.4 step 2 RHS validation via `util.parse_regression_formula(self.meas.regression_formula)[1]`; formula-mismatch raises; missing vars listed; extra columns preserved (DataFrame *and* Series paths tested) → covered. A dedicated test asserts the resolved RHS for the default formula is the *unwrapped* `["poa", "t_amb", "w_vel"]`, guarding that coverage keys off `I(...)` component symbols, not the interaction terms. ✓
+- §4.4 "one-row" contract enforced: after coercion the setter rejects `len(df) != 1` with a `ValueError` ("single row"); `test_set_rc_multirow_raises` covers it. ✓
 - §4.4 step 3 coerce to one-row DataFrame; apply §4.5 warning; record via `_set_rc(df, "manual")` → the warning lives in `_set_rc` (Plan 1), exercised by `test_set_rc_over_computed_source_warns`. ✓
 - §4.4 "internal vs public path" — computed/load assignments use `_set_rc` directly (Plans 3/5); the public setter is `_set_rc(..., "manual")` plus validation. ✓
 
