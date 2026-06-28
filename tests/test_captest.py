@@ -1071,7 +1071,7 @@ class TestRepIrrCrossInstance:
 
     def test_meas_rep_cond_then_sim_rep_irr_roundtrips(self, ct_default, tmp_path):
         """End-to-end: meas.rep_cond seeds ct.rc, sim filters around it, and the
-        pipeline round-trips through to_yaml. Enabled in Plan 5."""
+        pipeline round-trips through to_yaml."""
         import yaml
 
         ct_default.meas.filter_irr(200, 800)
@@ -2630,6 +2630,9 @@ class TestPipelineYaml:
         )
         assert any(type(s).__name__ == "RepCond" for s in reloaded.meas.filters)
         assert reloaded.meas.rc is not None
+        # The test-level ct.rc is reconstituted from the replayed RepCond step.
+        assert reloaded.rc is not None
+        assert reloaded.rc_source == "meas"
 
     def test_from_mapping_warns_when_pipelines_cannot_be_applied(
         self, tmp_path, meas_cd_default
