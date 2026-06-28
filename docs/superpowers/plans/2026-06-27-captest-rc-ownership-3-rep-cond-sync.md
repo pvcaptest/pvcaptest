@@ -265,14 +265,16 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 
 ---
 
-### Task 3: Un-mark the Plan 1 `xfail` placeholder + full-suite green
+### Task 3: Fix `_run_canonical_sequence`, un-mark the Plan 1 `xfail`, full-suite green
 
 **Files:**
-- Modify: `tests/test_captest.py` — `TestRepIrrCrossInstance.test_meas_rep_cond_then_sim_rep_irr_roundtrips` (drop the `xfail` marker).
+- Modify: `tests/test_captest.py` — `TestIntegration._run_canonical_sequence` (remove the redundant second `rep_cond`), and `TestRepIrrCrossInstance.test_meas_rep_cond_then_sim_rep_irr_roundtrips` (drop the `xfail` marker).
 
 **Interfaces:**
 - Consumes: the runtime sync from Tasks 1-2.
-- Produces: nothing new — converts the deferred placeholder into a live passing test now that the runtime path works.
+- Produces: nothing new — adapts the integration harness to last-writer-wins and converts the deferred placeholder into a live passing test.
+
+**Why `_run_canonical_sequence` must change:** it currently calls `capt.rep_cond()` *and then* `capt.rep_cond(which="sim")`. Pre-refactor this set both `meas.rc` and `sim.rc`, and `captest_results` used `rc_source` (default `"meas"`). After Task 1, the second call is the last writer, so it flips `rc_source` to `"sim"` (and warns) — `captest_results` would then use sim's RC, silently changing every `TestIntegration` cap ratio away from the meas-sourced baseline. The canonical single-RC workflow computes reporting conditions on the `rc_source` side only, so the redundant `rep_cond(which="sim")` is removed.
 
 - [ ] **Step 1: Confirm the placeholder now XPASSes**
 
@@ -294,21 +296,48 @@ In `tests/test_captest.py`, delete the decorator above `test_meas_rep_cond_then_
 
 Leave the test body unchanged; it now passes as a live test.
 
-- [ ] **Step 3: Run the full suite**
+- [ ] **Step 3: Adapt `_run_canonical_sequence` to last-writer-wins**
+
+In `tests/test_captest.py`, in `TestIntegration._run_canonical_sequence`, remove the redundant second reporting-conditions call so only the `rc_source`-default side is computed. Change:
+
+```python
+        capt.rep_cond()
+        capt.rep_cond(which="sim")
+        capt.meas.fit_regression(summary=False)
+        capt.sim.fit_regression(summary=False)
+```
+
+to:
+
+```python
+        # Single test RC from the rc_source side (default 'meas'). Under
+        # last-writer-wins a second rep_cond(which='sim') would flip rc_source
+        # to 'sim' and change captest_results; the canonical workflow uses one
+        # source.
+        capt.rep_cond()
+        capt.meas.fit_regression(summary=False)
+        capt.sim.fit_regression(summary=False)
+```
+
+- [ ] **Step 4: Run the full suite**
 
 Run: `just -f ~/python/pvcaptest_bt-/.justfile test`
-Expected: all tests pass; no XFAIL/XPASS remaining for this test.
+Expected: all tests pass; no XFAIL/XPASS remaining for the un-marked test; `TestIntegration` cap ratios unchanged from baseline (meas-sourced RC, no source-change warnings).
 
-- [ ] **Step 4: Lint**
+- [ ] **Step 5: Lint**
 
 Run: `uv run ruff check tests/test_captest.py && uv run ruff format tests/test_captest.py`
 Expected: All checks pass.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add tests/test_captest.py
-git commit -m "test: un-xfail cross-instance rep_cond->rep_irr now that sync lands
+git commit -m "test: adapt integration harness to last-writer-wins; un-xfail rep_irr
+
+Remove the redundant rep_cond(which='sim') from _run_canonical_sequence so
+the single test RC stays meas-sourced (avoids a source flip), and drop the
+Plan 1 xfail now that cd.rep_cond syncs ct.rc.
 
 Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 ```
