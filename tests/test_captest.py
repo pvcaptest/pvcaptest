@@ -1730,38 +1730,37 @@ class TestPortedMethods:
         with pytest.raises(RuntimeError, match="meas"):
             capt.captest_results(print_res=False)
 
-    def test_captest_results_matches_direct_prediction(self):
+    def test_captest_results_predicts_at_ct_rc(self):
         capt = self._build_ct()
-        expected_actual = capt.meas.regression_results.predict(capt.meas.rc)[0]
-        expected_expected = capt.sim.regression_results.predict(capt.meas.rc)[0]
+        rc = pd.DataFrame({"poa": [6], "t_amb": [5], "w_vel": [3]})
+        capt._set_rc(rc, "meas")
+        expected_actual = capt.meas.regression_results.predict(rc)[0]
+        expected_expected = capt.sim.regression_results.predict(rc)[0]
         expected_ratio = expected_actual / expected_expected
 
         cp_rat = capt.captest_results(print_res=False)
 
         assert cp_rat == pytest.approx(expected_ratio, rel=1e-10)
 
-    def test_captest_results_uses_rc_source_meas_by_default(self):
+    def test_captest_results_uses_ct_rc_values_regardless_of_source(self):
         capt = self._build_ct()
-        # Set sim.rc to a different value; default rc_source="meas"
-        # should keep the meas rc.
-        capt.sim.rc = pd.DataFrame({"poa": [99], "t_amb": [99], "w_vel": [99]})
-        expected_actual = capt.meas.regression_results.predict(capt.meas.rc)[0]
-        expected_expected = capt.sim.regression_results.predict(capt.meas.rc)[0]
-        expected_ratio = expected_actual / expected_expected
+        # Distinct RC values; both meas and sim predict at the SAME ct.rc.
+        rc = pd.DataFrame({"poa": [8], "t_amb": [4], "w_vel": [2]})
+        capt._set_rc(rc, "sim")
+        expected_ratio = (
+            capt.meas.regression_results.predict(rc)[0]
+            / capt.sim.regression_results.predict(rc)[0]
+        )
 
         cp_rat = capt.captest_results(print_res=False)
+
         assert cp_rat == pytest.approx(expected_ratio, rel=1e-10)
 
-    def test_captest_results_uses_rc_source_sim(self):
+    def test_captest_results_raises_when_ct_rc_none(self):
         capt = self._build_ct()
-        capt.rc_source = "sim"
-        capt.sim.rc = pd.DataFrame({"poa": [8], "t_amb": [4], "w_vel": [2]})
-        expected_actual = capt.meas.regression_results.predict(capt.sim.rc)[0]
-        expected_expected = capt.sim.regression_results.predict(capt.sim.rc)[0]
-        expected_ratio = expected_actual / expected_expected
-
-        cp_rat = capt.captest_results(print_res=False)
-        assert cp_rat == pytest.approx(expected_ratio, rel=1e-10)
+        assert capt.rc is None
+        with pytest.raises(ValueError, match="requires test reporting conditions"):
+            capt.captest_results(print_res=False)
 
     def test_captest_results_warns_on_mismatched_formulas(self):
         capt = self._build_ct()
@@ -1771,6 +1770,7 @@ class TestPortedMethods:
 
     def test_captest_results_check_pvalues_returns_styled_df(self):
         capt = self._build_ct()
+        capt._set_rc(pd.DataFrame({"poa": [6], "t_amb": [5], "w_vel": [3]}), "meas")
         styled = capt.captest_results_check_pvalues(print_res=False)
         # Styler objects expose the underlying data via the .data attribute.
         underlying = styled.data

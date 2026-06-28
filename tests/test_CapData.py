@@ -2853,6 +2853,7 @@ class TestCapTestCpResultsSingleCoeff(unittest.TestCase):
         ct = CapTest(test_tolerance="+/- 5", ac_nameplate=100)
         ct.meas = self.meas
         ct.sim = self.sim
+        ct._set_rc(self.meas.rc, "meas")
         res = ct.captest_results(print_res=False)
 
         self.assertIsInstance(res, float, "Returned value is not a tuple")
@@ -2905,6 +2906,7 @@ class TestCapTestCpResultsMultCoeffKwVsW(unittest.TestCase):
         ct = CapTest(test_tolerance="+/- 5", ac_nameplate=100)
         ct.meas = meas
         ct.sim = sim
+        ct._set_rc(meas.rc, "meas")
 
         with self.assertWarns(UserWarning):
             cp_rat = ct.captest_results(check_pvalues=False, print_res=False)
@@ -3007,6 +3009,7 @@ class TestCapTestCpResultsMultCoeff(unittest.TestCase):
         ct = CapTest(test_tolerance="+/- 5", ac_nameplate=100)
         ct.meas = self.meas
         ct.sim = self.sim
+        ct._set_rc(self.meas.rc.copy(), "meas")
         return ct
 
     def test_pvals_default_false(self):

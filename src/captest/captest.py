@@ -2467,8 +2467,10 @@ class CapTest(param.Parameterized):
     def captest_results(self, check_pvalues=False, pval=0.05, print_res=True):
         """Compute the capacity test ratio for ``self.meas`` vs ``self.sim``.
 
-        Picks reporting conditions from ``self.meas.rc`` or ``self.sim.rc``
-        based on ``self.rc_source``. Uses ``self.ac_nameplate`` for the
+        Predicts both regressions at the single test reporting conditions
+        ``self.rc`` (set via :meth:`rep_cond` or the ``rc`` setter);
+        ``self.rc_source`` is reported for provenance. Raises ``ValueError``
+        if ``self.rc`` is ``None``. Uses ``self.ac_nameplate`` for the
         tested-capacity printout and ``self.test_tolerance`` (via
         ``self.determine_pass_or_fail``) for the pass/fail result.
 
@@ -2493,10 +2495,12 @@ class CapTest(param.Parameterized):
                 "CapData objects do not have the same regression formula."
             )
 
-        if self.rc_source == "meas":
-            rc = self.meas.rc
-        else:
-            rc = self.sim.rc
+        rc = self.rc
+        if rc is None:
+            raise ValueError(
+                "captest_results requires test reporting conditions. Call "
+                "ct.rep_cond(which) or assign ct.rc = df first."
+            )
 
         if print_res:
             print(f"Using reporting conditions from {self.rc_source}. \n")
