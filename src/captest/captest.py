@@ -1345,11 +1345,11 @@ class CapTest(param.Parameterized):
         doc="If set, partial-merged onto the preset rep_conditions at setup().",
     )
     rc_source = param.Selector(
-        objects=["meas", "sim"],
+        objects=["meas", "sim", "manual"],
         default="meas",
-        doc="Which CapData provides reporting conditions: used by "
-        "captest_results and as the source that filter_irr(ref_val='rep_irr') "
-        "resolves against on both meas and sim.",
+        doc="Provenance of the single test RC (CapTest.rc): 'meas'/'sim' when "
+        "computed from that dataset's rep_cond, or 'manual' when set directly. "
+        "Seeds the default 'which' for rep_cond.",
     )
 
     # Test scope / time
@@ -1553,6 +1553,46 @@ class CapTest(param.Parameterized):
         # was built from without cluttering the param surface.
         self._meas_path = None
         self._sim_path = None
+        # The single test reporting-conditions DataFrame (or None). Plain attr,
+        # not a param.*, so the `rc` property setter can validate and the
+        # `_set_rc` write point can manage provenance. `_loading` is True only
+        # during from_yaml replay (see Plan 5) to seed RC from config.
+        self._rc = None
+        self._loading = False
+
+    @property
+    def rc(self):
+        """The single test reporting-conditions DataFrame, or ``None``.
+
+        Sourced from ``meas``/``sim`` via :meth:`rep_cond` or set manually via
+        the property setter; provenance is tracked by :attr:`rc_source`. See the
+        RC-ownership design spec for the full lifecycle.
+        """
+        return self._rc
+
+    def _set_rc(self, rc, source, warn=True):
+        """Single internal write point for ``_rc`` and ``rc_source``.
+
+        Emits a source-change ``UserWarning`` when ``warn`` is True, an RC is
+        already set, and ``source`` differs from the current ``rc_source``
+        (silent on first establishment and same-source recompute).
+
+        Parameters
+        ----------
+        rc : pandas.DataFrame
+            One-row reporting-conditions DataFrame.
+        source : {'meas', 'sim', 'manual'}
+            Provenance to record in ``rc_source``.
+        warn : bool, default True
+            Suppress the source-change warning when False (used during load).
+        """
+        if warn and self._rc is not None and source != self.rc_source:
+            warnings.warn(
+                f"Test reporting conditions rc_source changed from "
+                f"'{self.rc_source}' to '{source}'."
+            )
+        self._rc = rc
+        self.rc_source = source
 
     # --- constructors ----------------------------------------------------
 

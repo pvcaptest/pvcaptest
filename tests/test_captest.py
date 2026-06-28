@@ -2663,3 +2663,50 @@ class TestPipelineYaml:
             CapTest.from_mapping(
                 sub, meas_loader=MagicMock(return_value=meas_cd_default)
             )
+
+
+class TestTestRc:
+    """CapTest.rc storage, _set_rc write point, and source-change warning."""
+
+    def _rc_df(self, poa=800.0):
+        return pd.DataFrame({"poa": [poa], "t_amb": [25.0], "w_vel": [2.0]})
+
+    def test_rc_defaults_none_and_source_meas(self):
+        ct = CapTest()
+        assert ct.rc is None
+        assert ct.rc_source == "meas"
+        assert ct._loading is False
+
+    def test_set_rc_first_set_is_silent_and_records_source(self, recwarn):
+        ct = CapTest()
+        df = self._rc_df()
+        ct._set_rc(df, "sim")
+        assert ct.rc is df
+        assert ct.rc_source == "sim"
+        assert len(recwarn) == 0
+
+    def test_set_rc_same_source_is_silent(self, recwarn):
+        ct = CapTest()
+        ct._set_rc(self._rc_df(), "meas")
+        ct._set_rc(self._rc_df(810.0), "meas")
+        assert ct.rc_source == "meas"
+        assert len(recwarn) == 0
+
+    def test_set_rc_source_change_warns(self):
+        ct = CapTest()
+        ct._set_rc(self._rc_df(), "meas")
+        with pytest.warns(UserWarning, match="rc_source changed from 'meas' to 'sim'"):
+            ct._set_rc(self._rc_df(), "sim")
+        assert ct.rc_source == "sim"
+
+    def test_set_rc_warn_false_suppresses(self, recwarn):
+        ct = CapTest()
+        ct._set_rc(self._rc_df(), "meas")
+        ct._set_rc(self._rc_df(), "manual", warn=False)
+        assert ct.rc_source == "manual"
+        assert len(recwarn) == 0
+
+    def test_rc_source_accepts_manual(self):
+        ct = CapTest()
+        ct.rc_source = "manual"  # must not raise (Selector now allows it)
+        assert ct.rc_source == "manual"
