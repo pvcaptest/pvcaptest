@@ -15,7 +15,7 @@ import pandas as pd
 import pytest
 import yaml
 
-from captest import CapTest, captest as ct
+from captest import CapTest, captest as ct, util
 from captest.capdata import CapData
 from captest.calcparams import (
     apparent_zenith_pvsyst,
@@ -2706,3 +2706,92 @@ class TestTestRc:
         ct = CapTest()
         ct.rc_source = "manual"  # must not raise (Selector now allows it)
         assert ct.rc_source == "manual"
+
+
+class TestManualRc:
+    """The public ct.rc = df manual-override setter (rc_source='manual')."""
+
+    def _full_rc(self, poa=805.0):
+        return pd.DataFrame({"poa": [poa], "t_amb": [25.0], "w_vel": [2.0]})
+
+    def test_set_rc_dataframe_sets_manual_source(self, ct_default):
+        df = self._full_rc()
+        ct_default.rc = df
+        assert ct_default.rc_source == "manual"
+        assert ct_default.rc["poa"].iloc[0] == pytest.approx(805.0)
+
+    def test_set_rc_accepts_dict(self, ct_default):
+        ct_default.rc = {"poa": 700.0, "t_amb": 20.0, "w_vel": 1.5}
+        assert ct_default.rc_source == "manual"
+        assert ct_default.rc["poa"].iloc[0] == pytest.approx(700.0)
+
+    def test_set_rc_accepts_series(self, ct_default):
+        ct_default.rc = pd.Series({"poa": 650.0, "t_amb": 18.0, "w_vel": 1.0})
+        assert ct_default.rc_source == "manual"
+        assert ct_default.rc["poa"].iloc[0] == pytest.approx(650.0)
+
+    def test_set_rc_preserves_extra_columns(self, ct_default):
+        ct_default.rc = {"poa": 805.0, "t_amb": 25.0, "w_vel": 2.0, "note": 1.0}
+        assert "note" in ct_default.rc.columns
+
+    def test_set_rc_series_preserves_extra_columns(self, ct_default):
+        """Extra fields survive the Series -> one-row DataFrame coercion."""
+        s = pd.Series({"poa": 805.0, "t_amb": 25.0, "w_vel": 2.0, "note": 9.0})
+        ct_default.rc = s
+        assert "note" in ct_default.rc.columns
+        assert ct_default.rc["note"].iloc[0] == pytest.approx(9.0)
+
+    def test_required_vars_are_unwrapped_interaction_components(self, ct_default):
+        """Coverage keys off RHS *component* variables (poa, t_amb, w_vel), not
+        the I(...) interaction terms, for the default formula. Guards against a
+        parse_regression_formula change silently weakening validation."""
+        _, rhs = util.parse_regression_formula(ct_default.meas.regression_formula)
+        assert sorted(rhs) == ["poa", "t_amb", "w_vel"]
+        # A df with only the component vars (no I(poa*poa) columns) is accepted.
+        ct_default.rc = {"poa": 805.0, "t_amb": 25.0, "w_vel": 2.0}
+        assert ct_default.rc_source == "manual"
+
+    def test_set_rc_multirow_raises(self, ct_default):
+        """A multi-row DataFrame is rejected with a clear error at set time."""
+        df = pd.DataFrame(
+            {"poa": [805.0, 810.0], "t_amb": [25.0, 26.0], "w_vel": [2.0, 2.1]}
+        )
+        with pytest.raises(ValueError, match="single row"):
+            ct_default.rc = df
+
+    def test_set_rc_missing_rhs_var_raises_listing_names(self, ct_default):
+        with pytest.raises(ValueError, match=r"missing required regression"):
+            ct_default.rc = pd.DataFrame({"poa": [805.0]})
+
+    def test_set_rc_missing_var_message_names_the_missing(self, ct_default):
+        with pytest.raises(ValueError) as exc:
+            ct_default.rc = {"poa": 805.0, "t_amb": 25.0}  # w_vel missing
+        assert "w_vel" in str(exc.value)
+
+    def test_set_rc_requires_setup(self):
+        ct = CapTest()  # bare, setup() not run
+        with pytest.raises(RuntimeError, match="setup"):
+            ct.rc = pd.DataFrame({"poa": [805.0], "t_amb": [25.0], "w_vel": [2.0]})
+
+    def test_set_rc_formula_mismatch_raises(self, ct_default):
+        ct_default.sim.regression_formula = "power ~ poa"
+        with pytest.raises(ValueError, match="different regression formulas"):
+            ct_default.rc = self._full_rc()
+
+    def test_set_rc_bad_type_raises(self, ct_default):
+        with pytest.raises(TypeError, match="DataFrame"):
+            ct_default.rc = [805.0, 25.0, 2.0]
+
+    def test_set_rc_first_set_is_silent(self, ct_default, recwarn):
+        ct_default.rc = self._full_rc()
+        assert len(recwarn) == 0
+
+    def test_set_rc_over_computed_source_warns(self, ct_default):
+        ct_default._set_rc(self._full_rc(), "meas")  # seed a computed source
+        with pytest.warns(UserWarning, match="changed from 'meas' to 'manual'"):
+            ct_default.rc = self._full_rc(810.0)
+
+    def test_set_rc_over_manual_is_silent(self, ct_default, recwarn):
+        ct_default.rc = self._full_rc()  # first -> manual (silent)
+        ct_default.rc = self._full_rc(810.0)  # manual -> manual (silent)
+        assert len(recwarn) == 0

@@ -1570,6 +1570,66 @@ class CapTest(param.Parameterized):
         """
         return self._rc
 
+    @rc.setter
+    def rc(self, value):
+        """Set the test reporting conditions manually (``rc_source='manual'``).
+
+        This is the only public way to supply reporting conditions directly —
+        e.g. for sensitivity analysis or to check results against a reviewing
+        party's values. Computed conditions go through :meth:`rep_cond` instead.
+
+        Parameters
+        ----------
+        value : pandas.DataFrame or pandas.Series or dict
+            One-row reporting conditions. A Series or dict maps each regression
+            variable to its value; a DataFrame is used as given. Must provide a
+            value for every right-hand-side variable of the (shared meas/sim)
+            regression formula. Extra columns are preserved.
+
+        Raises
+        ------
+        RuntimeError
+            If :meth:`setup` has not run (the regression formula is unknown).
+        ValueError
+            If ``meas`` and ``sim`` have different regression formulas, if
+            ``value`` coerces to more than one row, or if ``value`` omits a
+            required right-hand-side variable.
+        TypeError
+            If ``value`` is not a DataFrame, Series, or dict.
+        """
+        self._require_setup()
+        meas_fml = self.meas.regression_formula
+        sim_fml = self.sim.regression_formula
+        if meas_fml != sim_fml:
+            raise ValueError(
+                "Cannot set reporting conditions manually: meas and sim have "
+                f"different regression formulas ({meas_fml!r} vs {sim_fml!r})."
+            )
+        _, rhs = util.parse_regression_formula(meas_fml)
+        if isinstance(value, pd.DataFrame):
+            df = value.copy()
+        elif isinstance(value, pd.Series):
+            df = value.to_frame().T
+        elif isinstance(value, dict):
+            df = pd.DataFrame([value])
+        else:
+            raise TypeError(
+                "ct.rc must be a one-row DataFrame, a pandas Series, or a dict "
+                f"mapping regression variable -> value; got "
+                f"{type(value).__name__}."
+            )
+        if len(df) != 1:
+            raise ValueError(
+                f"Reporting conditions must be a single row; got {len(df)} rows."
+            )
+        missing = [var for var in rhs if var not in df.columns]
+        if missing:
+            raise ValueError(
+                "Manual reporting conditions are missing required regression "
+                f"variable(s): {missing}. Required: {rhs}."
+            )
+        self._set_rc(df, "manual")
+
     def _set_rc(self, rc, source, warn=True):
         """Single internal write point for ``_rc`` and ``rc_source``.
 
