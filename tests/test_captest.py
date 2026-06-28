@@ -2865,3 +2865,51 @@ class TestRepCondSync:
         assert ct_default.rc_source == "manual"
         ct_default.rep_cond()  # which=None, rc_source='manual' -> 'meas'
         assert ct_default.rc_source == "meas"
+
+
+class TestManualRcSerialization:
+    """to_yaml serializes manual RC values; computed RC is not value-serialized."""
+
+    def _capt(self, meas_cd_default, sim_cd_default):
+        return CapTest.from_params(
+            test_setup="e2848_default",
+            meas=meas_cd_default,
+            sim=sim_cd_default,
+            ac_nameplate=6_000_000,
+        )
+
+    def test_manual_rc_serializes_native_values(self, meas_cd_default, sim_cd_default):
+        capt = self._capt(meas_cd_default, sim_cd_default)
+        capt.rc = pd.DataFrame({"poa": [805.0], "t_amb": [25.0], "w_vel": [2.0]})
+        sub = capt._build_yaml_sub_mapping()
+        assert sub["rc_source"] == "manual"
+        vals = sub["reporting_conditions_values"]
+        assert vals["poa"] == pytest.approx(805.0)
+        assert {"poa", "t_amb", "w_vel"} <= set(vals)
+        # Values must be native python types so yaml.safe_dump can represent them.
+        assert type(vals["poa"]) is float
+
+    def test_computed_rc_omits_values(self, meas_cd_default, sim_cd_default):
+        capt = self._capt(meas_cd_default, sim_cd_default)
+        capt.rep_cond(which="meas")  # rc_source='meas' (computed)
+        sub = capt._build_yaml_sub_mapping()
+        assert sub["rc_source"] == "meas"
+        assert "reporting_conditions_values" not in sub
+
+    def test_no_rc_omits_values(self, meas_cd_default, sim_cd_default):
+        capt = self._capt(meas_cd_default, sim_cd_default)
+        sub = capt._build_yaml_sub_mapping()
+        assert "reporting_conditions_values" not in sub
+
+    def test_manual_rc_omits_overrides_rep_conditions(
+        self, meas_cd_default, sim_cd_default
+    ):
+        """A manual rc_source serializes reporting_conditions_values as the
+        authoritative RC and does NOT also write overrides.rep_conditions, so
+        the file never carries two RC-bearing keys."""
+        capt = self._capt(meas_cd_default, sim_cd_default)
+        capt.rep_conditions = {"func": {"poa": "mean"}}  # would normally serialize
+        capt.rc = pd.DataFrame({"poa": [805.0], "t_amb": [25.0], "w_vel": [2.0]})
+        sub = capt._build_yaml_sub_mapping()
+        assert "reporting_conditions_values" in sub
+        assert "rep_conditions" not in sub.get("overrides", {})

@@ -2081,7 +2081,14 @@ class CapTest(param.Parameterized):
         # Decision B: when a RepCond step is in either pipeline, it is the
         # unambiguous source of reporting conditions — drop the redundant
         # overrides.rep_conditions.
-        if self.rep_conditions is not None and not has_rep_cond_step:
+        # For a manual rc_source, reporting_conditions_values (written below) is
+        # the authoritative RC; do not also serialize overrides.rep_conditions,
+        # which is only aggregation config and would read as a second RC source.
+        if (
+            self.rep_conditions is not None
+            and not has_rep_cond_step
+            and self.rc_source != "manual"
+        ):
             overrides["rep_conditions"] = _serialize_rep_conditions(self.rep_conditions)
         if overrides:
             sub["overrides"] = overrides
@@ -2127,6 +2134,16 @@ class CapTest(param.Parameterized):
             sub["meas_filters"] = meas_filters
         if sim_filters:
             sub["sim_filters"] = sim_filters
+
+        # Manual reporting conditions are data, not config: serialize their
+        # values so from_yaml can restore them (computed RC is recomputed by
+        # replaying the source pipeline's RepCond step). Numpy scalars are
+        # coerced to native python types for yaml.safe_dump.
+        if self.rc_source == "manual" and self._rc is not None:
+            row = self._rc.iloc[0]
+            sub["reporting_conditions_values"] = {
+                str(col): to_native(val) for col, val in row.items()
+            }
 
         return sub
 
