@@ -16,6 +16,7 @@
 - `to_native` and `pd` are already imported in `captest.py`.
 - `from_yaml` delegates to `from_mapping`; the replay block lives in `from_mapping`.
 - Computed-RC serialization assumes the `rc_source` side's pipeline contains the `RepCond` step that produced `ct.rc` (true whenever `ct.rc` came from `rep_cond`). Manual RC carries its values; no `RepCond` is relied upon.
+- For `rc_source == "manual"`, `reporting_conditions_values` is the **authoritative** RC. `overrides.rep_conditions` (aggregation *config*, not RC values) is **not** co-serialized in that case, so a file never carries two RC-bearing keys. Even if a hand-edited file did contain both, the manual seed wins on load and `rep_conditions` is restored only as inert config (never auto-applied).
 - Line length 88 (ruff). NumPy-style docstrings. Run tests with `just -f ~/python/pvcaptest_bt-/.justfile test-module <file>`; lint with `uv run ruff check` / `uv run ruff format`.
 
 ---
@@ -68,6 +69,19 @@ class TestManualRcSerialization:
         capt = self._capt(meas_cd_default, sim_cd_default)
         sub = capt._build_yaml_sub_mapping()
         assert "reporting_conditions_values" not in sub
+
+    def test_manual_rc_omits_overrides_rep_conditions(
+        self, meas_cd_default, sim_cd_default
+    ):
+        """A manual rc_source serializes reporting_conditions_values as the
+        authoritative RC and does NOT also write overrides.rep_conditions, so
+        the file never carries two RC-bearing keys."""
+        capt = self._capt(meas_cd_default, sim_cd_default)
+        capt.rep_conditions = {"func": {"poa": "mean"}}  # would normally serialize
+        capt.rc = pd.DataFrame({"poa": [805.0], "t_amb": [25.0], "w_vel": [2.0]})
+        sub = capt._build_yaml_sub_mapping()
+        assert "reporting_conditions_values" in sub
+        assert "rep_conditions" not in sub.get("overrides", {})
 ```
 
 - [ ] **Step 2: Run the tests to verify they fail**
@@ -75,7 +89,30 @@ class TestManualRcSerialization:
 Run: `just -f ~/python/pvcaptest_bt-/.justfile test-module test_captest.py`
 Expected: FAIL — `KeyError: 'reporting_conditions_values'` for the manual case (key not written yet).
 
-- [ ] **Step 3: Serialize manual RC values**
+- [ ] **Step 3: Skip `overrides.rep_conditions` when `rc_source == "manual"`**
+
+In `src/captest/captest.py`, in `_build_yaml_sub_mapping`, replace:
+
+```python
+        if self.rep_conditions is not None and not has_rep_cond_step:
+            overrides["rep_conditions"] = _serialize_rep_conditions(self.rep_conditions)
+```
+
+with:
+
+```python
+        # For a manual rc_source, reporting_conditions_values (written below) is
+        # the authoritative RC; do not also serialize overrides.rep_conditions,
+        # which is only aggregation config and would read as a second RC source.
+        if (
+            self.rep_conditions is not None
+            and not has_rep_cond_step
+            and self.rc_source != "manual"
+        ):
+            overrides["rep_conditions"] = _serialize_rep_conditions(self.rep_conditions)
+```
+
+- [ ] **Step 4: Serialize manual RC values**
 
 In `src/captest/captest.py`, in `_build_yaml_sub_mapping`, replace:
 
@@ -109,24 +146,25 @@ with:
         return sub
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [ ] **Step 5: Run the tests to verify they pass**
 
 Run: `just -f ~/python/pvcaptest_bt-/.justfile test-module test_captest.py`
-Expected: PASS for `TestManualRcSerialization`.
+Expected: PASS for `TestManualRcSerialization` (including `test_manual_rc_omits_overrides_rep_conditions`).
 
-- [ ] **Step 5: Lint**
+- [ ] **Step 6: Lint**
 
 Run: `uv run ruff check src/captest/captest.py tests/test_captest.py && uv run ruff format src/captest/captest.py tests/test_captest.py`
 Expected: All checks pass.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
 git add src/captest/captest.py tests/test_captest.py
 git commit -m "feat: serialize manual reporting-conditions values to yaml
 
 When rc_source='manual', write the one-row RC under reporting_conditions_values
-(numpy scalars coerced via to_native). Computed RC is omitted; it is recomputed
+(numpy scalars coerced via to_native) and skip overrides.rep_conditions so the
+file carries a single authoritative RC. Computed RC is omitted; it is recomputed
 on load by replaying the source pipeline's RepCond step.
 
 Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
@@ -365,6 +403,7 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 **Spec coverage (Plan 5 scope = §4.7 serialization + load):**
 - §4.7 computed RC not value-serialized; recomputed by replaying the source's `RepCond` → `test_computed_rc_omits_values`, `test_roundtrip_computed_meas_recomputes_ct_rc`. ✓
 - §4.7 manual RC serialized as `reporting_conditions_values` (numpy → native via `to_native`) → Task 1; `test_manual_rc_serializes_native_values`, `test_roundtrip_manual_rc_restores_values`. ✓
+- Single-source-of-truth on disk: when `rc_source == "manual"`, `overrides.rep_conditions` is skipped so the file never holds two RC-bearing keys → Task 1 Step 3; `test_manual_rc_omits_overrides_rep_conditions`. ✓
 - §4.7 point 1 warnings suppressed during load → `_loading` + `_set_rc(warn=False)` in the loading branch; `test_load_is_config_seeded_and_silent`. ✓
 - §4.7 point 2 configured `rc_source` side replayed first → `pipelines.reverse()` when `rc_source == "sim"`; `test_roundtrip_rc_source_sim_replays_sim_first` (the regression guard that fails under fixed meas-first). ✓ (testing-plan items 10 sim-case + 11.)
 - §4.7 point 3 config-seeded auto-update (only configured side updates `ct.rc`) → Plan 3's `_on_capdata_rep_cond` `_loading` branch, exercised here; `test_load_is_config_seeded_and_silent` (item 9). ✓
