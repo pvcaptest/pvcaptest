@@ -15,6 +15,13 @@
 - **Plans 1-5 must merge and release as a unit.** This plan makes the *runtime* cross-instance workflow (`ct.meas.rep_cond(); ct.sim.filter_irr(ref_val="rep_irr")`) functional; the `from_yaml` load path for the `rc_source="sim"` and manual cases still needs Plan 5.
 - `capdata.py` must NOT import `captest` — `self._captest._on_capdata_rep_cond(...)` is an opaque runtime call.
 - Standalone `CapData` (no `_captest`) behavior must not change: `cd.rep_cond()` sets only `cd.rc`, no sync, no warning.
+- **`rep_cond_freq` is intentionally excluded from the sync.** It computes a
+  *multi-row* seasonal/monthly RC and sets `self.rc` on its own code path
+  (`capdata.py:2425`), bypassing `_calc_rep_cond`. A single-row `ct.rc` cannot
+  represent a multi-row result, so `ct.meas.rep_cond_freq(...)` deliberately
+  leaves `ct.rc`/`rc_source` untouched (sync hook lives only in `_calc_rep_cond`).
+  This is asserted by a guard test (Task 1, Step 1) so future readers don't treat
+  it as an oversight.
 - Line length 88 (ruff). NumPy-style docstrings. Run tests with `just -f ~/python/pvcaptest_bt-/.justfile test-module <file>`; lint with `uv run ruff check` / `uv run ruff format`.
 
 ---
@@ -86,6 +93,15 @@ class TestRepCondSync:
         assert not any(
             "rc_source changed" in str(w.message) for w in recwarn
         )
+
+    def test_rep_cond_freq_does_not_sync_to_ct_rc(self, ct_default):
+        """rep_cond_freq is intentionally NOT synced: it can produce a multi-row
+        seasonal RC that a single-row ct.rc cannot hold, and it sets self.rc on a
+        path that bypasses _calc_rep_cond. It must leave ct.rc/rc_source alone."""
+        ct_default.meas.rep_cond_freq(freq="ME")
+        assert ct_default.meas.rc is not None  # member CapData rc is set
+        assert ct_default.rc is None  # test rc untouched
+        assert ct_default.rc_source == "meas"  # default, unchanged
 ```
 
 - [ ] **Step 2: Run the tests to verify they fail**
@@ -305,6 +321,7 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 - §4.3 any `cd.rep_cond()` in a test updates `ct.rc` + `rc_source` → Task 1 (`_on_capdata_rep_cond` called from `_calc_rep_cond`). ✓
 - §4.3 `ct.rc` stores a *copy* → `cd.rc.copy()`; `test_ct_rc_is_a_copy_not_aliased`. ✓
 - §4.3 standalone unaffected (no `_captest` → no sync/warn) → `test_standalone_rep_cond_does_not_sync_or_warn`. ✓
+- `rep_cond_freq` boundary: intentionally NOT synced (multi-row RC vs single-row `ct.rc`; sets `self.rc` outside `_calc_rep_cond`). Documented in Global Constraints and guarded by `test_rep_cond_freq_does_not_sync_to_ct_rc`. ✓
 - §4.3 `ct.rep_cond()` `which` default to current `rc_source` (else meas) → Task 2. ✓
 - §4.5 warn only on source change, uniformly (incl. via `ct.rep_cond`) → handled by `_set_rc` (Plan 1); `test_sim_rep_cond_after_meas_flips_source_and_warns`, `test_same_source_recompute_is_silent`, `test_meas_rep_cond_first_set_is_silent`. ✓
 - `_loading` config-seeded branch implemented but dormant (set only in Plan 5). ✓
