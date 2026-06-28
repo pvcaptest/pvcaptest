@@ -16,6 +16,16 @@
 - Line length 88 (ruff). NumPy-style docstrings on public API.
 - Execution is deferred until after the `filters-refactor` branch merges and releases.
 - Run tests with `just -f ~/python/pvcaptest_bt-/.justfile test-module <file>`; lint with `uv run ruff check` and `uv run ruff format`.
+- **Plans 1-5 must merge and release as a unit — do not release Plan 1 alone.** In
+  Plan 1 the only writer of `ct.rc` is `_set_rc` (used directly in tests); the
+  `rep_cond → ct.rc` auto-sync lands in Plan 3 and load-seeding in Plan 5.
+  Therefore, between Plan 1 and Plan 3, the real cross-instance workflow
+  `ct.meas.rep_cond(); ct.sim.filter_irr(ref_val="rep_irr")` is **intentionally
+  non-functional** (the bare `rep_cond` writes `cd.rc`, not `ct.rc`, so
+  `sim.rep_irr` raises `ValueError`), and the `rep_irr` YAML round-trip is
+  intentionally not yet exercised. This regression versus the current
+  `rc_source_resolved` behavior is expected and tracked by an `xfail` placeholder
+  test (Task 2, Step 1) that Plan 5 un-marks.
 
 ---
 
@@ -194,7 +204,7 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 ### Task 2: `CapData._captest` back-reference, `rep_irr` rewrite, `setup()` wiring
 
 **Files:**
-- Modify: `src/captest/capdata.py` — `__init__` (line 842), `rep_irr` property (lines 943-980).
+- Modify: `src/captest/capdata.py` — `__init__` (line 842), `rep_irr` property (lines 943-980), `filter_irr` docstring (lines 1742-1748).
 - Modify: `src/captest/captest.py` — `setup()` wiring (lines 2185-2193).
 - Test: `tests/test_CapData.py` (standalone `rep_irr`), `tests/test_captest.py` (`setup()` wiring + in-test `rep_irr`).
 
@@ -268,6 +278,28 @@ via `_set_rc` because `rep_cond` auto-sync lands in Plan 3):
         step = ct_default.sim.filters[-1]
         assert step.ref_val_resolved == pytest.approx(500.0)
         assert step.low_effective == pytest.approx(0.8 * 500.0)
+
+    @pytest.mark.xfail(
+        reason="rep_cond->ct.rc auto-sync lands in Plan 3 and the rep_irr YAML "
+        "round-trip in Plan 5; placeholder keeps the deferred end-to-end "
+        "coverage gap visible. Plan 5 removes this marker.",
+        strict=False,
+    )
+    def test_meas_rep_cond_then_sim_rep_irr_roundtrips(self, ct_default, tmp_path):
+        """End-to-end: meas.rep_cond seeds ct.rc, sim filters around it, and the
+        pipeline round-trips through to_yaml. Enabled in Plan 5."""
+        import yaml
+
+        ct_default.meas.filter_irr(200, 800)
+        ct_default.meas.rep_cond()
+        ct_default.sim.filter_irr(0.8, 1.2, ref_val="rep_irr")
+        path = tmp_path / "ct.yaml"
+        ct_default.to_yaml(path, merge_into_existing=False)
+        doc = yaml.safe_load(path.read_text())
+        sim_irr = [
+            d for d in doc["captest"]["sim_filters"] if d["type"] == "Irradiance"
+        ]
+        assert sim_irr[-1]["ref_val"] == "rep_irr"
 ```
 
 - [ ] **Step 2: Run the tests to verify they fail**
@@ -336,7 +368,30 @@ In `src/captest/capdata.py`, replace the whole `rep_irr` property (lines ~943-98
         return float(rc["poa"].iloc[0])
 ```
 
-- [ ] **Step 5: Rewrite the `setup()` wiring**
+- [ ] **Step 5: Update the `filter_irr` docstring to the `ct.rc` model**
+
+In `src/captest/capdata.py`, the `filter_irr` `ref_val` docstring (lines ~1744-1748) still describes the old per-instance `rc_source` resolution. Replace:
+
+```python
+            Pass ``'rep_irr'`` to use the reporting irradiance from
+            :attr:`rep_irr` (set by calling :meth:`rep_cond` first). Within a
+            :class:`~captest.captest.CapTest`, ``'rep_irr'`` resolves against
+            the ``rc_source`` instance, so a ``sim`` filter can anchor on the
+            ``meas`` reporting irradiance without passing the value manually.
+```
+
+with:
+
+```python
+            Pass ``'rep_irr'`` to use the reporting irradiance from
+            :attr:`rep_irr` (set by calling :meth:`rep_cond` first). Within a
+            :class:`~captest.captest.CapTest`, ``'rep_irr'`` resolves against the
+            single test reporting conditions ``ct.rc``, so a ``sim`` filter can
+            anchor on the test's reporting irradiance without passing the value
+            manually.
+```
+
+- [ ] **Step 6: Rewrite the `setup()` wiring**
 
 In `src/captest/captest.py`, replace lines ~2185-2193 (the `rc_source_resolved` block):
 
@@ -349,22 +404,25 @@ In `src/captest/captest.py`, replace lines ~2185-2193 (the `rc_source_resolved` 
         self.sim._captest = self
 ```
 
-- [ ] **Step 6: Run the tests to verify they pass**
+- [ ] **Step 7: Run the tests to verify they pass**
 
 Run: `just -f ~/python/pvcaptest_bt-/.justfile test-module test_CapData.py` then `... test-module test_captest.py`
-Expected: PASS for the new/updated tests.
+Expected: PASS for the new/updated tests; `test_meas_rep_cond_then_sim_rep_irr_roundtrips` reports XFAIL (expected).
 
-- [ ] **Step 7: Verify no stale `rc_source_resolved` references remain**
+- [ ] **Step 8: Verify no stale references remain**
 
 Run: `grep -rn "rc_source_resolved" src/ tests/`
 Expected: no output.
 
-- [ ] **Step 8: Lint**
+Run: `grep -rn "rc_source" src/captest/capdata.py`
+Expected: no output (the `filter_irr` docstring no longer mentions `rc_source`; `capdata.py` should hold no `rc_source` references at all). If any line prints, update its phrasing to the `ct.rc` model.
+
+- [ ] **Step 9: Lint**
 
 Run: `uv run ruff check src/captest/capdata.py src/captest/captest.py tests/test_CapData.py tests/test_captest.py && uv run ruff format src/captest/capdata.py src/captest/captest.py tests/test_CapData.py tests/test_captest.py`
 Expected: All checks pass.
 
-- [ ] **Step 9: Commit**
+- [ ] **Step 10: Commit**
 
 ```bash
 git add src/captest/capdata.py src/captest/captest.py tests/test_CapData.py tests/test_captest.py
@@ -424,6 +482,17 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 - §4.8 `setup()` wires `_captest`; does not touch `ct.rc` → Task 2. ✓
 - Out of scope (later plans): manual setter (Plan 2), `rep_cond` auto-sync (Plan 3), `captest_results` (Plan 4), serialization/load incl. `_loading` use (Plan 5). `_loading` is *declared* here (Task 1) but only read in Plan 5.
 
-**Placeholder scan:** none — every step shows exact code/commands.
+**Placeholder scan:** none — every step shows exact code/commands. The single
+`@pytest.mark.xfail` test (Task 2, Step 1) is a deliberate, documented coverage
+marker for the deferred end-to-end workflow, not an unfinished step.
+
+**Stale-docstring scan:** the `filter_irr` `ref_val` docstring (capdata.py:1744-1748)
+described the old per-instance `rc_source` resolution and is updated in Task 2
+Step 5; Task 2 Step 8 greps `capdata.py` for any residual `rc_source` mention.
+
+**Intermediate-regression flag:** Global Constraints states that the cross-instance
+`rep_cond → rep_irr` workflow and its YAML round-trip are intentionally
+non-functional between Plan 1 and Plans 3/5, tracked by the `xfail` placeholder,
+and that Plans 1-5 must merge/release as a unit.
 
 **Type consistency:** `_set_rc(rc, source, warn=True)` signature is consistent across Task 1 definition and Task 2/3 usage; `rc` getter returns DataFrame|None; `_captest` is CapTest|None; `rep_irr` returns float. The `TestRepIrrCrossInstance` tests set `ct.rc` via `_set_rc` (the only write path available until Plan 2's setter / Plan 3's sync).
