@@ -1142,6 +1142,7 @@ _CAPTEST_YAML_KEYS = frozenset(
         "overrides",
         "meas_filters",
         "sim_filters",
+        "reporting_conditions_values",
     }
 )
 
@@ -1865,7 +1866,13 @@ class CapTest(param.Parameterized):
         kwargs = {
             k: v
             for k, v in sub.items()
-            if k not in ("overrides", "meas_filters", "sim_filters")
+            if k
+            not in (
+                "overrides",
+                "meas_filters",
+                "sim_filters",
+                "reporting_conditions_values",
+            )
         }
 
         # Lift override keys into direct kwargs.
@@ -1936,11 +1943,27 @@ class CapTest(param.Parameterized):
         # try to filter un-setup data.
         meas_filters = sub.get("meas_filters")
         sim_filters = sub.get("sim_filters")
+        rc_values = sub.get("reporting_conditions_values")
         if inst._resolved_setup is not None:
-            if meas_filters and inst.meas is not None:
-                inst.meas.run_pipeline(meas_filters)
-            if sim_filters and inst.sim is not None:
-                inst.sim.run_pipeline(sim_filters)
+            # Seed a manual RC before replay so self-filtering pipelines resolve
+            # ref_val='rep_irr' against it; no RepCond step will set it. Computed
+            # RC is (re)established during replay by the configured rc_source
+            # side's RepCond step (see _on_capdata_rep_cond's _loading branch).
+            if inst.rc_source == "manual" and rc_values is not None:
+                inst._set_rc(pd.DataFrame([rc_values]), "manual", warn=False)
+            # Replay the configured rc_source side FIRST so its RepCond populates
+            # ct.rc before the other side's rep_irr filters run. _loading makes
+            # the rep_cond sync config-seeded and warning-suppressed.
+            pipelines = [(inst.meas, meas_filters), (inst.sim, sim_filters)]
+            if inst.rc_source == "sim":
+                pipelines.reverse()
+            inst._loading = True
+            try:
+                for cd, filters in pipelines:
+                    if filters and cd is not None:
+                        cd.run_pipeline(filters)
+            finally:
+                inst._loading = False
         elif meas_filters or sim_filters:
             # Pipelines were serialized but setup() never ran (both meas and
             # sim must be loaded). Don't silently drop them — warn so the

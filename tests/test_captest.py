@@ -2913,3 +2913,90 @@ class TestManualRcSerialization:
         sub = capt._build_yaml_sub_mapping()
         assert "reporting_conditions_values" in sub
         assert "rep_conditions" not in sub.get("overrides", {})
+
+
+class TestRcOwnershipRoundTrip:
+    """to_yaml/from_yaml round-trips of the single test RC across sources."""
+
+    def _capt(self, meas_cd_default, sim_cd_default, **kw):
+        return CapTest.from_params(
+            test_setup="e2848_default",
+            meas=meas_cd_default,
+            sim=sim_cd_default,
+            ac_nameplate=6_000_000,
+            **kw,
+        )
+
+    def _roundtrip(self, capt, tmp_path, clean_meas, clean_sim):
+        capt._meas_path = str(tmp_path / "meas.csv")
+        capt._sim_path = str(tmp_path / "sim.csv")
+        path = tmp_path / "config.yaml"
+        capt.to_yaml(path, merge_into_existing=False)
+        return CapTest.from_yaml(
+            path,
+            meas_loader=MagicMock(return_value=clean_meas),
+            sim_loader=MagicMock(return_value=clean_sim),
+        )
+
+    def test_roundtrip_computed_meas_recomputes_ct_rc(
+        self, tmp_path, meas_cd_default, sim_cd_default
+    ):
+        capt = self._capt(meas_cd_default, sim_cd_default)
+        clean_meas, clean_sim = capt.meas.copy(), capt.sim.copy()
+        capt.meas.filter_irr(200, 800)
+        capt.rep_cond(which="meas")
+        expected_poa = capt.rc["poa"].iloc[0]
+
+        reloaded = self._roundtrip(capt, tmp_path, clean_meas, clean_sim)
+
+        assert reloaded.rc_source == "meas"
+        assert reloaded.rc is not None
+        assert reloaded.rc["poa"].iloc[0] == pytest.approx(expected_poa)
+
+    def test_roundtrip_manual_rc_restores_values(
+        self, tmp_path, meas_cd_default, sim_cd_default
+    ):
+        capt = self._capt(meas_cd_default, sim_cd_default)
+        clean_meas, clean_sim = capt.meas.copy(), capt.sim.copy()
+        capt.rc = pd.DataFrame({"poa": [805.0], "t_amb": [25.0], "w_vel": [2.0]})
+
+        reloaded = self._roundtrip(capt, tmp_path, clean_meas, clean_sim)
+
+        assert reloaded.rc_source == "manual"
+        assert reloaded.rc["poa"].iloc[0] == pytest.approx(805.0)
+
+    def test_roundtrip_rc_source_sim_replays_sim_first(
+        self, tmp_path, meas_cd_default, sim_cd_default
+    ):
+        # The OTHER side (meas) carries the rep_irr filter; sim is the source.
+        # This fails under a fixed meas-before-sim load order.
+        capt = self._capt(meas_cd_default, sim_cd_default, rc_source="sim")
+        clean_meas, clean_sim = capt.meas.copy(), capt.sim.copy()
+        capt.sim.filter_irr(200, 800)
+        capt.rep_cond(which="sim")  # ct.rc from sim, rc_source='sim'
+        capt.meas.filter_irr(0.8, 1.2, ref_val="rep_irr")  # anchors on sim rep irr
+
+        reloaded = self._roundtrip(capt, tmp_path, clean_meas, clean_sim)
+
+        assert reloaded.rc_source == "sim"
+        meas_irr = [
+            s for s in reloaded.meas.filters if type(s).__name__ == "Irradiance"
+        ][-1]
+        assert meas_irr.ref_val_resolved == pytest.approx(reloaded.rc["poa"].iloc[0])
+
+    def test_load_is_config_seeded_and_silent(
+        self, tmp_path, meas_cd_default, sim_cd_default, recwarn
+    ):
+        capt = self._capt(meas_cd_default, sim_cd_default)
+        clean_meas, clean_sim = capt.meas.copy(), capt.sim.copy()
+        capt.rep_cond(which="sim")  # sim RepCond step (rc_source -> 'sim')
+        capt.rep_cond(which="meas")  # meas RepCond step (rc_source -> 'meas')
+        assert capt.rc_source == "meas"
+        recwarn.clear()
+
+        reloaded = self._roundtrip(capt, tmp_path, clean_meas, clean_sim)
+
+        # Config-seeded: meas drives despite sim also carrying a RepCond step.
+        assert reloaded.rc_source == "meas"
+        # No source-change warning during load.
+        assert not any("rc_source changed" in str(w.message) for w in recwarn)
