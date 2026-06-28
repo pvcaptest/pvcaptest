@@ -2222,15 +2222,12 @@ class CapTest(param.Parameterized):
         self.meas.process_regression_columns(verbose=verbose)
         self.sim.process_regression_columns(verbose=verbose)
 
-        # Wire the reporting-conditions source onto both CapData instances so
-        # filter_irr(ref_val='rep_irr') resolves against the rc_source dataset
-        # (e.g. sim filtered around meas's reporting irradiance), regardless of
-        # which instance is being filtered. Stored as a lazy reference and read
-        # at filter time, so it reflects rep_cond() runs that happen after
-        # setup().
-        rc_source_cd = self.meas if self.rc_source == "meas" else self.sim
-        self.meas.rc_source_resolved = rc_source_cd
-        self.sim.rc_source_resolved = rc_source_cd
+        # Wire each CapData back to this CapTest so filter_irr(ref_val='rep_irr')
+        # resolves against the single test RC (ct.rc), and (Plan 3) so cd.rep_cond
+        # can update it. Runtime reference only; capdata.py never imports captest.
+        # Assigned per side so a future per-side setup can re-wire one side alone.
+        self.meas._captest = self
+        self.sim._captest = self
 
         return self
 

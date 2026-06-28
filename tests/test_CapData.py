@@ -2318,40 +2318,25 @@ class TestFilterIrr:
 
 
 class TestRepIrr:
-    """The rep_irr property and its use by filter_irr(ref_val='rep_irr')."""
+    """The standalone CapData.rep_irr property (no CapTest attached)."""
 
-    def test_rep_irr_falls_back_to_self_rc(self, nrel):
-        """rep_irr reads self.rc when no rc_source_resolved is wired."""
+    def test_rep_irr_reads_self_rc_when_standalone(self, nrel):
+        """rep_irr reads self.rc when this CapData has no _captest."""
+        assert nrel._captest is None
         nrel.rc = pd.DataFrame({"poa": [222.0], "t_amb": [20], "w_vel": [2]})
         assert nrel.rep_irr == pytest.approx(222.0)
 
-    def test_rep_irr_resolves_from_rc_source(self, nrel):
-        """rep_irr reads the wired source CapData's rc, not self.rc."""
-        partner = pvc.CapData("partner")
-        partner.rc = pd.DataFrame({"poa": [654.0], "t_amb": [20], "w_vel": [2]})
-        nrel.rc = pd.DataFrame({"poa": [111.0], "t_amb": [20], "w_vel": [2]})
-        nrel.rc_source_resolved = partner
-        assert nrel.rep_irr == pytest.approx(654.0)
-
-    def test_filter_irr_rep_irr_uses_rc_source(self, nrel):
-        """filter_irr(ref_val='rep_irr') anchors on the wired source's rep irr
-        even when this instance has no rc of its own."""
-        partner = pvc.CapData("partner")
-        partner.rc = pd.DataFrame({"poa": [500.0], "t_amb": [20], "w_vel": [2]})
-        nrel.rc_source_resolved = partner
+    def test_rep_irr_standalone_none_rc_raises(self, nrel):
+        """Standalone with no rc raises directing to rep_cond()."""
         assert nrel.rc is None
-        nrel.filter_irr(0.8, 1.2, ref_val="rep_irr")
-        step = nrel.filters[-1]
-        assert step.ref_val_resolved == pytest.approx(500.0)
-        assert step.low_effective == pytest.approx(0.8 * 500.0)
-        assert step.high_effective == pytest.approx(1.2 * 500.0)
+        with pytest.raises(ValueError, match="requires reporting conditions"):
+            nrel.rep_irr
 
-    def test_rep_irr_missing_source_rc_names_dataset(self, nrel):
-        """The error message names the source dataset when its rc is unset."""
-        partner = pvc.CapData("partner")
-        nrel.rc_source_resolved = partner
-        with pytest.raises(ValueError, match="'partner' dataset"):
-            nrel.filter_irr(0.8, 1.2, ref_val="rep_irr")
+    def test_rep_irr_missing_poa_column_raises(self, nrel):
+        """rep_irr raises when the resolved rc lacks a 'poa' column."""
+        nrel.rc = pd.DataFrame({"irr": [500.0], "t_amb": [20], "w_vel": [2]})
+        with pytest.raises(ValueError, match="requires a 'poa' column"):
+            nrel.rep_irr
 
 
 class TestGetSummary:

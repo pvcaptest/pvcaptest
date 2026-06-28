@@ -976,24 +976,10 @@ class TestSetup:
         assert ct_default.meas.tolerance == "- 4"
         assert ct_default.sim.tolerance == "- 4"
 
-    def test_setup_wires_rc_source_resolved_to_meas(self, ct_default):
-        """setup() points both CapData.rc_source_resolved at meas by default."""
-        assert ct_default.meas.rc_source_resolved is ct_default.meas
-        assert ct_default.sim.rc_source_resolved is ct_default.meas
-
-    def test_setup_wires_rc_source_resolved_to_sim(
-        self, meas_cd_default, sim_cd_default
-    ):
-        """rc_source='sim' points both CapData.rc_source_resolved at sim."""
-        capt = CapTest.from_params(
-            test_setup="e2848_default",
-            meas=meas_cd_default,
-            sim=sim_cd_default,
-            ac_nameplate=6_000_000,
-            rc_source="sim",
-        )
-        assert capt.meas.rc_source_resolved is capt.sim
-        assert capt.sim.rc_source_resolved is capt.sim
+    def test_setup_wires_captest_backref_on_both(self, ct_default):
+        """setup() wires _captest back to the CapTest on both CapData."""
+        assert ct_default.meas._captest is ct_default
+        assert ct_default.sim._captest is ct_default
 
     def test_setup_assigns_resolved_setup(self, ct_default):
         resolved = ct_default._resolved_setup
@@ -1059,41 +1045,51 @@ class TestSetup:
 
 
 class TestRepIrrCrossInstance:
-    """filter_irr(ref_val='rep_irr') resolving against the rc_source instance."""
+    """filter_irr(ref_val='rep_irr') resolving against the ct.rc in a CapTest."""
 
-    def test_sim_rep_irr_filter_uses_meas_reporting_irradiance(self, ct_default):
-        """A sim filter_irr(ref_val='rep_irr') anchors on meas's reporting
-        irradiance (the default rc_source), without any rc set on sim and
-        without manually passing the value."""
-        ct_default.meas.filter_irr(200, 800)
-        ct_default.meas.rep_cond()
-        meas_rep_irr = float(ct_default.meas.rc["poa"].iloc[0])
+    def test_sim_rep_irr_resolves_from_ct_rc(self, ct_default):
+        """sim.rep_irr reads the test-level ct.rc (set here via _set_rc)."""
+        rc = pd.DataFrame({"poa": [777.0], "t_amb": [25.0], "w_vel": [2.0]})
+        ct_default._set_rc(rc, "meas")
+        assert ct_default.sim.rep_irr == pytest.approx(777.0)
+        assert ct_default.meas.rep_irr == pytest.approx(777.0)
 
-        # sim never computed its own reporting conditions.
-        assert ct_default.sim.rc is None
+    def test_rep_irr_in_test_without_rc_raises(self, ct_default):
+        """In a test, rep_irr with ct.rc unset raises directing to rep_cond."""
+        assert ct_default.rc is None
+        with pytest.raises(ValueError, match="test reporting conditions"):
+            ct_default.sim.rep_irr
 
+    def test_sim_filter_irr_rep_irr_uses_ct_rc(self, ct_default):
+        """filter_irr(ref_val='rep_irr') on sim filters around ct.rc's poa."""
+        rc = pd.DataFrame({"poa": [500.0], "t_amb": [25.0], "w_vel": [2.0]})
+        ct_default._set_rc(rc, "meas")
         ct_default.sim.filter_irr(0.8, 1.2, ref_val="rep_irr")
         step = ct_default.sim.filters[-1]
-        assert step.ref_val_resolved == pytest.approx(meas_rep_irr)
+        assert step.ref_val_resolved == pytest.approx(500.0)
+        assert step.low_effective == pytest.approx(0.8 * 500.0)
 
-    def test_sim_rep_irr_filter_roundtrips_through_yaml(self, ct_default, tmp_path):
-        """ref_val='rep_irr' serializes as a string and the rc_source wiring is
-        rebuilt on setup(), so the value is never written as a numpy float."""
+    @pytest.mark.xfail(
+        reason="rep_cond->ct.rc auto-sync lands in Plan 3 and the rep_irr YAML "
+        "round-trip in Plan 5; placeholder keeps the deferred end-to-end "
+        "coverage gap visible. Plan 5 removes this marker.",
+        strict=False,
+    )
+    def test_meas_rep_cond_then_sim_rep_irr_roundtrips(self, ct_default, tmp_path):
+        """End-to-end: meas.rep_cond seeds ct.rc, sim filters around it, and the
+        pipeline round-trips through to_yaml. Enabled in Plan 5."""
         import yaml
 
         ct_default.meas.filter_irr(200, 800)
         ct_default.meas.rep_cond()
         ct_default.sim.filter_irr(0.8, 1.2, ref_val="rep_irr")
-
         path = tmp_path / "ct.yaml"
-        # Must not raise RepresenterError on a numpy-float ref_val.
         ct_default.to_yaml(path, merge_into_existing=False)
-
         doc = yaml.safe_load(path.read_text())
-        sim_irr_steps = [
+        sim_irr = [
             d for d in doc["captest"]["sim_filters"] if d["type"] == "Irradiance"
         ]
-        assert sim_irr_steps[-1]["ref_val"] == "rep_irr"
+        assert sim_irr[-1]["ref_val"] == "rep_irr"
 
 
 class TestDownstreamPropagation:

@@ -839,7 +839,10 @@ class CapData(param.Parameterized):
         self.column_groups = {}
         self.regression_cols = {}
         self.rc = None
-        self.rc_source_resolved = None
+        # Back-reference to the owning CapTest (set by CapTest.setup), or None
+        # for standalone use. Opaque runtime reference only — capdata.py never
+        # imports captest. Intentionally NOT copied by CapData.copy().
+        self._captest = None
         self.regression_results = None
         self.regression_formula = (
             "power ~ poa + I(poa * poa) + I(poa * t_amb) + I(poa * w_vel) - 1"
@@ -944,40 +947,38 @@ class CapData(param.Parameterized):
     def rep_irr(self):
         """Reporting POA irradiance anchoring relative irradiance filters.
 
-        This is the value resolved when ``filter_irr`` is called with
-        ``ref_val='rep_irr'`` (or the legacy ``'self_val'``). It is read from
-        ``rc_source_resolved.rc`` when a source has been wired (by
-        ``CapTest.setup``, so e.g. a ``sim`` filter can anchor on the ``meas``
-        reporting irradiance), and otherwise from this instance's own ``rc``.
-        Resolved lazily on access, so it reflects ``rep_cond()`` runs that
-        happen after the source is wired.
+        Resolved when ``filter_irr`` is called with ``ref_val='rep_irr'`` (or the
+        legacy ``'self_val'``). Inside a CapTest (``self._captest`` set by
+        ``CapTest.setup``) it reads the single test RC ``self._captest.rc``;
+        standalone it reads this instance's own ``self.rc``.
 
         Returns
         -------
         float
-            The ``'poa'`` reporting condition of the resolved source.
+            The ``'poa'`` reporting condition of the resolved RC.
 
         Raises
         ------
         ValueError
-            If the resolved source has no reporting conditions, or its ``rc``
-            lacks a ``'poa'`` column.
+            If no RC is available, or the resolved RC lacks a ``'poa'`` column.
         """
-        source = (
-            self.rc_source_resolved if self.rc_source_resolved is not None else self
-        )
-        if source.rc is None:
+        in_test = self._captest is not None
+        rc = self._captest.rc if in_test else self.rc
+        if rc is None:
+            if in_test:
+                raise ValueError(
+                    "ref_val='rep_irr' requires test reporting conditions. Call "
+                    "ct.rep_cond(which) or assign ct.rc = df before filtering."
+                )
             raise ValueError(
-                "ref_val='rep_irr' requires reporting conditions on the "
-                f"'{source.name}' dataset. Call rep_cond() on it before "
-                "filtering with ref_val='rep_irr'."
+                "ref_val='rep_irr' requires reporting conditions. Call "
+                "rep_cond() before filtering with ref_val='rep_irr'."
             )
-        if "poa" not in source.rc.columns:
+        if "poa" not in rc.columns:
             raise ValueError(
-                "ref_val='rep_irr' requires a 'poa' column in the reporting "
-                f"conditions of the '{source.name}' dataset."
+                "ref_val='rep_irr' requires a 'poa' column in the reporting conditions."
             )
-        return float(source.rc["poa"].iloc[0])
+        return float(rc["poa"].iloc[0])
 
     def drop_cols(self, columns):
         """
@@ -1743,9 +1744,10 @@ class CapData(param.Parameterized):
             Must provide arg when `low` and `high` are fractions.
             Pass ``'rep_irr'`` to use the reporting irradiance from
             :attr:`rep_irr` (set by calling :meth:`rep_cond` first). Within a
-            :class:`~captest.captest.CapTest`, ``'rep_irr'`` resolves against
-            the ``rc_source`` instance, so a ``sim`` filter can anchor on the
-            ``meas`` reporting irradiance without passing the value manually.
+            :class:`~captest.captest.CapTest`, ``'rep_irr'`` resolves against the
+            single test reporting conditions ``ct.rc``, so a ``sim`` filter can
+            anchor on the test's reporting irradiance without passing the value
+            manually.
         col_name : str, default None
             Column name of irradiance data to filter.  By default uses the POA
             irradiance set in regression_cols attribute or average of the POA
