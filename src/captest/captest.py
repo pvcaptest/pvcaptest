@@ -1654,6 +1654,28 @@ class CapTest(param.Parameterized):
         self._rc = rc
         self.rc_source = source
 
+    def _on_capdata_rep_cond(self, cd):
+        """Update the test RC after a member CapData computed its own ``rc``.
+
+        Called by :meth:`CapData._calc_rep_cond` when the CapData belongs to this
+        test. Runtime behavior is last-writer-wins: the calling side's ``rc``
+        becomes ``ct.rc`` and ``rc_source`` (a source-change ``UserWarning`` is
+        emitted by :meth:`_set_rc`). During ``from_yaml`` load (``_loading``
+        True) the update is config-seeded: only the configured ``rc_source``
+        side updates ``ct.rc``, silently (see Plan 5 / spec §4.7).
+
+        Parameters
+        ----------
+        cd : CapData
+            The member CapData that just (re)computed its ``rc``.
+        """
+        side = "meas" if cd is self.meas else "sim"
+        if self._loading:
+            if side == self.rc_source:
+                self._set_rc(cd.rc.copy(), side, warn=False)
+            return
+        self._set_rc(cd.rc.copy(), side, warn=True)
+
     # --- constructors ----------------------------------------------------
 
     @classmethod

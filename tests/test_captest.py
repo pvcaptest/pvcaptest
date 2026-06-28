@@ -2795,3 +2795,57 @@ class TestManualRc:
         ct_default.rc = self._full_rc()  # first -> manual (silent)
         ct_default.rc = self._full_rc(810.0)  # manual -> manual (silent)
         assert len(recwarn) == 0
+
+
+class TestRepCondSync:
+    """cd.rep_cond updates ct.rc (last-writer-wins); standalone is unaffected."""
+
+    def test_meas_rep_cond_sets_ct_rc_from_meas(self, ct_default):
+        ct_default.meas.rep_cond()
+        assert ct_default.rc_source == "meas"
+        assert ct_default.rc is not None
+        assert ct_default.rc["poa"].iloc[0] == pytest.approx(
+            ct_default.meas.rc["poa"].iloc[0]
+        )
+
+    def test_meas_rep_cond_first_set_is_silent(self, ct_default, recwarn):
+        ct_default.meas.rep_cond()
+        assert not any("rc_source changed" in str(w.message) for w in recwarn)
+
+    def test_sim_rep_cond_after_meas_flips_source_and_warns(self, ct_default):
+        ct_default.meas.rep_cond()
+        with pytest.warns(UserWarning, match="changed from 'meas' to 'sim'"):
+            ct_default.sim.rep_cond()
+        assert ct_default.rc_source == "sim"
+        assert ct_default.rc["poa"].iloc[0] == pytest.approx(
+            ct_default.sim.rc["poa"].iloc[0]
+        )
+
+    def test_same_source_recompute_is_silent(self, ct_default, recwarn):
+        ct_default.meas.rep_cond()
+        ct_default.meas.filter_irr(200, 800)
+        ct_default.meas.rep_cond()  # still 'meas' -> no source-change warning
+        assert ct_default.rc_source == "meas"
+        assert not any("rc_source changed" in str(w.message) for w in recwarn)
+
+    def test_ct_rc_is_a_copy_not_aliased(self, ct_default):
+        ct_default.meas.rep_cond()
+        # Mutating meas.rc must not change ct.rc.
+        ct_default.meas.rc.loc[ct_default.meas.rc.index[0], "poa"] = -999.0
+        assert ct_default.rc["poa"].iloc[0] != -999.0
+
+    def test_standalone_rep_cond_does_not_sync_or_warn(self, pvsyst, recwarn):
+        assert pvsyst._captest is None
+        pvsyst.filter_irr(200, 800)
+        pvsyst.rep_cond()  # must not raise (the _captest guard) and not warn
+        assert pvsyst.rc is not None
+        assert not any("rc_source changed" in str(w.message) for w in recwarn)
+
+    def test_rep_cond_freq_does_not_sync_to_ct_rc(self, ct_default):
+        """rep_cond_freq is intentionally NOT synced: it can produce a multi-row
+        seasonal RC that a single-row ct.rc cannot hold, and it sets self.rc on a
+        path that bypasses _calc_rep_cond. It must leave ct.rc/rc_source alone."""
+        ct_default.meas.rep_cond_freq(freq="ME")
+        assert ct_default.meas.rc is not None  # member CapData rc is set
+        assert ct_default.rc is None  # test rc untouched
+        assert ct_default.rc_source == "meas"  # default, unchanged

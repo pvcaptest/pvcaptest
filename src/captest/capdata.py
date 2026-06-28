@@ -2245,6 +2245,12 @@ class CapData(param.Parameterized):
         print("Reporting conditions saved to rc attribute.")
         print(RCs_df)
         self.rc = RCs_df
+        # When this CapData belongs to a CapTest, propagate the freshly computed
+        # rc to the single test rc (last-writer-wins). The CapTest decides warn
+        # vs silent and config-seeded load behavior. Opaque call — capdata.py
+        # never imports captest.
+        if self._captest is not None:
+            self._captest._on_capdata_rep_cond(self)
 
     def rep_cond(
         self,
