@@ -1350,7 +1350,12 @@ class CapTest(param.Parameterized):
         default="meas",
         doc="Provenance of the single test RC (CapTest.rc): 'meas'/'sim' when "
         "computed from that dataset's rep_cond, or 'manual' when set directly. "
-        "Seeds the default 'which' for rep_cond.",
+        "Seeds the default 'which' for rep_cond. This is a provenance label "
+        "managed alongside CapTest.rc by the sanctioned mutation paths "
+        "(rep_cond / the ct.rc setter, both routed through _set_rc) and is "
+        "accepted as a construction-time config input; assigning it directly "
+        "afterward relabels provenance without changing the stored rc and is "
+        "not recommended.",
     )
 
     # Test scope / time

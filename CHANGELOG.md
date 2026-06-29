@@ -36,6 +36,14 @@ automatically wraps the simulated data into a contiguous year so it aligns with
 the year-end-spanning measured data — no manual step required. The auto-wrap is
 idempotent and reversible (set `auto_wrap_sim=False` and re-run `setup()` to
 restore the un-wrapped sim data).
+- Added `CapTest.rc` as the single owner of a test's reporting conditions. It is
+settable for manual override (`ct.rc = df`, a one-row DataFrame / Series / dict),
+which validates that every right-hand-side regression variable of the shared
+meas/sim formula is covered and records the source as `"manual"`. Reporting
+conditions computed via `rep_cond` (on `ct.meas` / `ct.sim`, or
+`ct.rep_cond(which=...)`) now populate `CapTest.rc` automatically —
+last-writer-wins, with a warning only when the source changes — and the single
+test RC round-trips through `to_yaml` / `from_yaml`.
 
 ### Changed
 - **Breaking:** `CapData.data_filtered` is now a derived, read-only property — the
@@ -55,6 +63,12 @@ any YAML pipeline configs written with the old `type` strings must be regenerate
 - Converted `CapData.rep_cond` to a `RepCond` zero-removal step so the
 reporting-conditions calculation appears in the summary at its position in the
 filter chain.
+- Reporting conditions are now owned at the test level by `CapTest.rc` rather than
+read per-`CapData`. `captest_results` predicts both regressions at `CapTest.rc` and
+raises `ValueError` when it is unset; `CapTest.rep_cond(which=None)` defaults to the
+current `rc_source`; and `filter_irr(ref_val="rep_irr")` within a `CapTest` resolves
+against the single test RC, so a `sim` filter can anchor on the test's reporting
+irradiance without passing the value manually.
 - Removed the internal `summary` / `summary_ix` / `removed` / `kept` mirror lists,
 the `filter_counts` dict, and the `update_summary` decorator. `get_summary()`,
 `describe_filters()`, and the visualization methods (`scatter_filters`,
