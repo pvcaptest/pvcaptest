@@ -3003,3 +3003,32 @@ class TestRcOwnershipRoundTrip:
         assert reloaded.rc_source == "meas"
         # No source-change warning during load.
         assert not any("rc_source changed" in str(w.message) for w in recwarn)
+
+    def test_corrupted_manual_rc_in_yaml_raises_on_load(
+        self, tmp_path, meas_cd_default, sim_cd_default
+    ):
+        """from_yaml with a corrupted manual RC (missing required RHS variable)
+        must raise ValueError at load time, not silently succeed and fail later
+        at predict/rep_irr."""
+        capt = self._capt(meas_cd_default, sim_cd_default)
+        clean_meas, clean_sim = capt.meas.copy(), capt.sim.copy()
+        capt.rc = pd.DataFrame({"poa": [805.0], "t_amb": [25.0], "w_vel": [2.0]})
+        capt._meas_path = str(tmp_path / "meas.csv")
+        capt._sim_path = str(tmp_path / "sim.csv")
+        path = tmp_path / "config.yaml"
+        capt.to_yaml(path, merge_into_existing=False)
+
+        # Hand-edit: drop w_vel from reporting_conditions_values to simulate
+        # a corrupted or hand-edited YAML file.
+        with open(path) as f:
+            doc = yaml.safe_load(f)
+        del doc["captest"]["reporting_conditions_values"]["w_vel"]
+        with open(path, "w") as f:
+            yaml.safe_dump(doc, f)
+
+        with pytest.raises(ValueError, match="missing required regression"):
+            CapTest.from_yaml(
+                path,
+                meas_loader=MagicMock(return_value=clean_meas),
+                sim_loader=MagicMock(return_value=clean_sim),
+            )

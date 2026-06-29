@@ -1603,6 +1603,39 @@ class CapTest(param.Parameterized):
         TypeError
             If ``value`` is not a DataFrame, Series, or dict.
         """
+        self._set_rc(self._coerce_and_validate_manual_rc(value), "manual")
+
+    def _coerce_and_validate_manual_rc(self, value):
+        """Validate and coerce a candidate manual reporting-conditions value.
+
+        Shared by the public :attr:`rc` setter and the ``from_mapping`` load
+        path so that a hand-edited YAML with a missing required regression
+        variable fails fast (at load) rather than silently at predict/rep_irr.
+
+        Parameters
+        ----------
+        value : pandas.DataFrame or pandas.Series or dict
+            Candidate reporting conditions. A Series or dict maps each
+            regression variable to its value; a DataFrame is used as given.
+            Must supply a value for every right-hand-side variable of the
+            (shared meas/sim) regression formula.
+
+        Returns
+        -------
+        pandas.DataFrame
+            A validated, one-row reporting-conditions DataFrame.
+
+        Raises
+        ------
+        RuntimeError
+            If :meth:`setup` has not been run (regression formula unknown).
+        ValueError
+            If ``meas`` and ``sim`` have different regression formulas, if
+            ``value`` coerces to more than one row, or if ``value`` omits a
+            required right-hand-side variable.
+        TypeError
+            If ``value`` is not a DataFrame, Series, or dict.
+        """
         self._require_setup()
         meas_fml = self.meas.regression_formula
         sim_fml = self.sim.regression_formula
@@ -1634,7 +1667,7 @@ class CapTest(param.Parameterized):
                 "Manual reporting conditions are missing required regression "
                 f"variable(s): {missing}. Required: {rhs}."
             )
-        self._set_rc(df, "manual")
+        return df
 
     def _set_rc(self, rc, source, warn=True):
         """Single internal write point for ``_rc`` and ``rc_source``.
@@ -1955,7 +1988,8 @@ class CapTest(param.Parameterized):
             # RC is (re)established during replay by the configured rc_source
             # side's RepCond step (see _on_capdata_rep_cond's _loading branch).
             if inst.rc_source == "manual" and rc_values is not None:
-                inst._set_rc(pd.DataFrame([rc_values]), "manual", warn=False)
+                df = inst._coerce_and_validate_manual_rc(rc_values)
+                inst._set_rc(df, "manual", warn=False)
             # Replay the configured rc_source side FIRST so its RepCond populates
             # ct.rc before the other side's rep_irr filters run. _loading makes
             # the rep_cond sync config-seeded and warning-suppressed.
