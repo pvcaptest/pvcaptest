@@ -12,7 +12,7 @@ import numpy as np
 import pandas as pd
 
 from captest.capdata import CapData
-from captest.capdata import csky
+from captest.clearsky import csky
 from captest import columngroups as cg
 from captest import util
 
@@ -164,7 +164,6 @@ def load_pvsyst(
     )
     if egrid_unit_adj_factor is not None:
         cd.data["E_Grid"] = cd.data["E_Grid"] / egrid_unit_adj_factor
-    cd.data_filtered = cd.data.copy()
     cd.column_groups = cg.group_columns(cd.data)
     if set_regression_columns:
         cd.set_regression_cols(
@@ -594,7 +593,6 @@ def load_data(
         if reindex:
             dl.reindex()
         cd.data = dl.data.copy()
-        cd.data_filtered = cd.data.copy()
     else:
         warnings.warn(
             "Data attribute is None. Skipping sort, drop_duplicates, and reindex"
@@ -625,7 +623,6 @@ def load_data(
                 cd.site = copy.deepcopy(site)
         if isinstance(site, dict):
             cd.data = csky(cd.data, loc=site["loc"], sys=site["sys"])
-            cd.data_filtered = cd.data.copy()
             cd.column_groups["irr-poa-clear_sky"] = ["poa_mod_csky"]
             cd.column_groups["irr-ghi-clear_sky"] = ["ghi_mod_csky"]
     cd.trans_keys = list(cd.column_groups.keys())

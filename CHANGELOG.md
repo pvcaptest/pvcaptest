@@ -5,7 +5,75 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Added
+- New `captest.filters` module holding the entire filter-step surface: the
+`BaseSummaryStep` / `BaseFilter` base classes and the concrete step classes
+`Irradiance`, `Sensors`, `Time`, `Custom`, `Outliers`, `Clearsky`, `Pvsyst`,
+`Shade`, `PowerFactor`, `Power`, `Days`, `Missing`, `Regression`, and `RepCond`.
+Each filter is now a first-class object with typed `param` parameters, so steps
+can be constructed and run directly (e.g. `Irradiance(low=200, high=800).run(cd)`),
+inspected, reordered, and replayed. The row-filter helper functions (`filter_irr`,
+`sensor_filter`, `check_all_perc_diff_comb`, ...) moved here from `capdata.py`.
+- New `captest.clearsky` module — the clear-sky *modeling* functions (`csky`,
+`pvlib_location`, `pvlib_system`, `get_tz_index`) were extracted from `capdata.py`.
+(Clear-sky *filtering* is the separate `Clearsky` step, which calls
+`pvlib.clearsky.detect_clearsky` directly.)
+- Added `CapData.describe_filters()` — a written, human-readable summary of a
+filtering run, built from each step's `explanation` (complementary to the
+tabular `get_summary()`).
+- Added `CapData.filters_to_config()` and `CapData.run_pipeline(config)` to
+serialize the filter chain to a list of plain dicts and replay it. The CapTest
+single-file YAML (`to_yaml` / `from_yaml`) now round-trips both the `meas` and
+`sim` filter pipelines via `meas_filters` / `sim_filters` keys.
+- Added a `custom_name` keyword to every `CapData.filter_*` wrapper method (and to
+`rep_cond` / `fit_regression`) so steps can be labeled in the summary and plots
+without constructing the step class directly.
+- Added a `function_name` column to `get_summary()` that retains the actual step
+class name even when a `custom_name` is set.
+- Added the `CapTest.auto_wrap_sim` parameter (default `True`). When the measured
+test falls within 60 days of a calendar-year boundary, `CapTest.setup()` now
+automatically wraps the simulated data into a contiguous year so it aligns with
+the year-end-spanning measured data — no manual step required. The auto-wrap is
+idempotent and reversible (set `auto_wrap_sim=False` and re-run `setup()` to
+restore the un-wrapped sim data).
 
+### Changed
+- **Breaking:** `CapData.data_filtered` is now a derived, read-only property — the
+`data` rows kept by the last filter (a defensive copy), or `data` when no filters
+have run. It has no setter; clear filtering with `CapData.reset_filter()`. Code
+that assigned to `data_filtered` directly must drop the assignment.
+- **Breaking:** Removed the `inplace` keyword from all `CapData.filter_*` methods
+and from `fit_regression` — filters always act in place and record a step. The
+`inplace=False` preview path (returning a DataFrame without recording a step) is
+gone. (`rep_cond_freq` keeps its `inplace` toggle, which is compute-and-return,
+not filtering.)
+- **Breaking:** Dropped the `Filter` prefix from the filter step class names and
+expanded the terse ones (`FilterIrr` → `Irradiance`, `FilterPf` → `PowerFactor`,
+`FilterPvsyst` → `Pvsyst`, etc.). `FILTER_REGISTRY` holds only the new names, so
+any YAML pipeline configs written with the old `type` strings must be regenerated
+(`step_from_config` raises a close-match suggestion for unknown types).
+- Converted `CapData.rep_cond` to a `RepCond` zero-removal step so the
+reporting-conditions calculation appears in the summary at its position in the
+filter chain.
+- Removed the internal `summary` / `summary_ix` / `removed` / `kept` mirror lists,
+the `filter_counts` dict, and the `update_summary` decorator. `get_summary()`,
+`describe_filters()`, and the visualization methods (`scatter_filters`,
+`timeseries_filters`, `get_filtering_table`) now derive everything from the
+`CapData.filters` chain.
+- `scatter_filters()` and `timeseries_filters()` now draw the retained-points
+layer last so surviving points render on top of the removed-point layers.
+- **Breaking:** Removed the `wrap_year` parameter from `CapData.filter_time` (and
+the `Time` filter). Year-end wrapping of the simulated data is no longer a manual
+filter step — it now happens automatically at `CapTest.setup()` time via the new
+`CapTest.auto_wrap_sim` parameter (see Added). Code that called
+`filter_time(..., wrap_year=True)` to align a year-end-spanning test should drop
+that argument and let `CapTest` wrap the sim data on setup.
+
+### Fixed
+- `CapTest._maybe_wrap_sim_year_end` now uses a fixed July 1 → June 30 wrap window
+(derived from `sim_year`) instead of one centered on the measured test dates, so a
+measured test within 60 days of the year boundary produces a contiguous 8760-row
+wrapped sim year.
 
 [0.16.0]: https://github.com/pvcaptest/pvcaptest/compare/v0.15.1...v0.16.0
 ## [0.16.0] - 2026-06-24

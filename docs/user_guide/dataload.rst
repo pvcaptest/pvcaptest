@@ -57,6 +57,10 @@ Internally, :py:func:`~captest.io.load_data` uses an instance of the :py:class:`
 
     If it is necessary to modify the :py:attr:`data` DataFrame to add columns or convert units, it best to do that immediately after loading the data. Followed by calling :py:meth:`~captest.capdata.CapData.reset_filters`, which will overwrite the :py:attr:`data_filtered` DataFrame with the modified :py:attr:`data` DataFrame.
 
+.. note::
+
+    **Automatic year-end wrapping of simulated data.** PVsyst simulated data spans a single calendar year (Jan 1 – Dec 31), so a measured test that crosses a year boundary (e.g. mid-December to mid-January) would not include January. Versions before v0.17.0 handled this with a manual ``wrap_year`` argument on :py:meth:`~captest.capdata.CapData.filter_time`. That argument has been removed; the wrapping is now applied automatically. When a measured and a modeled :py:class:`~captest.capdata.CapData` are bound together in a :py:class:`~captest.captest.CapTest`, :py:meth:`~captest.captest.CapTest.setup` detects a measured test within 60 days of a calendar-year boundary and wraps the simulated data into a contiguous July 1 – June 30 year. This is controlled by the :py:attr:`~captest.captest.CapTest.auto_wrap_sim` parameter (default ``True``). Set ``auto_wrap_sim=False`` and re-run :py:meth:`~captest.captest.CapTest.setup` to load the simulated data without wrapping.
+
 .. _col-grouping:
 
 Column grouping

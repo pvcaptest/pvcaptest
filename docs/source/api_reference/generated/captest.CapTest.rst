@@ -39,6 +39,7 @@
       ~CapTest.ac_nameplate
       ~CapTest.airmass_model
       ~CapTest.altitude_override
+      ~CapTest.auto_wrap_sim
       ~CapTest.base_temp
       ~CapTest.bifacial_frac
       ~CapTest.bifaciality
@@ -57,11 +58,11 @@
       ~CapTest.param
       ~CapTest.power_temp_coeff
       ~CapTest.racking
+      ~CapTest.rc_source
       ~CapTest.rear_shade
       ~CapTest.reg_cols_meas
       ~CapTest.reg_cols_sim
       ~CapTest.reg_fml
-      ~CapTest.rep_cond_source
       ~CapTest.rep_conditions
       ~CapTest.rep_irr_filter
       ~CapTest.rep_irr_filter_high

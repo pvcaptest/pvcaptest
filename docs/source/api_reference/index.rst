@@ -11,6 +11,8 @@ API Reference
    io
    capdata
    captest
+   filters
+   clearsky
    prtest
    calcparams
    columngroups

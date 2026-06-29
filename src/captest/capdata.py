@@ -11,10 +11,8 @@ instance together and exposes the cross-CapData comparison methods
 
 # standard library imports
 import difflib
-import re
 import copy
-from functools import wraps
-from itertools import combinations
+
 import warnings
 import importlib
 import inspect
@@ -26,10 +24,7 @@ import pandas as pd
 # anaconda distribution defaults
 # statistics and machine learning imports
 from patsy import dmatrix
-import statsmodels.formula.api as smf
 
-# from sklearn.covariance import EllipticEnvelope
-import sklearn.covariance as sk_cv
 
 # anaconda distribution defaults
 # visualization library imports
@@ -39,6 +34,29 @@ import param
 
 from captest import util
 from captest import plotting
+from captest.filters import (
+    BaseSummaryStep,
+    Clearsky,
+    Custom,
+    Days,
+    Irradiance,
+    Missing,
+    Outliers,
+    PowerFactor,
+    Power,
+    Pvsyst,
+    Regression,
+    Sensors,
+    Shade,
+    Time,
+    RepCond,
+    check_all_perc_diff_comb,
+    filter_grps,
+    filter_irr,
+    fit_model,
+    step_from_config,
+    wrap_year_end,
+)
 
 # visualization library imports
 hv_spec = importlib.util.find_spec("holoviews")
@@ -71,18 +89,6 @@ if xlsx_spec is None:
         "the openpyxl package."
     )
 
-# pvlib imports
-pvlib_spec = importlib.util.find_spec("pvlib")
-if pvlib_spec is not None:
-    from pvlib.location import Location
-    from pvlib.pvsystem import PVSystem, Array, FixedMount, SingleAxisTrackerMount
-    from pvlib.pvsystem import retrieve_sam
-    from pvlib.modelchain import ModelChain
-    from pvlib.clearsky import detect_clearsky
-else:
-    warnings.warn("Clear sky functions will not work without the pvlib package.")
-
-
 plot_colors_brewer = {
     "real_pwr": ["#2b8cbe", "#7bccc4", "#bae4bc", "#f0f9e8"],
     "irr_poa": ["#e31a1c", "#fd8d3c", "#fecc5c", "#ffffb2"],
@@ -95,7 +101,7 @@ plot_colors_brewer = {
 met_keys = ["poa", "t_amb", "w_vel", "power"]
 
 
-columns = ["pts_after_filter", "pts_removed", "filter_arguments"]
+columns = ["function_name", "pts_after_filter", "pts_removed", "filter_arguments"]
 
 
 def round_kwarg_floats(kwarg_dict, decimals=3):
@@ -141,162 +147,6 @@ def tstamp_kwarg_to_strings(kwarg_dict):
         else:
             output_vals.append(val)
     return {key: val for key, val in zip(kwarg_dict.keys(), output_vals)}
-
-
-def update_summary(func):
-    """
-    Decoratates the CapData class filter methods.
-
-    Updates the CapData.summary and CapData.summary_ix attributes, which
-    are used to generate summary data by the CapData.get_summary method.
-
-    Todo
-    ----
-    not in place
-        Check if summary is updated when function is called with inplace=False.
-        It should not be.
-    """
-
-    @wraps(func)
-    def wrapper(self, *args, **kwargs):
-        pts_before = self.data_filtered.shape[0]
-        ix_before = self.data_filtered.index
-        if pts_before == 0:
-            pts_before = self.data.shape[0]
-            self.summary_ix.append((self.name, "count"))
-            self.summary.append(
-                {columns[0]: pts_before, columns[1]: 0, columns[2]: "no filters"}
-            )
-
-        ret_val = func(self, *args, **kwargs)
-
-        if kwargs.get("ref_val") in ("rep_irr", "self_val") and self.rc is not None:
-            kwargs = {**kwargs, "ref_val": float(self.rc["poa"].iloc[0])}
-
-        arg_str = args.__repr__()
-        lst = arg_str.split(",")
-        arg_lst = [item.strip("()") for item in lst]
-        arg_lst_one = arg_lst[0]
-        if arg_lst_one == "das" or arg_lst_one == "sim":
-            arg_lst = arg_lst[1:]
-        arg_str = ", ".join(arg_lst)
-
-        func_re = re.compile("<function (.*) at", re.IGNORECASE)
-        if func_re.search(arg_str) is not None:
-            custom_func_name = func_re.search(arg_str).group(1)
-            arg_str = re.sub("<function.*>", custom_func_name, arg_str)
-
-        kwargs = round_kwarg_floats(kwargs)
-        kwargs = tstamp_kwarg_to_strings(kwargs)
-        kwarg_str = kwargs.__repr__()
-        kwarg_str = kwarg_str.strip("{}")
-        kwarg_str = kwarg_str.replace("'", "")
-
-        if len(arg_str) == 0 and len(kwarg_str) == 0:
-            arg_str = "Default arguments"
-        elif len(arg_str) == 0:
-            arg_str = kwarg_str
-        else:
-            arg_str = arg_str + ", " + kwarg_str
-
-        filter_name = func.__name__
-        if filter_name in self.filter_counts.keys():
-            filter_name_enum = filter_name + "-" + str(self.filter_counts[filter_name])
-            self.filter_counts[filter_name] += 1
-        else:
-            self.filter_counts[filter_name] = 1
-            filter_name_enum = filter_name
-
-        pts_after = self.data_filtered.shape[0]
-        pts_removed = pts_before - pts_after
-        self.summary_ix.append((self.name, filter_name_enum))
-        self.summary.append(
-            {columns[0]: pts_after, columns[1]: pts_removed, columns[2]: arg_str}
-        )
-
-        ix_after = self.data_filtered.index
-        self.removed.append(
-            {"name": filter_name_enum, "index": ix_before.difference(ix_after)}
-        )
-        self.kept.append({"name": filter_name_enum, "index": ix_after})
-
-        if pts_after == 0:
-            warnings.warn(
-                "The last filter removed all data! "
-                "Calling additional filtering or visualization "
-                "methods that reference the data_filtered attribute "
-                "will raise an error."
-            )
-
-        return ret_val
-
-    return wrapper
-
-
-def wrap_year_end(df, start, end):
-    """
-    Shifts data before or after new year to form a contigous time period.
-
-    This function shifts data from the end of the year a year back or data from
-    the begining of the year a year forward, to create a contiguous time
-    period. Intended to be used on historical typical year data.
-
-    If start date is in dataframe, then data at the beginning of the year will
-    be moved ahead one year.  If end date is in dataframe, then data at the end
-    of the year will be moved back one year.
-
-    cntg (contiguous); eoy (end of year)
-
-    Parameters
-    ----------
-    df: pandas DataFrame
-        Dataframe to be adjusted.
-    start: pandas Timestamp
-        Start date for time period.
-    end: pandas Timestamp
-        End date for time period.
-
-    Todo
-    ----
-    Need to test and debug this for years not matching.
-    """
-    if df.index[0].year == start.year:
-        df_start = df.loc[start:, :]
-
-        df_end = df.copy()
-        df_end.index = df_end.index + pd.DateOffset(days=365)
-        df_end = df_end.loc[:end, :]
-
-    elif df.index[0].year == end.year:
-        df_end = df.loc[:end, :]
-
-        df_start = df.copy()
-        df_start.index = df_start.index - pd.DateOffset(days=365)
-        df_start = df_start.loc[start:, :]
-
-    df_return = pd.concat([df_start, df_end], axis=0)
-    ix_series = df_return.index.to_series()
-    df_return["index"] = ix_series.apply(lambda x: x.strftime("%m/%d/%Y %H %M"))  # noqa E501
-    return df_return
-
-
-def spans_year(start_date, end_date):
-    """
-    Determine if dates passed are in the same year.
-
-    Parameters
-    ----------
-    start_date: pandas Timestamp
-    end_date: pandas Timestamp
-
-    Returns
-    -------
-    bool
-    """
-    if start_date.year != end_date.year:
-        return True
-    else:
-        return False
 
 
 def wrap_seasons(df, freq):
@@ -398,154 +248,6 @@ def perc_bounds(percent_filter):
     low = 1 - (perc_low)
     high = 1 + (perc_high)
     return (low, high)
-
-
-def perc_difference(x, y):
-    """Calculate percent difference of two values."""
-    if x == y == 0:
-        return 0
-    else:
-        if x + y == 0:
-            return 1
-        else:
-            return abs(x - y) / ((x + y) / 2)
-
-
-def check_all_perc_diff_comb(series, perc_diff):
-    """
-    Check series for pairs of values with percent difference above perc_diff.
-
-    Calculates the percent difference between all combinations of two values in
-    the passed series and checks if all of them are below the passed perc_diff.
-
-    Parameters
-    ----------
-    series : pd.Series
-        Pandas series of values to check.
-    perc_diff : float
-        Percent difference threshold value as decimal i.e. 5% is 0.05.
-
-    Returns
-    -------
-    bool
-    """
-    c = combinations(series.__iter__(), 2)
-    return all([perc_difference(x, y) < perc_diff for x, y in c])
-
-
-def abs_diff_from_average(series, threshold):
-    """Check each value in series <= average of other values.
-
-    Drops NaNs from series before calculating difference from average for each value.
-
-    Returns True if there is only one value in the series.
-
-    Parameters
-    ----------
-    series : pd.Series
-        Pandas series of values to check.
-    threshold : numeric
-        Threshold value for absolute difference from average.
-
-    Returns
-    -------
-    bool
-    """
-    series = series.dropna()
-    if len(series) == 1:
-        return True
-    abs_diffs = []
-    for i, val in enumerate(series):
-        abs_diffs.append(abs(val - series.drop(series.index[i]).mean()) <= threshold)
-    return all(abs_diffs)
-
-
-def sensor_filter(df, threshold, row_filter=check_all_perc_diff_comb):
-    """
-    Check dataframe for rows with inconsistent values.
-
-    Applies check_all_perc_diff_comb function along rows of passed dataframe.
-
-    Parameters
-    ----------
-    df : pandas DataFrame
-    perc_diff : float
-        Percent difference as decimal.
-    """
-    if df.shape[1] >= 2:
-        bool_ser = df.apply(row_filter, args=(threshold,), axis=1)
-        return df[bool_ser].index
-    elif df.shape[1] == 1:
-        return df.index
-
-
-def filter_irr(df, irr_col, low, high, ref_val=None):
-    """
-    Top level filter on irradiance values.
-
-    Parameters
-    ----------
-    df : DataFrame
-        Dataframe to be filtered.
-    irr_col : str
-        String that is the name of the column with the irradiance data.
-    low : float or int
-        Minimum value as fraction (0.8) or absolute 200 (W/m^2)
-    high : float or int
-        Max value as fraction (1.2) or absolute 800 (W/m^2)
-    ref_val : float or int
-        Must provide arg when low/high are fractions
-
-    Returns
-    -------
-    DataFrame
-    """
-    if ref_val is not None:
-        low *= ref_val
-        high *= ref_val
-
-    return df.loc[(df[irr_col] >= low) & (df[irr_col] <= high), :]
-
-
-def filter_grps(grps, rcs, irr_col, low, high, freq, **kwargs):
-    """
-    Apply irradiance filter around passsed reporting irradiances to groupby.
-
-    For each group in the grps argument the irradiance is filtered by a
-    percentage around the reporting irradiance provided in rcs.
-
-    Parameters
-    ----------
-    grps : pandas groupby
-        Groupby object with time groups (months, seasons, etc.).
-    rcs : pandas DataFrame
-        Dataframe of reporting conditions.  Use the rep_cond method to generate
-        a dataframe for this argument.
-    irr_col : str
-        String that is the name of the column with the irradiance data.
-    low : float
-        Minimum value as fraction e.g. 0.8.
-    high : float
-        Max value as fraction e.g. 1.2.
-    freq : str
-        Frequency to groupby e.g. 'MS' for month start.
-    **kwargs
-        Passed to pandas Grouper to control label and closed side of intervals.
-        See pandas Grouper doucmentation for details. Default is left labeled
-        and left closed.
-
-    Returns
-    -------
-    pandas groupby
-    """
-    flt_dfs = []
-    for grp_name, grp_df in grps:
-        ref_val = rcs.loc[grp_name, "poa"]
-        grp_df_flt = filter_irr(grp_df, irr_col, low, high, ref_val=ref_val)
-        flt_dfs.append(grp_df_flt)
-    df_flt = pd.concat(flt_dfs)
-    df_flt_grpby = df_flt.groupby(pd.Grouper(freq=freq, **kwargs))
-    return df_flt_grpby
 
 
 class ReportingIrradiance(param.Parameterized):
@@ -818,31 +520,6 @@ class ReportingIrradiance(param.Parameterized):
         return pn.Row(self.param, self.plot)
 
 
-def fit_model(
-    df, fml="power ~ poa + I(poa * poa) + I(poa * t_amb) + I(poa * w_vel) - 1"
-):  # noqa E501
-    """
-    Fits linear regression using statsmodels to dataframe passed.
-
-    Dataframe must be first argument for use with pandas groupby object
-    apply method.
-
-    Parameters
-    ----------
-    df : pandas dataframe
-    fml : str
-        Formula to fit refer to statsmodels and patsy documentation for format.
-        Default is the formula in ASTM E2848.
-
-    Returns
-    -------
-    Statsmodels linear model regression results wrapper object.
-    """
-    mod = smf.ols(formula=fml, data=df)
-    reg = mod.fit()
-    return reg
-
-
 def predict(regs, rcs):
     """
     Calculate predicted values for given linear models and predictor values.
@@ -913,229 +590,6 @@ def pred_summary(grps, rcs, allowance, **kwargs):
     results["pt_qty"] = pt_qty.values
 
     return results
-
-
-def pvlib_location(loc):
-    """
-    Create a pvlib location object.
-
-    Parameters
-    ----------
-    loc : dict
-        Dictionary of values required to instantiate a pvlib Location object.
-
-        loc = {'latitude': float,
-               'longitude': float,
-               'altitude': float/int,
-               'tz': str, int, float, default 'UTC'}
-        See
-        http://en.wikipedia.org/wiki/List_of_tz_database_time_zones
-        for a list of valid time zones.
-        ints and floats must be in hours from UTC.
-
-    Returns
-    -------
-    pvlib location object.
-    """
-    return Location(**loc)
-
-
-def pvlib_system(sys):
-    """
-    Create a pvlib :py:class:`~pvlib.pvsystem.PVSystem` object.
-
-    The :py:class:`~pvlib.pvsystem.PVSystem` will have either a
-    :py:class:`~pvlib.pvsystem.FixedMount` or a
-    :py:class:`~pvlib.pvsystem.SingleAxisTrackerMount` depending on
-    the keys of the passed dictionary.
-
-    Parameters
-    ----------
-    sys : dict
-        Dictionary of keywords required to create a pvlib
-        ``SingleAxisTrackerMount`` or ``FixedMount``, plus ``albedo``.
-
-        Example dictionaries:
-
-        fixed_sys = {'surface_tilt': 20,
-                     'surface_azimuth': 180,
-                     'albedo': 0.2}
-
-        tracker_sys1 = {'axis_tilt': 0, 'axis_azimuth': 0,
-                       'max_angle': 90, 'backtrack': True,
-                       'gcr': 0.2, 'albedo': 0.2}
-
-        Refer to pvlib documentation for details.
-
-    Returns
-    -------
-    pvlib PVSystem object.
-    """
-    sandia_modules = retrieve_sam("SandiaMod")
-    cec_inverters = retrieve_sam("cecinverter")
-    sandia_module = sandia_modules.iloc[:, 0]
-    cec_inverter = cec_inverters.iloc[:, 0]
-
-    albedo = sys.pop("albedo", None)
-    trck_kwords = ["axis_tilt", "axis_azimuth", "max_angle", "backtrack", "gcr"]  # noqa: E501
-    if any(kword in sys.keys() for kword in trck_kwords):
-        mount = SingleAxisTrackerMount(**sys)
-    else:
-        mount = FixedMount(**sys)
-    array = Array(
-        mount,
-        albedo=albedo,
-        module_parameters=sandia_module,
-        temperature_model_parameters={"u_c": 29.0, "u_v": 0.0},
-    )
-    system = PVSystem(arrays=[array], inverter_parameters=cec_inverter)
-
-    return system
-
-
-def get_tz_index(time_source, loc):
-    """
-    Create DatetimeIndex with timezone aligned with location dictionary.
-
-    Handles generating a DatetimeIndex with a timezone for use as an agrument
-    to pvlib ModelChain prepare_inputs method or pvlib Location get_clearsky
-    method.
-
-    Parameters
-    ----------
-    time_source : Dataframe, Series, or DatetimeIndex
-        If passing a Dataframe or Series, the index of the dataframe will be used.
-        If the index does not have a timezone, the timezone will be set using the
-        timezone in the passed loc dictionary. If passing a DatetimeIndex with
-        a timezone, it will be returned directly. If passing a DatetimeIndex
-        without a timezone, the timezone will be set using the timezone in the passed
-        loc dictionary.
-
-    Returns
-    -------
-    DatetimeIndex with timezone
-    """
-    if isinstance(time_source, pd.core.series.Series) or isinstance(
-        time_source, pd.core.frame.DataFrame
-    ):
-        time_source = time_source.index
-    if isinstance(time_source, pd.core.indexes.datetimes.DatetimeIndex):
-        if time_source.tz is None:
-            time_source = time_source.tz_localize(
-                loc["tz"], ambiguous="infer", nonexistent="NaT"
-            )
-            return time_source
-        else:
-            if loc["tz"] != str(time_source.tz):
-                warnings.warn(
-                    "The DatetimeIndex of time_source has a timezone that "
-                    "does not match the timezone in the loc dict. "
-                    "Using the timezone of the time_source DatetimeIndex."
-                )
-            return time_source
-
-
-def csky(time_source, loc=None, sys=None, concat=True, output="both"):
-    """
-    Calculate clear sky poa and ghi.
-
-    Parameters
-    ----------
-    time_source : dataframe or DatetimeIndex
-        If passing a dataframe the index of the dataframe will be used.  If the
-        index does not have a timezone the timezone will be set using the
-        timezone in the passed loc dictionary. If passing a DatetimeIndex with
-        a timezone it will be returned directly. If passing a DatetimeIndex
-        without a timezone the timezone in the timezone dictionary will
-        be used.
-    loc : dict
-        Dictionary of values required to instantiate a pvlib Location object.
-
-        loc = {'latitude': float,
-               'longitude': float,
-               'altitude': float/int,
-               'tz': str, int, float, default 'UTC'}
-        See
-        http://en.wikipedia.org/wiki/List_of_tz_database_time_zones
-        for a list of valid time zones.
-        ints and floats must be in hours from UTC.
-    sys : dict
-        Dictionary of keywords required to create a pvlib
-        :py:class:`~pvlib.pvsystem.SingleAxisTrackerMount` or
-        :py:class:`~pvlib.pvsystem.FixedMount`.
-
-        Example dictionaries:
-
-        fixed_sys = {'surface_tilt': 20,
-                     'surface_azimuth': 180,
-                     'albedo': 0.2}
-
-        tracker_sys1 = {'axis_tilt': 0, 'axis_azimuth': 0,
-                       'max_angle': 90, 'backtrack': True,
-                       'gcr': 0.2, 'albedo': 0.2}
-
-        Refer to pvlib documentation for details.
-    concat : bool, default True
-        If concat is True then returns columns as defined by return argument
-        added to passed dataframe, otherwise returns just clear sky data.
-    output : str, default 'both'
-        both - returns only total poa and ghi
-        poa_all - returns all components of poa
-        ghi_all - returns all components of ghi
-        all - returns all components of poa and ghi
-    """
-    location = pvlib_location(loc)
-    system = pvlib_system(sys)
-    mc = ModelChain(system, location)
-    times = get_tz_index(time_source, loc)
-    ghi = location.get_clearsky(times=times)
-    # pvlib get_Clearsky also returns 'wind_speed' and 'temp_air'
-    mc.prepare_inputs(weather=ghi)
-    cols = [
-        "poa_global",
-        "poa_direct",
-        "poa_diffuse",
-        "poa_sky_diffuse",
-        "poa_ground_diffuse",
-    ]
-
-    if output == "both":
-        csky_df = pd.DataFrame(
-            {
-                "poa_mod_csky": mc.results.total_irrad["poa_global"],
-                "ghi_mod_csky": ghi["ghi"],
-            }
-        )
-    if output == "poa_all":
-        csky_df = mc.results.total_irrad[cols]
-    if output == "ghi_all":
-        csky_df = ghi[["ghi", "dni", "dhi"]]
-    if output == "all":
-        csky_df = pd.concat(
-            [mc.results.total_irrad[cols], ghi[["ghi", "dni", "dhi"]]], axis=1
-        )
-
-    ix_no_tz = csky_df.index.tz_localize(None, ambiguous="infer", nonexistent="NaT")
-    csky_df.index = ix_no_tz
-
-    if concat:
-        if isinstance(time_source, pd.core.frame.DataFrame):
-            try:
-                df_with_csky = pd.concat([time_source, csky_df], axis=1)
-            except pd.errors.InvalidIndexError:
-                # Drop NaT that occur for March DST shift in US data
-                df_with_csky = pd.concat(
-                    [time_source, csky_df.loc[csky_df.index.dropna(), :]], axis=1
-                )
-            return df_with_csky
-        else:
-            warnings.warn(
-                "time_source is not a dataframe; only clear sky data\
-                           returned"
-            )
-            return csky_df
-    else:
-        return csky_df
 
 
 def predict_with_pvalue_check(cd, rc=None, pval_threshold=0.05):
@@ -1311,7 +765,7 @@ class FilteredLocIndexer(object):
         return index_capdata(self._capdata, label, filtered=True)
 
 
-class CapData(object):
+class CapData(param.Parameterized):
     """
     Class to store capacity test data and column grouping.
 
@@ -1344,11 +798,6 @@ class CapData(object):
         identified by the keys of `column_groups` are the independent variables
         of the ASTM Capacity test regression equation. Set using
         `set_regression_cols` or by directly assigning a dictionary.
-    summary_ix : list of tuples
-        Holds the row index data modified by the update_summary decorator
-        function.
-    summary : list of dicts
-        Holds the data modified by the update_summary decorator function.
     rc : DataFrame
         Dataframe for the reporting conditions (poa, t_amb, and w_vel).
     regression_results : statsmodels linear regression model
@@ -1362,19 +811,35 @@ class CapData(object):
         interpreted as a percent.  For example, 5 percent is 5 not 0.05.
     """
 
+    filters = param.List(
+        default=[],
+        item_type=BaseSummaryStep,
+        doc="Ordered pipeline of filter/summary steps applied to the data.",
+    )
+
+    @property
+    def data_filtered(self):
+        """Working data after the applied filter chain (derived, read-only).
+
+        Returns a copy of ``self.data`` when no filters are set, otherwise a
+        copy of ``self.data`` restricted to the rows kept by the last filter
+        (``self.filters[-1].ix_after``). The result is **always** a defensive
+        ``.copy()`` (both branches) so downstream mutation of the returned
+        frame cannot corrupt ``self.data`` under pandas < 3.0 (no
+        Copy-on-Write). There is no setter: filter results flow through
+        ``filters``; to clear filtering set ``self.filters = []``.
+        """
+        if not self.filters:
+            return self.data.copy()
+        return self.data.loc[self.filters[-1].ix_after, :].copy()
+
     def __init__(self, name):  # noqa: D107
-        super(CapData, self).__init__()
-        self.name = name
+        super().__init__(name=name)
         self.data = pd.DataFrame()
-        self.data_filtered = None
         self.column_groups = {}
         self.regression_cols = {}
-        self.summary_ix = []
-        self.summary = []
-        self.removed = []
-        self.kept = []
-        self.filter_counts = {}
         self.rc = None
+        self.rc_source_resolved = None
         self.regression_results = None
         self.regression_formula = (
             "power ~ poa + I(poa * poa) + I(poa * t_amb) + I(poa * w_vel) - 1"
@@ -1457,14 +922,11 @@ class CapData(object):
 
     def copy(self):
         """Create and returns a copy of self."""
-        cd_c = CapData("")
-        cd_c.name = copy.copy(self.name)
+        cd_c = CapData(self.name)
         cd_c.data = self.data.copy()
-        cd_c.data_filtered = self.data_filtered.copy()
         cd_c.column_groups = copy.deepcopy(self.column_groups)
         cd_c.regression_cols = copy.copy(self.regression_cols)
-        cd_c.summary_ix = copy.copy(self.summary_ix)
-        cd_c.summary = copy.copy(self.summary)
+        cd_c.filters = copy.deepcopy(self.filters)
         cd_c.rc = copy.copy(self.rc)
         cd_c.regression_results = copy.deepcopy(self.regression_results)
         cd_c.regression_formula = copy.copy(self.regression_formula)
@@ -1478,9 +940,51 @@ class CapData(object):
         tests_indicating_empty = [self.data.empty, len(self.column_groups) == 0]
         return all(tests_indicating_empty)
 
+    @property
+    def rep_irr(self):
+        """Reporting POA irradiance anchoring relative irradiance filters.
+
+        This is the value resolved when ``filter_irr`` is called with
+        ``ref_val='rep_irr'`` (or the legacy ``'self_val'``). It is read from
+        ``rc_source_resolved.rc`` when a source has been wired (by
+        ``CapTest.setup``, so e.g. a ``sim`` filter can anchor on the ``meas``
+        reporting irradiance), and otherwise from this instance's own ``rc``.
+        Resolved lazily on access, so it reflects ``rep_cond()`` runs that
+        happen after the source is wired.
+
+        Returns
+        -------
+        float
+            The ``'poa'`` reporting condition of the resolved source.
+
+        Raises
+        ------
+        ValueError
+            If the resolved source has no reporting conditions, or its ``rc``
+            lacks a ``'poa'`` column.
+        """
+        source = (
+            self.rc_source_resolved if self.rc_source_resolved is not None else self
+        )
+        if source.rc is None:
+            raise ValueError(
+                "ref_val='rep_irr' requires reporting conditions on the "
+                f"'{source.name}' dataset. Call rep_cond() on it before "
+                "filtering with ref_val='rep_irr'."
+            )
+        if "poa" not in source.rc.columns:
+            raise ValueError(
+                "ref_val='rep_irr' requires a 'poa' column in the reporting "
+                f"conditions of the '{source.name}' dataset."
+            )
+        return float(source.rc["poa"].iloc[0])
+
     def drop_cols(self, columns):
         """
-        Drop columns from CapData `data`, `data_filtered`, and `column_groups`.
+        Drop columns from CapData `data` and `column_groups`.
+
+        `data_filtered` reflects the change automatically since it is derived
+        from `data`.
 
         Parameters
         ----------
@@ -1500,12 +1004,13 @@ class CapData(object):
                     continue
             self.data.drop(col, axis=1, inplace=True)
             print("    Dropped from data attribute")
-            self.data_filtered.drop(col, axis=1, inplace=True)
-            print("    Dropped from data filtered attribute")
 
     def rename_cols(self, column_map):
         """
-        Rename columns in `data`, `data_filtered`, and `column_groups`.
+        Rename columns in `data` and `column_groups`.
+
+        `data_filtered` reflects the change automatically since it is derived
+        from `data`.
 
         Parameters
         ----------
@@ -1513,7 +1018,6 @@ class CapData(object):
             Dictionary mapping old column names to new column names.
         """
         self.data.rename(columns=column_map, inplace=True)
-        self.data_filtered.rename(columns=column_map, inplace=True)
         for key, value in self.column_groups.items():
             self.column_groups[key] = [column_map.get(col, col) for col in value]
 
@@ -1753,34 +1257,30 @@ class CapData(object):
         )
 
     def scatter_filters(self):
-        """
-        Returns an overlay of scatter plots of intervals removed for each filter.
+        """Overlay of power-vs-irradiance scatters attributing removed intervals.
 
-        A scatter plot of power vs irradiance is generated for the time intervals
-        removed for each filtering step. Each of these plots is labeled and
-        overlayed.
+        One layer per filter step that removed intervals is added first, then
+        the ``retained`` layer (rows surviving all filters) is appended last so
+        it renders on top — together a clean partition of the data.
+        Zero-removal steps (e.g. ``RepCond``) are skipped; see
+        ``get_summary``/``describe_filters`` for the full step list.
         """
-        scatters = []
-
         data = self.get_reg_cols(reg_vars=["power", "poa"], filtered_data=False)
         data["index"] = self.data.index
-        plt_no_filtering = hv.Scatter(data, "poa", ["power", "index"]).relabel("all")
-        scatters.append(plt_no_filtering)
 
-        d1 = data.loc[self.removed[0]["index"], :]
-        plt_first_filter = hv.Scatter(d1, "poa", ["power", "index"]).relabel(
-            self.removed[0]["name"]
+        scatters = []
+        retained_ix = self.filters[-1].ix_after if self.filters else self.data.index
+        for _i, label, removed_ix in self._removed_by_step():
+            scatters.append(
+                hv.Scatter(data.loc[removed_ix, :], "poa", ["power", "index"]).relabel(
+                    label
+                )
+            )
+        scatters.append(
+            hv.Scatter(data.loc[retained_ix, :], "poa", ["power", "index"]).relabel(
+                "retained"
+            )
         )
-        scatters.append(plt_first_filter)
-
-        for i, filtering_step in enumerate(self.kept):
-            if i >= len(self.kept) - 1:
-                break
-            else:
-                flt_legend = self.kept[i + 1]["name"]
-            d_flt = data.loc[filtering_step["index"], :]
-            plt = hv.Scatter(d_flt, "poa", ["power", "index"]).relabel(flt_legend)
-            scatters.append(plt)
 
         scatter_overlay = hv.Overlay(scatters)
         hover = HoverTool(
@@ -1809,40 +1309,33 @@ class CapData(object):
         return scatter_overlay
 
     def timeseries_filters(self):
-        """
-        Returns an overlay of scatter plots of intervals removed for each filter.
+        """Power-vs-time line with removed intervals highlighted per filter.
 
-        A scatter plot of power vs irradiance is generated for the time intervals
-        removed for each filtering step. Each of these plots is labeled and
-        overlayed.
+        A full-data power ``Curve`` backdrop plus one scatter layer per filter
+        step that removed intervals, followed by a final scatter of the points
+        retained after all filtering. Zero-removal steps (e.g. ``RepCond``) are
+        skipped for the per-step scatter layers; see ``get_summary``/
+        ``describe_filters`` for the full step list.
         """
-        plots = []
-
         data = self.get_reg_cols(reg_vars="power", filtered_data=False)
         data["Timestamp"] = data.index
+
+        plots = []
         plt_no_filtering = hv.Curve(data, ["Timestamp"], ["power"], label="all")
         plt_no_filtering.opts(
-            line_color="black",
+            line_color="grey",
             line_width=1,
             width=1500,
             height=450,
         )
         plots.append(plt_no_filtering)
+        for _i, label, removed_ix in self._removed_by_step():
+            d_flt = data.loc[removed_ix, ["power", "Timestamp"]]
+            plots.append(hv.Scatter(d_flt, ["Timestamp"], ["power"], label=label))
 
-        d1 = data.loc[self.removed[0]["index"], ["power", "Timestamp"]]
-        plt_first_filter = hv.Scatter(
-            d1, ["Timestamp"], ["power"], label=self.removed[0]["name"]
-        )
-        plots.append(plt_first_filter)
-
-        for i, filtering_step in enumerate(self.kept):
-            if i >= len(self.kept) - 1:
-                break
-            else:
-                flt_legend = self.kept[i + 1]["name"]
-            d_flt = data.loc[filtering_step["index"], :]
-            plt = hv.Scatter(d_flt, ["Timestamp"], ["power"], label=flt_legend)
-            plots.append(plt)
+        retained_ix = self.filters[-1].ix_after if self.filters else self.data.index
+        d_retained = data.loc[retained_ix, ["power", "Timestamp"]]
+        plots.append(hv.Scatter(d_retained, ["Timestamp"], ["power"], label="retained"))
 
         scatter_overlay = hv.Overlay(plots)
         hover = HoverTool(
@@ -1879,12 +1372,7 @@ class CapData(object):
         data : str
             'sim' or 'das' determines if filter is on sim or das data.
         """
-        self.data_filtered = self.data.copy()
-        self.summary_ix = []
-        self.summary = []
-        self.filter_counts = {}
-        self.removed = []
-        self.kept = []
+        self.filters = []
 
     def reset_agg(self):
         """
@@ -1896,12 +1384,11 @@ class CapData(object):
             return warnings.warn("Nothing to reset; agg_sensors has not beenused.")
         else:
             self.data = self.data[self.pre_agg_cols].copy()
-            self.data_filtered = self.data_filtered[self.pre_agg_cols].copy()
 
             self.column_groups = self.pre_agg_trans.copy()
             self.regression_cols = self.pre_agg_reg_trans.copy()
 
-    def __get_poa_col(self):
+    def _get_poa_col(self):
         """
         Return poa column name from `column_groups`.
 
@@ -2157,17 +1644,13 @@ class CapData(object):
 
         This method modifies the `data`, `data_filtered`, and `regression_cols` attributes.
         """
-        if not len(self.summary) == 0:
+        if self.filters:
             warnings.warn(
                 "The data_filtered attribute has been overwritten "
                 "and previously applied filtering steps have been "
                 "lost.  It is recommended to use agg_sensors "
                 "before any filtering methods."
             )
-        # reset summary data
-        self.summary_ix = []
-        self.summary = []
-
         self.pre_agg_cols = self.data.columns.copy()
         self.pre_agg_trans = copy.deepcopy(self.column_groups)
         self.pre_agg_reg_trans = copy.deepcopy(self.regression_cols)
@@ -2205,7 +1688,7 @@ class CapData(object):
             )
             self.data = pd.concat([agg_result, self.data], axis=1)
             agg_names[group_id] = col_name
-        self.data_filtered = self.data.copy()
+        self.filters = []
         self.rename_cols(rename_map)
         self.agg_name_mapper = agg_names
         self.create_column_group_attributes()
@@ -2246,8 +1729,7 @@ class CapData(object):
                 header=False,
             )
 
-    @update_summary
-    def filter_irr(self, low, high, ref_val=None, col_name=None, inplace=True):
+    def filter_irr(self, low, high, ref_val=None, col_name=None, custom_name=None):
         """
         Filter on irradiance values.
 
@@ -2259,137 +1741,61 @@ class CapData(object):
             Max value as fraction (1.2) or absolute 800 (W/m^2).
         ref_val : float or int or 'rep_irr'
             Must provide arg when `low` and `high` are fractions.
-            Pass ``'rep_irr'`` to use the reporting irradiance from ``self.rc``
-            (set by calling :meth:`rep_cond` first).
+            Pass ``'rep_irr'`` to use the reporting irradiance from
+            :attr:`rep_irr` (set by calling :meth:`rep_cond` first). Within a
+            :class:`~captest.captest.CapTest`, ``'rep_irr'`` resolves against
+            the ``rc_source`` instance, so a ``sim`` filter can anchor on the
+            ``meas`` reporting irradiance without passing the value manually.
         col_name : str, default None
             Column name of irradiance data to filter.  By default uses the POA
             irradiance set in regression_cols attribute or average of the POA
             columns.
-        inplace : bool, default True
-            Default true write back to data_filtered or return filtered
-            dataframe.
-
-        Returns
-        -------
-        DataFrame
-            Filtered dataframe if inplace is False.
+        custom_name : str, default None
+            Optional display label for the recorded filter step.
         """
-        if col_name is None:
-            irr_col = self.__get_poa_col()
-        else:
-            irr_col = col_name
+        flt = Irradiance(
+            low=low,
+            high=high,
+            ref_val=ref_val,
+            col_name=col_name,
+            custom_name=custom_name,
+        )
+        flt.run(self)
 
-        if ref_val == "self_val":
-            ref_val = "rep_irr"
+    def filter_pvsyst(self, custom_name=None):
+        """Remove PVsyst intervals operating off the maximum power point.
 
-        if ref_val == "rep_irr":
-            if self.rc is None:
-                raise ValueError(
-                    "ref_val='rep_irr' requires reporting conditions to be set. "
-                    "Call rep_cond() before calling filter_irr() with ref_val='rep_irr'."
-                )
-            if "poa" not in self.rc.columns:
-                raise ValueError(
-                    "ref_val='rep_irr' requires a 'poa' column in self.rc. "
-                    "The reporting conditions DataFrame does not have a 'poa' column."
-                )
-            ref_val = self.rc["poa"].iloc[0]
-
-        df_flt = filter_irr(self.data_filtered, irr_col, low, high, ref_val=ref_val)
-        if inplace:
-            self.data_filtered = df_flt
-        else:
-            return df_flt
-
-    @update_summary
-    def filter_pvsyst(self, inplace=True):
-        """
-        Filter pvsyst data for off max power point tracking operation.
-
-        This function is only applicable to simulated data generated by PVsyst.
-        Filters the 'IL Pmin', IL Vmin', 'IL Pmax', 'IL Vmax' values if they
-        are greater than 0.
+        Drops rows where any IL Pmin/Vmin/Pmax/Vmax column is > 0. Only
+        applicable to simulated data generated by PVsyst.
 
         Parameters
         ----------
-        inplace: bool, default True
-            If inplace is true, then function overwrites the filtered data.  If
-            false returns a CapData object.
-
-        Returns
-        -------
-        CapData object if inplace is set to False.
+        custom_name : str, default None
+            Optional display label for the recorded filter step.
         """
-        df = self.data_filtered
+        flt = Pvsyst(custom_name=custom_name)
+        flt.run(self)
 
-        columns = ["IL Pmin", "IL Vmin", "IL Pmax", "IL Vmax"]
-        index = df.index
+    def filter_shade(self, fshdbm=1.0, query_str=None, custom_name=None):
+        """Remove intervals of array shading.
 
-        for column in columns:
-            if column not in df.columns:
-                column = column.replace(" ", "_")
-            if column in df.columns:
-                indices_to_drop = df[df[column] > 0].index
-                if not index.equals(indices_to_drop):
-                    index = index.difference(indices_to_drop)
-            else:
-                warnings.warn(
-                    "{} or {} is not a column in the data.".format(
-                        column, column.replace("_", " ")
-                    )
-                )
-
-        if inplace:
-            self.data_filtered = self.data_filtered.loc[index, :]
-        else:
-            return self.data_filtered.loc[index, :]
-
-    @update_summary
-    def filter_shade(self, fshdbm=1.0, query_str=None, inplace=True):
-        """
-        Remove data during periods of array shading.
-
-        The default behavior assumes the filter is applied to data output from
-        PVsyst and removes all periods where values in the column 'FShdBm' are
-        less than 1.0.
-
-        Use the query_str parameter when shading losses (power) rather than a
-        shading fraction are available.
+        By default removes rows where the PVsyst ``FShdBm`` column is below
+        ``fshdbm``. Pass ``query_str`` to filter via ``DataFrame.query``
+        instead (e.g. ``"ShdLoss<=50"`` when only a shading-loss column is
+        available; the column name must not contain spaces).
 
         Parameters
         ----------
         fshdbm : float, default 1.0
-            The value for fractional shading of beam irradiance as given by the
-            PVsyst output parameter FShdBm. Data is removed when the shading
-            fraction is less than the value passed to fshdbm. By default all
-            periods of shading are removed.
-        query_str : str
-            Query string to pass to pd.DataFrame.query method. The query string
-            should be a boolean expression comparing a column name to a numeric
-            filter value, like 'ShdLoss<=50'.  The column name must not contain
-            spaces.
-        inplace: bool, default True
-            If inplace is true, then function overwrites the filtered
-            dataframe. If false returns a DataFrame.
-
-        Returns
-        -------
-        pd.DataFrame
-            If inplace is false returns a dataframe.
+            Shading-fraction threshold; rows with FShdBm below this are removed.
+        query_str : str, default None
+            Optional DataFrame.query expression overriding the FShdBm test.
+        custom_name : str, default None
+            Optional display label for the recorded filter step.
         """
-        df = self.data_filtered
+        flt = Shade(fshdbm=fshdbm, query_str=query_str, custom_name=custom_name)
+        flt.run(self)
 
-        if query_str is None:
-            query_str = "FShdBm>=@fshdbm"
-
-        index_shd = df.query(query_str).index
-
-        if inplace:
-            self.data_filtered = self.data_filtered.loc[index_shd, :]
-        else:
-            return self.data_filtered.loc[index_shd, :]
-
-    @update_summary
     def filter_time(
         self,
         start=None,
@@ -2397,8 +1803,7 @@ class CapData(object):
         drop=False,
         days=None,
         test_date=None,
-        inplace=True,
-        wrap_year=False,
+        custom_name=None,
     ):
         """
         Select data for a specified time period.
@@ -2406,325 +1811,138 @@ class CapData(object):
         Parameters
         ----------
         start : str or pd.Timestamp or None, default None
-            Start date for data to be returned.  If a string is passed it must
-            be in format that can be converted by pandas.to_datetime.  Not
-            required if test_date and days arguments are passed.  If not
-            provided and days is also not provided, defaults to the first
-            timestamp in data_filtered.
+            Start date for data to be returned.
         end : str or pd.Timestamp or None, default None
-            End date for data to be returned.  If a string is passed it must
-            be in format that can be converted by pandas.to_datetime.  Not
-            required if test_date and days arguments are passed.  If not
-            provided and days is also not provided, defaults to the last
-            timestamp in data_filtered.
+            End date for data to be returned.
         drop : bool, default False
-            Set to true to drop time period between `start` and `end` rather
-            than keep it. Must supply `start` and `end` and `wrap_year` must
-            be false.
+            With start+end, remove the window instead of keeping it.
         days : int or None, default None
-            Days in time period to be returned.  Not required if `start` and
-            `end` are specified.
+            Days in the time window.
         test_date : str or pd.Timestamp or None, default None
-            Must be format that can be converted by pandas.to_datetime.  Not
-            required if `start` and `end` are specified.  Requires `days`
-            argument. Time period returned will be centered on this date.
-        inplace : bool, default True
-            If inplace is true, then function overwrites the filtered
-            dataframe. If false returns a DataFrame.
-        wrap_year : bool, default False
-            If true calls the wrap_year_end function.  See wrap_year_end
-            docstring for details. wrap_year_end was cntg_eoy prior to v0.7.0.
+            Center of a symmetric ``days``-wide window.
+        custom_name : str, default None
+            Optional display label for the recorded filter step.
 
-        Todo
-        ----
-        Add inverse options to remove time between start end rather than return
-        it.
+        Notes
+        -----
+        The ``wrap_year`` parameter from the previous implementation has been
+        removed. Year-end-spanning data is now handled by an auto-wrap step at
+        CapTest load time (see CapTest.auto_wrap_sim).
         """
-        if start is not None and end is not None:
-            start = pd.to_datetime(start)
-            end = pd.to_datetime(end)
-            if wrap_year and spans_year(start, end):
-                df_temp = wrap_year_end(self.data_filtered, start, end)
-            else:
-                df_temp = self.data_filtered.loc[start:end, :]
-                if drop:
-                    keep_ix = self.data_filtered.index.difference(df_temp.index)
-                    df_temp = self.data_filtered.loc[keep_ix, :]
+        flt = Time(
+            start=start,
+            end=end,
+            drop=drop,
+            days=days,
+            test_date=test_date,
+            custom_name=custom_name,
+        )
+        flt.run(self)
 
-        if start is not None and end is None:
-            if days is None:
-                start = pd.to_datetime(start)
-                end = self.data_filtered.index[-1]
-                df_temp = self.data_filtered.loc[start:end, :]
-            else:
-                start = pd.to_datetime(start)
-                end = start + pd.DateOffset(days=days)
-                if wrap_year and spans_year(start, end):
-                    df_temp = wrap_year_end(self.data_filtered, start, end)
-                else:
-                    df_temp = self.data_filtered.loc[start:end, :]
-
-        if start is None and end is not None:
-            if days is None:
-                end = pd.to_datetime(end)
-                start = self.data_filtered.index[0]
-                df_temp = self.data_filtered.loc[start:end, :]
-            else:
-                end = pd.to_datetime(end)
-                start = end - pd.DateOffset(days=days)
-                if wrap_year and spans_year(start, end):
-                    df_temp = wrap_year_end(self.data_filtered, start, end)
-                else:
-                    df_temp = self.data_filtered.loc[start:end, :]
-
-        if test_date is not None:
-            test_date = pd.to_datetime(test_date)
-            if days is None:
-                return warnings.warn("Must specify days")
-            else:
-                offset = pd.DateOffset(days=days // 2)
-                start = test_date - offset
-                end = test_date + offset
-                if wrap_year and spans_year(start, end):
-                    df_temp = wrap_year_end(self.data_filtered, start, end)
-                else:
-                    df_temp = self.data_filtered.loc[start:end, :]
-
-        if inplace:
-            self.data_filtered = df_temp
-        else:
-            return df_temp
-
-    @update_summary
-    def filter_days(self, days, drop=False, inplace=True):
-        """
-        Select or drop timestamps for days passed.
+    def filter_days(self, days, drop=False, custom_name=None):
+        """Keep or drop the timestamps belonging to a list of days.
 
         Parameters
         ----------
         days : list
-            List of days to select or drop.
+            Days to select or drop (date strings or Timestamps).
         drop : bool, default False
-            Set to true to drop the timestamps for the days passed instead of
-            keeping only those days.
-        inplace : bool, default True
-            If inplace is true, then function overwrites the filtered
-            dataframe. If false returns a DataFrame.
+            Drop the listed days instead of keeping only them.
+        custom_name : str, default None
+            Optional display label for the recorded filter step.
         """
-        ix_all_days = None
-        for day in days:
-            ix_day = self.data_filtered.loc[day].index
-            if ix_all_days is None:
-                ix_all_days = ix_day
-            else:
-                ix_all_days = ix_all_days.union(ix_day)
+        flt = Days(days=days, drop=drop, custom_name=custom_name)
+        flt.run(self)
 
-        if drop:
-            ix_wo_days = self.data_filtered.index.difference(ix_all_days)
-            filtered_data = self.data_filtered.loc[ix_wo_days, :]
-        else:
-            filtered_data = self.data_filtered.loc[ix_all_days, :]
-
-        if inplace:
-            self.data_filtered = filtered_data
-        else:
-            return filtered_data
-
-    @update_summary
-    def filter_outliers(self, inplace=True, **kwargs):
+    def filter_outliers(self, custom_name=None, **kwargs):
         """
-        Apply eliptic envelope from scikit-learn to remove outliers.
+        Apply EllipticEnvelope from scikit-learn to remove outliers in (poa, power).
 
         Parameters
         ----------
-        inplace : bool
-            Default of true writes filtered dataframe back to data_filtered
-            attribute.
+        custom_name : str, default None
+            Optional display label for the recorded filter step.
         **kwargs
-            Passed to sklearn EllipticEnvelope.  Contamination keyword
-            is useful to adjust proportion of outliers in dataset.
-            Default is 0.04.
-        Todo
-        ----
-        Add plot option
-            Add option to return plot showing envelope with points not removed
-            alpha decreased.
+            Forwarded to ``sklearn.covariance.EllipticEnvelope``. Defaults
+            ``support_fraction=0.9`` and ``contamination=0.04`` are applied
+            when not overridden.
+
+        Notes
+        -----
+        When NaN values are present in poa/power, ``filter_missing`` is
+        invoked first (and recorded as a separate filter step). This
+        preserves the legacy auto-handling behavior.
         """
-        XandY = self.floc[["poa", "power"]]
-        if XandY.shape[1] > 2:
-            return warnings.warn(
-                "Too many columns. Try running "
-                "aggregate_sensors before using "
-                "filter_outliers."
-            )
-        if XandY.isna().any().any():
-            warnings.warn(
-                "Poa and/or power columns contain missing values. "
-                "Calling filter_missing on poa and power columns before continuing "
-                "with filter_outliers."
-            )
-            self.filter_missing(columns=XandY.columns.tolist())
-            XandY = self.floc[["poa", "power"]]
-        X1 = XandY.values
+        flt = Outliers(envelope_kwargs=kwargs or None, custom_name=custom_name)
+        flt.run(self)
 
-        if "support_fraction" not in kwargs.keys():
-            kwargs["support_fraction"] = 0.9
-        if "contamination" not in kwargs.keys():
-            kwargs["contamination"] = 0.04
+    def filter_pf(self, pf, custom_name=None):
+        """Remove intervals with a power factor below ``pf``.
 
-        clf_1 = sk_cv.EllipticEnvelope(**kwargs)
-        clf_1.fit(X1)
-
-        if inplace:
-            self.data_filtered = self.data_filtered[clf_1.predict(X1) == 1]
-        else:
-            return self.data_filtered[clf_1.predict(X1) == 1]
-
-    @update_summary
-    def filter_pf(self, pf, inplace=True):
-        """
-        Filter data on the power factor.
+        Keeps rows where every column in the power-factor group (the first
+        ``column_groups`` key beginning with ``pf``) has an absolute value at
+        or above ``pf``.
 
         Parameters
         ----------
-        pf: float
-            0.999 or similar to remove timestamps with lower power factor
-            values.  Values greater than or equal to `pf` are kept.
-        inplace : bool
-            Default of true writes filtered dataframe back to data_filtered
-            attribute.
-
-        Returns
-        -------
-        Dataframe when inplace is False.
-
-        Todo
-        ----
-        Spec pf column
-            Increase options to specify which columns are used in the filter.
+        pf : float
+            Power-factor threshold (e.g. 0.999). Rows with any |pf| below this
+            are removed.
+        custom_name : str, default None
+            Optional display label for the recorded filter step.
         """
-        for key in self.column_groups.keys():
-            if key.find("pf") == 0:
-                selection = key
+        flt = PowerFactor(pf=pf, custom_name=custom_name)
+        flt.run(self)
 
-        df = self.data_filtered[self.column_groups[selection]]
-
-        df_flt = self.data_filtered[(np.abs(df) >= pf).all(axis=1)]
-
-        if inplace:
-            self.data_filtered = df_flt
-        else:
-            return df_flt
-
-    @update_summary
-    def filter_power(self, power, percent=None, columns=None, inplace=True):
-        """
-        Remove data above the specified power threshold.
+    def filter_power(self, power, percent=None, columns=None, custom_name=None):
+        """Remove intervals at or above a power threshold.
 
         Parameters
         ----------
         power : numeric
-            If `percent` is none, all data equal to or greater than `power`
-            is removed.
-            If `percent` is not None, then power should be the nameplate power.
-        percent : None, or numeric, default None
-            Data greater than or equal to `percent` of `power` is removed.
-            Specify percentage as decimal i.e. 1% is passed as 0.01.
-        columns : None or str, default None
-            By default filter is applied to the power data identified in the
-            `regression_cols` attribute.
-            Pass a column name or column group to filter on. When passing a
-            column group the power filter is applied to each column in the
-            group.
-        inplace : bool, default True
-            Default of true writes filtered dataframe back to data_filtered
-            attribute.
-
-        Returns
-        -------
-        Dataframe when inplace is false.
+            Threshold, or nameplate power when ``percent`` is given.
+        percent : numeric, default None
+            If set, threshold is ``power * (1 - percent)`` (decimal).
+        columns : str, default None
+            Column or column-group to filter on. None uses the regression
+            power column.
+        custom_name : str, default None
+            Optional display label for the recorded filter step.
         """
-        if percent is not None:
-            power = power * (1 - percent)
+        flt = Power(
+            power=power, percent=percent, columns=columns, custom_name=custom_name
+        )
+        flt.run(self)
 
-        multiple_columns = False
+    def filter_custom(self, func, *args, custom_name=None, **kwargs):
+        """Apply ``func`` to ``data_filtered`` as a row filter and record the step.
 
-        if columns is None:
-            power_data = self.get_reg_cols("power")
-        elif isinstance(columns, str):
-            if columns in self.column_groups.keys():
-                power_data = self.floc[columns]
-                multiple_columns = True
-            else:
-                power_data = pd.DataFrame(self.data_filtered[columns])
-                power_data.rename(
-                    columns={power_data.columns[0]: "power"}, inplace=True
-                )
-        else:
-            return warnings.warn("columns must be None or a string.")
-
-        if multiple_columns:
-            filtered_power_bool = power_data.apply(
-                lambda x: all(x.le(power, fill_value=True)), axis=1
-            )
-        else:
-            filtered_power_bool = power_data["power"] < power
-
-        df_flt = self.data_filtered[filtered_power_bool]
-
-        if inplace:
-            self.data_filtered = df_flt
-        else:
-            return df_flt
-
-    @update_summary
-    def filter_custom(self, func, *args, **kwargs):
-        """
-        Apply `update_summary` decorator to passed function.
+        ``func`` is called as ``func(self.data_filtered, *args, **kwargs)`` and
+        must return a DataFrame whose index is the rows to keep. Many pandas
+        DataFrame methods qualify, e.g. ``pd.DataFrame.between_time`` or
+        ``pd.DataFrame.dropna``.
 
         Parameters
         ----------
-        func : function
-            Any function that takes a dataframe as the first argument and
-            returns a dataframe.
-            Many pandas dataframe methods meet this requirement, like
-            pd.DataFrame.between_time.
-        *args
-            Additional positional arguments passed to func.
-        **kwds
-            Additional keyword arguments passed to func.
+        func : callable
+            Takes a DataFrame as the first argument and returns a DataFrame.
+        *args, **kwargs
+            Forwarded to ``func``.
+        custom_name : str, default None
+            Optional display label for the recorded filter step. Keyword-only
+            so it cannot collide with positional args destined for ``func``.
 
-        Examples
-        --------
-        Example use of the pandas dropna method to remove rows with missing
-        data.
-
-        >>> das.custom_filter(pd.DataFrame.dropna, axis=0, how='any')
-        >>> summary = das.get_summary()
-        >>> summary['pts_before_filter'][0]
-        1424
-        >>> summary['pts_removed'][0]
-        16
-
-        Example use of the pandas between_time method to remove time periods.
-
-        >>> das.reset_filter()
-        >>> das.custom_filter(pd.DataFrame.between_time, '9:00', '13:00')
-        >>> summary = das.get_summary()
-        >>> summary['pts_before_filter'][0]
-        245
-        >>> summary['pts_removed'][0]
-        1195
-        >>> das.data_filtered.index[0].hour
-        9
-        >>> das.data_filtered.index[-1].hour
-        13
+        Notes
+        -----
+        The class-based pipeline preserves the original column set: only the
+        returned frame's *index* is consumed. A function that drops or
+        transforms columns will see its column changes discarded — pass
+        column-transforming logic outside the filter pipeline.
         """
-        self.data_filtered = func(self.data_filtered, *args, **kwargs)
+        Custom(func, *args, custom_name=custom_name, **kwargs).run(self)
 
-    @update_summary
     def filter_sensors(
-        self, perc_diff=None, inplace=True, row_filter=check_all_perc_diff_comb
+        self, perc_diff=None, row_filter=check_all_perc_diff_comb, custom_name=None
     ):
         """
         Drop suspicious measurments by comparing values from different sensors.
@@ -2739,161 +1957,55 @@ class CapData(object):
             dictionary keys and values are floats, like {'irr-poa-': 0.05}.
             By default the poa sensors as set by the regression_cols dictionary
             are filtered with a 5% percent difference threshold.
-        inplace : bool, default True
-            If True, writes over current filtered dataframe. If False, returns
-            CapData object.
-
-        Returns
-        -------
-        DataFrame
-            Returns filtered dataframe if inplace is False.
+        row_filter : callable, default check_all_perc_diff_comb
+            Row-wise consistency check applied across a group's columns.
+        custom_name : str, default None
+            Optional display label for the recorded filter step.
         """
-        if self.pre_agg_cols is not None:
-            df = self.data_filtered[self.pre_agg_cols]
-            trans = self.pre_agg_trans
-            regression_cols = self.pre_agg_reg_trans
-        else:
-            df = self.data_filtered
-            trans = self.column_groups
-            regression_cols = self.regression_cols
+        flt = Sensors(
+            perc_diff=perc_diff, row_filter=row_filter, custom_name=custom_name
+        )
+        flt.run(self)
 
-        if perc_diff is None:
-            poa_trans_key = regression_cols["poa"]
-            perc_diff = {poa_trans_key: 0.05}
-
-        for key, threshold in perc_diff.items():
-            if "index" in locals():
-                # if index has been assigned then take intersection
-                sensors_df = df[trans[key]]
-                next_index = sensor_filter(sensors_df, threshold, row_filter=row_filter)
-                index = index.intersection(next_index)  # noqa: F821
-            else:
-                # if index has not been assigned then assign it
-                sensors_df = df[trans[key]]
-                index = sensor_filter(sensors_df, threshold, row_filter=row_filter)
-
-        df_out = self.data_filtered.loc[index, :]
-
-        if inplace:
-            self.data_filtered = df_out
-        else:
-            return df_out
-
-    @update_summary
-    def filter_clearsky(self, ghi_col=None, inplace=True, keep_clear=True, **kwargs):
-        """
-        Use pvlib detect_clearsky to remove periods with unstable irradiance.
-
-        The pvlib detect_clearsky function compares modeled clear sky ghi
-        against measured clear sky ghi to detect periods of clear sky.  Refer
-        to the pvlib documentation for additional information.
-
-        By default uses data identified by the `column_groups` dictionary
-        as ghi and modeled ghi.  Issues warning if there is no modeled ghi
-        data, or the measured ghi data has not been aggregated.
+    def filter_clearsky(
+        self, ghi_col=None, keep_clear=True, custom_name=None, **kwargs
+    ):
+        """Remove unstable-irradiance intervals using pvlib detect_clearsky.
 
         Parameters
         ----------
         ghi_col : str, default None
-            The name of a column name of measured GHI data. Overrides default
-            attempt to automatically identify a column of GHI data.
-        inplace : bool, default True
-            When true removes periods with unstable irradiance.  When false
-            returns pvlib detect_clearsky results, which by default is a series
-            of booleans.
+            Measured GHI column. Auto-detected from ``column_groups`` if None.
         keep_clear : bool, default True
-            Set to False to keep cloudy periods.
+            Keep clear intervals (True) or keep cloudy intervals (False).
+        custom_name : str, default None
+            Optional display label for the recorded filter step.
         **kwargs
-            Passed to pvlib `detect_clearsky`. By default `infer_limits` is set
-            to True, which automatically determines appropriate thresholds
-            (including window length) based on the data's sample interval.
-            Pass `infer_limits=False` and `window_length=<int>` to manually
-            control the detection parameters. See pvlib documentation for all
-            available parameters.
+            Forwarded to pvlib ``detect_clearsky``. Default
+            ``infer_limits=True`` is applied when not overridden.
         """
-        if "ghi_mod_csky" not in self.data_filtered.columns:
-            return warnings.warn(
-                "Modeled clear sky data must be availabe to "
-                "run this filter method. Use CapData "
-                "load_data clear_sky option."
-            )
-        if ghi_col is None:
-            ghi_keys = []
-            for key in self.column_groups.keys():
-                defs = key.split("-")
-                if len(defs) == 1:
-                    continue
-                if "ghi" == key.split("-")[1]:
-                    ghi_keys.append(key)
-            ghi_keys.remove("irr-ghi-clear_sky")
-
-            if len(ghi_keys) > 1:
-                return warnings.warn(
-                    "Too many ghi categories. Pass column "
-                    "name to ghi_col to use a specific "
-                    "column."
-                )
-            else:
-                meas_ghi = ghi_keys[0]
-
-            meas_ghi = self.floc[meas_ghi]
-            if meas_ghi.shape[1] > 1:
-                warnings.warn(
-                    "Averaging measured GHI data.  Pass column name "
-                    "to ghi_col to use a specific column."
-                )
-            meas_ghi = meas_ghi.mean(axis=1)
-        else:
-            meas_ghi = self.data_filtered[ghi_col]
-
-        kwargs.setdefault("infer_limits", True)
-        clear_per = detect_clearsky(
-            measured=meas_ghi,
-            clearsky=self.data_filtered["ghi_mod_csky"],
-            times=meas_ghi.index,
-            **kwargs,
+        flt = Clearsky(
+            ghi_col=ghi_col,
+            keep_clear=keep_clear,
+            detect_kwargs=kwargs or None,
+            custom_name=custom_name,
         )
-        if not any(clear_per):
-            return warnings.warn(
-                "No clear periods detected. Try adjusting detect_clearsky "
-                "parameters via kwargs."
-            )
+        flt.run(self)
 
-        if keep_clear:
-            df_out = self.data_filtered[clear_per]
-        else:
-            df_out = self.data_filtered[~clear_per]
-
-        if inplace:
-            self.data_filtered = df_out
-        else:
-            return df_out
-
-    @update_summary
-    def filter_missing(self, columns=None):
-        """Removes any rows where the regression columns contain missing data (NaNs).
+    def filter_missing(self, columns=None, custom_name=None):
+        """Remove rows with missing data (NaN) in the regression columns.
 
         Parameters
         ----------
         columns : list, default None
-            Subset of columns to apply dropna. By default uses the regression columns
-            identified in the regression_cols attribute.
-
-        Returns
-        -------
-        None
-            Modifies `data_filtered` attribute.
+            Subset of columns to check for NaN. By default uses the regression
+            columns identified in ``regression_cols``.
+        custom_name : str, default None
+            Optional display label for the recorded filter step.
         """
-        if columns is None:
-            self.data_filtered = self.data_filtered.loc[
-                self.floc["regcols"].dropna().index, :
-            ]
-        else:
-            self.data_filtered = self.data_filtered.loc[
-                self.floc[columns].dropna().index, :
-            ]
+        Missing(columns=columns, custom_name=custom_name).run(self)
 
-    def filter_op_state(self, op_state, mult_inv=None, inplace=True):
+    def filter_op_state(self, op_state, mult_inv=None):
         """
         NOT CURRENTLY IMPLEMENTED - Filter on inverter operation state.
 
@@ -2910,14 +2022,6 @@ class CapData(object):
             List of tuples where start is the first column of an type of
             inverter, stop is the last column and op_state is the operating
             state for the inverter type.
-        inplace : bool, default True
-            When True writes over current filtered dataframe.  When False
-            returns CapData object.
-
-        Returns
-        -------
-        CapData
-            Returns filtered CapData object when inplace is False.
 
         Todo
         ----
@@ -2961,37 +2065,185 @@ class CapData(object):
         # else:
         #     return flt_cd
 
-    def get_summary(self):
+    def _ix_before(self, i):
+        """Index passed *into* ``self.filters[i]`` (chain state just before it).
+
+        The prior step's ``ix_after``, or ``self.data.index`` for the first step.
         """
-        Print a summary of filtering applied to the data_filtered attribute.
+        return self.filters[i - 1].ix_after if i > 0 else self.data.index
 
-        The summary dataframe shows the history of the filtering steps applied
-        to the data including the timestamps remaining after each step, the
-        timestamps removed by each step and the arguments used to call each
-        filtering method.
+    def _pts_before(self, i):
+        """Row count passed into ``self.filters[i]`` (see ``_ix_before``)."""
+        return len(self._ix_before(i))
 
-        If the filter arguments are cutoff, the max column width can be
-        increased by setting pd.options.display.max_colwidth.
+    def _step_labels(self):
+        """Per-step display labels for the summary and visualization methods.
 
-        Parameters
-        ----------
-        None
+        Each label is the step's ``custom_name`` if set, otherwise its class
+        name, with a ``-N`` suffix disambiguating repeated steps (the first
+        occurrence is unsuffixed). Single source of the enumerated labels shared
+        by ``get_summary`` and (in chunk 6) ``scatter_filters``/
+        ``timeseries_filters``.
+        """
+        labels, seen = [], {}
+        for step in self.filters:
+            base = step.custom_name or type(step).__name__
+            n = seen.get(base, 0)
+            seen[base] = n + 1
+            labels.append(base if n == 0 else f"{base}-{n}")
+        return labels
+
+    def _removed_by_step(self):
+        """Per-step removal attribution for the visualization methods.
+
+        Returns a list of ``(i, label, removed_ix)`` for each filter step that
+        removed at least one interval, where ``removed_ix`` is
+        ``_ix_before(i)`` minus ``filters[i].ix_after`` and ``label`` is the
+        step's ``_step_labels()`` entry. Zero-removal steps (always ``RepCond``;
+        also any filter that matched everything) are skipped — they have nothing
+        to attribute. ``i`` is the step's real index in ``self.filters`` so
+        callers can recover its input set via ``_ix_before(i)`` and its
+        survivors via ``self.filters[i].ix_after``.
+        """
+        out = []
+        for i, (step, label) in enumerate(zip(self.filters, self._step_labels())):
+            removed_ix = self._ix_before(i).difference(step.ix_after)
+            if len(removed_ix) > 0:
+                out.append((i, label, removed_ix))
+        return out
+
+    def get_summary(self):
+        """Return a DataFrame summarizing the applied filter chain.
+
+        Rebuilt from ``self.filters``: one row per step, with the step's class
+        name (``function_name``), the rows remaining after it
+        (``pts_after_filter``), the rows it removed (``pts_removed``, derived
+        from the prior step's ``ix_after`` via ``_pts_before``), and its
+        rendered arguments (``filter_arguments``). The row index is a MultiIndex
+        of ``(self.name, label)`` where ``label`` comes from ``_step_labels``.
+
+        Returns an empty DataFrame (standard columns, no rows) when no filters
+        have been applied.
 
         Returns
         -------
-        Pandas DataFrame
+        pandas.DataFrame
         """
-        try:
-            df = pd.DataFrame(
-                data=self.summary,
-                index=pd.MultiIndex.from_tuples(self.summary_ix),
-                columns=columns,
+        if not self.filters:
+            return pd.DataFrame(columns=columns)
+        rows = []
+        index = []
+        for i, (step, label) in enumerate(zip(self.filters, self._step_labels())):
+            index.append((self.name, label))
+            pts_before = self._pts_before(i)
+            rows.append(
+                {
+                    "function_name": type(step).__name__,
+                    "pts_after_filter": step.pts_after,
+                    "pts_removed": pts_before - step.pts_after,
+                    "filter_arguments": step.args_repr,
+                }
             )
-            return df
-        except TypeError:
-            print("No filters have been run.")
+        return pd.DataFrame(
+            rows, index=pd.MultiIndex.from_tuples(index), columns=columns
+        )
 
-    @update_summary
+    def describe_filters(self):
+        """Return a written, human-readable summary of the filtering run.
+
+        Joins the ``explanation`` of each filter step in ``self.filters``, one
+        per line. Steps without an explanation template are skipped; use
+        ``get_summary()`` for the complete tabular history.
+        """
+        lines = [
+            step.explanation for step in self.filters if step.explanation is not None
+        ]
+        return "\n".join(lines)
+
+    def filters_to_config(self):
+        """Serialize the applied filter chain to a list of config dicts.
+
+        Each entry is a step's ``to_config()`` (a yaml-safe ``{type, ...params}``
+        dict). Inverse of :meth:`run_pipeline`. Used by ``CapTest.to_yaml`` to
+        embed this CapData's pipeline in the single config file.
+        """
+        return [step.to_config() for step in self.filters]
+
+    def run_pipeline(self, config):
+        """Rebuild and run each filter step from a list of config dicts.
+
+        ``config`` is a list of ``to_config()`` dicts (e.g. from
+        :meth:`filters_to_config` or a loaded YAML). Each step is constructed
+        via ``filters.step_from_config`` and run against this CapData in order.
+        Requires ``data`` loaded and ``regression_cols`` resolved (run
+        ``process_regression_columns`` first) for filters that need them.
+        """
+        for step_config in config:
+            step_from_config(step_config).run(self)
+
+    def _calc_rep_cond(
+        self, func, w_vel, irr_bal, percent_filter, front_poa, rc_kwargs
+    ):
+        """Compute reporting conditions and store them on ``self.rc``.
+
+        Extracted verbatim from the former ``rep_cond`` body so the
+        reporting-conditions math lives in one place. Called by
+        ``filters.RepCond._execute`` (through the runtime ``capdata`` argument,
+        so ``filters.py`` needs no import of ``capdata`` or
+        ``ReportingIrradiance``) and by the thin ``rep_cond`` wrapper. Sets
+        ``self.rc`` (and ``self.rc_tool`` when ``irr_bal`` is True) as a side
+        effect; returns None.
+
+        Parameters
+        ----------
+        func : dict, str, callable, or None
+            See ``rep_cond``. When None, defaults to the mean of each
+            right-hand-side variable.
+        w_vel : numeric or None
+            See ``rep_cond``.
+        irr_bal : bool
+            See ``rep_cond``.
+        percent_filter : int
+            See ``rep_cond``.
+        front_poa : str
+            See ``rep_cond``.
+        rc_kwargs : dict or None
+            See ``rep_cond``. None is treated as an empty dict.
+        """
+        if rc_kwargs is None:
+            rc_kwargs = {}
+        lhs, rhs = util.parse_regression_formula(self.regression_formula)
+        df = self.get_reg_cols(reg_vars=rhs, filtered_data=True)
+
+        if func is None:
+            func = {var: "mean" for var in rhs}
+
+        RCs_df = pd.DataFrame(df.agg(func)).T
+
+        if irr_bal:
+            if front_poa not in df.columns:
+                raise ValueError(
+                    f"front_poa={front_poa!r} is not a right-hand-side variable "
+                    f"of the regression formula."
+                )
+            self.rc_tool = ReportingIrradiance(
+                df,
+                front_poa,
+                percent_band=percent_filter,
+                **rc_kwargs,
+            )
+            results = self.rc_tool.get_rep_irr()
+            flt_df = results[1]
+            RCs_df = pd.DataFrame(flt_df.agg(func)).T
+            RCs_df.loc[RCs_df.index[0], front_poa] = results[0]
+
+        if w_vel is not None and "w_vel" in RCs_df.columns:
+            RCs_df.loc[RCs_df.index[0], "w_vel"] = w_vel
+
+        print("Reporting conditions saved to rc attribute.")
+        print(RCs_df)
+        self.rc = RCs_df
+
     def rep_cond(
         self,
         func=None,
@@ -2999,7 +2251,8 @@ class CapData(object):
         irr_bal=False,
         percent_filter=20,
         front_poa="poa",
-        rc_kwargs={},
+        rc_kwargs=None,
+        custom_name=None,
     ):
         """
         Calculate reporting conditions for the current regression formula.
@@ -3036,8 +2289,10 @@ class CapData(object):
         front_poa : str, default 'poa'
             Key in ``self.regression_cols`` whose column is used as the
             irradiance driver when ``irr_bal`` is True.
-        rc_kwargs : dict
+        rc_kwargs : dict or None, default None
             Passed to ``ReportingIrradiance`` when ``irr_bal`` is True.
+        custom_name : str, default None
+            Optional display label for the recorded filter step.
 
         Returns
         -------
@@ -3045,37 +2300,15 @@ class CapData(object):
             Reporting conditions are stored on ``self.rc`` as a one-row
             DataFrame.
         """
-        lhs, rhs = util.parse_regression_formula(self.regression_formula)
-        df = self.get_reg_cols(reg_vars=rhs, filtered_data=True)
-
-        if func is None:
-            func = {var: "mean" for var in rhs}
-
-        RCs_df = pd.DataFrame(df.agg(func)).T
-
-        if irr_bal:
-            if front_poa not in df.columns:
-                raise ValueError(
-                    f"front_poa={front_poa!r} is not a right-hand-side variable "
-                    f"of the regression formula."
-                )
-            self.rc_tool = ReportingIrradiance(
-                df,
-                front_poa,
-                percent_band=percent_filter,
-                **rc_kwargs,
-            )
-            results = self.rc_tool.get_rep_irr()
-            flt_df = results[1]
-            RCs_df = pd.DataFrame(flt_df.agg(func)).T
-            RCs_df.loc[RCs_df.index[0], front_poa] = results[0]
-
-        if w_vel is not None and "w_vel" in RCs_df.columns:
-            RCs_df.loc[RCs_df.index[0], "w_vel"] = w_vel
-
-        print("Reporting conditions saved to rc attribute.")
-        print(RCs_df)
-        self.rc = RCs_df
+        RepCond(
+            func=func,
+            w_vel=w_vel,
+            irr_bal=irr_bal,
+            percent_filter=percent_filter,
+            front_poa=front_poa,
+            rc_kwargs=rc_kwargs,
+            custom_name=custom_name,
+        ).run(self)
 
     def rep_cond_freq(
         self,
@@ -3244,44 +2477,34 @@ class CapData(object):
 
         return results
 
-    @update_summary
-    def fit_regression(self, filter=False, inplace=True, summary=True):
+    def fit_regression(self, filter=False, summary=True, custom_name=None):
         """
-        Perform a regression with statsmodels on filtered data.
+        Perform a regression with statsmodels on the filtered data.
 
         Parameters
         ----------
-        filter: bool, default False
-            When true removes timestamps where the residuals are greater than
-            two standard deviations.  When false just calcualtes ordinary least
-            squares regression.
-        inplace: bool, default True
-            If filter is true and inplace is true, then function overwrites the
-            filtered data for sim or das.  If false returns a CapData object.
-        summary: bool, default True
-            Set to false to not print regression summary.
-
-        Returns
-        -------
-        CapData
-            Returns a filtered CapData object if filter is True and inplace is
-            False.
+        filter : bool, default False
+            When True, removes timestamps whose residuals exceed two standard
+            deviations (recorded as a Regression step). ``regression_results``
+            is not updated in this case; call ``fit_regression(filter=False)``
+            afterwards to store the final fit. When False, just fits ordinary
+            least squares and stores the result in ``regression_results``.
+        summary : bool, default True
+            Set False to suppress printing the regression summary.
+        custom_name : str, default None
+            Optional display label for the recorded filter step. Only has an
+            effect when ``filter=True``; the ``filter=False`` path records no
+            step, so the label is ignored.
         """
-        df = self.get_reg_cols()
-
-        reg = fit_model(df, fml=self.regression_formula)
-
         if filter:
             print("NOTE: Regression used to filter outlying points.\n\n")
+            flt = Regression(n_std=2, custom_name=custom_name)
+            flt.run(self)
             if summary:
-                print(reg.summary())
-            df = df[np.abs(reg.resid) < 2 * np.sqrt(reg.scale)]
-            dframe_flt = self.data_filtered.loc[df.index, :]
-            if inplace:
-                self.data_filtered = dframe_flt
-            else:
-                return dframe_flt
+                print(flt.regression_model.summary())
         else:
+            df = self.get_reg_cols()
+            reg = fit_model(df, fml=self.regression_formula)
             if summary:
                 print(reg.summary())
             self.regression_results = reg
@@ -3401,23 +2624,17 @@ class CapData(object):
         """
         Returns DataFrame showing which filter removed each filtered time interval.
 
-        Time intervals removed are marked with a "1".
-        Time intervals kept are marked with a "0".
-        Time intervals removed by a previous filter are np.nan/blank.
-        Columns/filters are in order they are run from left to right.
-        The last column labeled "all_filters" shows is True for intervals that were
-        not removed by any of the filters.
+        One column per filter step that removed intervals, in run order. Within a
+        column: ``1`` marks the intervals that step removed, ``0`` the intervals
+        present going into that step and kept by it, and ``NaN`` intervals already
+        removed by an earlier step. The final ``all_filters`` column is True for
+        intervals not removed by any filter. Zero-removal steps (e.g. ``RepCond``)
+        get no column, consistent with the scatter/timeseries views.
         """
         filtering_data = pd.DataFrame(index=self.data.index)
-        for i, (flt_step_kept, flt_step_removed) in enumerate(
-            zip(self.kept, self.removed)
-        ):
-            if i == 0:
-                filtering_data.loc[:, flt_step_removed["name"]] = 0
-            else:
-                filtering_data.loc[self.kept[i - 1]["index"], flt_step_kept["name"]] = 0
-            filtering_data.loc[flt_step_removed["index"], flt_step_removed["name"]] = 1
-
+        for i, label, removed_ix in self._removed_by_step():
+            filtering_data.loc[self.filters[i].ix_after, label] = 0
+            filtering_data.loc[removed_ix, label] = 1
         filtering_data["all_filters"] = filtering_data.apply(
             lambda x: all(x == 0), axis=1
         )
@@ -3456,9 +2673,9 @@ class CapData(object):
         """
         Get length of test period.
 
-        Uses length of `data` unless `filter_time` has been run, then uses length
-        of the kept data after `filter_time` was run the first time. Subsequent
-        uses of `filter_time` are ignored.
+        Uses length of `data` unless a `Time` step has been run, then uses
+        the length of the kept data after `Time` was run the first time.
+        Subsequent uses of `Time` are ignored.
 
         Rounds up to a period of full days.
 
@@ -3468,9 +2685,10 @@ class CapData(object):
             Days in test period.
         """
         test_period = self.data.index[-1] - self.data.index[0]
-        for filter in self.kept:
-            if "filter_time" == filter["name"]:
-                test_period = filter["index"][-1] - filter["index"][0]
+        for step in self.filters:
+            if isinstance(step, Time):
+                test_period = step.ix_after[-1] - step.ix_after[0]
+                break
         self.length_test_period = test_period.ceil("D").days
 
     def get_pts_required(self, hrs_req=12.5):
@@ -3523,20 +2741,16 @@ class CapData(object):
             performed while traversing the `regression_cols` dictionary.
             Set to False to prevent all output.
         """
-        if not len(self.summary) == 0:
+        if self.filters:
             warnings.warn(
                 "The data_filtered attribute has been overwritten "
                 "and previously applied filtering steps have been "
                 "lost.  It is recommended to use agg_sensors "
                 "before any filtering methods."
             )
-        # reset summary data
-        self.summary_ix = []
-        self.summary = []
-
         self.regression_cols_preprocess = copy.deepcopy(self.regression_cols)
         util.process_reg_cols(self.regression_cols, cd=self, verbose=verbose)
-        self.data_filtered = self.data.copy()
+        self.filters = []
         self.create_column_group_attributes()
         if "agg" in self.column_groups:
             self.create_agg_attributes()

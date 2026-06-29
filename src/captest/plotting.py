@@ -714,8 +714,7 @@ def calc_tc_power_column(
 
     This helper is intentionally isolated from
     ``CapData.process_regression_columns``: it does NOT touch
-    ``cd.regression_cols``, ``cd.regression_formula``, ``cd.summary``,
-    ``cd.kept``, or ``cd.removed``.
+    ``cd.regression_cols`` or ``cd.regression_formula``.
 
     Parameters
     ----------
@@ -810,8 +809,6 @@ def calc_tc_power_column(
         )
 
     cd.data[col_name] = cd.data[produced_col]
-    if cd.data_filtered is not None:
-        cd.data_filtered[col_name] = cd.data.loc[cd.data_filtered.index, produced_col]
     return col_name
 
 

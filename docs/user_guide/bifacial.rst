@@ -33,13 +33,13 @@ To conduct a bifacial capacity test you should make the following adjustments.
 
 The regression equation default does not need to be changed.
 
-You will need an :math:`E_{Total}` term in the `CapData.data` and `CapData.data_filtered` dataframes.
+You will need an :math:`E_{Total}` term in the `CapData.data` dataframe (`CapData.data_filtered` is derived from it).
 
 .. code-block:: Python
     
         CapData.data['E_Total'] = CapData.data['E_POA'] + CapData.data['E_Rear'] * bifaciality
-        # either of the below lines will copy the modified data `data_filtered`
-        CapData.data_filtered = CapData.data.copy()
+        # data_filtered is derived from data, so clear any filtering to pick up
+        # the new column
         CapData.reset_filter()
 
 You will then also need to adjust the `CapData.regression_columns` to map the `poa` term of the regression equation to the new `E_Total` column in the dataframe.

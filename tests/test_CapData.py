@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 import statsmodels.formula.api as smf
 import holoviews as hv
+import yaml
 from patsy import dmatrix
 
 import pvlib
@@ -16,7 +17,9 @@ import panel as pn
 
 from captest import capdata as pvc
 from captest import captest as captest_module
+from captest import clearsky
 from captest import columngroups as cg
+from captest import filters
 from captest import io
 from captest import (
     CapTest,
@@ -48,7 +51,7 @@ nrel_clear_sky are in the ./tests/conftest.py file.
 
 
 class TestUpdateSummary:
-    """Test the update_summary wrapper and functions used within."""
+    """Test the utility functions used for argument formatting."""
 
     def test_round_kwarg_floats(self):
         """Tests round kwarg_floats."""
@@ -295,16 +298,16 @@ class TestTopLevelFuncs(unittest.TestCase):
         self.assertTrue(less_than, "Points were not removed for each group.")
 
     def test_perc_difference(self):
-        result = pvc.perc_difference(9, 10)
+        result = filters.perc_difference(9, 10)
         self.assertAlmostEqual(result, 0.105263158)
 
-        result = pvc.perc_difference(10, 9)
+        result = filters.perc_difference(10, 9)
         self.assertAlmostEqual(result, 0.105263158)
 
-        result = pvc.perc_difference(10, 10)
+        result = filters.perc_difference(10, 10)
         self.assertAlmostEqual(result, 0)
 
-        result = pvc.perc_difference(0, 0)
+        result = filters.perc_difference(0, 0)
         self.assertAlmostEqual(result, 0)
 
     def test_check_all_perc_diff_comb(self):
@@ -329,7 +332,7 @@ class TestTopLevelFuncs(unittest.TestCase):
         df.iloc[0, 0] = 1200
         df.iloc[4, 1] = 100
         df.iloc[7, 2] = 150
-        ix = pvc.sensor_filter(df, 0.05)
+        ix = filters.sensor_filter(df, 0.05)
         self.assertEqual(ix.shape[0], 7, "Filter should have droppe three rows.")
 
     def test_sensor_filter_one_col(self):
@@ -337,7 +340,7 @@ class TestTopLevelFuncs(unittest.TestCase):
         df = pd.DataFrame({"a": rng})
         df["a"] = df["a"] + 4.1
         df.iloc[0, 0] = 1200
-        ix = pvc.sensor_filter(df, 0.05)
+        ix = filters.sensor_filter(df, 0.05)
         self.assertEqual(
             ix.shape[0], 10, "Should be no filtering for single column df."
         )
@@ -541,7 +544,7 @@ class TestIndexCapdata:
     def test_single_label_column_group_key_filtered(self, meas):
         """Test that column_groups key returns the columns of Capdata.data that
         are the values of the key from data_filtered."""
-        meas.data_filtered = meas.data.iloc[0:10, :].copy()
+        meas.filter_custom(pd.DataFrame.head, 10)
         out = pvc.index_capdata(meas, "irr_poa_pyran", filtered=True)
         assert isinstance(out, pd.DataFrame)
         assert out.equals(
@@ -554,7 +557,7 @@ class TestIndexCapdata:
         Test that a list of column_groups key returns the columns of Capdata.data that
         are the union of the values of the keys from data_filtered.
         """
-        meas.data_filtered = meas.data.iloc[0:10, :].copy()
+        meas.filter_custom(pd.DataFrame.head, 10)
         out = pvc.index_capdata(meas, ["irr_poa_pyran", "temp_amb"], filtered=True)
         assert isinstance(out, pd.DataFrame)
         assert out.equals(
@@ -574,7 +577,7 @@ class TestIndexCapdata:
         Test that a list of regression_col keys returns the columns that
         are the regression_col and column_groups maps to in `data_filtered`.
         """
-        meas.data_filtered = meas.data.iloc[0:10, :].copy()
+        meas.filter_custom(pd.DataFrame.head, 10)
         out = pvc.index_capdata(meas, ["poa", "t_amb"], filtered=True)
         assert isinstance(out, pd.DataFrame)
         assert out.equals(
@@ -594,7 +597,7 @@ class TestIndexCapdata:
         Test that a list of regression_col keys returns the columns that
         are the regression_col and column_groups maps to in `data_filtered`.
         """
-        pvsyst_irr_filter.data_filtered = pvsyst_irr_filter.data.iloc[0:10, :].copy()
+        pvsyst_irr_filter.filter_custom(pd.DataFrame.head, 10)
         out = pvc.index_capdata(
             pvsyst_irr_filter, ["poa", "t_amb", "w_vel"], filtered=True
         )
@@ -615,7 +618,7 @@ class TestIndexCapdata:
         Test that passing the label `regcols` returns the columns of
         Capdata.data_filtered that are identified in `regression_cols`.
         """
-        meas.data_filtered = meas.data.iloc[0:10, :].copy()
+        meas.filter_custom(pd.DataFrame.head, 10)
         out = pvc.index_capdata(meas, "regcols", filtered=True)
         assert isinstance(out, pd.DataFrame)
         assert out.equals(
@@ -645,7 +648,7 @@ class TestIndexCapdata:
             "wind": ("wind", "mean"),
         }
         meas.process_regression_columns()
-        meas.data_filtered = meas.data.iloc[0:10, :].copy()
+        meas.filter_custom(pd.DataFrame.head, 10)
         out = pvc.index_capdata(meas, "regcols", filtered=True)
         assert isinstance(out, pd.DataFrame)
         assert out.equals(
@@ -668,7 +671,7 @@ class TestIndexCapdata:
         """Test that column_groups key returns the columns of Capdata.data that
         are the values of the key."""
         # filter data_filtered to make check of row count for filtered=False meaningful
-        meas.data_filtered = meas.data.iloc[0:10, :].copy()
+        meas.filter_custom(pd.DataFrame.head, 10)
         out = pvc.index_capdata(meas, "irr_poa_pyran", filtered=False)
         assert isinstance(out, pd.DataFrame)
         assert out.equals(meas.data[["met1_poa_pyranometer", "met2_poa_pyranometer"]])
@@ -678,7 +681,7 @@ class TestIndexCapdata:
         """Test that regression_columns key returns the columns of Capdata.data that
         are the values of the key."""
         # filter data_filtered to make check of row count for filtered=False meaningful
-        meas.data_filtered = meas.data.iloc[0:10, :].copy()
+        meas.filter_custom(pd.DataFrame.head, 10)
         out = pvc.index_capdata(meas, "poa", filtered=False)
         assert isinstance(out, pd.DataFrame)
         assert out.equals(meas.data[["met1_poa_pyranometer", "met2_poa_pyranometer"]])
@@ -689,7 +692,7 @@ class TestIndexCapdata:
         are the values of the key after agg_sensors has reset regression_columns
         to map to the new aggregated column."""
         # filter data_filtered to make check of row count for filtered=False meaningful
-        meas.data_filtered = meas.data.iloc[0:10, :].copy()
+        meas.filter_custom(pd.DataFrame.head, 10)
         meas.regression_cols = {"poa": ("irr_poa_pyran", "mean")}
         meas.process_regression_columns()
         out = pvc.index_capdata(meas, "poa", filtered=False)
@@ -701,7 +704,7 @@ class TestIndexCapdata:
         """Test that a column label returns the columns of Capdata.data that
         are the values of the key. Passes label through to DataFrame.loc."""
         # filter data_filtered to make check of row count for filtered=False meaningful
-        meas.data_filtered = meas.data.iloc[0:10, :].copy()
+        meas.filter_custom(pd.DataFrame.head, 10)
         out = pvc.index_capdata(meas, "met1_poa_pyranometer", filtered=False)
         assert isinstance(out, pd.DataFrame)
         assert out.equals(meas.data.loc[:, "met1_poa_pyranometer"].to_frame())
@@ -713,7 +716,7 @@ class TestIndexCapdata:
         are the union of the values of the keys.
         """
         # filter data_filtered to make check of row count for filtered=False meaningful
-        meas.data_filtered = meas.data.iloc[0:10, :].copy()
+        meas.filter_custom(pd.DataFrame.head, 10)
         out = pvc.index_capdata(meas, ["irr_poa_pyran", "temp_amb"], filtered=False)
         assert isinstance(out, pd.DataFrame)
         assert out.equals(
@@ -734,7 +737,7 @@ class TestIndexCapdata:
         are the union of the values of the keys.
         """
         # filter data_filtered to make check of row count for filtered=False meaningful
-        meas.data_filtered = meas.data.iloc[0:10, :].copy()
+        meas.filter_custom(pd.DataFrame.head, 10)
         out = pvc.index_capdata(meas, ["poa", "t_amb"], filtered=False)
         assert isinstance(out, pd.DataFrame)
         assert out.equals(
@@ -755,7 +758,7 @@ class TestIndexCapdata:
         are the new aggregated columns after agg_sensors has been run.
         """
         # filter data_filtered to make check of row count for filtered=False meaningful
-        meas.data_filtered = meas.data.iloc[0:10, :].copy()
+        meas.filter_custom(pd.DataFrame.head, 10)
         meas.regression_cols = {
             "poa": ("irr_poa_pyran", "mean"),
             "t_amb": ("temp_amb", "mean"),
@@ -779,7 +782,7 @@ class TestIndexCapdata:
         that are the union of the values of the keys and the aggregated column.
         """
         # filter data_filtered to make check of row count for filtered=False meaningful
-        meas.data_filtered = meas.data.iloc[0:10, :].copy()
+        meas.filter_custom(pd.DataFrame.head, 10)
         meas.agg_sensors(agg_map={"irr_poa_pyran": "mean"})
         meas.regression_cols = {"poa": "irr_poa_pyran_mean_agg", "t_amb": "temp_amb"}
         out = pvc.index_capdata(meas, ["poa", "t_amb"], filtered=False)
@@ -801,7 +804,7 @@ class TestIndexCapdata:
         Passes labels through to DataFrame.loc.
         """
         # filter data_filtered to make check of row count for filtered=False meaningful
-        meas.data_filtered = meas.data.iloc[0:10, :].copy()
+        meas.filter_custom(pd.DataFrame.head, 10)
         out = pvc.index_capdata(
             meas, ["met1_poa_pyranometer", "met2_amb_temp"], filtered=False
         )
@@ -816,7 +819,7 @@ class TestIndexCapdata:
         values of the keys and the labels.
         """
         # filter data_filtered to make check of row count for filtered=False meaningful
-        meas.data_filtered = meas.data.iloc[0:10, :].copy()
+        meas.filter_custom(pd.DataFrame.head, 10)
         out = pvc.index_capdata(
             meas, ["irr_poa_pyran", "t_amb", "met1_windspeed"], filtered=False
         )
@@ -840,7 +843,7 @@ class TestIndexCapdata:
         label rather than a column_group key is added to the columns returned.
         """
         # filter data_filtered to make check of row count for filtered=False meaningful
-        meas.data_filtered = meas.data.iloc[0:10, :].copy()
+        meas.filter_custom(pd.DataFrame.head, 10)
         meas.regression_cols["poa"] = "met1_poa_pyranometer"
         out = pvc.index_capdata(
             meas, ["irr_poa_ref_cell", "poa", "met1_windspeed"], filtered=False
@@ -863,7 +866,7 @@ class TestIndexCapdata:
         Test that passing the label `regcols` returns the columns of
         Capdata.data that are identified in `regression_cols`.
         """
-        meas.data_filtered = meas.data.iloc[0:10, :].copy()
+        meas.filter_custom(pd.DataFrame.head, 10)
         out = pvc.index_capdata(meas, "regcols", filtered=False)
         assert isinstance(out, pd.DataFrame)
         assert out.equals(
@@ -893,7 +896,7 @@ class TestIndexCapdata:
             "wind": ("wind", "mean"),
         }
         meas.process_regression_columns()
-        meas.data_filtered = meas.data.iloc[0:10, :].copy()
+        meas.filter_custom(pd.DataFrame.head, 10)
         out = pvc.index_capdata(meas, "regcols", filtered=False)
         assert isinstance(out, pd.DataFrame)
         assert out.equals(
@@ -915,7 +918,7 @@ class TestIndexCapdata:
         `data` should emit a warning that names the offending label rather than
         raising `UnboundLocalError`.
         """
-        meas.data_filtered = meas.data.iloc[0:10, :].copy()
+        meas.filter_custom(pd.DataFrame.head, 10)
         missing_label = "nonexistent_column_group"
         with pytest.warns(UserWarning, match=missing_label):
             out = pvc.index_capdata(meas, missing_label, filtered=True)
@@ -926,7 +929,7 @@ class TestLocAndFloc:
     def test_single_label_column_group_key_loc(self, meas):
         """Test that column_groups key returns the columns of Capdata.data that
         are the values of the key."""
-        meas.data_filtered = meas.data.iloc[0:10].copy()
+        meas.filter_custom(pd.DataFrame.head, 10)
         out = meas.loc["irr_poa_pyran"]
         assert out.equals(meas.data[["met1_poa_pyranometer", "met2_poa_pyranometer"]])
         assert out.shape[0] == meas.data.shape[0]
@@ -934,7 +937,7 @@ class TestLocAndFloc:
     def test_single_label_column_group_key_floc(self, meas):
         """Test that column_groups key returns the columns of Capdata.data that
         are the values of the key."""
-        meas.data_filtered = (meas.data.iloc[0:10, :]).copy()
+        meas.filter_custom(pd.DataFrame.head, 10)
         out = meas.floc["irr_poa_pyran"]
         assert out.equals(
             meas.data_filtered[["met1_poa_pyranometer", "met2_poa_pyranometer"]]
@@ -1084,7 +1087,7 @@ class TestCapDataMethodsSim:
         assert pvsyst.data_filtered.shape[0] == 8670
 
     def test_filter_pvsyst_default_newer_pvsyst_var_names(self, pvsyst):
-        pvsyst.data_filtered.rename(
+        pvsyst.data.rename(
             columns={
                 "IL Pmin": "IL_Pmin",
                 "IL Vmin": "IL_Vmin",
@@ -1097,14 +1100,8 @@ class TestCapDataMethodsSim:
         pvsyst.filter_pvsyst()
         assert pvsyst.data_filtered.shape[0] == 8670
 
-    def test_filter_pvsyst_not_inplace(self, pvsyst):
-        df = pvsyst.filter_pvsyst(inplace=False)
-        assert isinstance(df, pd.core.frame.DataFrame)
-        assert df.shape[0] == 8670
-
     def test_filter_pvsyst_missing_column(self, pvsyst):
         pvsyst.data.drop(columns="IL Pmin", inplace=True)
-        pvsyst.data_filtered.drop(columns="IL Pmin", inplace=True)
         with pytest.warns(
             UserWarning, match="IL_Pmin or IL Pmin is not a column in the data."
         ):
@@ -1114,9 +1111,6 @@ class TestCapDataMethodsSim:
         pvsyst.data.drop(
             columns=["IL Pmin", "IL Vmin", "IL Pmax", "IL Vmax"], inplace=True
         )
-        pvsyst.data_filtered.drop(
-            columns=["IL Pmin", "IL Vmin", "IL Pmax", "IL Vmax"], inplace=True
-        )
         with pytest.warns(UserWarning):
             pvsyst.filter_pvsyst()
 
@@ -1124,18 +1118,12 @@ class TestCapDataMethodsSim:
         pvsyst.filter_shade()
         assert pvsyst.data_filtered.shape[0] == 8645
 
-    def test_filter_shade_default_not_inplace(self, pvsyst):
-        df = pvsyst.filter_shade(inplace=False)
-        assert isinstance(df, pd.core.frame.DataFrame)
-        assert df.shape[0] == 8645
-
     def test_filter_shade_query(self, pvsyst):
         # create PVsyst ShdLoss type values for testing query string
         pvsyst.data.loc[pvsyst.data["FShdBm"] == 1.0, "ShdLoss"] = 0
         is_shaded = pvsyst.data["ShdLoss"].isna()
         shdloss_values = 1 / pvsyst.data.loc[is_shaded, "FShdBm"] * 100
         pvsyst.data.loc[is_shaded, "ShdLoss"] = shdloss_values
-        pvsyst.data_filtered = pvsyst.data.copy()
 
         pvsyst.filter_shade(query_str="ShdLoss<=125")
         assert pvsyst.data_filtered.shape[0] == 8671
@@ -1152,7 +1140,7 @@ class Test_pvlib_loc_sys(unittest.TestCase):
             "tz": "America/Chicago",
         }
 
-        loc_obj = pvc.pvlib_location(loc)
+        loc_obj = clearsky.pvlib_location(loc)
 
         self.assertIsInstance(
             loc_obj,
@@ -1175,9 +1163,9 @@ class Test_pvlib_loc_sys(unittest.TestCase):
 
         tracker_sys2 = {"max_angle": 52, "gcr": 0.3}
 
-        fx_sys = pvc.pvlib_system(fixed_sys)
-        trck_sys1 = pvc.pvlib_system(tracker_sys1)
-        trck_sys2 = pvc.pvlib_system(tracker_sys2)
+        fx_sys = clearsky.pvlib_system(fixed_sys)
+        trck_sys1 = clearsky.pvlib_system(tracker_sys1)
+        trck_sys2 = clearsky.pvlib_system(tracker_sys2)
 
         self.assertIsInstance(
             fx_sys,
@@ -1253,7 +1241,7 @@ class TestGetTimezoneIndex:
 
         df = pd.DataFrame(index=ix_dst)
         print(df.loc["11/4/18 01:00"].index)
-        tz_ix = pvc.get_tz_index(df, location_and_system["location"])
+        tz_ix = clearsky.get_tz_index(df, location_and_system["location"])
         assert isinstance(tz_ix, pd.core.indexes.datetimes.DatetimeIndex)
         assert str(tz_ix.tz) == location_and_system["location"]["tz"]
 
@@ -1269,7 +1257,7 @@ class TestGetTimezoneIndex:
         )
         ix_dst = ix_3days.append(ix_2days)
         df = pd.DataFrame(index=ix_dst)
-        tz_ix = pvc.get_tz_index(df, location_and_system["location"])
+        tz_ix = clearsky.get_tz_index(df, location_and_system["location"])
         assert isinstance(tz_ix, pd.core.indexes.datetimes.DatetimeIndex)
         assert str(tz_ix.tz) == location_and_system["location"]["tz"]
 
@@ -1289,7 +1277,7 @@ class TestGetTimezoneIndex:
                 "Using the timezone of the time_source DatetimeIndex."
             ),
         ):
-            pvc.get_tz_index(df, location_and_system["location"])  # tz is Chicago
+            clearsky.get_tz_index(df, location_and_system["location"])  # tz is Chicago
 
     def test_get_tz_index_ix_tz(self, location_and_system):
         """Test that get_tz_index function returns a datetime index
@@ -1297,7 +1285,9 @@ class TestGetTimezoneIndex:
         ix = pd.date_range(
             start="1/1/2019", periods=8760, freq="h", tz="America/Chicago"
         )
-        tz_ix = pvc.get_tz_index(ix, location_and_system["location"])  # tz is Chicago
+        tz_ix = clearsky.get_tz_index(
+            ix, location_and_system["location"]
+        )  # tz is Chicago
         assert isinstance(tz_ix, pd.core.indexes.datetimes.DatetimeIndex)
         # If passing an index with a timezone use that timezone rather than
         # the timezone in the location dictionary if there is one.
@@ -1319,7 +1309,7 @@ class TestGetTimezoneIndex:
                 "Using the timezone of the time_source DatetimeIndex."
             ),
         ):
-            pvc.get_tz_index(ix, location_and_system["location"])
+            clearsky.get_tz_index(ix, location_and_system["location"])
 
     def test_get_tz_index_ix(self, location_and_system):
         """Test that get_tz_index function returns a datetime index\
@@ -1329,7 +1319,9 @@ class TestGetTimezoneIndex:
         )
         # remove timezone info but keep missing  hour and extra hour due to DST
         ix = ix.tz_localize(None)
-        tz_ix = pvc.get_tz_index(ix, location_and_system["location"])  # tz is Chicago
+        tz_ix = clearsky.get_tz_index(
+            ix, location_and_system["location"]
+        )  # tz is Chicago
         assert isinstance(tz_ix, pd.core.indexes.datetimes.DatetimeIndex)
         # If passing an index without a timezone use returned index should have
         # the timezone of the passed location dictionary.
@@ -1341,7 +1333,7 @@ class Test_csky:
 
     def test_csky_concat(self, meas, location_and_system):
         # concat=True by default
-        csky_ghi_poa = pvc.csky(
+        csky_ghi_poa = clearsky.csky(
             meas.data,
             loc=location_and_system["location"],
             sys=location_and_system["system"],
@@ -1364,7 +1356,7 @@ class Test_csky:
         # concat=True by default
         data = meas.data.loc["10/9/1990"]
         data.index = pd.date_range("3/12/23", periods=int((60 / 5) * 24), freq="5min")
-        csky_ghi_poa = pvc.csky(
+        csky_ghi_poa = clearsky.csky(
             data, loc=location_and_system["location"], sys=location_and_system["system"]
         )
         assert isinstance(csky_ghi_poa, pd.core.frame.DataFrame)
@@ -1388,7 +1380,7 @@ class Test_csky:
         # data = meas.data.loc['10/9/1990']
         # data.index = pd.date_range('11/5/23', periods=(60 / 5) * 24, freq='5min')
         # fails because tz_localize  in get_tz_index expects two 1AM hours in the index
-        # csky_ghi_poa = pvc.csky(
+        # csky_ghi_poa = clearsky.csky(
         #     data,
         #     loc=location_and_system['location'],
         #     sys=location_and_system['system']
@@ -1406,7 +1398,7 @@ class Test_csky:
         # assert csky_ghi_poa.index.tz == df.index.tz
 
     def test_csky_not_concat(self, meas, location_and_system):
-        csky_ghi_poa = pvc.csky(
+        csky_ghi_poa = clearsky.csky(
             meas.data,
             loc=location_and_system["location"],
             sys=location_and_system["system"],
@@ -1424,7 +1416,7 @@ class Test_csky:
         assert csky_ghi_poa.index.tz == meas.data.index.tz
 
     def test_csky_not_concat_poa_all(self, meas, location_and_system):
-        csky_ghi_poa = pvc.csky(
+        csky_ghi_poa = clearsky.csky(
             meas.data,
             loc=location_and_system["location"],
             sys=location_and_system["system"],
@@ -1446,7 +1438,7 @@ class Test_csky:
         assert csky_ghi_poa.index.tz == meas.data.index.tz
 
     def test_csky_not_concat_ghi_all(self, meas, location_and_system):
-        csky_ghi_poa = pvc.csky(
+        csky_ghi_poa = clearsky.csky(
             meas.data,
             loc=location_and_system["location"],
             sys=location_and_system["system"],
@@ -1462,7 +1454,7 @@ class Test_csky:
         assert csky_ghi_poa.index.tz == meas.data.index.tz
 
     def test_csky_not_concat_all(self, meas, location_and_system):
-        csky_ghi_poa = pvc.csky(
+        csky_ghi_poa = clearsky.csky(
             meas.data,
             loc=location_and_system["location"],
             sys=location_and_system["system"],
@@ -1485,6 +1477,16 @@ class Test_csky:
             assert col in csky_ghi_poa.columns
         # assumes typical orientation is used to calculate the poa irradiance
         assert csky_ghi_poa.index.tz == meas.data.index.tz
+
+    def test_csky_invalid_output_raises(self, meas, location_and_system):
+        with pytest.raises(ValueError, match="Unrecognized output"):
+            clearsky.csky(
+                meas.data,
+                loc=location_and_system["location"],
+                sys=location_and_system["system"],
+                concat=False,
+                output="bad",
+            )
 
 
 """
@@ -1668,10 +1670,8 @@ class TestAggSensors:
 
     def test_reset_summary(self, meas):
         meas.agg_sensors()
-        # Summary should be empty after aggregation
-        assert len(meas.summary) == 0
-        # Summary index should be empty after aggregation
-        assert len(meas.summary_ix) == 0
+        # Aggregation clears the filter chain (and thus the summary).
+        assert len(meas.filters) == 0
 
     def test_reset_agg_method(self, meas):
         orig_df = meas.data.copy()
@@ -1740,7 +1740,6 @@ class TestAggSensors:
         extra_cols = [f"extra_poa_{i}" for i in range(10)]
         for col in extra_cols:
             meas.data[col] = meas.data["met1_poa_pyranometer"]
-        meas.data_filtered = meas.data.copy()
         meas.column_groups["irr_poa_pyran"] = (
             meas.column_groups["irr_poa_pyran"] + extra_cols
         )
@@ -1911,7 +1910,6 @@ class TestAggGroupCutoff:
         extra_cols = [f"extra_poa_{i}" for i in range(n)]
         for col in extra_cols:
             meas.data[col] = meas.data["met1_poa_pyranometer"]
-        meas.data_filtered = meas.data.copy()
         meas.column_groups[group_id] = meas.column_groups[group_id] + extra_cols
         return meas.column_groups[group_id]
 
@@ -1972,7 +1970,6 @@ class TestAggGroupSumNaN:
         """Build a minimal CapData from a DataFrame and column_groups dict."""
         cd = pvc.CapData("cd")
         cd.data = data
-        cd.data_filtered = data.copy()
         cd.column_groups = column_groups
         return cd
 
@@ -2021,7 +2018,7 @@ class TestAggGroupSumNaN:
 class TestFilterSensors:
     def test_perc_diff_none(self, meas):
         rows_before_flt = meas.data_filtered.shape[0]
-        meas.filter_sensors(perc_diff=None, inplace=True)
+        meas.filter_sensors(perc_diff=None)
         # Check that data_filtered is still a dataframe
         assert isinstance(meas.data_filtered, pd.core.frame.DataFrame)
         # Check that rows were removed
@@ -2030,7 +2027,7 @@ class TestFilterSensors:
     def test_perc_diff(self, meas):
         rows_before_flt = meas.data_filtered.shape[0]
         meas.filter_sensors(
-            perc_diff={"irr_poa_ref_cell": 0.05, "temp_amb": 0.1}, inplace=True
+            perc_diff={"irr_poa_ref_cell": 0.05, "temp_amb": 0.1},
         )
         # Check that data_filtered is still a dataframe
         assert isinstance(meas.data_filtered, pd.core.frame.DataFrame)
@@ -2049,7 +2046,6 @@ class TestFilterSensors:
         )
         meas.filter_sensors(
             perc_diff={"irr_poa_ref_cell": 0.05, "temp_amb": 0.1},
-            inplace=True,
         )
         assert isinstance(meas.data_filtered, pd.core.frame.DataFrame)
         assert meas.data_filtered.shape[0] < rows_before_flt
@@ -2066,7 +2062,7 @@ class TestAbsDiffFromAverage:
         is greater than the threshold.
         """
         s = pd.Series([800, 805, 806, 840], index=["poa1", "poa2", "poa3", "poa4"])
-        meets_threshold = pvc.abs_diff_from_average(s, 25)
+        meets_threshold = filters.abs_diff_from_average(s, 25)
         assert meets_threshold is False
 
     def test_meets_theshold(self):
@@ -2075,7 +2071,7 @@ class TestAbsDiffFromAverage:
         is less than the threshold.
         """
         s = pd.Series([800, 805, 806, 801], index=["poa1", "poa2", "poa3", "poa4"])
-        meets_threshold = pvc.abs_diff_from_average(s, 25)
+        meets_threshold = filters.abs_diff_from_average(s, 25)
         assert meets_threshold is True
 
     def test_meets_theshold_with_nan(self):
@@ -2084,7 +2080,7 @@ class TestAbsDiffFromAverage:
         is less than the threshold.
         """
         s = pd.Series([800, 805, 806, np.nan], index=["poa1", "poa2", "poa3", "poa4"])
-        meets_threshold = pvc.abs_diff_from_average(s, 25)
+        meets_threshold = filters.abs_diff_from_average(s, 25)
         assert meets_threshold is True
 
     def test_equals_threshold(self):
@@ -2093,7 +2089,7 @@ class TestAbsDiffFromAverage:
         equals the threshold.
         """
         s = pd.Series([800, 800, 800, 825], index=["poa1", "poa2", "poa3", "poa4"])
-        meets_threshold = pvc.abs_diff_from_average(s, 25)
+        meets_threshold = filters.abs_diff_from_average(s, 25)
         assert meets_threshold is True
 
     def test_only_1_value(self):
@@ -2101,7 +2097,7 @@ class TestAbsDiffFromAverage:
         Series. Check that method warns that there is only one value in the Series.
         """
         s = pd.Series([800], index=["poa1"])
-        meets_threshold = pvc.abs_diff_from_average(s, 25)
+        meets_threshold = filters.abs_diff_from_average(s, 25)
         assert meets_threshold is True
 
 
@@ -2110,7 +2106,7 @@ class TestFilterSensorsWithAbsDiffFromAverage:
 
     def test_does_not_drop_rows_when_no_outliers(self, capdata_irr):
         capdata_irr.filter_sensors(
-            perc_diff={"poa": 25}, row_filter=pvc.abs_diff_from_average
+            perc_diff={"poa": 25}, row_filter=filters.abs_diff_from_average
         )
         assert (capdata_irr.data.max(axis=1) - capdata_irr.data.min(axis=1) < 25).all()
         assert capdata_irr.data_filtered.shape[0] == capdata_irr.data.shape[0]
@@ -2118,9 +2114,8 @@ class TestFilterSensorsWithAbsDiffFromAverage:
     def test_drops_rows_with_outliers(self, capdata_irr):
         capdata_irr.data.iloc[0, 2] = 926
         capdata_irr.data.iloc[3, 0] = 850
-        capdata_irr.data_filtered = capdata_irr.data.copy()
         capdata_irr.filter_sensors(
-            perc_diff={"poa": 25}, row_filter=pvc.abs_diff_from_average
+            perc_diff={"poa": 25}, row_filter=filters.abs_diff_from_average
         )
         assert (capdata_irr.data.max(axis=1) - capdata_irr.data.min(axis=1) >= 25).any()
         assert capdata_irr.data_filtered.shape[0] == capdata_irr.data.shape[0] - 2
@@ -2157,6 +2152,20 @@ class TestRepCondNoFreq:
             }
         )
         assert isinstance(nrel.rc, pd.core.frame.DataFrame)
+
+    def test_appends_zero_removal_step(self, nrel):
+        """rep_cond records a RepCond step in the chain that removes nothing."""
+        pts_before = nrel.data_filtered.shape[0]
+        nrel.rep_cond()
+        assert isinstance(nrel.filters[-1], filters.RepCond)
+        assert nrel.get_summary()["pts_removed"].iloc[-1] == 0
+        assert nrel.data_filtered.shape[0] == pts_before
+        assert isinstance(nrel.rc, pd.core.frame.DataFrame)
+
+    def test_custom_name_sets_step_label(self, nrel):
+        """rep_cond forwards custom_name onto the recorded RepCond step."""
+        nrel.rep_cond(custom_name="rc step")
+        assert nrel.filters[-1].custom_name == "rc step"
 
 
 class TestRepCondFreq:
@@ -2195,9 +2204,7 @@ class TestPredictCapacities:
         # Check that the returned dataframe has 12 rows
         assert pred_caps.shape[0] == 12
 
-        pvsyst_irr_filter.data_filtered = pvsyst_irr_filter.data_filtered.loc[
-            "7/1/90":"7/31/90", :
-        ]
+        pvsyst_irr_filter.filter_time(start="7/1/90", end="7/31/90 23:00")
         pvsyst_irr_filter.rep_cond()
         pvsyst_irr_filter.filter_irr(
             0.8, 1.2, ref_val=pvsyst_irr_filter.rc["poa"].iloc[0]
@@ -2237,7 +2244,7 @@ class TestPredictCapacities:
 
 class TestFilterIrr:
     def test_get_poa_col(self, nrel):
-        col = nrel._CapData__get_poa_col()
+        col = nrel._get_poa_col()
         assert col == "POA 40-South CMP11 [W/m^2]"
 
     def test_get_poa_col_multcols(self, nrel):
@@ -2249,49 +2256,43 @@ class TestFilterIrr:
                 "[0-9]+ columns of irradiance data. Use col_name to specify a single column."
             ),
         ):
-            nrel._CapData__get_poa_col()
+            nrel._get_poa_col()
 
     def test_lowhigh_nocol(self, nrel):
         pts_before = nrel.data_filtered.shape[0]
-        nrel.filter_irr(500, 600, ref_val=None, col_name=None, inplace=True)
+        nrel.filter_irr(500, 600, ref_val=None, col_name=None)
         assert nrel.data_filtered.shape[0] < pts_before
 
     def test_lowhigh_colname(self, nrel):
         pts_before = nrel.data_filtered.shape[0]
         nrel.data["POA second column"] = nrel.loc["poa"].values
         nrel.column_groups["irr-poa-"].append("POA second column")
-        nrel.data_filtered = nrel.data.copy()
-        nrel.filter_irr(
-            500, 600, ref_val=None, col_name="POA second column", inplace=True
-        )
+        nrel.filter_irr(500, 600, ref_val=None, col_name="POA second column")
         assert nrel.data_filtered.shape[0] < pts_before
 
     def test_refval_nocol(self, nrel):
         pts_before = nrel.data_filtered.shape[0]
-        nrel.filter_irr(0.8, 1.2, ref_val=500, col_name=None, inplace=True)
+        nrel.filter_irr(0.8, 1.2, ref_val=500, col_name=None)
         assert nrel.data_filtered.shape[0] < pts_before
 
     def test_refval_withcol(self, nrel):
         pts_before = nrel.data_filtered.shape[0]
         nrel.data["POA second column"] = nrel.loc["poa"].values
         nrel.column_groups["irr-poa-"].append("POA second column")
-        nrel.data_filtered = nrel.data.copy()
-        nrel.filter_irr(
-            0.8, 1.2, ref_val=500, col_name="POA second column", inplace=True
-        )
+        nrel.filter_irr(0.8, 1.2, ref_val=500, col_name="POA second column")
         assert nrel.data_filtered.shape[0] < pts_before
 
     def test_refval_use_attribute(self, nrel):
         nrel.rc = pd.DataFrame({"poa": 500, "w_vel": 1, "t_amb": 20}, index=[0])
         pts_before = nrel.data_filtered.shape[0]
-        nrel.filter_irr(0.8, 1.2, ref_val="rep_irr", col_name=None, inplace=True)
+        nrel.filter_irr(0.8, 1.2, ref_val="rep_irr", col_name=None)
         assert nrel.data_filtered.shape[0] < pts_before
 
     def test_refval_self_val_translation(self, nrel):
         """'self_val' is silently translated to 'rep_irr' and filters correctly."""
         nrel.rc = pd.DataFrame({"poa": 500, "w_vel": 1, "t_amb": 20}, index=[0])
         pts_before = nrel.data_filtered.shape[0]
-        nrel.filter_irr(0.8, 1.2, ref_val="self_val", col_name=None, inplace=True)
+        nrel.filter_irr(0.8, 1.2, ref_val="self_val", col_name=None)
         assert nrel.data_filtered.shape[0] < pts_before
 
     def test_refval_rep_irr_shows_in_summary(self, nrel):
@@ -2306,30 +2307,85 @@ class TestFilterIrr:
 
     def test_refval_rep_irr_rc_none_raises(self, nrel):
         """ValueError is raised when ref_val='rep_irr' and self.rc is None."""
-        with pytest.raises(ValueError, match="Call rep_cond\\(\\) before"):
+        with pytest.raises(ValueError, match="requires reporting conditions"):
             nrel.filter_irr(0.8, 1.2, ref_val="rep_irr")
 
     def test_refval_rep_irr_no_poa_col_raises(self, nrel):
         """ValueError when self.rc exists but has no 'poa' column."""
         nrel.rc = pd.DataFrame({"irr": 500, "w_vel": 1, "t_amb": 20}, index=[0])
-        with pytest.raises(ValueError, match="does not have a 'poa' column"):
+        with pytest.raises(ValueError, match="requires a 'poa' column"):
             nrel.filter_irr(0.8, 1.2, ref_val="rep_irr")
 
-    def test_refval_withcol_notinplace(self, nrel):
-        pts_before = nrel.data_filtered.shape[0]
-        df = nrel.filter_irr(500, 600, ref_val=None, col_name=None, inplace=False)
-        assert nrel.data_filtered.shape[0] == pts_before
-        assert isinstance(df, pd.core.frame.DataFrame)
-        assert df.shape[0] < pts_before
+
+class TestRepIrr:
+    """The rep_irr property and its use by filter_irr(ref_val='rep_irr')."""
+
+    def test_rep_irr_falls_back_to_self_rc(self, nrel):
+        """rep_irr reads self.rc when no rc_source_resolved is wired."""
+        nrel.rc = pd.DataFrame({"poa": [222.0], "t_amb": [20], "w_vel": [2]})
+        assert nrel.rep_irr == pytest.approx(222.0)
+
+    def test_rep_irr_resolves_from_rc_source(self, nrel):
+        """rep_irr reads the wired source CapData's rc, not self.rc."""
+        partner = pvc.CapData("partner")
+        partner.rc = pd.DataFrame({"poa": [654.0], "t_amb": [20], "w_vel": [2]})
+        nrel.rc = pd.DataFrame({"poa": [111.0], "t_amb": [20], "w_vel": [2]})
+        nrel.rc_source_resolved = partner
+        assert nrel.rep_irr == pytest.approx(654.0)
+
+    def test_filter_irr_rep_irr_uses_rc_source(self, nrel):
+        """filter_irr(ref_val='rep_irr') anchors on the wired source's rep irr
+        even when this instance has no rc of its own."""
+        partner = pvc.CapData("partner")
+        partner.rc = pd.DataFrame({"poa": [500.0], "t_amb": [20], "w_vel": [2]})
+        nrel.rc_source_resolved = partner
+        assert nrel.rc is None
+        nrel.filter_irr(0.8, 1.2, ref_val="rep_irr")
+        step = nrel.filters[-1]
+        assert step.ref_val_resolved == pytest.approx(500.0)
+        assert step.low_effective == pytest.approx(0.8 * 500.0)
+        assert step.high_effective == pytest.approx(1.2 * 500.0)
+
+    def test_rep_irr_missing_source_rc_names_dataset(self, nrel):
+        """The error message names the source dataset when its rc is unset."""
+        partner = pvc.CapData("partner")
+        nrel.rc_source_resolved = partner
+        with pytest.raises(ValueError, match="'partner' dataset"):
+            nrel.filter_irr(0.8, 1.2, ref_val="rep_irr")
 
 
 class TestGetSummary:
     def test_col_names(self, nrel):
         nrel.filter_irr(200, 500)
         smry = nrel.get_summary()
-        assert smry.columns[0] == "pts_after_filter"
-        assert smry.columns[1] == "pts_removed"
-        assert smry.columns[2] == "filter_arguments"
+        assert smry.columns[0] == "function_name"
+        assert smry.columns[1] == "pts_after_filter"
+        assert smry.columns[2] == "pts_removed"
+        assert smry.columns[3] == "filter_arguments"
+
+    def test_empty_when_no_filters(self, nrel):
+        """No filters -> empty DataFrame with the standard columns, not None.
+
+        This is the path CapTest.get_summary relies on when it concatenates the
+        meas and sim summaries; the prior None return would have raised there.
+        """
+        nrel.reset_filter()
+        smry = nrel.get_summary()
+        assert smry.empty
+        assert list(smry.columns) == pvc.columns
+
+    def test_function_name_is_class_name(self, nrel):
+        nrel.filter_irr(200, 500)
+        smry = nrel.get_summary()
+        assert smry["function_name"].iloc[0] == "Irradiance"
+
+    def test_function_name_stays_class_name_with_custom_label(self, nrel):
+        """function_name is always the class name even when the index label is a
+        custom_name; the two are intentionally allowed to diverge."""
+        nrel.filter_custom(pd.DataFrame.head, 5, custom_name="My custom step")
+        smry = nrel.get_summary()
+        assert smry.index[0][1] == "My custom step"
+        assert smry["function_name"].iloc[0] == "Custom"
 
 
 class TestFilterTime:
@@ -2379,11 +2435,6 @@ class TestFilterTime:
             year=1990, month=3, day=3, hour=00
         )
 
-    def test_start_end_not_inplace(self, pvsyst):
-        df = pvsyst.filter_time(start="2/1/90", end="2/15/90", inplace=False)
-        assert df.index[0] == pd.Timestamp(year=1990, month=2, day=1, hour=0)
-        assert df.index[-1] == pd.Timestamp(year=1990, month=2, day=15, hour=00)
-
     def test_start_no_end_uses_last_timestamp(self, pvsyst):
         """Verify that omitting end defaults to the last timestamp of data_filtered."""
         last_ts = pvsyst.data_filtered.index[-1]
@@ -2419,43 +2470,34 @@ class TestFilterTime:
 
 class TestFilterDays:
     def test_keep_one_day(self, pvsyst):
-        pvsyst.filter_days(["10/5/1990"], drop=False, inplace=True)
+        pvsyst.filter_days(["10/5/1990"], drop=False)
         assert pvsyst.data_filtered.shape[0] == 24
         assert pvsyst.data_filtered.index[0].day == 5
 
     def test_keep_two_contiguous_days(self, pvsyst):
-        pvsyst.filter_days(["10/5/1990", "10/6/1990"], drop=False, inplace=True)
+        pvsyst.filter_days(["10/5/1990", "10/6/1990"], drop=False)
         assert pvsyst.data_filtered.shape[0] == 48
         assert pvsyst.data_filtered.index[-1].day == 6
 
     def test_keep_three_noncontiguous_days(self, pvsyst):
-        pvsyst.filter_days(
-            ["10/5/1990", "10/7/1990", "10/9/1990"], drop=False, inplace=True
-        )
+        pvsyst.filter_days(["10/5/1990", "10/7/1990", "10/9/1990"], drop=False)
         assert pvsyst.data_filtered.shape[0] == 72
         assert pvsyst.data_filtered.index[0].day == 5
         assert pvsyst.data_filtered.index[25].day == 7
         assert pvsyst.data_filtered.index[49].day == 9
 
     def test_drop_one_day(self, pvsyst):
-        pvsyst.filter_days(["1/1/1990"], drop=True, inplace=True)
+        pvsyst.filter_days(["1/1/1990"], drop=True)
         assert pvsyst.data_filtered.shape[0] == (8760 - 24)
         assert pvsyst.data_filtered.index[0].day == 2
         assert pvsyst.data_filtered.index[0].hour == 0
 
     def test_drop_three_days(self, pvsyst):
-        pvsyst.filter_days(
-            ["1/1/1990", "1/3/1990", "1/5/1990"], drop=True, inplace=True
-        )
+        pvsyst.filter_days(["1/1/1990", "1/3/1990", "1/5/1990"], drop=True)
         assert pvsyst.data_filtered.shape[0] == (8760 - 24 * 3)
         assert pvsyst.data_filtered.index[0].day == 2
         assert pvsyst.data_filtered.index[25].day == 4
         assert pvsyst.data_filtered.index[49].day == 6
-
-    def test_not_inplace(self, pvsyst):
-        df = pvsyst.filter_days(["10/5/1990"], drop=False, inplace=False)
-        assert pvsyst.data_filtered.shape[0] == 8760
-        assert df.shape[0] == 24
 
 
 class TestFilterPF:
@@ -2464,7 +2506,6 @@ class TestFilterPF:
         pf = np.append(pf, np.ones(5) * -1)
         pf = np.append(pf, np.arange(0, 1, 0.1))
         nrel.data["pf"] = np.tile(pf, 576)
-        nrel.data_filtered = nrel.data.copy()
         nrel.column_groups["pf--"] = ["pf"]
         nrel.trans_keys = list(nrel.column_groups.keys())
         nrel.filter_pf(1)
@@ -2478,12 +2519,8 @@ class TestFilterOutliersAndPower:
 
     def test_filter_outliers_warns_and_succeeds_when_nans_present(self, pvsyst):
         """filter_outliers warns and auto-removes NaN rows in poa/power before fitting."""
-        pvsyst.data_filtered.iloc[
-            0, pvsyst.data_filtered.columns.get_loc("GlobInc")
-        ] = np.nan
-        pvsyst.data_filtered.iloc[1, pvsyst.data_filtered.columns.get_loc("E_Grid")] = (
-            np.nan
-        )
+        pvsyst.data.iloc[0, pvsyst.data.columns.get_loc("GlobInc")] = np.nan
+        pvsyst.data.iloc[1, pvsyst.data.columns.get_loc("E_Grid")] = np.nan
         initial_rows = pvsyst.data_filtered.shape[0]
 
         with pytest.warns(UserWarning, match="missing values"):
@@ -2494,47 +2531,43 @@ class TestFilterOutliersAndPower:
 
     def test_filter_outliers_nan_records_filter_missing_in_summary(self, pvsyst):
         """When filter_outliers auto-calls filter_missing, both are recorded in summary."""
-        pvsyst.data_filtered.iloc[
-            0, pvsyst.data_filtered.columns.get_loc("GlobInc")
-        ] = np.nan
+        pvsyst.data.iloc[0, pvsyst.data.columns.get_loc("GlobInc")] = np.nan
 
         with pytest.warns(UserWarning):
             pvsyst.filter_outliers()
 
-        filter_names = [ix[1] for ix in pvsyst.summary_ix]
-        assert filter_names.index("filter_missing") < filter_names.index(
-            "filter_outliers"
-        )
+        filter_names = [ix[1] for ix in pvsyst.get_summary().index]
+        assert filter_names.index("Missing") < filter_names.index("Outliers")
 
     def test_filter_power_defaults(self, meas):
-        meas.filter_power(5_000_000, percent=None, columns=None, inplace=True)
+        meas.filter_power(5_000_000, percent=None, columns=None)
         assert meas.data_filtered.shape[0] == 1289
 
     def test_filter_power_percent(self, meas):
-        meas.filter_power(6_000_000, percent=0.05, columns=None, inplace=True)
+        meas.filter_power(6_000_000, percent=0.05, columns=None)
         assert meas.data_filtered.shape[0] == 1388
 
     def test_filter_power_a_column(self, meas):
         print(meas.data.columns)
-        meas.filter_power(5_000_000, percent=None, columns="meter_power", inplace=True)
+        meas.filter_power(5_000_000, percent=None, columns="meter_power")
         assert meas.data_filtered.shape[0] == 1289
 
     def test_filter_power_column_group(self, meas):
-        meas.filter_power(500_000, percent=None, columns="power_inv", inplace=True)
+        meas.filter_power(500_000, percent=None, columns="power_inv")
         assert meas.data_filtered.shape[0] == 1138
 
     def test_filter_power_column_group_with_nan(self, meas):
         """NaN values in a multi-column power group should not cause row removal."""
         # Introduce NaN in one inverter column
-        meas.data_filtered.iloc[0, meas.data.columns.get_loc("inv1_power")] = np.nan
-        meas.data_filtered.iloc[1, meas.data.columns.get_loc("inv2_power")] = np.nan
-        meas.filter_power(500_000, percent=None, columns="power_inv", inplace=True)
+        meas.data.iloc[0, meas.data.columns.get_loc("inv1_power")] = np.nan
+        meas.data.iloc[1, meas.data.columns.get_loc("inv2_power")] = np.nan
+        meas.filter_power(500_000, percent=None, columns="power_inv")
         # Rows with NaN should still be present (NaN < threshold is treated as True)
         assert meas.data_filtered.shape[0] == 1138
 
     def test_filter_power_columns_not_str(self, meas):
         with pytest.warns(UserWarning):
-            meas.filter_power(500_000, percent=None, columns=1, inplace=True)
+            meas.filter_power(500_000, percent=None, columns=1)
 
 
 class TestCskyFilter:
@@ -2560,7 +2593,6 @@ class TestCskyFilter:
 
     def test_two_ghi_cols(self, nrel_clear_sky):
         nrel_clear_sky.data["ws 2 ghi W/m^2"] = nrel_clear_sky.loc["irr-ghi-"] * 1.05
-        nrel_clear_sky.data_filtered = nrel_clear_sky.data.copy()
         nrel_clear_sky.column_groups["irr-ghi-"].append("ws 2 ghi W/m^2")
         with pytest.warns(UserWarning):
             nrel_clear_sky.filter_clearsky()
@@ -2581,7 +2613,6 @@ class TestCskyFilter:
 
     def test_specify_ghi_col(self, nrel_clear_sky):
         nrel_clear_sky.data["ws 2 ghi W/m^2"] = nrel_clear_sky.loc["irr-ghi-"] * 1.05
-        nrel_clear_sky.data_filtered = nrel_clear_sky.data.copy()
         nrel_clear_sky.column_groups["irr-ghi-"].append("ws 2 ghi W/m^2")
         nrel_clear_sky.trans_keys = list(nrel_clear_sky.column_groups.keys())
 
@@ -2595,7 +2626,7 @@ class TestCskyFilter:
     def test_infer_limits_default(self, nrel_clear_sky):
         """Verify infer_limits=True is passed to detect_clearsky by default."""
         with unittest.mock.patch(
-            "captest.capdata.detect_clearsky", wraps=pvc.detect_clearsky
+            "captest.filters.detect_clearsky", wraps=filters.detect_clearsky
         ) as mock_detect:
             nrel_clear_sky.filter_clearsky()
             mock_detect.assert_called_once()
@@ -2605,7 +2636,7 @@ class TestCskyFilter:
     def test_kwargs_passed_to_detect_clearsky(self, nrel_clear_sky):
         """Verify user can override infer_limits and pass window_length."""
         with unittest.mock.patch(
-            "captest.capdata.detect_clearsky", wraps=pvc.detect_clearsky
+            "captest.filters.detect_clearsky", wraps=filters.detect_clearsky
         ) as mock_detect:
             nrel_clear_sky.filter_clearsky(infer_limits=False, window_length=30)
             mock_detect.assert_called_once()
@@ -2630,10 +2661,10 @@ class TestFilterMissing:
         )
         assert all(meas.floc["regcols"].isna().sum() == 0)
         assert meas.data_filtered.shape[0] == 1440
-        meas.data_filtered.loc["10/9/90 12:00", "meter_power"] = np.nan
-        meas.data_filtered.loc["10/9/90 12:30", "met1_poa_refcell"] = np.nan
-        meas.data_filtered.loc["10/10/90 12:35", "met2_amb_temp"] = np.nan
-        meas.data_filtered.loc["10/10/90 12:50", "met1_windspeed"] = np.nan
+        meas.data.loc["10/9/90 12:00", "meter_power"] = np.nan
+        meas.data.loc["10/9/90 12:30", "met1_poa_refcell"] = np.nan
+        meas.data.loc["10/10/90 12:35", "met2_amb_temp"] = np.nan
+        meas.data.loc["10/10/90 12:50", "met1_windspeed"] = np.nan
         meas.filter_missing()
         assert meas.data_filtered.shape[0] == 1436
 
@@ -2742,7 +2773,6 @@ class TestPredictWithPvalueCheck:
 
         df = pd.DataFrame({"y": y, "x": x, "noise": noise_var})
         cd.data = df
-        cd.data_filtered = df.copy()
 
         # Fit model with both significant (x) and insignificant (noise) predictors
         fml = "y ~ x + noise"
@@ -2833,8 +2863,6 @@ class TestCapTestCpResultsSingleCoeff(unittest.TestCase):
 
         self.meas.regression_results = das_model.fit()
         self.sim.regression_results = sim_model.fit()
-        self.meas.data_filtered = pd.DataFrame()
-        self.sim.data_filtered = pd.DataFrame()
 
     def test_return(self):
         ct = CapTest(test_tolerance="+/- 5", ac_nameplate=100)
@@ -2884,8 +2912,6 @@ class TestCapTestCpResultsMultCoeffKwVsW(unittest.TestCase):
 
         meas.regression_results = das_model.fit()
         sim.regression_results = sim_model.fit()
-        meas.data_filtered = pd.DataFrame()
-        sim.data_filtered = pd.DataFrame()
 
         actual = meas.regression_results.predict(meas.rc)[0] * 1000
         expected = sim.regression_results.predict(meas.rc)[0]
@@ -2943,8 +2969,6 @@ class TestCapTestCpResultsMultCoeff(unittest.TestCase):
 
         self.meas.regression_results = das_model.fit()
         self.sim.regression_results = sim_model.fit()
-        self.meas.data_filtered = pd.DataFrame()
-        self.sim.data_filtered = pd.DataFrame()
 
     def test_model_predict_with_modified_params(self):
         """Test that model.predict() with modified params works correctly.
@@ -3063,7 +3087,7 @@ class TestCapTestCpResultsMultCoeff(unittest.TestCase):
         captured = self.capsys.readouterr()
 
         # Expected output when poa coefficient is zeroed due to p-value check.
-        # CapTest picks reporting conditions from ``rep_cond_source`` (default
+        # CapTest picks reporting conditions from ``rc_source`` (default
         # 'meas'), so the output says "from meas." instead of the legacy
         # module-level "from das.".
         results_str = (
@@ -3080,9 +3104,7 @@ class TestCapTestCpResultsMultCoeff(unittest.TestCase):
 
     def test_formulas_match(self):
         sim = pvc.CapData("sim")
-        sim.data_filtered = pd.DataFrame()
         das = pvc.CapData("das")
-        das.data_filtered = pd.DataFrame()
 
         sim.regression_formula = "power ~ poa + I(poa * poa) + I(poa * t_amb) - 1"
 
@@ -3125,6 +3147,16 @@ class TestGetFilteringTable:
             flt0_removed_ix.union(flt1_removed_ix).union(flt2_removed_ix)
         )
 
+    def test_zero_removal_step_gets_no_column(self, nrel):
+        nrel.filter_irr(200, 900)
+        nrel.filter_irr(400, 800)
+        nrel.rep_cond()  # RepCond: zero-removal -> no column
+        flt_table = nrel.get_filtering_table()
+        # Pin the column-per-removing-step contract by label and order: one
+        # column per removing filter (named via _step_labels) then all_filters;
+        # the zero-removal RepCond step gets no column.
+        assert list(flt_table.columns) == ["Irradiance", "Irradiance-1", "all_filters"]
+
 
 @pytest.fixture
 def pts_summary(meas):
@@ -3145,6 +3177,15 @@ class TestPointsSummary:
     def test_length_test_period_after_two_filter_time(self, meas):
         meas.filter_time(start="10/9/1990", end="10/12/1990 23:00")
         meas.filter_time(start="10/9/1990", end="10/11/1990 23:00")
+        meas.get_length_test_period()
+        assert meas.length_test_period == 4
+
+    def test_length_test_period_custom_name_filter_time(self, meas):
+        # A custom_name'd Time must still be found: the period comes from
+        # isinstance(step, Time), not a label-string match.
+        filters.Time(
+            start="10/9/1990", end="10/12/1990 23:00", custom_name="window"
+        ).run(meas)
         meas.get_length_test_period()
         assert meas.length_test_period == 4
 
@@ -3184,7 +3225,7 @@ class TestPointsSummary:
         assert results_str == captured.out
 
     def test_print_points_summary_fail(self, meas):
-        meas.data_filtered = meas.data.iloc[0:10, :]
+        meas.filter_custom(pd.DataFrame.head, 10)
         meas.print_points_summary()
         captured = self.capsys.readouterr()
 
@@ -3301,6 +3342,69 @@ class TestScatterFilters:
         assert "index" not in meas.data_filtered.columns
         assert isinstance(overlay, hv.core.overlay.Overlay)
 
+    def test_layer_count_is_retained_plus_removing_filters(self, meas):
+        meas.regression_cols = {
+            "power": "meter_power",
+            "poa": ("irr_poa_pyran", "mean"),
+            "t_amb": ("temp_amb", "mean"),
+            "w_vel": ("wind", "mean"),
+        }
+        meas.process_regression_columns()
+        meas.filter_irr(200, 900)
+        meas.filter_irr(400, 800)
+        overlay = meas.scatter_filters()
+        # 1 retained baseline + 2 removing filters
+        assert len(overlay) == 3
+
+    def test_zero_removal_step_adds_no_layer(self, meas):
+        meas.regression_cols = {
+            "power": "meter_power",
+            "poa": ("irr_poa_pyran", "mean"),
+            "t_amb": ("temp_amb", "mean"),
+            "w_vel": ("wind", "mean"),
+        }
+        meas.process_regression_columns()
+        meas.filter_irr(200, 900)
+        meas.rep_cond()  # RepCond: zero-removal -> no layer
+        overlay = meas.scatter_filters()
+        # 1 retained baseline + 1 removing filter; RepCond contributes nothing
+        assert len(overlay) == 2
+
+    def test_layers_carry_the_right_rows(self, meas):
+        """Pin the row-selection glue: the retained baseline holds the survivors
+        and each removed layer holds exactly that filter's removed rows (a
+        retained/removed swap would still pass the count assertions above)."""
+        meas.regression_cols = {
+            "power": "meter_power",
+            "poa": ("irr_poa_pyran", "mean"),
+            "t_amb": ("temp_amb", "mean"),
+            "w_vel": ("wind", "mean"),
+        }
+        meas.process_regression_columns()
+        meas.filter_irr(200, 900)
+        meas.filter_irr(400, 800)
+        overlay = meas.scatter_filters()
+        # Ordered leaf elements: removing-filter layers first, retained survivors
+        # last. The Scatter's backing frame carries an "index" column set to
+        # the original data index, so we can check which rows landed in a layer.
+        layers = list(overlay)
+        assert list(layers[-1].data["index"]) == list(meas.filters[-1].ix_after)
+        _i, _label, removed_ix = meas._removed_by_step()[0]
+        assert list(layers[0].data["index"]) == list(removed_ix)
+
+    def test_retained_layer_is_last(self, meas):
+        meas.regression_cols = {
+            "power": "meter_power",
+            "poa": ("irr_poa_pyran", "mean"),
+            "t_amb": ("temp_amb", "mean"),
+            "w_vel": ("wind", "mean"),
+        }
+        meas.process_regression_columns()
+        meas.filter_irr(200, 900)
+        meas.filter_irr(400, 800)
+        overlay = meas.scatter_filters()
+        assert list(overlay)[-1].label == "retained"
+
 
 class TestTimeseriesFilters:
     """Test the timeseries_filters method of the CapData class."""
@@ -3323,6 +3427,52 @@ class TestTimeseriesFilters:
         assert "index" not in meas.data.columns
         assert "index" not in meas.data_filtered.columns
         assert isinstance(overlay, hv.core.overlay.Overlay)
+
+    def test_layer_count_is_curve_plus_removing_filters(self, meas):
+        meas.regression_cols = {
+            "power": "meter_power",
+            "poa": ("irr_poa_pyran", "mean"),
+            "t_amb": ("temp_amb", "mean"),
+            "w_vel": ("wind", "mean"),
+        }
+        meas.process_regression_columns()
+        meas.filter_irr(200, 900)
+        meas.filter_irr(400, 800)
+        overlay = meas.timeseries_filters()
+        # 1 full-data curve + 2 removing-filter scatters + 1 retained scatter
+        assert len(overlay) == 4
+
+    def test_retained_scatter_is_last(self, meas):
+        meas.regression_cols = {
+            "power": "meter_power",
+            "poa": ("irr_poa_pyran", "mean"),
+            "t_amb": ("temp_amb", "mean"),
+            "w_vel": ("wind", "mean"),
+        }
+        meas.process_regression_columns()
+        meas.filter_irr(200, 900)
+        meas.filter_irr(400, 800)
+        overlay = meas.timeseries_filters()
+        last = list(overlay)[-1]
+        assert last.label == "retained"
+        assert list(last.data["Timestamp"]) == list(meas.filters[-1].ix_after)
+
+    def test_removed_layer_carries_the_right_rows(self, meas):
+        """Pin that a removed-filter scatter layer holds exactly that filter's
+        removed rows (the full-data Curve baseline is layer 0)."""
+        meas.regression_cols = {
+            "power": "meter_power",
+            "poa": ("irr_poa_pyran", "mean"),
+            "t_amb": ("temp_amb", "mean"),
+            "w_vel": ("wind", "mean"),
+        }
+        meas.process_regression_columns()
+        meas.filter_irr(200, 900)
+        meas.filter_irr(400, 800)
+        overlay = meas.timeseries_filters()
+        layers = list(overlay)  # curve baseline first, then one scatter per remover
+        _i, _label, removed_ix = meas._removed_by_step()[0]
+        assert list(layers[1].data["Timestamp"]) == list(removed_ix)
 
 
 class TestPlotDashboard:
@@ -3496,6 +3646,53 @@ class TestProcessRegressionColumns:
         assert "power_temp_correct" in meas.data.columns
         assert "power_temp_correct" in meas.data_filtered.columns
         assert meas.regression_cols == {"power_tc": "power_temp_correct"}
+
+
+class TestPipelineConfig:
+    def test_filters_to_config_lists_steps(self, nrel):
+        nrel.filter_irr(200, 800)
+        nrel.filter_irr(400, 700)
+        config = nrel.filters_to_config()
+        assert [d["type"] for d in config] == ["Irradiance", "Irradiance"]
+        assert config[0]["low"] == 200 and config[1]["low"] == 400
+
+    def test_run_pipeline_replays_filters(self, nrel):
+        nrel.filter_irr(200, 800)
+        nrel.filter_irr(400, 700)
+        config = nrel.filters_to_config()
+        expected_ix = list(nrel.data_filtered.index)
+
+        fresh = nrel.copy()
+        fresh.reset_filter()
+        fresh.run_pipeline(config)
+        assert [type(s).__name__ for s in fresh.filters] == ["Irradiance", "Irradiance"]
+        assert list(fresh.data_filtered.index) == expected_ix
+
+    def test_run_pipeline_empty_is_noop(self, nrel):
+        nrel.run_pipeline([])
+        assert nrel.filters == []
+
+    def test_filters_to_config_numpy_ref_val_is_yaml_safe(self, pvsyst):
+        """Verify a numpy-float ref_val serializes to plain yaml without error.
+
+        Passing ``ref_val=cd.rc['poa'].iloc[0]`` (a ``np.float64``) to
+        ``filter_irr`` previously left the numpy scalar in the step's config,
+        so ``yaml.safe_dump`` (used by ``CapTest.to_yaml``) raised
+        ``yaml.representer.RepresenterError``.
+        """
+        pvsyst.filter_irr(200, 800)
+        pvsyst.rep_cond()
+        ref_val = pvsyst.rc["poa"].iloc[0]
+        assert isinstance(ref_val, np.floating)
+        pvsyst.filter_irr(0.8, 1.2, ref_val=ref_val)
+
+        config = pvsyst.filters_to_config()
+
+        # Must not raise RepresenterError on the numpy-float ref_val.
+        dumped = yaml.safe_dump(config)
+        reloaded = yaml.safe_load(dumped)
+        irr_steps = [d for d in reloaded if d["type"] == "Irradiance"]
+        assert irr_steps[-1]["ref_val"] == pytest.approx(float(ref_val))
 
 
 if __name__ == "__main__":

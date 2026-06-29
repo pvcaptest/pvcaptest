@@ -29,7 +29,14 @@ import param
 import yaml
 
 from captest import util
+from captest.util import (
+    _perc_wrap_to_string,
+    _resolve_func_strings,
+    perc_wrap,
+    to_native,
+)
 from captest.capdata import CapData
+from captest.filters import wrap_year_end
 from captest.plotting import ScatterBifiPowerTc, ScatterPlot
 from captest.calcparams import (
     absolute_airmass,
@@ -99,31 +106,6 @@ def highlight_pvals(s):
     """
     is_greaterthan = s >= 0.05
     return ["background-color: yellow" if v else "" for v in is_greaterthan]
-
-
-def perc_wrap(p):
-    """Return a callable that computes the ``p``-th percentile of a Series.
-
-    Used to build ``TEST_SETUPS[...]['rep_conditions']['func']`` dicts for
-    percentile-based reporting irradiance (e.g. 60th percentile POA).
-
-    Parameters
-    ----------
-    p : numeric
-        Percentile in [0, 100].
-
-    Returns
-    -------
-    callable
-        Function that takes a pandas Series or array-like and returns the
-        p-th percentile using ``method='nearest'``.
-    """
-
-    def numpy_percentile(x):
-        return np.percentile(x.T, p, method="nearest")
-
-    numpy_percentile.__name__ = f"perc_wrap({p})"
-    return numpy_percentile
 
 
 # --- TEST_SETUPS registry -------------------------------------------------
@@ -996,64 +978,14 @@ def resolve_test_setup(name, overrides=None):
 
 # --- yaml loading ---------------------------------------------------------
 
-_PERC_N_PREFIX = "perc_"
-
-
-def _resolve_perc_string(val):
-    """Resolve a "perc_N" string to ``perc_wrap(N)``.
-
-    Non-matching strings pass through unchanged. Malformed ``perc_*`` strings
-    raise ``ValueError``.
-    """
-    if not isinstance(val, str) or not val.startswith(_PERC_N_PREFIX):
-        return val
-    suffix = val[len(_PERC_N_PREFIX) :]
-    if not suffix:
-        raise ValueError(f"Malformed percentile string {val!r}: expected 'perc_<int>'.")
-    try:
-        n = int(suffix)
-    except ValueError as exc:
-        raise ValueError(
-            f"Malformed percentile string {val!r}: expected 'perc_<int>', "
-            f"got suffix {suffix!r}."
-        ) from exc
-    return perc_wrap(n)
-
-
-def _resolve_func_strings(func_dict):
-    """Resolve ``perc_N`` strings inside a rep_conditions.func dict."""
-    if not isinstance(func_dict, dict):
-        return func_dict
-    return {key: _resolve_perc_string(val) for key, val in func_dict.items()}
-
-
-def _perc_wrap_to_string(val):
-    """Inverse of :func:`_resolve_perc_string`.
-
-    Converts a callable produced by :func:`perc_wrap` back into its
-    round-trippable ``"perc_N"`` string form. Non-perc_wrap values pass
-    through unchanged.
-    """
-    if not callable(val):
-        return val
-    name = getattr(val, "__name__", "")
-    prefix = "perc_wrap("
-    if name.startswith(prefix) and name.endswith(")"):
-        inner = name[len(prefix) : -1]
-        try:
-            int(inner)
-        except ValueError:
-            return val
-        return f"perc_{inner}"
-    return val
-
 
 def _serialize_rep_conditions(rc):
     """Return a yaml-safe copy of a ``rep_conditions`` dict.
 
     Recursively walks the dict; ``func`` sub-dict values that are
-    ``perc_wrap(N)`` callables are converted to ``"perc_N"`` strings so the
-    dict survives a yaml.safe_dump round-trip.
+    ``perc_wrap(N)`` callables are converted to ``"perc_N"`` strings, and
+    numpy scalars are coerced to native Python types via ``util.to_native``,
+    so the dict survives a yaml.safe_dump round-trip.
     """
     if not isinstance(rc, dict):
         return rc
@@ -1062,8 +994,11 @@ def _serialize_rep_conditions(rc):
         if key == "func" and isinstance(val, dict):
             serialized[key] = {k: _perc_wrap_to_string(v) for k, v in val.items()}
         else:
-            serialized[key] = copy.deepcopy(val)
+            serialized[key] = to_native(copy.deepcopy(val))
     return serialized
+
+
+_AUTO_WRAP_DAYS = 60
 
 
 def load_config(path, key="captest"):
@@ -1176,7 +1111,7 @@ _CAPTEST_YAML_KEYS = frozenset(
         "reg_cols_meas",
         "reg_cols_sim",
         "rep_conditions",
-        "rep_cond_source",
+        "rc_source",
         "sim_days",
         "shade_filter_start",
         "shade_filter_end",
@@ -1205,6 +1140,8 @@ _CAPTEST_YAML_KEYS = frozenset(
         "meas_path",
         "sim_path",
         "overrides",
+        "meas_filters",
+        "sim_filters",
     }
 )
 
@@ -1300,8 +1237,11 @@ class CapTest(param.Parameterized):
         ``setup()``. Top-level keys replace; the nested ``func`` dict is
         merged one level deep so users can override only a single
         variable's aggregation.
-    rep_cond_source : {"meas", "sim"}
-        Which ``CapData.rc`` is used by ``captest_results``. Default
+    rc_source : {"meas", "sim"}
+        Which ``CapData`` provides reporting conditions. Used by
+        ``captest_results`` and wired onto both ``meas`` and ``sim`` at
+        ``setup()`` so ``filter_irr(ref_val='rep_irr')`` resolves against the
+        same instance regardless of which dataset is being filtered. Default
         ``"meas"``.
     sim_days : int
         Days of simulated data used for the test. Default 30.
@@ -1404,10 +1344,12 @@ class CapTest(param.Parameterized):
         allow_None=True,
         doc="If set, partial-merged onto the preset rep_conditions at setup().",
     )
-    rep_cond_source = param.Selector(
+    rc_source = param.Selector(
         objects=["meas", "sim"],
         default="meas",
-        doc="Which CapData.rc is used by captest_results.",
+        doc="Which CapData provides reporting conditions: used by "
+        "captest_results and as the source that filter_irr(ref_val='rep_irr') "
+        "resolves against on both meas and sim.",
     )
 
     # Test scope / time
@@ -1436,6 +1378,13 @@ class CapTest(param.Parameterized):
     test_tolerance = param.String(
         default="- 4",
         doc="Tolerance string forwarded to pass/fail logic.",
+    )
+
+    auto_wrap_sim = param.Boolean(
+        default=True,
+        doc="When True, automatically apply wrap_year_end to sim.data during "
+        "setup() if measured data is within 60 days of a year boundary. "
+        "Set False to opt out and restore any prior auto-wrap.",
     )
 
     # Filter parameters
@@ -1791,7 +1740,11 @@ class CapTest(param.Parameterized):
                 "under 'overrides'; pick one."
             )
 
-        kwargs = {k: v for k, v in sub.items() if k != "overrides"}
+        kwargs = {
+            k: v
+            for k, v in sub.items()
+            if k not in ("overrides", "meas_filters", "sim_filters")
+        }
 
         # Lift override keys into direct kwargs.
         for k in _CAPTEST_OVERRIDE_KEYS:
@@ -1855,6 +1808,28 @@ class CapTest(param.Parameterized):
             inst._meas_path = raw_meas_path
         if raw_sim_path is not None:
             inst._sim_path = raw_sim_path
+        # Re-apply serialized filter pipelines. from_params auto-runs setup()
+        # when both meas and sim are populated, so regression_cols/data are
+        # ready; guard on _resolved_setup so a partially-built CapTest doesn't
+        # try to filter un-setup data.
+        meas_filters = sub.get("meas_filters")
+        sim_filters = sub.get("sim_filters")
+        if inst._resolved_setup is not None:
+            if meas_filters and inst.meas is not None:
+                inst.meas.run_pipeline(meas_filters)
+            if sim_filters and inst.sim is not None:
+                inst.sim.run_pipeline(sim_filters)
+        elif meas_filters or sim_filters:
+            # Pipelines were serialized but setup() never ran (both meas and
+            # sim must be loaded). Don't silently drop them — warn so the
+            # write/read round-trip asymmetry is visible.
+            warnings.warn(
+                "Filter pipelines (meas_filters/sim_filters) in the config "
+                "were not applied because setup() did not run (both meas and "
+                "sim must be loaded). Load both data sources and re-apply via "
+                "CapData.run_pipeline().",
+                stacklevel=2,
+            )
         return inst
 
     def to_yaml(self, path, key="captest", merge_into_existing=True):
@@ -1866,6 +1841,14 @@ class CapTest(param.Parameterized):
         ``reg_cols_meas`` / ``reg_cols_sim`` / ``rep_conditions``,
         ``meas_path`` / ``sim_path`` (when the instance was constructed from
         paths), and non-empty ``meas_load_kwargs`` / ``sim_load_kwargs``.
+
+        The applied filter chains of ``meas`` and ``sim`` are written as
+        ``meas_filters`` / ``sim_filters`` (lists of filter-step config dicts
+        from :meth:`CapData.filters_to_config`), each only when non-empty;
+        ``from_yaml`` re-applies them after data load and ``setup()``. When a
+        ``RepCond`` step is present in either pipeline, ``overrides.rep_conditions``
+        is omitted — the step is then the authoritative reporting-conditions
+        source (avoids representing it in two places).
 
         Percentile ``perc_wrap(N)`` callables inside
         ``rep_conditions['func']`` are written back as ``"perc_N"`` strings
@@ -1938,7 +1921,11 @@ class CapTest(param.Parameterized):
         """Build the dict written under ``key:`` by :meth:`to_yaml`.
 
         Kept separate from ``to_yaml`` so it is testable in isolation and
-        so the merge/write step stays short.
+        so the merge/write step stays short. Embeds the ``meas``/``sim``
+        filter chains as ``meas_filters``/``sim_filters`` (when non-empty)
+        and omits ``overrides.rep_conditions`` when a ``RepCond`` step is
+        present in either pipeline (the step is then the single source of
+        reporting conditions).
         """
         sub = {"test_setup": self.test_setup}
 
@@ -1964,14 +1951,22 @@ class CapTest(param.Parameterized):
                 val = getattr(self, name)
                 if val is not None and val != preset.get(name):
                     overrides[name] = copy.deepcopy(val)
-        if self.rep_conditions is not None:
+        meas_filters = self.meas.filters_to_config() if self.meas is not None else []
+        sim_filters = self.sim.filters_to_config() if self.sim is not None else []
+        has_rep_cond_step = any(
+            d["type"] == "RepCond" for d in (meas_filters + sim_filters)
+        )
+        # Decision B: when a RepCond step is in either pipeline, it is the
+        # unambiguous source of reporting conditions — drop the redundant
+        # overrides.rep_conditions.
+        if self.rep_conditions is not None and not has_rep_cond_step:
             overrides["rep_conditions"] = _serialize_rep_conditions(self.rep_conditions)
         if overrides:
             sub["overrides"] = overrides
 
         # Remaining scalar params (always written).
         scalar_names = (
-            "rep_cond_source",
+            "rc_source",
             "ac_nameplate",
             "test_tolerance",
             "sim_days",
@@ -2005,6 +2000,11 @@ class CapTest(param.Parameterized):
             sub["meas_load_kwargs"] = copy.deepcopy(self.meas_load_kwargs)
         if self.sim_load_kwargs:
             sub["sim_load_kwargs"] = copy.deepcopy(self.sim_load_kwargs)
+
+        if meas_filters:
+            sub["meas_filters"] = meas_filters
+        if sim_filters:
+            sub["sim_filters"] = sim_filters
 
         return sub
 
@@ -2056,6 +2056,67 @@ class CapTest(param.Parameterized):
                 )
         self.sim.site = new_site
 
+    def _maybe_wrap_sim_year_end(self):
+        """Auto-apply ``wrap_year_end`` to ``self.sim.data`` when warranted.
+
+        Idempotent and reversible: a prior wrap is restored from
+        ``self.sim._pre_wrap_data`` before each check, so re-running
+        ``setup()`` — or toggling ``self.auto_wrap_sim`` to False and
+        re-running — leaves ``sim.data`` in the correct state. The snapshot
+        lives on the sim CapData itself so a future ``reload_sim`` that
+        replaces ``self.sim`` automatically discards the stale snapshot.
+        """
+        if self.sim is None:
+            return
+
+        snapshot = getattr(self.sim, "_pre_wrap_data", None)
+        if snapshot is not None:
+            self.sim.data = snapshot.copy()
+            self.sim.filters = []
+            self.sim._pre_wrap_data = None
+
+        if not self.auto_wrap_sim:
+            return
+        if self.meas is None:
+            return
+        meas_idx = self.meas.data.index
+        sim_idx = self.sim.data.index
+        if not isinstance(meas_idx, pd.DatetimeIndex):
+            return
+        if not isinstance(sim_idx, pd.DatetimeIndex):
+            return
+        if len(meas_idx) == 0 or len(sim_idx) == 0:
+            return
+
+        meas_start = meas_idx[0]
+        meas_end = meas_idx[-1]
+        days_from_year_start = (
+            meas_start - pd.Timestamp(year=meas_start.year, month=1, day=1)
+        ).days
+        days_to_year_end = (
+            pd.Timestamp(year=meas_end.year, month=12, day=31) - meas_end
+        ).days
+        if (
+            days_from_year_start > _AUTO_WRAP_DAYS
+            and days_to_year_end > _AUTO_WRAP_DAYS
+        ):
+            return
+
+        # Use a fixed July 1 -> June 30 window so the wrapped sim is a
+        # contiguous full year centered on the Jan 1 boundary, regardless of
+        # where the measured test falls. Years are derived from sim_year
+        # (1989/1990 for pvsyst data, which load_pvsyst normalizes to 1990).
+        sim_year = sim_idx[0].year
+        start = pd.Timestamp(year=sim_year - 1, month=7, day=1, hour=0, minute=0)
+        end = pd.Timestamp(year=sim_year, month=6, day=30, hour=23, minute=59)
+
+        self.sim._pre_wrap_data = self.sim.data.copy()
+        wrapped = wrap_year_end(self.sim.data, start, end)
+        if "index" in wrapped.columns:
+            wrapped = wrapped.drop(columns="index")
+        self.sim.data = wrapped
+        self.sim.filters = []
+
     def setup(self, verbose=True):
         """Resolve TEST_SETUPS, propagate scalars, process regression cols.
 
@@ -2077,6 +2138,11 @@ class CapTest(param.Parameterized):
             raise RuntimeError("CapTest.meas must be set before setup().")
         if self.sim is None:
             raise RuntimeError("CapTest.sim must be set before setup().")
+
+        # Auto-wrap sim.data when measured spans (within 60 days of) a year
+        # boundary. Idempotent and reversible — re-running setup() or toggling
+        # auto_wrap_sim restores the appropriate state.
+        self._maybe_wrap_sim_year_end()
 
         # Build the overrides dict for resolve_test_setup. Only non-None
         # values are passed through so named-preset resolution falls back to
@@ -2115,6 +2181,16 @@ class CapTest(param.Parameterized):
         # dropped (intended behavior per the design spec).
         self.meas.process_regression_columns(verbose=verbose)
         self.sim.process_regression_columns(verbose=verbose)
+
+        # Wire the reporting-conditions source onto both CapData instances so
+        # filter_irr(ref_val='rep_irr') resolves against the rc_source dataset
+        # (e.g. sim filtered around meas's reporting irradiance), regardless of
+        # which instance is being filtered. Stored as a lazy reference and read
+        # at filter time, so it reflects rep_cond() runs that happen after
+        # setup().
+        rc_source_cd = self.meas if self.rc_source == "meas" else self.sim
+        self.meas.rc_source_resolved = rc_source_cd
+        self.sim.rc_source_resolved = rc_source_cd
 
         return self
 
@@ -2268,7 +2344,7 @@ class CapTest(param.Parameterized):
         """Compute the capacity test ratio for ``self.meas`` vs ``self.sim``.
 
         Picks reporting conditions from ``self.meas.rc`` or ``self.sim.rc``
-        based on ``self.rep_cond_source``. Uses ``self.ac_nameplate`` for the
+        based on ``self.rc_source``. Uses ``self.ac_nameplate`` for the
         tested-capacity printout and ``self.test_tolerance`` (via
         ``self.determine_pass_or_fail``) for the pass/fail result.
 
@@ -2293,13 +2369,13 @@ class CapTest(param.Parameterized):
                 "CapData objects do not have the same regression formula."
             )
 
-        if self.rep_cond_source == "meas":
+        if self.rc_source == "meas":
             rc = self.meas.rc
         else:
             rc = self.sim.rc
 
         if print_res:
-            print(f"Using reporting conditions from {self.rep_cond_source}. \n")
+            print(f"Using reporting conditions from {self.rc_source}. \n")
 
         # predict_with_pvalue_check is a single-CapData helper that stays in
         # capdata.py. Imported lazily to avoid importing holoviews-heavy

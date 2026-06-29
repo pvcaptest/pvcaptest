@@ -53,7 +53,6 @@ def _build_synthetic_cd():
         },
         index=idx,
     )
-    cd.data_filtered = cd.data.copy()
     cd.column_groups = cg.ColumnGroups(
         {
             "real_pwr_mtr": ["power"],
@@ -88,7 +87,6 @@ def synth_cd_bifi():
     """Synthetic CapData with a bifi-style ``power ~ poa + rpoa`` formula."""
     cd = _build_synthetic_cd()
     cd.data["rpoa"] = cd.data["poa"] * 0.15
-    cd.data_filtered = cd.data.copy()
     cd.regression_cols = {
         "power": "power",
         "poa": "poa",
@@ -219,7 +217,6 @@ class TestCalcTcPowerColumn:
         groups.pop("temp_bom")
         synth_cd.column_groups = cg.ColumnGroups(groups)
         synth_cd.data = synth_cd.data.drop(columns=["temp_bom"])
-        synth_cd.data_filtered = synth_cd.data.copy()
         with pytest.raises(KeyError):
             plotting.calc_tc_power_column(synth_cd, self._calc_spec())
 
@@ -389,7 +386,7 @@ class TestScatterPlotView:
         # Drop every other row from the filtered data so the Curve
         # (full data) and the Scatter (filtered data) have different
         # row counts and we can verify which series each plots.
-        synth_cd.data_filtered = synth_cd.data.iloc[::2].copy()
+        synth_cd.filter_custom(lambda df: df.iloc[::2])
 
         sp = plotting.ScatterPlot(cd=synth_cd, timeseries=True)
         layout = sp.view()
@@ -442,7 +439,6 @@ class TestScatterPlotView:
                 "w_vel": "wind_speed_mean_agg",
             }
         )
-        synth_cd.data_filtered = synth_cd.data.copy()
         synth_cd.regression_cols = {
             "power": "real_pwr_mtr_sum_agg",
             "poa": "irr_poa_mean_agg",
@@ -471,7 +467,6 @@ class TestScatterPlotView:
         # function name 'power_temp_correct'.
         synth_cd.regression_cols["power"] = "power_temp_correct"
         synth_cd.data["power_temp_correct"] = synth_cd.data["power"]
-        synth_cd.data_filtered = synth_cd.data.copy()
         with pytest.warns(UserWarning, match="already targets"):
             plotting.ScatterPlot(
                 cd=synth_cd,

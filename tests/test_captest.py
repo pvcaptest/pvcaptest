@@ -16,6 +16,7 @@ import pytest
 import yaml
 
 from captest import CapTest, captest as ct
+from captest.capdata import CapData
 from captest.calcparams import (
     apparent_zenith_pvsyst,
     cell_temp,
@@ -399,7 +400,6 @@ class TestScatterCallables:
         idx = pd.date_range("2024-01-01", periods=50, freq="1min")
         data = {col: np.linspace(1, 50, 50) for col in columns}
         cd.data = pd.DataFrame(data, index=idx)
-        cd.data_filtered = cd.data.copy()
         cd.column_groups = {col: [col] for col in columns}
         cd.regression_cols = {col: col for col in columns}
         cd.regression_formula = formula
@@ -976,6 +976,25 @@ class TestSetup:
         assert ct_default.meas.tolerance == "- 4"
         assert ct_default.sim.tolerance == "- 4"
 
+    def test_setup_wires_rc_source_resolved_to_meas(self, ct_default):
+        """setup() points both CapData.rc_source_resolved at meas by default."""
+        assert ct_default.meas.rc_source_resolved is ct_default.meas
+        assert ct_default.sim.rc_source_resolved is ct_default.meas
+
+    def test_setup_wires_rc_source_resolved_to_sim(
+        self, meas_cd_default, sim_cd_default
+    ):
+        """rc_source='sim' points both CapData.rc_source_resolved at sim."""
+        capt = CapTest.from_params(
+            test_setup="e2848_default",
+            meas=meas_cd_default,
+            sim=sim_cd_default,
+            ac_nameplate=6_000_000,
+            rc_source="sim",
+        )
+        assert capt.meas.rc_source_resolved is capt.sim
+        assert capt.sim.rc_source_resolved is capt.sim
+
     def test_setup_assigns_resolved_setup(self, ct_default):
         resolved = ct_default._resolved_setup
         assert resolved is not None
@@ -994,11 +1013,12 @@ class TestSetup:
             meas=meas_cd_default,
             sim=sim_cd_default,
         )
-        # Simulate a filter step: shrink data_filtered.
-        capt.meas.data_filtered = capt.meas.data_filtered.iloc[:100].copy()
+        # Simulate a filter step: shrink data_filtered via a real filter.
+        idx = capt.meas.data.index
+        capt.meas.filter_time(start=idx[0], end=idx[99])
         assert capt.meas.data_filtered.shape[0] == 100
         capt.setup(verbose=False)
-        # process_regression_columns resets data_filtered = data.copy().
+        # process_regression_columns clears filters, so data_filtered == data.
         assert capt.meas.data_filtered.shape[0] == capt.meas.data.shape[0]
 
     def test_setup_verbose_prints_aggregations(
@@ -1036,6 +1056,44 @@ class TestSetup:
         # Non-overridden preset keys are preserved.
         assert resolved_rc["irr_bal"] is False
         assert set(resolved_rc["func"].keys()) == {"poa", "t_amb", "w_vel"}
+
+
+class TestRepIrrCrossInstance:
+    """filter_irr(ref_val='rep_irr') resolving against the rc_source instance."""
+
+    def test_sim_rep_irr_filter_uses_meas_reporting_irradiance(self, ct_default):
+        """A sim filter_irr(ref_val='rep_irr') anchors on meas's reporting
+        irradiance (the default rc_source), without any rc set on sim and
+        without manually passing the value."""
+        ct_default.meas.filter_irr(200, 800)
+        ct_default.meas.rep_cond()
+        meas_rep_irr = float(ct_default.meas.rc["poa"].iloc[0])
+
+        # sim never computed its own reporting conditions.
+        assert ct_default.sim.rc is None
+
+        ct_default.sim.filter_irr(0.8, 1.2, ref_val="rep_irr")
+        step = ct_default.sim.filters[-1]
+        assert step.ref_val_resolved == pytest.approx(meas_rep_irr)
+
+    def test_sim_rep_irr_filter_roundtrips_through_yaml(self, ct_default, tmp_path):
+        """ref_val='rep_irr' serializes as a string and the rc_source wiring is
+        rebuilt on setup(), so the value is never written as a numpy float."""
+        import yaml
+
+        ct_default.meas.filter_irr(200, 800)
+        ct_default.meas.rep_cond()
+        ct_default.sim.filter_irr(0.8, 1.2, ref_val="rep_irr")
+
+        path = tmp_path / "ct.yaml"
+        # Must not raise RepresenterError on a numpy-float ref_val.
+        ct_default.to_yaml(path, merge_into_existing=False)
+
+        doc = yaml.safe_load(path.read_text())
+        sim_irr_steps = [
+            d for d in doc["captest"]["sim_filters"] if d["type"] == "Irradiance"
+        ]
+        assert sim_irr_steps[-1]["ref_val"] == "rep_irr"
 
 
 class TestDownstreamPropagation:
@@ -1643,8 +1701,6 @@ class TestPortedMethods:
         sim = CapData("sim")
         meas.data = das_df
         sim.data = sim_df
-        meas.data_filtered = das_df.copy()
-        sim.data_filtered = sim_df.copy()
         meas.rc = pd.DataFrame({"poa": [6], "t_amb": [5], "w_vel": [3]})
         sim.rc = pd.DataFrame({"poa": [6], "t_amb": [5], "w_vel": [3]})
 
@@ -1694,9 +1750,9 @@ class TestPortedMethods:
 
         assert cp_rat == pytest.approx(expected_ratio, rel=1e-10)
 
-    def test_captest_results_uses_rep_cond_source_meas_by_default(self):
+    def test_captest_results_uses_rc_source_meas_by_default(self):
         capt = self._build_ct()
-        # Set sim.rc to a different value; default rep_cond_source="meas"
+        # Set sim.rc to a different value; default rc_source="meas"
         # should keep the meas rc.
         capt.sim.rc = pd.DataFrame({"poa": [99], "t_amb": [99], "w_vel": [99]})
         expected_actual = capt.meas.regression_results.predict(capt.meas.rc)[0]
@@ -1706,9 +1762,9 @@ class TestPortedMethods:
         cp_rat = capt.captest_results(print_res=False)
         assert cp_rat == pytest.approx(expected_ratio, rel=1e-10)
 
-    def test_captest_results_uses_rep_cond_source_sim(self):
+    def test_captest_results_uses_rc_source_sim(self):
         capt = self._build_ct()
-        capt.rep_cond_source = "sim"
+        capt.rc_source = "sim"
         capt.sim.rc = pd.DataFrame({"poa": [8], "t_amb": [4], "w_vel": [2]})
         expected_actual = capt.meas.regression_results.predict(capt.sim.rc)[0]
         expected_expected = capt.sim.regression_results.predict(capt.sim.rc)[0]
@@ -1754,6 +1810,24 @@ class TestPortedMethods:
         names = combined.index.get_level_values(0).unique().tolist()
         assert capt.meas.name in names
         assert capt.sim.name in names
+
+    def test_get_summary_concats_empty_summaries(self, meas_cd_default, sim_cd_default):
+        """With no filters, each summary is empty; concat must not raise.
+
+        Each CapData.get_summary() returns an empty DataFrame (not None), so
+        pd.concat of the two succeeds and yields an empty DataFrame.
+        """
+        capt = CapTest.from_params(
+            test_setup="e2848_default",
+            meas=meas_cd_default,
+            sim=sim_cd_default,
+            ac_nameplate=6_000_000,
+        )
+        capt.meas.reset_filter()
+        capt.sim.reset_filter()
+        combined = capt.get_summary()
+        assert isinstance(combined, pd.DataFrame)
+        assert combined.empty
 
     def test_get_summary_requires_meas_and_sim(self):
         capt = CapTest()
@@ -2275,3 +2349,317 @@ class TestIntegration:
         assert 0.8 < cap_ratio < 1.2
         assert capt.meas.regression_cols["poa"] == "e_total"
         assert capt.sim.regression_cols["poa"] == "e_total"
+
+
+def _hourly_typical_year(year=1990):
+    """1-year hourly DataFrame indexed by ``year``."""
+    idx = pd.date_range(f"{year}-01-01", f"{year}-12-31 23:00", freq="h")
+    return pd.DataFrame({"poa": np.arange(len(idx), dtype=float)}, index=idx)
+
+
+def _ct_with(meas_idx, sim_idx, **kwargs):
+    """A CapTest with minimal meas/sim CapData attached for wrap testing."""
+    ct = CapTest(**kwargs)
+    meas = CapData("meas")
+    meas.data = pd.DataFrame({"poa": np.zeros(len(meas_idx))}, index=meas_idx)
+    sim = CapData("sim")
+    sim.data = pd.DataFrame(
+        {"poa": np.arange(len(sim_idx), dtype=float)}, index=sim_idx
+    )
+    ct.meas = meas
+    ct.sim = sim
+    return ct
+
+
+class TestAutoWrapSim:
+    def test_default_is_true(self):
+        assert CapTest().auto_wrap_sim is True
+
+    def test_no_wrap_when_meas_centered_in_year(self):
+        meas_idx = pd.date_range("2023-05-01", "2023-08-31", freq="h")
+        sim_idx = _hourly_typical_year(1990).index
+        ct = _ct_with(meas_idx, sim_idx)
+        before = ct.sim.data.copy()
+        ct._maybe_wrap_sim_year_end()
+        pd.testing.assert_frame_equal(ct.sim.data, before)
+        assert getattr(ct.sim, "_pre_wrap_data", None) is None
+
+    def test_wraps_when_meas_starts_near_year_start(self):
+        meas_idx = pd.date_range("2023-01-15", "2023-02-15", freq="h")
+        sim = _hourly_typical_year(1990)
+        ct = _ct_with(meas_idx, sim.index)
+        ct._maybe_wrap_sim_year_end()
+        assert ct.sim.data.index.min() < pd.Timestamp("1990-01-01")
+        assert ct.sim.data.index.max() == pd.Timestamp("1990-06-30 23:00")
+        assert "index" not in ct.sim.data.columns
+        assert getattr(ct.sim, "_pre_wrap_data", None) is not None
+        assert ct.sim.filters == []
+
+    def test_wraps_when_meas_ends_near_year_end(self):
+        # meas Nov 1 -> Dec 15; end is within 60 days of Dec 31.
+        # The fixed window prepends 1989-shifted data so min < 1990-01-01.
+        meas_idx = pd.date_range("2023-11-01", "2023-12-15", freq="h")
+        sim = _hourly_typical_year(1990)
+        ct = _ct_with(meas_idx, sim.index)
+        ct._maybe_wrap_sim_year_end()
+        assert ct.sim.data.index.min() < pd.Timestamp("1990-01-01")
+        assert getattr(ct.sim, "_pre_wrap_data", None) is not None
+
+    def test_disabled_does_not_wrap(self):
+        meas_idx = pd.date_range("2023-01-15", "2023-02-15", freq="h")
+        sim = _hourly_typical_year(1990)
+        ct = _ct_with(meas_idx, sim.index, auto_wrap_sim=False)
+        before = ct.sim.data.copy()
+        ct._maybe_wrap_sim_year_end()
+        pd.testing.assert_frame_equal(ct.sim.data, before)
+        assert getattr(ct.sim, "_pre_wrap_data", None) is None
+
+    def test_disabling_after_wrap_restores(self):
+        meas_idx = pd.date_range("2023-01-15", "2023-02-15", freq="h")
+        sim = _hourly_typical_year(1990)
+        ct = _ct_with(meas_idx, sim.index)
+        ct._maybe_wrap_sim_year_end()
+        wrapped_min = ct.sim.data.index.min()
+        ct.auto_wrap_sim = False
+        ct._maybe_wrap_sim_year_end()
+        assert len(ct.sim.data) == len(sim)
+        assert wrapped_min < pd.Timestamp("1990-01-01")  # wrap shifted into 1989
+        assert ct.sim.data.index.min() >= pd.Timestamp("1990-01-01")  # restored
+        assert getattr(ct.sim, "_pre_wrap_data", None) is None
+
+    def test_idempotent_repeated_runs(self):
+        meas_idx = pd.date_range("2023-01-15", "2023-02-15", freq="h")
+        sim = _hourly_typical_year(1990)
+        ct = _ct_with(meas_idx, sim.index)
+        ct._maybe_wrap_sim_year_end()
+        first = ct.sim.data.copy()
+        ct._maybe_wrap_sim_year_end()
+        pd.testing.assert_frame_equal(ct.sim.data, first)
+
+    def test_returns_early_when_meas_or_sim_missing(self):
+        ct = CapTest()
+        ct.meas = None
+        ct.sim = None
+        ct._maybe_wrap_sim_year_end()  # must not raise
+
+    def test_returns_early_for_non_datetime_index(self):
+        ct = CapTest()
+        ct.meas = CapData("meas")
+        ct.meas.data = pd.DataFrame({"poa": [0, 1, 2]})  # RangeIndex
+        ct.sim = CapData("sim")
+        sim = _hourly_typical_year(1990)
+        ct.sim.data = sim
+        ct._maybe_wrap_sim_year_end()
+        assert getattr(ct.sim, "_pre_wrap_data", None) is None
+
+    def test_leap_day_meas_start_does_not_raise(self):
+        # The wrap fires for a leap-day measured test; the fixed window
+        # (July 1 -> June 30) does not raise because it never uses the measured day.
+        meas_idx = pd.date_range("2024-02-29", "2024-03-15", freq="h")
+        sim = _hourly_typical_year(1990)
+        ct = _ct_with(meas_idx, sim.index)
+        ct._maybe_wrap_sim_year_end()
+        assert getattr(ct.sim, "_pre_wrap_data", None) is not None
+
+    def test_leap_day_meas_end_does_not_raise(self):
+        # The wrap fires for a leap-day measured test; the fixed window
+        # (July 1 -> June 30) does not raise because it never uses the measured day.
+        meas_idx = pd.date_range("2024-01-15", "2024-02-29 23:00", freq="h")
+        sim = _hourly_typical_year(1990)
+        ct = _ct_with(meas_idx, sim.index)
+        ct._maybe_wrap_sim_year_end()
+        assert getattr(ct.sim, "_pre_wrap_data", None) is not None
+
+    def test_wrapped_frame_has_8760_rows(self):
+        # Fixed July 1 1989 -> June 30 1990 window is a full, contiguous year.
+        meas_idx = pd.date_range("2023-11-01", "2023-12-15", freq="h")
+        sim = _hourly_typical_year(1990)
+        ct = _ct_with(meas_idx, sim.index)
+        ct._maybe_wrap_sim_year_end()
+        assert len(ct.sim.data) == 8760
+        assert ct.sim.data.index.min() == pd.Timestamp("1989-07-01 00:00")
+        assert ct.sim.data.index.max() == pd.Timestamp("1990-06-30 23:00")
+        assert ct.sim.data.index.is_monotonic_increasing
+        assert not ct.sim.data.index.has_duplicates
+
+
+class TestSetupAutoWrap:
+    def _make_ct(self, meas_idx, sim_idx, **kwargs):
+        ct = _ct_with(meas_idx, sim_idx, **kwargs)
+        ct.meas.regression_cols = {"poa": "poa"}
+        ct.sim.regression_cols = {"poa": "poa"}
+        ct.test_setup = "custom"
+        ct.reg_cols_meas = {"poa": "poa"}
+        ct.reg_cols_sim = {"poa": "poa"}
+        ct.reg_fml = "poa ~ poa - 1"
+        return ct
+
+    def test_setup_calls_wrap_when_meas_near_year_end(self):
+        meas_idx = pd.date_range("2023-11-01", "2023-12-15", freq="h")
+        sim_idx = _hourly_typical_year(1990).index
+        ct = self._make_ct(meas_idx, sim_idx)
+        ct.setup(verbose=False)
+        assert getattr(ct.sim, "_pre_wrap_data", None) is not None
+        # Wrap prepends 1989-shifted Nov-Dec; min < 1990-01-01 confirms it.
+        assert ct.sim.data.index.min() < pd.Timestamp("1990-01-01")
+
+    def test_setup_skips_wrap_when_disabled(self):
+        meas_idx = pd.date_range("2023-11-01", "2023-12-15", freq="h")
+        sim_idx = _hourly_typical_year(1990).index
+        ct = self._make_ct(meas_idx, sim_idx, auto_wrap_sim=False)
+        ct.setup(verbose=False)
+        assert getattr(ct.sim, "_pre_wrap_data", None) is None
+        assert ct.sim.data.index.min() >= pd.Timestamp("1990-01-01")
+        assert ct.sim.data.index.max() <= pd.Timestamp("1990-12-31 23:00")
+
+
+class TestPipelineYaml:
+    def _capt(self, meas_cd_default, sim_cd_default):
+        return CapTest.from_params(
+            test_setup="e2848_default",
+            meas=meas_cd_default,
+            sim=sim_cd_default,
+            ac_nameplate=6_000_000,
+        )
+
+    def test_sub_mapping_embeds_filter_pipelines(self, meas_cd_default, sim_cd_default):
+        capt = self._capt(meas_cd_default, sim_cd_default)
+        capt.meas.filter_irr(200, 800)
+        capt.sim.filter_irr(200, 800)
+        sub = capt._build_yaml_sub_mapping()
+        assert sub["meas_filters"][0]["type"] == "Irradiance"
+        assert sub["meas_filters"][0]["low"] == 200
+        assert sub["sim_filters"][0]["type"] == "Irradiance"
+
+    def test_no_filters_omits_pipeline_keys(self, meas_cd_default, sim_cd_default):
+        capt = self._capt(meas_cd_default, sim_cd_default)
+        sub = capt._build_yaml_sub_mapping()
+        assert "meas_filters" not in sub
+        assert "sim_filters" not in sub
+
+    def test_rep_cond_step_omits_overrides_rep_conditions(
+        self, meas_cd_default, sim_cd_default
+    ):
+        capt = self._capt(meas_cd_default, sim_cd_default)
+        capt.rep_conditions = {"func": {"poa": "mean"}}  # non-None -> would serialize
+        capt.rep_cond(which="meas")  # creates a RepCond step in meas.filters
+        sub = capt._build_yaml_sub_mapping()
+        assert any(d["type"] == "RepCond" for d in sub["meas_filters"])
+        assert "rep_conditions" not in sub.get("overrides", {})
+
+    def test_rep_conditions_kept_without_rep_cond_step(
+        self, meas_cd_default, sim_cd_default
+    ):
+        capt = self._capt(meas_cd_default, sim_cd_default)
+        capt.rep_conditions = {"func": {"poa": "mean"}}
+        sub = capt._build_yaml_sub_mapping()
+        assert sub["overrides"]["rep_conditions"]["func"]["poa"] == "mean"
+
+    def test_from_mapping_reapplies_pipelines(
+        self, tmp_path, meas_cd_default, sim_cd_default
+    ):
+        meas_file = tmp_path / "meas.csv"
+        meas_file.write_text("x")
+        sim_file = tmp_path / "sim.csv"
+        sim_file.write_text("x")
+        sub = {
+            "test_setup": "e2848_default",
+            "meas_path": str(meas_file),
+            "sim_path": str(sim_file),
+            "meas_filters": [
+                {
+                    "type": "Irradiance",
+                    "low": 200,
+                    "high": 800,
+                    "ref_val": None,
+                    "col_name": None,
+                    "custom_name": None,
+                }
+            ],
+            "sim_filters": [
+                {
+                    "type": "Irradiance",
+                    "low": 200,
+                    "high": 800,
+                    "ref_val": None,
+                    "col_name": None,
+                    "custom_name": None,
+                }
+            ],
+        }
+        capt = CapTest.from_mapping(
+            sub,
+            meas_loader=MagicMock(return_value=meas_cd_default),
+            sim_loader=MagicMock(return_value=sim_cd_default),
+        )
+        assert [type(s).__name__ for s in capt.meas.filters] == ["Irradiance"]
+        assert [type(s).__name__ for s in capt.sim.filters] == ["Irradiance"]
+
+    def test_to_yaml_from_yaml_file_roundtrip(
+        self, tmp_path, meas_cd_default, sim_cd_default
+    ):
+        """End-to-end: filters written by to_yaml are re-applied by from_yaml."""
+        capt = self._capt(meas_cd_default, sim_cd_default)
+        clean_meas, clean_sim = capt.meas.copy(), capt.sim.copy()  # pre-filter
+        capt.meas.filter_irr(200, 800)
+        capt.sim.filter_irr(200, 800)
+        capt._meas_path = str(tmp_path / "meas.csv")
+        capt._sim_path = str(tmp_path / "sim.csv")
+        path = tmp_path / "config.yaml"
+        capt.to_yaml(path)
+
+        reloaded = CapTest.from_yaml(
+            path,
+            meas_loader=MagicMock(return_value=clean_meas),
+            sim_loader=MagicMock(return_value=clean_sim),
+        )
+        assert [type(s).__name__ for s in reloaded.meas.filters] == ["Irradiance"]
+        assert [type(s).__name__ for s in reloaded.sim.filters] == ["Irradiance"]
+
+    def test_file_roundtrip_with_rep_cond_step_reconstitutes_rc(
+        self, tmp_path, meas_cd_default, sim_cd_default
+    ):
+        """A RepCond step round-trips and recomputes rc on load, even though
+        overrides.rep_conditions is omitted from the file (decision B)."""
+        capt = self._capt(meas_cd_default, sim_cd_default)
+        clean_meas, clean_sim = capt.meas.copy(), capt.sim.copy()
+        capt.rep_conditions = {"func": {"poa": "mean"}}
+        capt.rep_cond(which="meas")  # creates a RepCond step on meas
+        capt._meas_path = str(tmp_path / "meas.csv")
+        capt._sim_path = str(tmp_path / "sim.csv")
+        path = tmp_path / "config.yaml"
+        capt.to_yaml(path)
+
+        reloaded = CapTest.from_yaml(
+            path,
+            meas_loader=MagicMock(return_value=clean_meas),
+            sim_loader=MagicMock(return_value=clean_sim),
+        )
+        assert any(type(s).__name__ == "RepCond" for s in reloaded.meas.filters)
+        assert reloaded.meas.rc is not None
+
+    def test_from_mapping_warns_when_pipelines_cannot_be_applied(
+        self, tmp_path, meas_cd_default
+    ):
+        """Partial CapTest (only meas) can't run setup(); serialized pipelines
+        are skipped with a warning rather than silently dropped."""
+        meas_file = tmp_path / "meas.csv"
+        meas_file.write_text("x")
+        sub = {
+            "test_setup": "e2848_default",
+            "meas_path": str(meas_file),
+            "meas_filters": [
+                {
+                    "type": "Irradiance",
+                    "low": 200,
+                    "high": 800,
+                    "ref_val": None,
+                    "col_name": None,
+                    "custom_name": None,
+                }
+            ],
+        }
+        with pytest.warns(UserWarning, match="were not applied because setup"):
+            CapTest.from_mapping(
+                sub, meas_loader=MagicMock(return_value=meas_cd_default)
+            )
