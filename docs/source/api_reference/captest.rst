@@ -41,9 +41,17 @@ Methods for configuring the test and serializing configuration.
 Reporting Conditions
 --------------------
 
+A capacity test has a single set of reporting conditions, owned by the test as
+:py:attr:`~captest.captest.CapTest.rc` and tracked by
+:py:attr:`~captest.captest.CapTest.rc_source` (``'meas'`` / ``'sim'`` /
+``'manual'``). Compute them with :py:meth:`~captest.captest.CapTest.rep_cond`
+or assign them directly via the ``rc`` setter. See :ref:`reporting_conditions`
+in the user guide for the full model.
+
 .. autosummary::
    :toctree: generated/
 
+   captest.CapTest.rc
    captest.CapTest.rep_cond
    captest.CapTest.rep_irr_filter_low
    captest.CapTest.rep_irr_filter_high

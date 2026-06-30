@@ -58,6 +58,7 @@
       ~CapTest.param
       ~CapTest.power_temp_coeff
       ~CapTest.racking
+      ~CapTest.rc
       ~CapTest.rc_source
       ~CapTest.rear_shade
       ~CapTest.reg_cols_meas
