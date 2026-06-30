@@ -2768,9 +2768,27 @@ class TestManualRc:
             ct_default.rc = {"poa": 805.0, "t_amb": 25.0}  # w_vel missing
         assert "w_vel" in str(exc.value)
 
-    def test_set_rc_requires_setup(self):
-        ct = CapTest()  # bare, setup() not run
-        with pytest.raises(RuntimeError, match="setup"):
+    def test_set_rc_requires_meas_and_sim(self):
+        ct = CapTest()  # bare, no meas/sim
+        with pytest.raises(RuntimeError, match="meas"):
+            ct.rc = pd.DataFrame({"poa": [805.0], "t_amb": [25.0], "w_vel": [2.0]})
+
+    def test_set_rc_without_setup_when_formula_present(
+        self, meas_cd_default, sim_cd_default
+    ):
+        """ts.rc = df works on a bare CapTest (no setup) when meas/sim carry a
+        regression formula — the 'prepare each CapData, then wrap them' flow."""
+        ct = CapTest(meas=meas_cd_default, sim=sim_cd_default)
+        assert ct._resolved_setup is None  # setup() not run
+        ct.rc = pd.DataFrame({"poa": [805.0], "t_amb": [25.0], "w_vel": [2.0]})
+        assert ct.rc_source == "manual"
+        assert ct.rc["poa"].iloc[0] == pytest.approx(805.0)
+
+    def test_set_rc_requires_regression_formula(self, meas_cd_default, sim_cd_default):
+        """A missing regression formula on a member is a clear RuntimeError."""
+        ct = CapTest(meas=meas_cd_default, sim=sim_cd_default)
+        ct.meas.regression_formula = None
+        with pytest.raises(RuntimeError, match="regression formula"):
             ct.rc = pd.DataFrame({"poa": [805.0], "t_amb": [25.0], "w_vel": [2.0]})
 
     def test_set_rc_formula_mismatch_raises(self, ct_default):

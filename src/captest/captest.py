@@ -1595,7 +1595,7 @@ class CapTest(param.Parameterized):
         Raises
         ------
         RuntimeError
-            If :meth:`setup` has not run (the regression formula is unknown).
+            If ``meas`` or ``sim`` is missing, or lacks a regression formula.
         ValueError
             If ``meas`` and ``sim`` have different regression formulas, if
             ``value`` coerces to more than one row, or if ``value`` omits a
@@ -1628,7 +1628,7 @@ class CapTest(param.Parameterized):
         Raises
         ------
         RuntimeError
-            If :meth:`setup` has not been run (regression formula unknown).
+            If ``meas`` or ``sim`` is missing, or lacks a regression formula.
         ValueError
             If ``meas`` and ``sim`` have different regression formulas, if
             ``value`` coerces to more than one row, or if ``value`` omits a
@@ -1636,7 +1636,7 @@ class CapTest(param.Parameterized):
         TypeError
             If ``value`` is not a DataFrame, Series, or dict.
         """
-        self._require_setup()
+        self._require_regression_formula()
         meas_fml = self.meas.regression_formula
         sim_fml = self.sim.regression_formula
         if meas_fml != sim_fml:
@@ -2793,6 +2793,23 @@ class CapTest(param.Parameterized):
             raise RuntimeError("CapTest.meas must be set.")
         if self.sim is None:
             raise RuntimeError("CapTest.sim must be set.")
+
+    def _require_regression_formula(self):
+        """Require meas/sim present and each carrying a regression formula.
+
+        Looser than :meth:`_require_setup`: the manual ``rc`` setter only needs
+        the regression formula (to validate RHS coverage and the meas/sim
+        match), not a fully resolved ``test_setup``. This lets the "prepare each
+        CapData, then wrap them in a CapTest" workflow set reporting conditions
+        without calling :meth:`setup`.
+        """
+        self._require_meas_and_sim()
+        if self.meas.regression_formula is None or self.sim.regression_formula is None:
+            raise RuntimeError(
+                "Setting reporting conditions requires a regression formula on "
+                "meas and sim. Call CapTest.setup(), or set regression columns "
+                "on each CapData, first."
+            )
 
     def _pick_cd(self, which):
         if which == "meas":
