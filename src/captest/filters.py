@@ -582,6 +582,42 @@ class AbsDiffPrev(BaseFilter):
         }
 
 
+class BooleanFlag(BaseFilter):
+    """Remove intervals where a boolean/flag column is truthy.
+
+    ``column`` values are coerced with ``astype(bool)`` so 0/1, real booleans,
+    and NaN (which is truthy) are handled uniformly. By default rows where the
+    column is truthy are removed; set ``invert=True`` to instead remove rows
+    where the column is falsy (keeping only the truthy rows).
+    """
+
+    column = param.String(
+        default=None,
+        allow_None=True,
+        doc="Boolean/flag column. Rows where this is truthy are removed (or "
+        "falsy, when invert=True).",
+    )
+    invert = param.Boolean(
+        default=False,
+        doc="If True, remove rows where the column is falsy instead of truthy.",
+    )
+
+    def _execute(self, capdata):
+        if self.column is None:
+            raise ValueError("BooleanFlag requires a column.")
+        df = capdata.data_filtered
+        mask = df[self.column].astype(bool)
+        keep = mask if self.invert else ~mask
+        return df.index[keep]
+
+    @property
+    def explanation(self):
+        if not hasattr(self, "ix_after"):
+            return None
+        flagged = "False" if self.invert else "True"
+        return f"Intervals flagged {flagged} in {self.column} were removed."
+
+
 class Sensors(BaseFilter):
     """Drop rows where redundant sensors in a group disagree beyond a threshold.
 
@@ -1413,6 +1449,7 @@ FILTER_REGISTRY = {
     "Irradiance": Irradiance,
     "RollingStd": RollingStd,
     "AbsDiffPrev": AbsDiffPrev,
+    "BooleanFlag": BooleanFlag,
     "Pvsyst": Pvsyst,
     "Shade": Shade,
     "Time": Time,

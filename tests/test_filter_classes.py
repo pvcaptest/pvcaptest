@@ -13,6 +13,7 @@ from captest.filters import (
     AbsDiffPrev,
     BaseSummaryStep,
     BaseFilter,
+    BooleanFlag,
     Clearsky,
     Custom,
     Days,
@@ -128,6 +129,20 @@ def cd_pp():
     cd = CapData("pp")
     cd.data = pd.DataFrame({"poa": poa, "power": power}, index=pd.RangeIndex(n))
     cd.regression_cols = {"poa": "poa", "power": "power"}
+    return cd
+
+
+@pytest.fixture
+def cd_flag():
+    """A CapData with a boolean flag column (e.g. tracker backtracking)."""
+    cd = CapData("flag")
+    cd.data = pd.DataFrame(
+        {
+            "power": [1.0, 2.0, 3.0, 4.0, 5.0],
+            "backtrack_on": [False, True, False, True, False],
+        },
+        index=pd.RangeIndex(5),
+    )
     return cd
 
 
@@ -858,6 +873,61 @@ class TestAbsDiffPrevWrapper:
         cd_step.filter_abs_diff_prev(0.05, column="ghi")
         # ghi is constant -> only the leading-NaN row drops.
         assert list(cd_step.data_filtered.index) == [1, 2, 3, 4]
+
+
+class TestBooleanFlag:
+    def test_execute_drops_truthy_rows(self, cd_flag):
+        f = BooleanFlag(column="backtrack_on")
+        assert list(f._execute(cd_flag)) == [0, 2, 4]
+
+    def test_execute_matches_oracle(self, cd_flag):
+        def remove_inter_row_shading(data, boolean_column="backtrack_on"):
+            return data[~data[boolean_column].astype(bool)]
+
+        f = BooleanFlag(column="backtrack_on")
+        oracle = remove_inter_row_shading(cd_flag.data, "backtrack_on")
+        assert list(f._execute(cd_flag)) == list(oracle.index)
+
+    def test_execute_invert_keeps_truthy(self, cd_flag):
+        f = BooleanFlag(column="backtrack_on", invert=True)
+        assert list(f._execute(cd_flag)) == [1, 3]
+
+    def test_execute_coerces_int_and_nan(self, cd_flag):
+        # astype(bool): 0->False, nonzero->True, NaN->True.
+        cd_flag.data["mixed"] = [0, 1, 0, np.nan, 2]
+        f = BooleanFlag(column="mixed")
+        assert list(f._execute(cd_flag)) == [0, 2]
+
+    def test_execute_requires_column(self, cd_flag):
+        with pytest.raises(ValueError, match="requires a column"):
+            BooleanFlag()._execute(cd_flag)
+
+    def test_config_round_trips(self):
+        f = BooleanFlag(column="backtrack_on", invert=True)
+        cfg = f.to_config()
+        assert cfg["type"] == "BooleanFlag"
+        f2 = step_from_config(cfg)
+        assert isinstance(f2, BooleanFlag)
+        assert f2.column == "backtrack_on"
+        assert f2.invert is True
+
+    def test_registered_in_registry(self):
+        assert FILTER_REGISTRY["BooleanFlag"] is BooleanFlag
+
+    def test_explanation_default(self, cd_flag):
+        f = BooleanFlag(column="backtrack_on")
+        f.run(cd_flag)
+        assert f.explanation == ("Intervals flagged True in backtrack_on were removed.")
+
+    def test_explanation_invert(self, cd_flag):
+        f = BooleanFlag(column="backtrack_on", invert=True)
+        f.run(cd_flag)
+        assert f.explanation == (
+            "Intervals flagged False in backtrack_on were removed."
+        )
+
+    def test_explanation_none_before_run(self):
+        assert BooleanFlag(column="backtrack_on").explanation is None
 
 
 class TestFilterOutliers:
