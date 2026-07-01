@@ -15,7 +15,7 @@ import pandas as pd
 import pytest
 import yaml
 
-from captest import CapTest, captest as ct
+from captest import CapTest, captest as ct, util
 from captest.capdata import CapData
 from captest.calcparams import (
     apparent_zenith_pvsyst,
@@ -976,24 +976,10 @@ class TestSetup:
         assert ct_default.meas.tolerance == "- 4"
         assert ct_default.sim.tolerance == "- 4"
 
-    def test_setup_wires_rc_source_resolved_to_meas(self, ct_default):
-        """setup() points both CapData.rc_source_resolved at meas by default."""
-        assert ct_default.meas.rc_source_resolved is ct_default.meas
-        assert ct_default.sim.rc_source_resolved is ct_default.meas
-
-    def test_setup_wires_rc_source_resolved_to_sim(
-        self, meas_cd_default, sim_cd_default
-    ):
-        """rc_source='sim' points both CapData.rc_source_resolved at sim."""
-        capt = CapTest.from_params(
-            test_setup="e2848_default",
-            meas=meas_cd_default,
-            sim=sim_cd_default,
-            ac_nameplate=6_000_000,
-            rc_source="sim",
-        )
-        assert capt.meas.rc_source_resolved is capt.sim
-        assert capt.sim.rc_source_resolved is capt.sim
+    def test_setup_wires_captest_backref_on_both(self, ct_default):
+        """setup() wires _captest back to the CapTest on both CapData."""
+        assert ct_default.meas._captest is ct_default
+        assert ct_default.sim._captest is ct_default
 
     def test_setup_assigns_resolved_setup(self, ct_default):
         resolved = ct_default._resolved_setup
@@ -1059,41 +1045,45 @@ class TestSetup:
 
 
 class TestRepIrrCrossInstance:
-    """filter_irr(ref_val='rep_irr') resolving against the rc_source instance."""
+    """filter_irr(ref_val='rep_irr') resolving against the ct.rc in a CapTest."""
 
-    def test_sim_rep_irr_filter_uses_meas_reporting_irradiance(self, ct_default):
-        """A sim filter_irr(ref_val='rep_irr') anchors on meas's reporting
-        irradiance (the default rc_source), without any rc set on sim and
-        without manually passing the value."""
-        ct_default.meas.filter_irr(200, 800)
-        ct_default.meas.rep_cond()
-        meas_rep_irr = float(ct_default.meas.rc["poa"].iloc[0])
+    def test_sim_rep_irr_resolves_from_ct_rc(self, ct_default):
+        """sim.rep_irr reads the test-level ct.rc (set here via _set_rc)."""
+        rc = pd.DataFrame({"poa": [777.0], "t_amb": [25.0], "w_vel": [2.0]})
+        ct_default._set_rc(rc, "meas")
+        assert ct_default.sim.rep_irr == pytest.approx(777.0)
+        assert ct_default.meas.rep_irr == pytest.approx(777.0)
 
-        # sim never computed its own reporting conditions.
-        assert ct_default.sim.rc is None
+    def test_rep_irr_in_test_without_rc_raises(self, ct_default):
+        """In a test, rep_irr with ct.rc unset raises directing to rep_cond."""
+        assert ct_default.rc is None
+        with pytest.raises(ValueError, match="test reporting conditions"):
+            ct_default.sim.rep_irr
 
+    def test_sim_filter_irr_rep_irr_uses_ct_rc(self, ct_default):
+        """filter_irr(ref_val='rep_irr') on sim filters around ct.rc's poa."""
+        rc = pd.DataFrame({"poa": [500.0], "t_amb": [25.0], "w_vel": [2.0]})
+        ct_default._set_rc(rc, "meas")
         ct_default.sim.filter_irr(0.8, 1.2, ref_val="rep_irr")
         step = ct_default.sim.filters[-1]
-        assert step.ref_val_resolved == pytest.approx(meas_rep_irr)
+        assert step.ref_val_resolved == pytest.approx(500.0)
+        assert step.low_effective == pytest.approx(0.8 * 500.0)
 
-    def test_sim_rep_irr_filter_roundtrips_through_yaml(self, ct_default, tmp_path):
-        """ref_val='rep_irr' serializes as a string and the rc_source wiring is
-        rebuilt on setup(), so the value is never written as a numpy float."""
+    def test_meas_rep_cond_then_sim_rep_irr_roundtrips(self, ct_default, tmp_path):
+        """End-to-end: meas.rep_cond seeds ct.rc, sim filters around it, and the
+        pipeline round-trips through to_yaml."""
         import yaml
 
         ct_default.meas.filter_irr(200, 800)
         ct_default.meas.rep_cond()
         ct_default.sim.filter_irr(0.8, 1.2, ref_val="rep_irr")
-
         path = tmp_path / "ct.yaml"
-        # Must not raise RepresenterError on a numpy-float ref_val.
         ct_default.to_yaml(path, merge_into_existing=False)
-
         doc = yaml.safe_load(path.read_text())
-        sim_irr_steps = [
+        sim_irr = [
             d for d in doc["captest"]["sim_filters"] if d["type"] == "Irradiance"
         ]
-        assert sim_irr_steps[-1]["ref_val"] == "rep_irr"
+        assert sim_irr[-1]["ref_val"] == "rep_irr"
 
 
 class TestDownstreamPropagation:
@@ -1740,38 +1730,37 @@ class TestPortedMethods:
         with pytest.raises(RuntimeError, match="meas"):
             capt.captest_results(print_res=False)
 
-    def test_captest_results_matches_direct_prediction(self):
+    def test_captest_results_predicts_at_ct_rc(self):
         capt = self._build_ct()
-        expected_actual = capt.meas.regression_results.predict(capt.meas.rc)[0]
-        expected_expected = capt.sim.regression_results.predict(capt.meas.rc)[0]
+        rc = pd.DataFrame({"poa": [6], "t_amb": [5], "w_vel": [3]})
+        capt._set_rc(rc, "meas")
+        expected_actual = capt.meas.regression_results.predict(rc)[0]
+        expected_expected = capt.sim.regression_results.predict(rc)[0]
         expected_ratio = expected_actual / expected_expected
 
         cp_rat = capt.captest_results(print_res=False)
 
         assert cp_rat == pytest.approx(expected_ratio, rel=1e-10)
 
-    def test_captest_results_uses_rc_source_meas_by_default(self):
+    def test_captest_results_uses_ct_rc_values_regardless_of_source(self):
         capt = self._build_ct()
-        # Set sim.rc to a different value; default rc_source="meas"
-        # should keep the meas rc.
-        capt.sim.rc = pd.DataFrame({"poa": [99], "t_amb": [99], "w_vel": [99]})
-        expected_actual = capt.meas.regression_results.predict(capt.meas.rc)[0]
-        expected_expected = capt.sim.regression_results.predict(capt.meas.rc)[0]
-        expected_ratio = expected_actual / expected_expected
+        # Distinct RC values; both meas and sim predict at the SAME ct.rc.
+        rc = pd.DataFrame({"poa": [8], "t_amb": [4], "w_vel": [2]})
+        capt._set_rc(rc, "sim")
+        expected_ratio = (
+            capt.meas.regression_results.predict(rc)[0]
+            / capt.sim.regression_results.predict(rc)[0]
+        )
 
         cp_rat = capt.captest_results(print_res=False)
+
         assert cp_rat == pytest.approx(expected_ratio, rel=1e-10)
 
-    def test_captest_results_uses_rc_source_sim(self):
+    def test_captest_results_raises_when_ct_rc_none(self):
         capt = self._build_ct()
-        capt.rc_source = "sim"
-        capt.sim.rc = pd.DataFrame({"poa": [8], "t_amb": [4], "w_vel": [2]})
-        expected_actual = capt.meas.regression_results.predict(capt.sim.rc)[0]
-        expected_expected = capt.sim.regression_results.predict(capt.sim.rc)[0]
-        expected_ratio = expected_actual / expected_expected
-
-        cp_rat = capt.captest_results(print_res=False)
-        assert cp_rat == pytest.approx(expected_ratio, rel=1e-10)
+        assert capt.rc is None
+        with pytest.raises(ValueError, match="requires test reporting conditions"):
+            capt.captest_results(print_res=False)
 
     def test_captest_results_warns_on_mismatched_formulas(self):
         capt = self._build_ct()
@@ -1781,6 +1770,7 @@ class TestPortedMethods:
 
     def test_captest_results_check_pvalues_returns_styled_df(self):
         capt = self._build_ct()
+        capt._set_rc(pd.DataFrame({"poa": [6], "t_amb": [5], "w_vel": [3]}), "meas")
         styled = capt.captest_results_check_pvalues(print_res=False)
         # Styler objects expose the underlying data via the .data attribute.
         underlying = styled.data
@@ -2234,8 +2224,11 @@ class TestIntegration:
         # applicable to the sim CapData.
         capt.sim.filter_shade(fshdbm=capt.fshdbm)
         capt.sim.filter_time(start=_SIM_WINDOW[0], end=_SIM_WINDOW[1])
+        # Single test RC from the rc_source side (default 'meas'). Under
+        # last-writer-wins a second rep_cond(which='sim') would flip rc_source
+        # to 'sim' and change captest_results; the canonical workflow uses one
+        # source.
         capt.rep_cond()
-        capt.rep_cond(which="sim")
         capt.meas.fit_regression(summary=False)
         capt.sim.fit_regression(summary=False)
 
@@ -2637,6 +2630,9 @@ class TestPipelineYaml:
         )
         assert any(type(s).__name__ == "RepCond" for s in reloaded.meas.filters)
         assert reloaded.meas.rc is not None
+        # The test-level ct.rc is reconstituted from the replayed RepCond step.
+        assert reloaded.rc is not None
+        assert reloaded.rc_source == "meas"
 
     def test_from_mapping_warns_when_pipelines_cannot_be_applied(
         self, tmp_path, meas_cd_default
@@ -2662,4 +2658,395 @@ class TestPipelineYaml:
         with pytest.warns(UserWarning, match="were not applied because setup"):
             CapTest.from_mapping(
                 sub, meas_loader=MagicMock(return_value=meas_cd_default)
+            )
+
+
+class TestTestRc:
+    """CapTest.rc storage, _set_rc write point, and source-change warning."""
+
+    def _rc_df(self, poa=800.0):
+        return pd.DataFrame({"poa": [poa], "t_amb": [25.0], "w_vel": [2.0]})
+
+    def test_rc_defaults_none_and_source_meas(self):
+        ct = CapTest()
+        assert ct.rc is None
+        assert ct.rc_source == "meas"
+        assert ct._loading is False
+
+    def test_set_rc_first_set_is_silent_and_records_source(self, recwarn):
+        ct = CapTest()
+        df = self._rc_df()
+        ct._set_rc(df, "sim")
+        assert ct.rc is df
+        assert ct.rc_source == "sim"
+        assert len(recwarn) == 0
+
+    def test_set_rc_same_source_is_silent(self, recwarn):
+        ct = CapTest()
+        ct._set_rc(self._rc_df(), "meas")
+        ct._set_rc(self._rc_df(810.0), "meas")
+        assert ct.rc_source == "meas"
+        assert len(recwarn) == 0
+
+    def test_set_rc_source_change_warns(self):
+        ct = CapTest()
+        ct._set_rc(self._rc_df(), "meas")
+        with pytest.warns(UserWarning, match="rc_source changed from 'meas' to 'sim'"):
+            ct._set_rc(self._rc_df(), "sim")
+        assert ct.rc_source == "sim"
+
+    def test_set_rc_warn_false_suppresses(self, recwarn):
+        ct = CapTest()
+        ct._set_rc(self._rc_df(), "meas")
+        ct._set_rc(self._rc_df(), "manual", warn=False)
+        assert ct.rc_source == "manual"
+        assert len(recwarn) == 0
+
+    def test_rc_source_accepts_manual(self):
+        ct = CapTest()
+        ct.rc_source = "manual"  # must not raise (Selector now allows it)
+        assert ct.rc_source == "manual"
+
+
+class TestManualRc:
+    """The public ct.rc = df manual-override setter (rc_source='manual')."""
+
+    def _full_rc(self, poa=805.0):
+        return pd.DataFrame({"poa": [poa], "t_amb": [25.0], "w_vel": [2.0]})
+
+    def test_set_rc_dataframe_sets_manual_source(self, ct_default):
+        df = self._full_rc()
+        ct_default.rc = df
+        assert ct_default.rc_source == "manual"
+        assert ct_default.rc["poa"].iloc[0] == pytest.approx(805.0)
+
+    def test_set_rc_accepts_dict(self, ct_default):
+        ct_default.rc = {"poa": 700.0, "t_amb": 20.0, "w_vel": 1.5}
+        assert ct_default.rc_source == "manual"
+        assert ct_default.rc["poa"].iloc[0] == pytest.approx(700.0)
+
+    def test_set_rc_accepts_series(self, ct_default):
+        ct_default.rc = pd.Series({"poa": 650.0, "t_amb": 18.0, "w_vel": 1.0})
+        assert ct_default.rc_source == "manual"
+        assert ct_default.rc["poa"].iloc[0] == pytest.approx(650.0)
+
+    def test_set_rc_preserves_extra_columns(self, ct_default):
+        ct_default.rc = {"poa": 805.0, "t_amb": 25.0, "w_vel": 2.0, "note": 1.0}
+        assert "note" in ct_default.rc.columns
+
+    def test_set_rc_series_preserves_extra_columns(self, ct_default):
+        """Extra fields survive the Series -> one-row DataFrame coercion."""
+        s = pd.Series({"poa": 805.0, "t_amb": 25.0, "w_vel": 2.0, "note": 9.0})
+        ct_default.rc = s
+        assert "note" in ct_default.rc.columns
+        assert ct_default.rc["note"].iloc[0] == pytest.approx(9.0)
+
+    def test_required_vars_are_unwrapped_interaction_components(self, ct_default):
+        """Coverage keys off RHS *component* variables (poa, t_amb, w_vel), not
+        the I(...) interaction terms, for the default formula. Guards against a
+        parse_regression_formula change silently weakening validation."""
+        _, rhs = util.parse_regression_formula(ct_default.meas.regression_formula)
+        assert sorted(rhs) == ["poa", "t_amb", "w_vel"]
+        # A df with only the component vars (no I(poa*poa) columns) is accepted.
+        ct_default.rc = {"poa": 805.0, "t_amb": 25.0, "w_vel": 2.0}
+        assert ct_default.rc_source == "manual"
+
+    def test_set_rc_multirow_raises(self, ct_default):
+        """A multi-row DataFrame is rejected with a clear error at set time."""
+        df = pd.DataFrame(
+            {"poa": [805.0, 810.0], "t_amb": [25.0, 26.0], "w_vel": [2.0, 2.1]}
+        )
+        with pytest.raises(ValueError, match="single row"):
+            ct_default.rc = df
+
+    def test_set_rc_missing_rhs_var_raises_listing_names(self, ct_default):
+        with pytest.raises(ValueError, match=r"missing required regression"):
+            ct_default.rc = pd.DataFrame({"poa": [805.0]})
+
+    def test_set_rc_missing_var_message_names_the_missing(self, ct_default):
+        with pytest.raises(ValueError) as exc:
+            ct_default.rc = {"poa": 805.0, "t_amb": 25.0}  # w_vel missing
+        assert "w_vel" in str(exc.value)
+
+    def test_set_rc_requires_meas_and_sim(self):
+        ct = CapTest()  # bare, no meas/sim
+        with pytest.raises(RuntimeError, match="meas"):
+            ct.rc = pd.DataFrame({"poa": [805.0], "t_amb": [25.0], "w_vel": [2.0]})
+
+    def test_set_rc_without_setup_when_formula_present(
+        self, meas_cd_default, sim_cd_default
+    ):
+        """ts.rc = df works on a bare CapTest (no setup) when meas/sim carry a
+        regression formula — the 'prepare each CapData, then wrap them' flow."""
+        ct = CapTest(meas=meas_cd_default, sim=sim_cd_default)
+        assert ct._resolved_setup is None  # setup() not run
+        ct.rc = pd.DataFrame({"poa": [805.0], "t_amb": [25.0], "w_vel": [2.0]})
+        assert ct.rc_source == "manual"
+        assert ct.rc["poa"].iloc[0] == pytest.approx(805.0)
+
+    def test_set_rc_requires_regression_formula(self, meas_cd_default, sim_cd_default):
+        """A missing regression formula on a member is a clear RuntimeError."""
+        ct = CapTest(meas=meas_cd_default, sim=sim_cd_default)
+        ct.meas.regression_formula = None
+        with pytest.raises(RuntimeError, match="regression formula"):
+            ct.rc = pd.DataFrame({"poa": [805.0], "t_amb": [25.0], "w_vel": [2.0]})
+
+    def test_set_rc_formula_mismatch_raises(self, ct_default):
+        ct_default.sim.regression_formula = "power ~ poa"
+        with pytest.raises(ValueError, match="different regression formulas"):
+            ct_default.rc = self._full_rc()
+
+    def test_set_rc_bad_type_raises(self, ct_default):
+        with pytest.raises(TypeError, match="DataFrame"):
+            ct_default.rc = [805.0, 25.0, 2.0]
+
+    def test_set_rc_first_set_is_silent(self, ct_default, recwarn):
+        ct_default.rc = self._full_rc()
+        assert len(recwarn) == 0
+
+    def test_set_rc_over_computed_source_warns(self, ct_default):
+        ct_default._set_rc(self._full_rc(), "meas")  # seed a computed source
+        with pytest.warns(UserWarning, match="changed from 'meas' to 'manual'"):
+            ct_default.rc = self._full_rc(810.0)
+
+    def test_set_rc_over_manual_is_silent(self, ct_default, recwarn):
+        ct_default.rc = self._full_rc()  # first -> manual (silent)
+        ct_default.rc = self._full_rc(810.0)  # manual -> manual (silent)
+        assert len(recwarn) == 0
+
+
+class TestRepCondSync:
+    """cd.rep_cond updates ct.rc (last-writer-wins); standalone is unaffected."""
+
+    def test_meas_rep_cond_sets_ct_rc_from_meas(self, ct_default):
+        ct_default.meas.rep_cond()
+        assert ct_default.rc_source == "meas"
+        assert ct_default.rc is not None
+        assert ct_default.rc["poa"].iloc[0] == pytest.approx(
+            ct_default.meas.rc["poa"].iloc[0]
+        )
+
+    def test_meas_rep_cond_first_set_is_silent(self, ct_default, recwarn):
+        ct_default.meas.rep_cond()
+        assert not any("rc_source changed" in str(w.message) for w in recwarn)
+
+    def test_sim_rep_cond_after_meas_flips_source_and_warns(self, ct_default):
+        ct_default.meas.rep_cond()
+        with pytest.warns(UserWarning, match="changed from 'meas' to 'sim'"):
+            ct_default.sim.rep_cond()
+        assert ct_default.rc_source == "sim"
+        assert ct_default.rc["poa"].iloc[0] == pytest.approx(
+            ct_default.sim.rc["poa"].iloc[0]
+        )
+
+    def test_same_source_recompute_is_silent(self, ct_default, recwarn):
+        ct_default.meas.rep_cond()
+        ct_default.meas.filter_irr(200, 800)
+        ct_default.meas.rep_cond()  # still 'meas' -> no source-change warning
+        assert ct_default.rc_source == "meas"
+        assert not any("rc_source changed" in str(w.message) for w in recwarn)
+
+    def test_ct_rc_is_a_copy_not_aliased(self, ct_default):
+        ct_default.meas.rep_cond()
+        # Mutating meas.rc must not change ct.rc.
+        ct_default.meas.rc.loc[ct_default.meas.rc.index[0], "poa"] = -999.0
+        assert ct_default.rc["poa"].iloc[0] != -999.0
+
+    def test_standalone_rep_cond_does_not_sync_or_warn(self, pvsyst, recwarn):
+        assert pvsyst._captest is None
+        pvsyst.filter_irr(200, 800)
+        pvsyst.rep_cond()  # must not raise (the _captest guard) and not warn
+        assert pvsyst.rc is not None
+        assert not any("rc_source changed" in str(w.message) for w in recwarn)
+
+    def test_rep_cond_freq_does_not_sync_to_ct_rc(self, ct_default):
+        """rep_cond_freq is intentionally NOT synced: it can produce a multi-row
+        seasonal RC that a single-row ct.rc cannot hold, and it sets self.rc on a
+        path that bypasses _calc_rep_cond. It must leave ct.rc/rc_source alone."""
+        ct_default.meas.rep_cond_freq(freq="ME")
+        assert ct_default.meas.rc is not None  # member CapData rc is set
+        assert ct_default.rc is None  # test rc untouched
+        assert ct_default.rc_source == "meas"  # default, unchanged
+
+    def test_ct_rep_cond_default_which_follows_rc_source(self, ct_default, recwarn):
+        ct_default.sim.rep_cond()  # rc_source -> 'sim'
+        ct_default.rep_cond()  # which=None -> should pick 'sim'
+        assert ct_default.rc_source == "sim"
+        # If the default had picked 'meas', this would flip+warn.
+        assert not any("rc_source changed" in str(w.message) for w in recwarn)
+
+    def test_ct_rep_cond_explicit_which_sim(self, ct_default):
+        ct_default.rep_cond("sim")
+        assert ct_default.rc_source == "sim"
+        assert ct_default.rc is not None
+
+    def test_ct_rep_cond_default_which_meas_when_rc_source_manual(self, ct_default):
+        # Seed a manual source, then default rep_cond should fall back to 'meas'.
+        ct_default.rc = pd.DataFrame({"poa": [800.0], "t_amb": [25.0], "w_vel": [2.0]})
+        assert ct_default.rc_source == "manual"
+        ct_default.rep_cond()  # which=None, rc_source='manual' -> 'meas'
+        assert ct_default.rc_source == "meas"
+
+
+class TestManualRcSerialization:
+    """to_yaml serializes manual RC values; computed RC is not value-serialized."""
+
+    def _capt(self, meas_cd_default, sim_cd_default):
+        return CapTest.from_params(
+            test_setup="e2848_default",
+            meas=meas_cd_default,
+            sim=sim_cd_default,
+            ac_nameplate=6_000_000,
+        )
+
+    def test_manual_rc_serializes_native_values(self, meas_cd_default, sim_cd_default):
+        capt = self._capt(meas_cd_default, sim_cd_default)
+        capt.rc = pd.DataFrame({"poa": [805.0], "t_amb": [25.0], "w_vel": [2.0]})
+        sub = capt._build_yaml_sub_mapping()
+        assert sub["rc_source"] == "manual"
+        vals = sub["reporting_conditions_values"]
+        assert vals["poa"] == pytest.approx(805.0)
+        assert {"poa", "t_amb", "w_vel"} <= set(vals)
+        # Values must be native python types so yaml.safe_dump can represent them.
+        assert type(vals["poa"]) is float
+
+    def test_computed_rc_omits_values(self, meas_cd_default, sim_cd_default):
+        capt = self._capt(meas_cd_default, sim_cd_default)
+        capt.rep_cond(which="meas")  # rc_source='meas' (computed)
+        sub = capt._build_yaml_sub_mapping()
+        assert sub["rc_source"] == "meas"
+        assert "reporting_conditions_values" not in sub
+
+    def test_no_rc_omits_values(self, meas_cd_default, sim_cd_default):
+        capt = self._capt(meas_cd_default, sim_cd_default)
+        sub = capt._build_yaml_sub_mapping()
+        assert "reporting_conditions_values" not in sub
+
+    def test_manual_rc_omits_overrides_rep_conditions(
+        self, meas_cd_default, sim_cd_default
+    ):
+        """A manual rc_source serializes reporting_conditions_values as the
+        authoritative RC and does NOT also write overrides.rep_conditions, so
+        the file never carries two RC-bearing keys."""
+        capt = self._capt(meas_cd_default, sim_cd_default)
+        capt.rep_conditions = {"func": {"poa": "mean"}}  # would normally serialize
+        capt.rc = pd.DataFrame({"poa": [805.0], "t_amb": [25.0], "w_vel": [2.0]})
+        sub = capt._build_yaml_sub_mapping()
+        assert "reporting_conditions_values" in sub
+        assert "rep_conditions" not in sub.get("overrides", {})
+
+
+class TestRcOwnershipRoundTrip:
+    """to_yaml/from_yaml round-trips of the single test RC across sources."""
+
+    def _capt(self, meas_cd_default, sim_cd_default, **kw):
+        return CapTest.from_params(
+            test_setup="e2848_default",
+            meas=meas_cd_default,
+            sim=sim_cd_default,
+            ac_nameplate=6_000_000,
+            **kw,
+        )
+
+    def _roundtrip(self, capt, tmp_path, clean_meas, clean_sim):
+        capt._meas_path = str(tmp_path / "meas.csv")
+        capt._sim_path = str(tmp_path / "sim.csv")
+        path = tmp_path / "config.yaml"
+        capt.to_yaml(path, merge_into_existing=False)
+        return CapTest.from_yaml(
+            path,
+            meas_loader=MagicMock(return_value=clean_meas),
+            sim_loader=MagicMock(return_value=clean_sim),
+        )
+
+    def test_roundtrip_computed_meas_recomputes_ct_rc(
+        self, tmp_path, meas_cd_default, sim_cd_default
+    ):
+        capt = self._capt(meas_cd_default, sim_cd_default)
+        clean_meas, clean_sim = capt.meas.copy(), capt.sim.copy()
+        capt.meas.filter_irr(200, 800)
+        capt.rep_cond(which="meas")
+        expected_poa = capt.rc["poa"].iloc[0]
+
+        reloaded = self._roundtrip(capt, tmp_path, clean_meas, clean_sim)
+
+        assert reloaded.rc_source == "meas"
+        assert reloaded.rc is not None
+        assert reloaded.rc["poa"].iloc[0] == pytest.approx(expected_poa)
+
+    def test_roundtrip_manual_rc_restores_values(
+        self, tmp_path, meas_cd_default, sim_cd_default
+    ):
+        capt = self._capt(meas_cd_default, sim_cd_default)
+        clean_meas, clean_sim = capt.meas.copy(), capt.sim.copy()
+        capt.rc = pd.DataFrame({"poa": [805.0], "t_amb": [25.0], "w_vel": [2.0]})
+
+        reloaded = self._roundtrip(capt, tmp_path, clean_meas, clean_sim)
+
+        assert reloaded.rc_source == "manual"
+        assert reloaded.rc["poa"].iloc[0] == pytest.approx(805.0)
+
+    def test_roundtrip_rc_source_sim_replays_sim_first(
+        self, tmp_path, meas_cd_default, sim_cd_default
+    ):
+        # The OTHER side (meas) carries the rep_irr filter; sim is the source.
+        # This fails under a fixed meas-before-sim load order.
+        capt = self._capt(meas_cd_default, sim_cd_default, rc_source="sim")
+        clean_meas, clean_sim = capt.meas.copy(), capt.sim.copy()
+        capt.sim.filter_irr(200, 800)
+        capt.rep_cond(which="sim")  # ct.rc from sim, rc_source='sim'
+        capt.meas.filter_irr(0.8, 1.2, ref_val="rep_irr")  # anchors on sim rep irr
+
+        reloaded = self._roundtrip(capt, tmp_path, clean_meas, clean_sim)
+
+        assert reloaded.rc_source == "sim"
+        meas_irr = [
+            s for s in reloaded.meas.filters if type(s).__name__ == "Irradiance"
+        ][-1]
+        assert meas_irr.ref_val_resolved == pytest.approx(reloaded.rc["poa"].iloc[0])
+
+    def test_load_is_config_seeded_and_silent(
+        self, tmp_path, meas_cd_default, sim_cd_default, recwarn
+    ):
+        capt = self._capt(meas_cd_default, sim_cd_default)
+        clean_meas, clean_sim = capt.meas.copy(), capt.sim.copy()
+        capt.rep_cond(which="sim")  # sim RepCond step (rc_source -> 'sim')
+        capt.rep_cond(which="meas")  # meas RepCond step (rc_source -> 'meas')
+        assert capt.rc_source == "meas"
+        recwarn.clear()
+
+        reloaded = self._roundtrip(capt, tmp_path, clean_meas, clean_sim)
+
+        # Config-seeded: meas drives despite sim also carrying a RepCond step.
+        assert reloaded.rc_source == "meas"
+        # No source-change warning during load.
+        assert not any("rc_source changed" in str(w.message) for w in recwarn)
+
+    def test_corrupted_manual_rc_in_yaml_raises_on_load(
+        self, tmp_path, meas_cd_default, sim_cd_default
+    ):
+        """from_yaml with a corrupted manual RC (missing required RHS variable)
+        must raise ValueError at load time, not silently succeed and fail later
+        at predict/rep_irr."""
+        capt = self._capt(meas_cd_default, sim_cd_default)
+        clean_meas, clean_sim = capt.meas.copy(), capt.sim.copy()
+        capt.rc = pd.DataFrame({"poa": [805.0], "t_amb": [25.0], "w_vel": [2.0]})
+        capt._meas_path = str(tmp_path / "meas.csv")
+        capt._sim_path = str(tmp_path / "sim.csv")
+        path = tmp_path / "config.yaml"
+        capt.to_yaml(path, merge_into_existing=False)
+
+        # Hand-edit: drop w_vel from reporting_conditions_values to simulate
+        # a corrupted or hand-edited YAML file.
+        with open(path) as f:
+            doc = yaml.safe_load(f)
+        del doc["captest"]["reporting_conditions_values"]["w_vel"]
+        with open(path, "w") as f:
+            yaml.safe_dump(doc, f)
+
+        with pytest.raises(ValueError, match="missing required regression"):
+            CapTest.from_yaml(
+                path,
+                meas_loader=MagicMock(return_value=clean_meas),
+                sim_loader=MagicMock(return_value=clean_sim),
             )

@@ -93,13 +93,17 @@ chain. See :doc:`filters` for the underlying step classes.
 Reporting Conditions
 --------------------
 
-Methods for computing ASTM E2848 reporting conditions.
+Methods for computing ASTM E2848 reporting conditions. ``rep_irr`` is the
+reporting POA irradiance used to anchor ``filter_irr(ref_val='rep_irr')``; within
+a :py:class:`~captest.captest.CapTest` it resolves from the single test RC. See
+:ref:`reporting_conditions` in the user guide.
 
 .. autosummary::
    :toctree: generated/
 
    capdata.CapData.rep_cond
    capdata.CapData.rep_cond_freq
+   capdata.CapData.rep_irr
 
 Regression
 ----------

@@ -1142,6 +1142,7 @@ _CAPTEST_YAML_KEYS = frozenset(
         "overrides",
         "meas_filters",
         "sim_filters",
+        "reporting_conditions_values",
     }
 )
 
@@ -1345,11 +1346,16 @@ class CapTest(param.Parameterized):
         doc="If set, partial-merged onto the preset rep_conditions at setup().",
     )
     rc_source = param.Selector(
-        objects=["meas", "sim"],
+        objects=["meas", "sim", "manual"],
         default="meas",
-        doc="Which CapData provides reporting conditions: used by "
-        "captest_results and as the source that filter_irr(ref_val='rep_irr') "
-        "resolves against on both meas and sim.",
+        doc="Provenance of the single test RC (CapTest.rc): 'meas'/'sim' when "
+        "computed from that dataset's rep_cond, or 'manual' when set directly. "
+        "Seeds the default 'which' for rep_cond. This is a provenance label "
+        "managed alongside CapTest.rc by the sanctioned mutation paths "
+        "(rep_cond / the ct.rc setter, both routed through _set_rc) and is "
+        "accepted as a construction-time config input; assigning it directly "
+        "afterward relabels provenance without changing the stored rc and is "
+        "not recommended.",
     )
 
     # Test scope / time
@@ -1553,6 +1559,161 @@ class CapTest(param.Parameterized):
         # was built from without cluttering the param surface.
         self._meas_path = None
         self._sim_path = None
+        # The single test reporting-conditions DataFrame (or None). Plain attr,
+        # not a param.*, so the `rc` property setter can validate and the
+        # `_set_rc` write point can manage provenance. `_loading` is True only
+        # during from_yaml replay (see Plan 5) to seed RC from config.
+        self._rc = None
+        self._loading = False
+
+    @property
+    def rc(self):
+        """The single test reporting-conditions DataFrame, or ``None``.
+
+        Sourced from ``meas``/``sim`` via :meth:`rep_cond` or set manually via
+        the property setter; provenance is tracked by :attr:`rc_source`. See the
+        RC-ownership design spec for the full lifecycle.
+        """
+        return self._rc
+
+    @rc.setter
+    def rc(self, value):
+        """Set the test reporting conditions manually (``rc_source='manual'``).
+
+        This is the only public way to supply reporting conditions directly —
+        e.g. for sensitivity analysis or to check results against a reviewing
+        party's values. Computed conditions go through :meth:`rep_cond` instead.
+
+        Parameters
+        ----------
+        value : pandas.DataFrame or pandas.Series or dict
+            One-row reporting conditions. A Series or dict maps each regression
+            variable to its value; a DataFrame is used as given. Must provide a
+            value for every right-hand-side variable of the (shared meas/sim)
+            regression formula. Extra columns are preserved.
+
+        Raises
+        ------
+        RuntimeError
+            If ``meas`` or ``sim`` is missing, or lacks a regression formula.
+        ValueError
+            If ``meas`` and ``sim`` have different regression formulas, if
+            ``value`` coerces to more than one row, or if ``value`` omits a
+            required right-hand-side variable.
+        TypeError
+            If ``value`` is not a DataFrame, Series, or dict.
+        """
+        self._set_rc(self._coerce_and_validate_manual_rc(value), "manual")
+
+    def _coerce_and_validate_manual_rc(self, value):
+        """Validate and coerce a candidate manual reporting-conditions value.
+
+        Shared by the public :attr:`rc` setter and the ``from_mapping`` load
+        path so that a hand-edited YAML with a missing required regression
+        variable fails fast (at load) rather than silently at predict/rep_irr.
+
+        Parameters
+        ----------
+        value : pandas.DataFrame or pandas.Series or dict
+            Candidate reporting conditions. A Series or dict maps each
+            regression variable to its value; a DataFrame is used as given.
+            Must supply a value for every right-hand-side variable of the
+            (shared meas/sim) regression formula.
+
+        Returns
+        -------
+        pandas.DataFrame
+            A validated, one-row reporting-conditions DataFrame.
+
+        Raises
+        ------
+        RuntimeError
+            If ``meas`` or ``sim`` is missing, or lacks a regression formula.
+        ValueError
+            If ``meas`` and ``sim`` have different regression formulas, if
+            ``value`` coerces to more than one row, or if ``value`` omits a
+            required right-hand-side variable.
+        TypeError
+            If ``value`` is not a DataFrame, Series, or dict.
+        """
+        self._require_regression_formula()
+        meas_fml = self.meas.regression_formula
+        sim_fml = self.sim.regression_formula
+        if meas_fml != sim_fml:
+            raise ValueError(
+                "Cannot set reporting conditions manually: meas and sim have "
+                f"different regression formulas ({meas_fml!r} vs {sim_fml!r})."
+            )
+        _, rhs = util.parse_regression_formula(meas_fml)
+        if isinstance(value, pd.DataFrame):
+            df = value.copy()
+        elif isinstance(value, pd.Series):
+            df = value.to_frame().T
+        elif isinstance(value, dict):
+            df = pd.DataFrame([value])
+        else:
+            raise TypeError(
+                "ct.rc must be a one-row DataFrame, a pandas Series, or a dict "
+                f"mapping regression variable -> value; got "
+                f"{type(value).__name__}."
+            )
+        if len(df) != 1:
+            raise ValueError(
+                f"Reporting conditions must be a single row; got {len(df)} rows."
+            )
+        missing = [var for var in rhs if var not in df.columns]
+        if missing:
+            raise ValueError(
+                "Manual reporting conditions are missing required regression "
+                f"variable(s): {missing}. Required: {rhs}."
+            )
+        return df
+
+    def _set_rc(self, rc, source, warn=True):
+        """Single internal write point for ``_rc`` and ``rc_source``.
+
+        Emits a source-change ``UserWarning`` when ``warn`` is True, an RC is
+        already set, and ``source`` differs from the current ``rc_source``
+        (silent on first establishment and same-source recompute).
+
+        Parameters
+        ----------
+        rc : pandas.DataFrame
+            One-row reporting-conditions DataFrame.
+        source : {'meas', 'sim', 'manual'}
+            Provenance to record in ``rc_source``.
+        warn : bool, default True
+            Suppress the source-change warning when False (used during load).
+        """
+        if warn and self._rc is not None and source != self.rc_source:
+            warnings.warn(
+                f"Test reporting conditions rc_source changed from "
+                f"'{self.rc_source}' to '{source}'."
+            )
+        self._rc = rc
+        self.rc_source = source
+
+    def _on_capdata_rep_cond(self, cd):
+        """Update the test RC after a member CapData computed its own ``rc``.
+
+        Called by :meth:`CapData._calc_rep_cond` when the CapData belongs to this
+        test. Runtime behavior is last-writer-wins: the calling side's ``rc``
+        becomes ``ct.rc`` and ``rc_source`` (a source-change ``UserWarning`` is
+        emitted by :meth:`_set_rc`). During ``from_yaml`` load (``_loading``
+        True) the update is config-seeded: only the configured ``rc_source``
+        side updates ``ct.rc``, silently (see Plan 5 / spec §4.7).
+
+        Parameters
+        ----------
+        cd : CapData
+            The member CapData that just (re)computed its ``rc``.
+        """
+        side = "meas" if cd is self.meas else "sim"
+        if self._loading:
+            if side == self.rc_source:
+                self._set_rc(cd.rc.copy(), side, warn=False)
+            return
+        self._set_rc(cd.rc.copy(), side, warn=True)
 
     # --- constructors ----------------------------------------------------
 
@@ -1743,7 +1904,13 @@ class CapTest(param.Parameterized):
         kwargs = {
             k: v
             for k, v in sub.items()
-            if k not in ("overrides", "meas_filters", "sim_filters")
+            if k
+            not in (
+                "overrides",
+                "meas_filters",
+                "sim_filters",
+                "reporting_conditions_values",
+            )
         }
 
         # Lift override keys into direct kwargs.
@@ -1814,11 +1981,28 @@ class CapTest(param.Parameterized):
         # try to filter un-setup data.
         meas_filters = sub.get("meas_filters")
         sim_filters = sub.get("sim_filters")
+        rc_values = sub.get("reporting_conditions_values")
         if inst._resolved_setup is not None:
-            if meas_filters and inst.meas is not None:
-                inst.meas.run_pipeline(meas_filters)
-            if sim_filters and inst.sim is not None:
-                inst.sim.run_pipeline(sim_filters)
+            # Seed a manual RC before replay so self-filtering pipelines resolve
+            # ref_val='rep_irr' against it; no RepCond step will set it. Computed
+            # RC is (re)established during replay by the configured rc_source
+            # side's RepCond step (see _on_capdata_rep_cond's _loading branch).
+            if inst.rc_source == "manual" and rc_values is not None:
+                df = inst._coerce_and_validate_manual_rc(rc_values)
+                inst._set_rc(df, "manual", warn=False)
+            # Replay the configured rc_source side FIRST so its RepCond populates
+            # ct.rc before the other side's rep_irr filters run. _loading makes
+            # the rep_cond sync config-seeded and warning-suppressed.
+            pipelines = [(inst.meas, meas_filters), (inst.sim, sim_filters)]
+            if inst.rc_source == "sim":
+                pipelines.reverse()
+            inst._loading = True
+            try:
+                for cd, filters in pipelines:
+                    if filters and cd is not None:
+                        cd.run_pipeline(filters)
+            finally:
+                inst._loading = False
         elif meas_filters or sim_filters:
             # Pipelines were serialized but setup() never ran (both meas and
             # sim must be loaded). Don't silently drop them — warn so the
@@ -1959,7 +2143,14 @@ class CapTest(param.Parameterized):
         # Decision B: when a RepCond step is in either pipeline, it is the
         # unambiguous source of reporting conditions — drop the redundant
         # overrides.rep_conditions.
-        if self.rep_conditions is not None and not has_rep_cond_step:
+        # For a manual rc_source, reporting_conditions_values (written below) is
+        # the authoritative RC; do not also serialize overrides.rep_conditions,
+        # which is only aggregation config and would read as a second RC source.
+        if (
+            self.rep_conditions is not None
+            and not has_rep_cond_step
+            and self.rc_source != "manual"
+        ):
             overrides["rep_conditions"] = _serialize_rep_conditions(self.rep_conditions)
         if overrides:
             sub["overrides"] = overrides
@@ -2005,6 +2196,16 @@ class CapTest(param.Parameterized):
             sub["meas_filters"] = meas_filters
         if sim_filters:
             sub["sim_filters"] = sim_filters
+
+        # Manual reporting conditions are data, not config: serialize their
+        # values so from_yaml can restore them (computed RC is recomputed by
+        # replaying the source pipeline's RepCond step). Numpy scalars are
+        # coerced to native python types for yaml.safe_dump.
+        if self.rc_source == "manual" and self._rc is not None:
+            row = self._rc.iloc[0]
+            sub["reporting_conditions_values"] = {
+                str(col): to_native(val) for col, val in row.items()
+            }
 
         return sub
 
@@ -2182,15 +2383,12 @@ class CapTest(param.Parameterized):
         self.meas.process_regression_columns(verbose=verbose)
         self.sim.process_regression_columns(verbose=verbose)
 
-        # Wire the reporting-conditions source onto both CapData instances so
-        # filter_irr(ref_val='rep_irr') resolves against the rc_source dataset
-        # (e.g. sim filtered around meas's reporting irradiance), regardless of
-        # which instance is being filtered. Stored as a lazy reference and read
-        # at filter time, so it reflects rep_cond() runs that happen after
-        # setup().
-        rc_source_cd = self.meas if self.rc_source == "meas" else self.sim
-        self.meas.rc_source_resolved = rc_source_cd
-        self.sim.rc_source_resolved = rc_source_cd
+        # Wire each CapData back to this CapTest so filter_irr(ref_val='rep_irr')
+        # resolves against the single test RC (ct.rc), and (Plan 3) so cd.rep_cond
+        # can update it. Runtime reference only; capdata.py never imports captest.
+        # Assigned per side so a future per-side setup can re-wire one side alone.
+        self.meas._captest = self
+        self.sim._captest = self
 
         return self
 
@@ -2275,7 +2473,7 @@ class CapTest(param.Parameterized):
         self._require_setup()
         return self._resolved_setup["scatter_plots"](cd, **kwargs)
 
-    def rep_cond(self, which="meas", **overrides):
+    def rep_cond(self, which=None, **overrides):
         """Call ``cd.rep_cond`` with the resolved preset's rep_conditions.
 
         The preset's ``rep_conditions`` dict (after any ``self.rep_conditions``
@@ -2288,8 +2486,11 @@ class CapTest(param.Parameterized):
 
         Parameters
         ----------
-        which : {'meas', 'sim'}
-            Which CapData instance's ``rep_cond`` to call.
+        which : {'meas', 'sim', None}, default None
+            Which CapData to compute reporting conditions on. When None, defaults
+            to the current ``rc_source`` if it is ``'meas'``/``'sim'``, otherwise
+            ``'meas'``. The computed conditions become the test ``rc`` (and set
+            ``rc_source`` to ``which``) via the last-writer-wins sync.
         **overrides
             Partial-merged onto the resolved ``rep_conditions`` dict.
 
@@ -2298,6 +2499,8 @@ class CapTest(param.Parameterized):
         None
             ``cd.rep_cond`` writes to ``cd.rc``.
         """
+        if which is None:
+            which = self.rc_source if self.rc_source in ("meas", "sim") else "meas"
         cd = self._pick_cd(which)
         self._require_setup()
         resolved_rc = _merge_rep_conditions(
@@ -2343,8 +2546,10 @@ class CapTest(param.Parameterized):
     def captest_results(self, check_pvalues=False, pval=0.05, print_res=True):
         """Compute the capacity test ratio for ``self.meas`` vs ``self.sim``.
 
-        Picks reporting conditions from ``self.meas.rc`` or ``self.sim.rc``
-        based on ``self.rc_source``. Uses ``self.ac_nameplate`` for the
+        Predicts both regressions at the single test reporting conditions
+        ``self.rc`` (set via :meth:`rep_cond` or the ``rc`` setter);
+        ``self.rc_source`` is reported for provenance. Raises ``ValueError``
+        if ``self.rc`` is ``None``. Uses ``self.ac_nameplate`` for the
         tested-capacity printout and ``self.test_tolerance`` (via
         ``self.determine_pass_or_fail``) for the pass/fail result.
 
@@ -2369,10 +2574,12 @@ class CapTest(param.Parameterized):
                 "CapData objects do not have the same regression formula."
             )
 
-        if self.rc_source == "meas":
-            rc = self.meas.rc
-        else:
-            rc = self.sim.rc
+        rc = self.rc
+        if rc is None:
+            raise ValueError(
+                "captest_results requires test reporting conditions. Call "
+                "ct.rep_cond(which) or assign ct.rc = df first."
+            )
 
         if print_res:
             print(f"Using reporting conditions from {self.rc_source}. \n")
@@ -2586,6 +2793,23 @@ class CapTest(param.Parameterized):
             raise RuntimeError("CapTest.meas must be set.")
         if self.sim is None:
             raise RuntimeError("CapTest.sim must be set.")
+
+    def _require_regression_formula(self):
+        """Require meas/sim present and each carrying a regression formula.
+
+        Looser than :meth:`_require_setup`: the manual ``rc`` setter only needs
+        the regression formula (to validate RHS coverage and the meas/sim
+        match), not a fully resolved ``test_setup``. This lets the "prepare each
+        CapData, then wrap them in a CapTest" workflow set reporting conditions
+        without calling :meth:`setup`.
+        """
+        self._require_meas_and_sim()
+        if self.meas.regression_formula is None or self.sim.regression_formula is None:
+            raise RuntimeError(
+                "Setting reporting conditions requires a regression formula on "
+                "meas and sim. Call CapTest.setup(), or set regression columns "
+                "on each CapData, first."
+            )
 
     def _pick_cd(self, which):
         if which == "meas":

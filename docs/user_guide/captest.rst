@@ -408,7 +408,10 @@ to apply these consistently in the filtering of the measured and simulated data.
         ref_val='rep_irr',
     )
 
-The ``ref_val='rep_irr'`` argument uses the ``CapData.rc`` attribute if it set.
+The ``ref_val='rep_irr'`` argument resolves the reference irradiance from the
+single test reporting conditions (``ct.rc``), so the measured and modeled
+filters anchor on the same value. See :ref:`reporting_conditions` for the full
+reporting-conditions model.
 
 Reviewing results
 -----------------
