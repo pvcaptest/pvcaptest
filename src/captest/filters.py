@@ -541,6 +541,47 @@ class RollingStd(BaseFilter):
         }
 
 
+class AbsDiffPrev(BaseFilter):
+    """Remove intervals with a large fractional change from the previous
+    interval (a step-change / stability filter).
+
+    For column ``c`` the test is ``abs(c.diff() / c) <= threshold``; intervals
+    above the threshold are removed. ``column`` defaults to the regression POA
+    column when None. The first interval has an undefined difference (NaN) and
+    is removed, matching the original ``filter_abs_perc_diff_prev_interval``.
+    """
+
+    _explanation_template = (
+        "Intervals where {column} changed by more than {threshold} "
+        "(fractional) from the previous interval were removed."
+    )
+
+    column = param.String(
+        default=None,
+        allow_None=True,
+        doc="Column to evaluate. Inferred from the regression POA column when None.",
+    )
+    threshold = param.Number(
+        default=0.05,
+        doc="Maximum allowed absolute fractional change from the previous "
+        "interval; intervals above this are removed.",
+    )
+
+    def _execute(self, capdata):
+        col = self.column if self.column is not None else capdata._get_poa_col()
+        self.column_resolved = col
+        df = capdata.data_filtered
+        s = df[col]
+        abs_diff = (s.diff() / s).abs()
+        return df.index[abs_diff <= self.threshold]
+
+    def _explanation_values(self):
+        return {
+            "column": getattr(self, "column_resolved", self.column),
+            "threshold": self.threshold,
+        }
+
+
 class Sensors(BaseFilter):
     """Drop rows where redundant sensors in a group disagree beyond a threshold.
 
@@ -1371,6 +1412,7 @@ class RepCond(BaseSummaryStep):
 FILTER_REGISTRY = {
     "Irradiance": Irradiance,
     "RollingStd": RollingStd,
+    "AbsDiffPrev": AbsDiffPrev,
     "Pvsyst": Pvsyst,
     "Shade": Shade,
     "Time": Time,

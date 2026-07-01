@@ -10,6 +10,7 @@ import pytest
 from captest import util
 from captest.capdata import CapData
 from captest.filters import (
+    AbsDiffPrev,
     BaseSummaryStep,
     BaseFilter,
     Clearsky,
@@ -64,6 +65,18 @@ def cd_roll():
     cd.data = pd.DataFrame(
         {"poa": [100.0, 100.0, 100.0, 500.0, 100.0, 100.0]},
         index=pd.RangeIndex(6),
+    )
+    cd.regression_cols = {"poa": "poa"}
+    return cd
+
+
+@pytest.fixture
+def cd_step():
+    """A CapData with a poa column that has one large step change."""
+    cd = CapData("step")
+    cd.data = pd.DataFrame(
+        {"poa": [100.0, 102.0, 300.0, 305.0, 310.0]},
+        index=pd.RangeIndex(5),
     )
     cd.regression_cols = {"poa": "poa"}
     return cd
@@ -768,6 +781,58 @@ class TestRollingStdWrapper:
         cd_roll.data["ghi"] = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
         cd_roll.filter_rolling_std(2, 50, column="ghi")
         assert list(cd_roll.data_filtered.index) == [1, 2, 3, 4, 5]
+
+
+class TestAbsDiffPrev:
+    def test_execute_removes_step_and_leading_nan(self, cd_step):
+        # abs(diff/col): row0 NaN (dropped), row2 ~0.66 (dropped), the rest
+        # are well under 0.05.
+        f = AbsDiffPrev(threshold=0.05, column="poa")
+        assert list(f._execute(cd_step)) == [1, 3, 4]
+
+    def test_execute_matches_oracle(self, cd_step):
+        def filter_abs_perc_diff_prev_interval(data, column, threshold=0.05):
+            return (
+                data.assign(diff=lambda x: x[column].diff())
+                .assign(abs_diff=lambda x: abs(x["diff"] / x[column]))
+                .loc[lambda x: x["abs_diff"] <= threshold]
+            )
+
+        f = AbsDiffPrev(threshold=0.05, column="poa")
+        oracle = filter_abs_perc_diff_prev_interval(cd_step.data, "poa", 0.05)
+        assert list(f._execute(cd_step)) == list(oracle.index)
+
+    def test_execute_defaults_column_to_poa(self, cd_step):
+        f = AbsDiffPrev(threshold=0.05)  # column=None -> poa
+        assert list(f._execute(cd_step)) == [1, 3, 4]
+
+    def test_threshold_defaults_to_005(self):
+        assert AbsDiffPrev().threshold == 0.05
+
+    def test_execute_larger_threshold_keeps_more(self, cd_step):
+        # threshold 0.7 keeps the ~0.66 step row too; only the NaN row drops.
+        f = AbsDiffPrev(threshold=0.7, column="poa")
+        assert list(f._execute(cd_step)) == [1, 2, 3, 4]
+
+    def test_config_round_trips(self):
+        f = AbsDiffPrev(threshold=0.1, column="poa")
+        cfg = f.to_config()
+        assert cfg["type"] == "AbsDiffPrev"
+        f2 = step_from_config(cfg)
+        assert isinstance(f2, AbsDiffPrev)
+        assert f2.threshold == 0.1
+        assert f2.column == "poa"
+
+    def test_registered_in_registry(self):
+        assert FILTER_REGISTRY["AbsDiffPrev"] is AbsDiffPrev
+
+    def test_explanation_reports_resolved_column(self, cd_step):
+        f = AbsDiffPrev(threshold=0.05)
+        f.run(cd_step)
+        assert f.explanation == (
+            "Intervals where poa changed by more than 0.05 (fractional) from "
+            "the previous interval were removed."
+        )
 
 
 class TestFilterOutliers:
