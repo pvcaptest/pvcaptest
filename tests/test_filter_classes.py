@@ -22,6 +22,7 @@ from captest.filters import (
     Power,
     Pvsyst,
     Regression,
+    RollingStd,
     Sensors,
     Shade,
     Time,
@@ -51,6 +52,18 @@ def cd_irr():
     cd.data = pd.DataFrame(
         {"poa": [100.0, 300.0, 500.0, 700.0, 900.0]},
         index=pd.RangeIndex(5),
+    )
+    cd.regression_cols = {"poa": "poa"}
+    return cd
+
+
+@pytest.fixture
+def cd_roll():
+    """A CapData with a poa column that has a stable stretch and a spike."""
+    cd = CapData("roll")
+    cd.data = pd.DataFrame(
+        {"poa": [100.0, 100.0, 100.0, 500.0, 100.0, 100.0]},
+        index=pd.RangeIndex(6),
     )
     cd.regression_cols = {"poa": "poa"}
     return cd
@@ -683,6 +696,54 @@ class TestFilterCustomWrapper:
     def test_wrapper_passes_args_kwargs_to_func(self, cd_irr):
         cd_irr.filter_custom(_gt_threshold, threshold=400)
         assert list(cd_irr.data_filtered.index) == [2, 3, 4]
+
+
+class TestRollingStd:
+    def test_execute_removes_unstable_and_leading_nan(self, cd_roll):
+        # window=2: rolling std is NaN at row 0 (dropped), 0 on the stable
+        # rows, and large where the spike enters/leaves (rows 3, 4 dropped).
+        f = RollingStd(window=2, threshold=50, column="poa")
+        assert list(f._execute(cd_roll)) == [1, 2, 5]
+
+    def test_execute_matches_oracle(self, cd_roll):
+        def unstable_irr_filter(df, irr_col, window, threshold):
+            std = df[irr_col].rolling(window).std()
+            return df[std < threshold]
+
+        f = RollingStd(window=2, threshold=50, column="poa")
+        oracle = unstable_irr_filter(cd_roll.data, "poa", 2, 50)
+        assert list(f._execute(cd_roll)) == list(oracle.index)
+
+    def test_execute_defaults_column_to_poa(self, cd_roll):
+        f = RollingStd(window=2, threshold=50)  # column=None -> poa
+        assert list(f._execute(cd_roll)) == [1, 2, 5]
+
+    def test_execute_requires_window_and_threshold(self, cd_roll):
+        with pytest.raises(ValueError, match="window and threshold"):
+            RollingStd(threshold=50, column="poa")._execute(cd_roll)
+        with pytest.raises(ValueError, match="window and threshold"):
+            RollingStd(window=2, column="poa")._execute(cd_roll)
+
+    def test_config_round_trips(self):
+        f = RollingStd(window="10min", threshold=20, column="poa")
+        cfg = f.to_config()
+        assert cfg["type"] == "RollingStd"
+        f2 = step_from_config(cfg)
+        assert isinstance(f2, RollingStd)
+        assert f2.window == "10min"
+        assert f2.threshold == 20
+        assert f2.column == "poa"
+
+    def test_registered_in_registry(self):
+        assert FILTER_REGISTRY["RollingStd"] is RollingStd
+
+    def test_explanation_reports_resolved_column(self, cd_roll):
+        f = RollingStd(window=2, threshold=50)
+        f.run(cd_roll)
+        assert f.explanation == (
+            "Intervals where the rolling std (window=2) of poa was at or "
+            "above 50 were removed."
+        )
 
     def test_wrapper_custom_name_kwarg_is_kwonly(self, cd_irr):
         cd_irr.filter_custom(_drop_first, custom_name="prune")

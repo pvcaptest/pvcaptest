@@ -492,6 +492,55 @@ class Irradiance(BaseFilter):
         }
 
 
+class RollingStd(BaseFilter):
+    """Remove intervals where a column's rolling-window standard deviation is
+    at or above ``threshold`` (unstable / variable irradiance).
+
+    ``column`` defaults to the regression POA column when None. ``window`` is
+    passed to ``DataFrame.rolling`` and may be an int row count or a pandas
+    offset alias (e.g. ``'10min'``). The leading rows of the window produce a
+    NaN std and are removed, matching the original ``unstable_irr_filter``.
+    """
+
+    _explanation_template = (
+        "Intervals where the rolling std (window={window}) of {column} was at "
+        "or above {threshold} were removed."
+    )
+
+    column = param.String(
+        default=None,
+        allow_None=True,
+        doc="Column to evaluate. Inferred from the regression POA column when None.",
+    )
+    window = param.Parameter(
+        default=None,
+        doc="Rolling window: int row count or pandas offset alias (e.g. "
+        "'10min'). Passed to DataFrame.rolling.",
+    )
+    threshold = param.Number(
+        default=None,
+        allow_None=True,
+        doc="Standard-deviation threshold; intervals whose rolling std is at "
+        "or above this are removed.",
+    )
+
+    def _execute(self, capdata):
+        if self.window is None or self.threshold is None:
+            raise ValueError("RollingStd requires both window and threshold.")
+        col = self.column if self.column is not None else capdata._get_poa_col()
+        self.column_resolved = col
+        df = capdata.data_filtered
+        std = df[col].rolling(self.window).std()
+        return df.index[std < self.threshold]
+
+    def _explanation_values(self):
+        return {
+            "window": self.window,
+            "column": getattr(self, "column_resolved", self.column),
+            "threshold": self.threshold,
+        }
+
+
 class Sensors(BaseFilter):
     """Drop rows where redundant sensors in a group disagree beyond a threshold.
 
@@ -1321,6 +1370,7 @@ class RepCond(BaseSummaryStep):
 
 FILTER_REGISTRY = {
     "Irradiance": Irradiance,
+    "RollingStd": RollingStd,
     "Pvsyst": Pvsyst,
     "Shade": Shade,
     "Time": Time,
