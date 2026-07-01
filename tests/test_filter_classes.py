@@ -750,6 +750,26 @@ class TestRollingStd:
         )
 
 
+class TestRollingStdWrapper:
+    def test_wrapper_records_step(self, cd_roll):
+        cd_roll.filter_rolling_std(2, 50)
+        assert len(cd_roll.filters) == 1
+        assert isinstance(cd_roll.filters[0], RollingStd)
+
+    def test_wrapper_filters_data(self, cd_roll):
+        cd_roll.filter_rolling_std(2, 50)
+        assert list(cd_roll.data_filtered.index) == [1, 2, 5]
+
+    def test_wrapper_custom_name_sets_step_label(self, cd_roll):
+        cd_roll.filter_rolling_std(2, 50, custom_name="stability")
+        assert cd_roll.filters[-1].custom_name == "stability"
+
+    def test_wrapper_explicit_column(self, cd_roll):
+        cd_roll.data["ghi"] = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+        cd_roll.filter_rolling_std(2, 50, column="ghi")
+        assert list(cd_roll.data_filtered.index) == [1, 2, 3, 4, 5]
+
+
 class TestFilterOutliers:
     def test_execute_removes_outliers(self, cd_pp):
         # Default contamination=0.04 on n=50 removes 2 points; verified

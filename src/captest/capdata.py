@@ -46,6 +46,7 @@ from captest.filters import (
     Power,
     Pvsyst,
     Regression,
+    RollingStd,
     Sensors,
     Shade,
     Time,
@@ -1760,6 +1761,31 @@ class CapData(param.Parameterized):
             high=high,
             ref_val=ref_val,
             col_name=col_name,
+            custom_name=custom_name,
+        )
+        flt.run(self)
+
+    def filter_rolling_std(self, window, threshold, column=None, custom_name=None):
+        """Remove intervals where a column's rolling std is at or above a threshold.
+
+        Parameters
+        ----------
+        window : int or str
+            Rolling window passed to ``DataFrame.rolling`` — an int row count or
+            a pandas offset alias such as ``'10min'``.
+        threshold : float
+            Intervals whose rolling standard deviation is at or above this value
+            are removed.
+        column : str, default None
+            Column to evaluate. Defaults to the POA column from
+            ``regression_cols``.
+        custom_name : str, default None
+            Optional display label for the recorded filter step.
+        """
+        flt = RollingStd(
+            window=window,
+            threshold=threshold,
+            column=column,
             custom_name=custom_name,
         )
         flt.run(self)
