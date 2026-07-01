@@ -835,6 +835,31 @@ class TestAbsDiffPrev:
         )
 
 
+class TestAbsDiffPrevWrapper:
+    def test_wrapper_records_step(self, cd_step):
+        cd_step.filter_abs_diff_prev(0.05)
+        assert len(cd_step.filters) == 1
+        assert isinstance(cd_step.filters[0], AbsDiffPrev)
+
+    def test_wrapper_filters_data(self, cd_step):
+        cd_step.filter_abs_diff_prev(0.05)
+        assert list(cd_step.data_filtered.index) == [1, 3, 4]
+
+    def test_wrapper_default_threshold(self, cd_step):
+        cd_step.filter_abs_diff_prev()  # default 0.05
+        assert list(cd_step.data_filtered.index) == [1, 3, 4]
+
+    def test_wrapper_custom_name_sets_step_label(self, cd_step):
+        cd_step.filter_abs_diff_prev(0.05, custom_name="stability")
+        assert cd_step.filters[-1].custom_name == "stability"
+
+    def test_wrapper_explicit_column(self, cd_step):
+        cd_step.data["ghi"] = [500.0, 500.0, 500.0, 500.0, 500.0]
+        cd_step.filter_abs_diff_prev(0.05, column="ghi")
+        # ghi is constant -> only the leading-NaN row drops.
+        assert list(cd_step.data_filtered.index) == [1, 2, 3, 4]
+
+
 class TestFilterOutliers:
     def test_execute_removes_outliers(self, cd_pp):
         # Default contamination=0.04 on n=50 removes 2 points; verified

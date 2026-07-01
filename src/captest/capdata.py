@@ -35,6 +35,7 @@ import param
 from captest import util
 from captest import plotting
 from captest.filters import (
+    AbsDiffPrev,
     BaseSummaryStep,
     Clearsky,
     Custom,
@@ -1788,6 +1789,24 @@ class CapData(param.Parameterized):
             column=column,
             custom_name=custom_name,
         )
+        flt.run(self)
+
+    def filter_abs_diff_prev(self, threshold=0.05, column=None, custom_name=None):
+        """Remove intervals with a large fractional change from the prior interval.
+
+        Parameters
+        ----------
+        threshold : float, default 0.05
+            Maximum allowed absolute fractional change
+            (``abs(col.diff() / col)``) from the previous interval. Intervals
+            above this are removed.
+        column : str, default None
+            Column to evaluate. Defaults to the POA column from
+            ``regression_cols``.
+        custom_name : str, default None
+            Optional display label for the recorded filter step.
+        """
+        flt = AbsDiffPrev(threshold=threshold, column=column, custom_name=custom_name)
         flt.run(self)
 
     def filter_pvsyst(self, custom_name=None):
