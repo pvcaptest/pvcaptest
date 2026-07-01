@@ -263,7 +263,8 @@ strict `>`, documented in the wrapper docstring. The step serializes as an
 
 ## Testing
 
-Following existing patterns in `tests/test_filters.py` / `tests/test_CapData.py`:
+Following existing patterns in `tests/test_filter_classes.py` (step classes) and
+`tests/test_CapData.py` (`filter_*` wrappers):
 
 - **Parity tests:** each new filter vs. the original notebook function as an
   oracle on a fixture frame, including the leading-`NaN` drop behavior for
@@ -305,5 +306,5 @@ Handled at implementation time via the `docs-update` skill:
 - `src/captest/capdata.py` — imports + six wrappers
   (`filter_rolling_std`, `filter_abs_diff_prev`, `filter_flag`,
   `filter_threshold`, `filter_sensors` updated, `filter_sensors_abs_diff`).
-- `tests/test_filters.py`, `tests/test_CapData.py` — new tests.
-- Docs (user guide + changelog) at implementation time.
+- `tests/test_filter_classes.py`, `tests/test_CapData.py` — new tests.
+- Docs (user guide + `docs/changelog.md`) at implementation time.
