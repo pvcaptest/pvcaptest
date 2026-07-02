@@ -930,6 +930,25 @@ class TestBooleanFlag:
         assert BooleanFlag(column="backtrack_on").explanation is None
 
 
+class TestBooleanFlagWrapper:
+    def test_wrapper_records_step(self, cd_flag):
+        cd_flag.filter_flag("backtrack_on")
+        assert len(cd_flag.filters) == 1
+        assert isinstance(cd_flag.filters[0], BooleanFlag)
+
+    def test_wrapper_filters_data(self, cd_flag):
+        cd_flag.filter_flag("backtrack_on")
+        assert list(cd_flag.data_filtered.index) == [0, 2, 4]
+
+    def test_wrapper_invert(self, cd_flag):
+        cd_flag.filter_flag("backtrack_on", invert=True)
+        assert list(cd_flag.data_filtered.index) == [1, 3]
+
+    def test_wrapper_custom_name_sets_step_label(self, cd_flag):
+        cd_flag.filter_flag("backtrack_on", custom_name="no backtracking")
+        assert cd_flag.filters[-1].custom_name == "no backtracking"
+
+
 class TestFilterOutliers:
     def test_execute_removes_outliers(self, cd_pp):
         # Default contamination=0.04 on n=50 removes 2 points; verified

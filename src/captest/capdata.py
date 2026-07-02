@@ -37,6 +37,7 @@ from captest import plotting
 from captest.filters import (
     AbsDiffPrev,
     BaseSummaryStep,
+    BooleanFlag,
     Clearsky,
     Custom,
     Days,
@@ -1807,6 +1808,22 @@ class CapData(param.Parameterized):
             Optional display label for the recorded filter step.
         """
         flt = AbsDiffPrev(threshold=threshold, column=column, custom_name=custom_name)
+        flt.run(self)
+
+    def filter_flag(self, column, invert=False, custom_name=None):
+        """Remove intervals where a boolean/flag column is truthy.
+
+        Parameters
+        ----------
+        column : str
+            Boolean/flag column. Rows where this is truthy are removed.
+        invert : bool, default False
+            If True, remove rows where the column is falsy instead — keeping
+            only the truthy rows.
+        custom_name : str, default None
+            Optional display label for the recorded filter step.
+        """
+        flt = BooleanFlag(column=column, invert=invert, custom_name=custom_name)
         flt.run(self)
 
     def filter_pvsyst(self, custom_name=None):
