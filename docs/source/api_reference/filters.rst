@@ -52,6 +52,9 @@ Each step removes rows from ``CapData.data_filtered``. The corresponding
    filters.Sensors
    filters.Clearsky
    filters.Missing
+   filters.RollingStd
+   filters.AbsDiffPrev
+   filters.BooleanFlag
    filters.Regression
 
 Reporting Conditions

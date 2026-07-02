@@ -414,7 +414,7 @@ class Irradiance(BaseFilter):
     """
 
     _explanation_template = (
-        "Intervals where {col_name} is below {low} or above {high} W/m^2 were removed."
+        "Intervals where {col_name} is below {low} or above {high}{units} were removed."
     )
 
     low = param.Number(
@@ -436,6 +436,12 @@ class Irradiance(BaseFilter):
         default=None,
         allow_None=True,
         doc="Irradiance column to filter. Inferred from regression_cols if None.",
+    )
+    units = param.String(
+        default="W/m^2",
+        allow_None=True,
+        doc="Unit label appended to the summary explanation. None/empty omits "
+        "it — used by filter_threshold for non-irradiance columns.",
     )
 
     def _execute(self, capdata):
@@ -481,6 +487,9 @@ class Irradiance(BaseFilter):
         resolved = getattr(self, "ref_val_resolved", None)
         if resolved is not None:
             vals["ref_val"] = resolved
+        # ``units`` only affects explanation wording; keep it out of the
+        # summary's filter_arguments column.
+        vals.pop("units", None)
         return vals
 
     def _explanation_values(self):
@@ -489,33 +498,184 @@ class Irradiance(BaseFilter):
             "col_name": self.col_name_resolved,
             "low": self.low_effective,
             "high": self.high_effective,
+            "units": f" {self.units}" if self.units else "",
         }
+
+
+class RollingStd(BaseFilter):
+    """Remove intervals where a column's rolling-window standard deviation is
+    at or above ``threshold`` (unstable / variable irradiance).
+
+    ``column`` defaults to the regression POA column when None. ``window`` is
+    passed to ``DataFrame.rolling`` and may be an int row count or a pandas
+    offset alias (e.g. ``'10min'``). The leading rows of the window produce a
+    NaN std and are removed, matching the original ``unstable_irr_filter``.
+    """
+
+    _explanation_template = (
+        "Intervals where the rolling std (window={window}) of {column} was at "
+        "or above {threshold} were removed."
+    )
+
+    column = param.String(
+        default=None,
+        allow_None=True,
+        doc="Column to evaluate. Inferred from the regression POA column when None.",
+    )
+    window = param.Parameter(
+        default=None,
+        doc="Rolling window: int row count or pandas offset alias (e.g. "
+        "'10min'). Passed to DataFrame.rolling.",
+    )
+    threshold = param.Number(
+        default=None,
+        allow_None=True,
+        doc="Standard-deviation threshold; intervals whose rolling std is at "
+        "or above this are removed.",
+    )
+
+    def _execute(self, capdata):
+        if self.window is None or self.threshold is None:
+            raise ValueError("RollingStd requires both window and threshold.")
+        col = self.column if self.column is not None else capdata._get_poa_col()
+        self.column_resolved = col
+        df = capdata.data_filtered
+        std = df[col].rolling(self.window).std()
+        return df.index[std < self.threshold]
+
+    def _explanation_values(self):
+        return {
+            "window": self.window,
+            "column": getattr(self, "column_resolved", self.column),
+            "threshold": self.threshold,
+        }
+
+
+class AbsDiffPrev(BaseFilter):
+    """Remove intervals with a large fractional change from the previous
+    interval (a step-change / stability filter).
+
+    For column ``c`` the test is ``abs(c.diff() / c) <= threshold``; intervals
+    above the threshold are removed. ``column`` defaults to the regression POA
+    column when None. The first interval has an undefined difference (NaN) and
+    is removed, matching the original ``filter_abs_perc_diff_prev_interval``.
+    """
+
+    _explanation_template = (
+        "Intervals where {column} changed by more than {threshold} "
+        "(fractional) from the previous interval were removed."
+    )
+
+    column = param.String(
+        default=None,
+        allow_None=True,
+        doc="Column to evaluate. Inferred from the regression POA column when None.",
+    )
+    threshold = param.Number(
+        default=0.05,
+        doc="Maximum allowed absolute fractional change from the previous "
+        "interval; intervals above this are removed.",
+    )
+
+    def _execute(self, capdata):
+        col = self.column if self.column is not None else capdata._get_poa_col()
+        self.column_resolved = col
+        df = capdata.data_filtered
+        s = df[col]
+        abs_diff = (s.diff() / s).abs()
+        return df.index[abs_diff <= self.threshold]
+
+    def _explanation_values(self):
+        return {
+            "column": getattr(self, "column_resolved", self.column),
+            "threshold": self.threshold,
+        }
+
+
+class BooleanFlag(BaseFilter):
+    """Remove intervals where a boolean/flag column is truthy.
+
+    ``column`` values are coerced with ``astype(bool)`` so 0/1, real booleans,
+    and NaN (which is truthy) are handled uniformly. By default rows where the
+    column is truthy are removed; set ``invert=True`` to instead remove rows
+    where the column is falsy (keeping only the truthy rows).
+    """
+
+    column = param.String(
+        default=None,
+        allow_None=True,
+        doc="Boolean/flag column. Rows where this is truthy are removed (or "
+        "falsy, when invert=True).",
+    )
+    invert = param.Boolean(
+        default=False,
+        doc="If True, remove rows where the column is falsy instead of truthy.",
+    )
+
+    def _execute(self, capdata):
+        if self.column is None:
+            raise ValueError("BooleanFlag requires a column.")
+        df = capdata.data_filtered
+        mask = df[self.column].astype(bool)
+        keep = mask if self.invert else ~mask
+        return df.index[keep]
+
+    @property
+    def explanation(self):
+        if not hasattr(self, "ix_after"):
+            return None
+        flagged = "False" if self.invert else "True"
+        return f"Intervals flagged {flagged} in {self.column} were removed."
 
 
 class Sensors(BaseFilter):
     """Drop rows where redundant sensors in a group disagree beyond a threshold.
 
-    For each sensor group named in ``perc_diff``, ``row_filter`` is applied
-    across that group's columns row-by-row; rows flagged inconsistent are
-    removed. Ignores columns generated by ``agg_sensors`` by operating on the
-    pre-aggregation columns when present.
+    For each sensor group named in ``thresholds``, a row-wise comparison
+    (selected by ``method``) is applied across that group's columns; rows
+    flagged inconsistent are removed. Ignores columns generated by
+    ``agg_sensors`` by operating on the pre-aggregation columns when present.
     """
 
     _explanation_template = (
         "Rows with inconsistent readings within sensor group(s) {groups} "
-        "(compared using {row_filter}) were removed."
+        "(compared using {method}) were removed."
     )
 
-    perc_diff = param.Dict(
+    # String name -> row-filter callable. A callable assigned to ``method``
+    # directly bypasses this table (the custom third option).
+    _BUILTIN_COMPARISONS = {
+        "percent_diff": check_all_perc_diff_comb,
+        "abs_diff": abs_diff_from_average,
+    }
+
+    method = param.Selector(
+        default="percent_diff",
+        objects=["percent_diff", "abs_diff"],
+        check_on_set=False,
+        doc="Sensor-comparison method: 'percent_diff' (pairwise percent "
+        "difference) or 'abs_diff' (absolute difference from the group "
+        "average). A callable with signature func(series, threshold) -> bool "
+        "may also be assigned for a custom comparison.",
+    )
+    thresholds = param.Dict(
         default=None,
         allow_None=True,
-        doc="Map of sensor-group key -> percent-difference threshold "
-        "(e.g. {'irr-poa-': 0.05}). None uses {<poa group>: 0.05}.",
+        doc="Map of sensor-group key -> threshold (e.g. {'irr-poa-': 0.05}). "
+        "Values are decimal fractions for 'percent_diff' or absolute units "
+        "for 'abs_diff'. None defaults to {<poa group>: 0.05} for "
+        "'percent_diff'; other methods require an explicit dict.",
     )
-    row_filter = param.Callable(
-        default=check_all_perc_diff_comb,
-        doc="Row-wise consistency check applied across a group's columns.",
-    )
+
+    def _resolve_comparison(self):
+        if callable(self.method):
+            return self.method
+        return self._BUILTIN_COMPARISONS[self.method]
+
+    def _method_label(self):
+        if callable(self.method):
+            return self.method.__name__
+        return self.method
 
     def _execute(self, capdata):
         if capdata.pre_agg_cols is not None:
@@ -527,47 +687,57 @@ class Sensors(BaseFilter):
             trans = capdata.column_groups
             regression_cols = capdata.regression_cols
 
-        perc_diff = self.perc_diff
-        if perc_diff is None:
-            perc_diff = {regression_cols["poa"]: 0.05}
-        if not perc_diff:
-            raise ValueError("perc_diff must not be empty")
-        self.perc_diff_resolved = perc_diff
+        thresholds = self.thresholds
+        if thresholds is None:
+            if self.method == "percent_diff":
+                thresholds = {regression_cols["poa"]: 0.05}
+            else:
+                raise ValueError(
+                    "thresholds is required when method is not 'percent_diff'."
+                )
+        if not thresholds:
+            raise ValueError("thresholds must not be empty")
+        self.thresholds_resolved = thresholds
 
+        comparison = self._resolve_comparison()
         index = None
-        for key, threshold in perc_diff.items():
+        for key, threshold in thresholds.items():
             sensors_df = df[trans[key]]
-            next_index = sensor_filter(
-                sensors_df, threshold, row_filter=self.row_filter
-            )
+            next_index = sensor_filter(sensors_df, threshold, row_filter=comparison)
             index = next_index if index is None else index.intersection(next_index)
         return index
 
     def _args_for_repr(self):
         vals = dict(self.param.values())
-        vals["row_filter"] = self.row_filter.__name__
-        resolved = getattr(self, "perc_diff_resolved", None)
+        vals["method"] = self._method_label()
+        resolved = getattr(self, "thresholds_resolved", None)
         if resolved is not None:
-            vals["perc_diff"] = resolved
+            vals["thresholds"] = resolved
         return vals
 
     def _explanation_values(self):
         return {
-            "groups": ", ".join(self.perc_diff_resolved),
-            "row_filter": self.row_filter.__name__,
+            "groups": ", ".join(self.thresholds_resolved),
+            "method": self._method_label(),
         }
 
     def to_config(self):
         config = super().to_config()
-        config["row_filter"] = util.callable_to_qualname(self.row_filter)
+        if callable(self.method):
+            config["method"] = util.callable_to_qualname(self.method)
+        else:
+            config["method"] = self.method
         return config
 
     @classmethod
     def from_config(cls, config):
         config = dict(config)
         config.pop("type", None)
-        if isinstance(config.get("row_filter"), str):
-            config["row_filter"] = util.callable_from_qualname(config["row_filter"])
+        method = config.get("method")
+        # A qualname-encoded custom callable contains ':'; a built-in name
+        # ('percent_diff'/'abs_diff') is left as the plain string.
+        if isinstance(method, str) and ":" in method:
+            config["method"] = util.callable_from_qualname(method)
         return cls(**config)
 
 
@@ -1321,6 +1491,9 @@ class RepCond(BaseSummaryStep):
 
 FILTER_REGISTRY = {
     "Irradiance": Irradiance,
+    "RollingStd": RollingStd,
+    "AbsDiffPrev": AbsDiffPrev,
+    "BooleanFlag": BooleanFlag,
     "Pvsyst": Pvsyst,
     "Shade": Shade,
     "Time": Time,

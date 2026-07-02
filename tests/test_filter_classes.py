@@ -10,8 +10,10 @@ import pytest
 from captest import util
 from captest.capdata import CapData
 from captest.filters import (
+    AbsDiffPrev,
     BaseSummaryStep,
     BaseFilter,
+    BooleanFlag,
     Clearsky,
     Custom,
     Days,
@@ -22,12 +24,12 @@ from captest.filters import (
     Power,
     Pvsyst,
     Regression,
+    RollingStd,
     Sensors,
     Shade,
     Time,
     RepCond,
     abs_diff_from_average,
-    check_all_perc_diff_comb,
 )
 from captest.filters import FILTER_REGISTRY, step_from_config
 
@@ -50,6 +52,30 @@ def cd_irr():
     cd = CapData("irr")
     cd.data = pd.DataFrame(
         {"poa": [100.0, 300.0, 500.0, 700.0, 900.0]},
+        index=pd.RangeIndex(5),
+    )
+    cd.regression_cols = {"poa": "poa"}
+    return cd
+
+
+@pytest.fixture
+def cd_roll():
+    """A CapData with a poa column that has a stable stretch and a spike."""
+    cd = CapData("roll")
+    cd.data = pd.DataFrame(
+        {"poa": [100.0, 100.0, 100.0, 500.0, 100.0, 100.0]},
+        index=pd.RangeIndex(6),
+    )
+    cd.regression_cols = {"poa": "poa"}
+    return cd
+
+
+@pytest.fixture
+def cd_step():
+    """A CapData with a poa column that has one large step change."""
+    cd = CapData("step")
+    cd.data = pd.DataFrame(
+        {"poa": [100.0, 102.0, 300.0, 305.0, 310.0]},
         index=pd.RangeIndex(5),
     )
     cd.regression_cols = {"poa": "poa"}
@@ -102,6 +128,34 @@ def cd_pp():
     cd = CapData("pp")
     cd.data = pd.DataFrame({"poa": poa, "power": power}, index=pd.RangeIndex(n))
     cd.regression_cols = {"poa": "poa", "power": "power"}
+    return cd
+
+
+@pytest.fixture
+def cd_flag():
+    """A CapData with a boolean flag column (e.g. tracker backtracking)."""
+    cd = CapData("flag")
+    cd.data = pd.DataFrame(
+        {
+            "power": [1.0, 2.0, 3.0, 4.0, 5.0],
+            "backtrack_on": [False, True, False, True, False],
+        },
+        index=pd.RangeIndex(5),
+    )
+    return cd
+
+
+@pytest.fixture
+def cd_thresh():
+    """A CapData with an availability column and a temperature column."""
+    cd = CapData("thresh")
+    cd.data = pd.DataFrame(
+        {
+            "avail": [95.0, 97.4, 98.0, 99.0, 100.0],
+            "temp": [30.0, 40.0, 45.0, 50.0, 35.0],
+        },
+        index=pd.RangeIndex(5),
+    )
     return cd
 
 
@@ -395,44 +449,58 @@ class TestDescribeFilters:
 
 
 class TestFilterSensors:
-    def test_execute_default_perc_diff_resolves(self, capdata_irr):
+    def test_execute_default_thresholds_resolves(self, capdata_irr):
         capdata_irr.regression_cols = {"poa": "poa"}
         f = Sensors()
         kept = f._execute(capdata_irr)
         # tightly-clustered random data (876-900) is within the 5% default,
         # so no rows are removed
         assert list(kept) == list(capdata_irr.data_filtered.index)
-        assert f.perc_diff_resolved == {"poa": 0.05}
+        assert f.thresholds_resolved == {"poa": 0.05}
 
-    def test_execute_explicit_row_filter_drops_outliers(self, capdata_irr):
+    def test_method_defaults_to_percent_diff(self):
+        assert Sensors().method == "percent_diff"
+
+    def test_execute_abs_diff_method_drops_outliers(self, capdata_irr):
         capdata_irr.data.iloc[0, 2] = 926
         capdata_irr.data.iloc[3, 0] = 850
-        f = Sensors(perc_diff={"poa": 25}, row_filter=abs_diff_from_average)
+        f = Sensors(method="abs_diff", thresholds={"poa": 25})
         kept = f._execute(capdata_irr)
         assert len(kept) == capdata_irr.data.shape[0] - 2
 
-    def test_row_filter_defaults_to_check_all_perc_diff_comb(self):
-        assert Sensors().row_filter is check_all_perc_diff_comb
+    def test_execute_custom_callable_method(self, capdata_irr):
+        capdata_irr.data.iloc[0, 2] = 926
+        capdata_irr.data.iloc[3, 0] = 850
+        f = Sensors(method=abs_diff_from_average, thresholds={"poa": 25})
+        assert f._resolve_comparison() is abs_diff_from_average
+        kept = f._execute(capdata_irr)
+        assert len(kept) == capdata_irr.data.shape[0] - 2
 
-    def test_args_repr_renders_row_filter_by_name(self):
-        f = Sensors(perc_diff={"poa": 0.05})
+    def test_execute_abs_diff_without_thresholds_raises(self, capdata_irr):
+        capdata_irr.regression_cols = {"poa": "poa"}
+        f = Sensors(method="abs_diff")
+        with pytest.raises(ValueError, match="thresholds is required"):
+            f._execute(capdata_irr)
+
+    def test_execute_empty_thresholds_raises(self, capdata_irr):
+        f = Sensors(thresholds={})
+        with pytest.raises(ValueError, match="must not be empty"):
+            f._execute(capdata_irr)
+
+    def test_args_repr_renders_method_name(self):
+        f = Sensors(thresholds={"poa": 0.05})
         args = f.args_repr
-        assert "row_filter=check_all_perc_diff_comb" in args
+        assert "method=percent_diff" in args
         assert "<function" not in args
 
-    def test_explanation_names_group_and_row_filter(self, capdata_irr):
+    def test_explanation_names_group_and_method(self, capdata_irr):
         capdata_irr.regression_cols = {"poa": "poa"}
         f = Sensors()
         f.run(capdata_irr)
         exp = f.explanation
         assert "poa" in exp
-        assert "check_all_perc_diff_comb" in exp
+        assert "percent_diff" in exp
         assert exp.endswith("were removed.")
-
-    def test_execute_empty_perc_diff_raises(self, capdata_irr):
-        f = Sensors(perc_diff={})
-        with pytest.raises(ValueError, match="must not be empty"):
-            f._execute(capdata_irr)
 
     def test_explanation_before_run_returns_none(self):
         # explanation is post-run; reading it before run() must not raise
@@ -687,6 +755,269 @@ class TestFilterCustomWrapper:
     def test_wrapper_custom_name_kwarg_is_kwonly(self, cd_irr):
         cd_irr.filter_custom(_drop_first, custom_name="prune")
         assert cd_irr.filters[0].custom_name == "prune"
+
+
+class TestRollingStd:
+    def test_execute_removes_unstable_and_leading_nan(self, cd_roll):
+        # window=2: rolling std is NaN at row 0 (dropped), 0 on the stable
+        # rows, and large where the spike enters/leaves (rows 3, 4 dropped).
+        f = RollingStd(window=2, threshold=50, column="poa")
+        assert list(f._execute(cd_roll)) == [1, 2, 5]
+
+    def test_execute_matches_oracle(self, cd_roll):
+        def unstable_irr_filter(df, irr_col, window, threshold):
+            std = df[irr_col].rolling(window).std()
+            return df[std < threshold]
+
+        f = RollingStd(window=2, threshold=50, column="poa")
+        oracle = unstable_irr_filter(cd_roll.data, "poa", 2, 50)
+        assert list(f._execute(cd_roll)) == list(oracle.index)
+
+    def test_execute_defaults_column_to_poa(self, cd_roll):
+        f = RollingStd(window=2, threshold=50)  # column=None -> poa
+        assert list(f._execute(cd_roll)) == [1, 2, 5]
+
+    def test_execute_requires_window_and_threshold(self, cd_roll):
+        with pytest.raises(ValueError, match="window and threshold"):
+            RollingStd(threshold=50, column="poa")._execute(cd_roll)
+        with pytest.raises(ValueError, match="window and threshold"):
+            RollingStd(window=2, column="poa")._execute(cd_roll)
+
+    def test_config_round_trips(self):
+        f = RollingStd(window="10min", threshold=20, column="poa")
+        cfg = f.to_config()
+        assert cfg["type"] == "RollingStd"
+        f2 = step_from_config(cfg)
+        assert isinstance(f2, RollingStd)
+        assert f2.window == "10min"
+        assert f2.threshold == 20
+        assert f2.column == "poa"
+
+    def test_registered_in_registry(self):
+        assert FILTER_REGISTRY["RollingStd"] is RollingStd
+
+    def test_explanation_reports_resolved_column(self, cd_roll):
+        f = RollingStd(window=2, threshold=50)
+        f.run(cd_roll)
+        assert f.explanation == (
+            "Intervals where the rolling std (window=2) of poa was at or "
+            "above 50 were removed."
+        )
+
+
+class TestRollingStdWrapper:
+    def test_wrapper_records_step(self, cd_roll):
+        cd_roll.filter_rolling_std(2, 50)
+        assert len(cd_roll.filters) == 1
+        assert isinstance(cd_roll.filters[0], RollingStd)
+
+    def test_wrapper_filters_data(self, cd_roll):
+        cd_roll.filter_rolling_std(2, 50)
+        assert list(cd_roll.data_filtered.index) == [1, 2, 5]
+
+    def test_wrapper_custom_name_sets_step_label(self, cd_roll):
+        cd_roll.filter_rolling_std(2, 50, custom_name="stability")
+        assert cd_roll.filters[-1].custom_name == "stability"
+
+    def test_wrapper_explicit_column(self, cd_roll):
+        cd_roll.data["ghi"] = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+        cd_roll.filter_rolling_std(2, 50, column="ghi")
+        assert list(cd_roll.data_filtered.index) == [1, 2, 3, 4, 5]
+
+
+class TestAbsDiffPrev:
+    def test_execute_removes_step_and_leading_nan(self, cd_step):
+        # abs(diff/col): row0 NaN (dropped), row2 ~0.66 (dropped), the rest
+        # are well under 0.05.
+        f = AbsDiffPrev(threshold=0.05, column="poa")
+        assert list(f._execute(cd_step)) == [1, 3, 4]
+
+    def test_execute_matches_oracle(self, cd_step):
+        def filter_abs_perc_diff_prev_interval(data, column, threshold=0.05):
+            return (
+                data.assign(diff=lambda x: x[column].diff())
+                .assign(abs_diff=lambda x: abs(x["diff"] / x[column]))
+                .loc[lambda x: x["abs_diff"] <= threshold]
+            )
+
+        f = AbsDiffPrev(threshold=0.05, column="poa")
+        oracle = filter_abs_perc_diff_prev_interval(cd_step.data, "poa", 0.05)
+        assert list(f._execute(cd_step)) == list(oracle.index)
+
+    def test_execute_defaults_column_to_poa(self, cd_step):
+        f = AbsDiffPrev(threshold=0.05)  # column=None -> poa
+        assert list(f._execute(cd_step)) == [1, 3, 4]
+
+    def test_threshold_defaults_to_005(self):
+        assert AbsDiffPrev().threshold == 0.05
+
+    def test_execute_larger_threshold_keeps_more(self, cd_step):
+        # threshold 0.7 keeps the ~0.66 step row too; only the NaN row drops.
+        f = AbsDiffPrev(threshold=0.7, column="poa")
+        assert list(f._execute(cd_step)) == [1, 2, 3, 4]
+
+    def test_config_round_trips(self):
+        f = AbsDiffPrev(threshold=0.1, column="poa")
+        cfg = f.to_config()
+        assert cfg["type"] == "AbsDiffPrev"
+        f2 = step_from_config(cfg)
+        assert isinstance(f2, AbsDiffPrev)
+        assert f2.threshold == 0.1
+        assert f2.column == "poa"
+
+    def test_registered_in_registry(self):
+        assert FILTER_REGISTRY["AbsDiffPrev"] is AbsDiffPrev
+
+    def test_explanation_reports_resolved_column(self, cd_step):
+        f = AbsDiffPrev(threshold=0.05)
+        f.run(cd_step)
+        assert f.explanation == (
+            "Intervals where poa changed by more than 0.05 (fractional) from "
+            "the previous interval were removed."
+        )
+
+
+class TestAbsDiffPrevWrapper:
+    def test_wrapper_records_step(self, cd_step):
+        cd_step.filter_abs_diff_prev(0.05)
+        assert len(cd_step.filters) == 1
+        assert isinstance(cd_step.filters[0], AbsDiffPrev)
+
+    def test_wrapper_filters_data(self, cd_step):
+        cd_step.filter_abs_diff_prev(0.05)
+        assert list(cd_step.data_filtered.index) == [1, 3, 4]
+
+    def test_wrapper_default_threshold(self, cd_step):
+        cd_step.filter_abs_diff_prev()  # default 0.05
+        assert list(cd_step.data_filtered.index) == [1, 3, 4]
+
+    def test_wrapper_custom_name_sets_step_label(self, cd_step):
+        cd_step.filter_abs_diff_prev(0.05, custom_name="stability")
+        assert cd_step.filters[-1].custom_name == "stability"
+
+    def test_wrapper_explicit_column(self, cd_step):
+        cd_step.data["ghi"] = [500.0, 500.0, 500.0, 500.0, 500.0]
+        cd_step.filter_abs_diff_prev(0.05, column="ghi")
+        # ghi is constant -> only the leading-NaN row drops.
+        assert list(cd_step.data_filtered.index) == [1, 2, 3, 4]
+
+
+class TestBooleanFlag:
+    def test_execute_drops_truthy_rows(self, cd_flag):
+        f = BooleanFlag(column="backtrack_on")
+        assert list(f._execute(cd_flag)) == [0, 2, 4]
+
+    def test_execute_matches_oracle(self, cd_flag):
+        def remove_inter_row_shading(data, boolean_column="backtrack_on"):
+            return data[~data[boolean_column].astype(bool)]
+
+        f = BooleanFlag(column="backtrack_on")
+        oracle = remove_inter_row_shading(cd_flag.data, "backtrack_on")
+        assert list(f._execute(cd_flag)) == list(oracle.index)
+
+    def test_execute_invert_keeps_truthy(self, cd_flag):
+        f = BooleanFlag(column="backtrack_on", invert=True)
+        assert list(f._execute(cd_flag)) == [1, 3]
+
+    def test_execute_coerces_int_and_nan(self, cd_flag):
+        # astype(bool): 0->False, nonzero->True, NaN->True.
+        cd_flag.data["mixed"] = [0, 1, 0, np.nan, 2]
+        f = BooleanFlag(column="mixed")
+        assert list(f._execute(cd_flag)) == [0, 2]
+
+    def test_execute_requires_column(self, cd_flag):
+        with pytest.raises(ValueError, match="requires a column"):
+            BooleanFlag()._execute(cd_flag)
+
+    def test_config_round_trips(self):
+        f = BooleanFlag(column="backtrack_on", invert=True)
+        cfg = f.to_config()
+        assert cfg["type"] == "BooleanFlag"
+        f2 = step_from_config(cfg)
+        assert isinstance(f2, BooleanFlag)
+        assert f2.column == "backtrack_on"
+        assert f2.invert is True
+
+    def test_registered_in_registry(self):
+        assert FILTER_REGISTRY["BooleanFlag"] is BooleanFlag
+
+    def test_explanation_default(self, cd_flag):
+        f = BooleanFlag(column="backtrack_on")
+        f.run(cd_flag)
+        assert f.explanation == ("Intervals flagged True in backtrack_on were removed.")
+
+    def test_explanation_invert(self, cd_flag):
+        f = BooleanFlag(column="backtrack_on", invert=True)
+        f.run(cd_flag)
+        assert f.explanation == (
+            "Intervals flagged False in backtrack_on were removed."
+        )
+
+    def test_explanation_none_before_run(self):
+        assert BooleanFlag(column="backtrack_on").explanation is None
+
+
+class TestBooleanFlagWrapper:
+    def test_wrapper_records_step(self, cd_flag):
+        cd_flag.filter_flag("backtrack_on")
+        assert len(cd_flag.filters) == 1
+        assert isinstance(cd_flag.filters[0], BooleanFlag)
+
+    def test_wrapper_filters_data(self, cd_flag):
+        cd_flag.filter_flag("backtrack_on")
+        assert list(cd_flag.data_filtered.index) == [0, 2, 4]
+
+    def test_wrapper_invert(self, cd_flag):
+        cd_flag.filter_flag("backtrack_on", invert=True)
+        assert list(cd_flag.data_filtered.index) == [1, 3]
+
+    def test_wrapper_custom_name_sets_step_label(self, cd_flag):
+        cd_flag.filter_flag("backtrack_on", custom_name="no backtracking")
+        assert cd_flag.filters[-1].custom_name == "no backtracking"
+
+
+class TestFilterThreshold:
+    def test_wrapper_records_irradiance_step(self, cd_thresh):
+        cd_thresh.filter_threshold("avail", low=97.4)
+        assert len(cd_thresh.filters) == 1
+        step = cd_thresh.filters[0]
+        assert isinstance(step, Irradiance)
+        assert step.col_name == "avail"
+
+    def test_low_only_keeps_at_or_above(self, cd_thresh):
+        cd_thresh.filter_threshold("avail", low=97.4)
+        assert list(cd_thresh.data_filtered.index) == [1, 2, 3, 4]
+
+    def test_high_only_keeps_at_or_below(self, cd_thresh):
+        cd_thresh.filter_threshold("temp", high=40)
+        assert list(cd_thresh.data_filtered.index) == [0, 1, 4]
+
+    def test_both_bounds_keep_band(self, cd_thresh):
+        cd_thresh.filter_threshold("avail", low=97.4, high=99.0)
+        assert list(cd_thresh.data_filtered.index) == [1, 2, 3]
+
+    def test_custom_name_sets_step_label(self, cd_thresh):
+        cd_thresh.filter_threshold("avail", low=97.4, custom_name="availability")
+        assert cd_thresh.filters[-1].custom_name == "availability"
+
+    def test_explanation_omits_wm2_units(self, cd_thresh):
+        cd_thresh.filter_threshold("avail", low=97.4, high=99.0)
+        exp = cd_thresh.filters[-1].explanation
+        assert "W/m^2" not in exp
+        assert exp == (
+            "Intervals where avail is below 97.4 or above 99.0 were removed."
+        )
+
+    def test_serializes_and_replays_as_irradiance(self, cd_thresh):
+        cd_thresh.filter_threshold("avail", low=97.4)
+        config = cd_thresh.filters_to_config()
+        assert config[0]["type"] == "Irradiance"
+        assert config[0]["col_name"] == "avail"
+
+        fresh = CapData("fresh")
+        fresh.data = cd_thresh.data.copy()
+        fresh.run_pipeline(config)
+        assert list(fresh.data_filtered.index) == [1, 2, 3, 4]
 
 
 class TestFilterOutliers:
@@ -1241,6 +1572,7 @@ class TestFilterConfigRoundTrip:
             "high": 800,
             "ref_val": None,
             "col_name": None,
+            "units": "W/m^2",
             "custom_name": None,
         }
 
@@ -1302,12 +1634,19 @@ class TestFilterConfigRoundTrip:
         with pytest.raises(ValueError, match="lambdas and closures"):
             Custom(lambda df: df).to_config()
 
-    def test_filter_sensors_row_filter_roundtrips(self):
-        cfg = Sensors(perc_diff={"irr-poa-": 0.05}).to_config()
-        assert cfg["row_filter"] == "captest.filters:check_all_perc_diff_comb"
+    def test_filter_sensors_method_roundtrips(self):
+        cfg = Sensors(thresholds={"irr-poa-": 0.05}).to_config()
+        assert cfg["method"] == "percent_diff"
         step = step_from_config(cfg)
-        assert step.row_filter is check_all_perc_diff_comb
-        assert step.perc_diff == {"irr-poa-": 0.05}
+        assert step.method == "percent_diff"
+        assert step.thresholds == {"irr-poa-": 0.05}
+
+    def test_filter_sensors_custom_callable_roundtrips(self):
+        cfg = Sensors(method=abs_diff_from_average, thresholds={"poa": 25}).to_config()
+        assert cfg["method"] == "captest.filters:abs_diff_from_average"
+        step = step_from_config(cfg)
+        assert step.method is abs_diff_from_average
+        assert step.thresholds == {"poa": 25}
 
     def test_unknown_type_suggests_closest(self):
         with pytest.raises(ValueError, match="Did you mean 'Irradiance'"):
@@ -1320,9 +1659,11 @@ class TestFilterConfigRoundTrip:
         base = Irradiance.from_config(Irradiance(low=200, high=800).to_config())
         assert isinstance(base, Irradiance) and base.low == 200
 
-        sensors = Sensors.from_config(Sensors(perc_diff={"irr-poa-": 0.05}).to_config())
-        assert sensors.perc_diff == {"irr-poa-": 0.05}
-        assert sensors.row_filter is check_all_perc_diff_comb
+        sensors = Sensors.from_config(
+            Sensors(thresholds={"irr-poa-": 0.05}).to_config()
+        )
+        assert sensors.thresholds == {"irr-poa-": 0.05}
+        assert sensors.method == "percent_diff"
 
         rep = RepCond.from_config(RepCond(func={"poa": util.perc_wrap(60)}).to_config())
         assert rep.func["poa"].__name__ == "perc_wrap(60)"

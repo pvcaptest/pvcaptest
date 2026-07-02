@@ -312,15 +312,15 @@ class TestTopLevelFuncs(unittest.TestCase):
 
     def test_check_all_perc_diff_comb(self):
         ser = pd.Series([10.1, 10.2])
-        val = pvc.check_all_perc_diff_comb(ser, 0.05)
+        val = filters.check_all_perc_diff_comb(ser, 0.05)
         self.assertTrue(val, "Failed on two values within 5 percent.")
 
         ser = pd.Series([10.1, 10.2, 10.15, 10.22, 10.19])
-        val = pvc.check_all_perc_diff_comb(ser, 0.05)
+        val = filters.check_all_perc_diff_comb(ser, 0.05)
         self.assertTrue(val, "Failed with 5 values within 5 percent.")
 
         ser = pd.Series([10.1, 10.2, 3])
-        val = pvc.check_all_perc_diff_comb(ser, 0.05)
+        val = filters.check_all_perc_diff_comb(ser, 0.05)
         self.assertFalse(val, "Returned True for value outside of 5 percent.")
 
     def test_sensor_filter_three_cols(self):
@@ -2018,7 +2018,7 @@ class TestAggGroupSumNaN:
 class TestFilterSensors:
     def test_perc_diff_none(self, meas):
         rows_before_flt = meas.data_filtered.shape[0]
-        meas.filter_sensors(perc_diff=None)
+        meas.filter_sensors(thresholds=None)
         # Check that data_filtered is still a dataframe
         assert isinstance(meas.data_filtered, pd.core.frame.DataFrame)
         # Check that rows were removed
@@ -2027,7 +2027,7 @@ class TestFilterSensors:
     def test_perc_diff(self, meas):
         rows_before_flt = meas.data_filtered.shape[0]
         meas.filter_sensors(
-            perc_diff={"irr_poa_ref_cell": 0.05, "temp_amb": 0.1},
+            thresholds={"irr_poa_ref_cell": 0.05, "temp_amb": 0.1},
         )
         # Check that data_filtered is still a dataframe
         assert isinstance(meas.data_filtered, pd.core.frame.DataFrame)
@@ -2045,7 +2045,7 @@ class TestFilterSensors:
             }
         )
         meas.filter_sensors(
-            perc_diff={"irr_poa_ref_cell": 0.05, "temp_amb": 0.1},
+            thresholds={"irr_poa_ref_cell": 0.05, "temp_amb": 0.1},
         )
         assert isinstance(meas.data_filtered, pd.core.frame.DataFrame)
         assert meas.data_filtered.shape[0] < rows_before_flt
@@ -2102,21 +2102,17 @@ class TestAbsDiffFromAverage:
 
 
 class TestFilterSensorsWithAbsDiffFromAverage:
-    "Test filter_sensors method of CapData when row_filter is abs_diff_from_average."
+    "Test CapData.filter_sensors_abs_diff (Sensors with method='abs_diff')."
 
     def test_does_not_drop_rows_when_no_outliers(self, capdata_irr):
-        capdata_irr.filter_sensors(
-            perc_diff={"poa": 25}, row_filter=filters.abs_diff_from_average
-        )
+        capdata_irr.filter_sensors_abs_diff({"poa": 25})
         assert (capdata_irr.data.max(axis=1) - capdata_irr.data.min(axis=1) < 25).all()
         assert capdata_irr.data_filtered.shape[0] == capdata_irr.data.shape[0]
 
     def test_drops_rows_with_outliers(self, capdata_irr):
         capdata_irr.data.iloc[0, 2] = 926
         capdata_irr.data.iloc[3, 0] = 850
-        capdata_irr.filter_sensors(
-            perc_diff={"poa": 25}, row_filter=filters.abs_diff_from_average
-        )
+        capdata_irr.filter_sensors_abs_diff({"poa": 25})
         assert (capdata_irr.data.max(axis=1) - capdata_irr.data.min(axis=1) >= 25).any()
         assert capdata_irr.data_filtered.shape[0] == capdata_irr.data.shape[0] - 2
 

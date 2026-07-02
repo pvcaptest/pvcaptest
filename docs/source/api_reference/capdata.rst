@@ -80,8 +80,13 @@ chain. See :doc:`filters` for the underlying step classes.
    capdata.CapData.filter_outliers
    capdata.CapData.filter_pf
    capdata.CapData.filter_power
+   capdata.CapData.filter_rolling_std
+   capdata.CapData.filter_abs_diff_prev
+   capdata.CapData.filter_flag
+   capdata.CapData.filter_threshold
    capdata.CapData.filter_custom
    capdata.CapData.filter_sensors
+   capdata.CapData.filter_sensors_abs_diff
    capdata.CapData.filter_clearsky
    capdata.CapData.filter_missing
    capdata.CapData.filter_op_state
