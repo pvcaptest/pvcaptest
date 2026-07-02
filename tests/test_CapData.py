@@ -2102,7 +2102,7 @@ class TestAbsDiffFromAverage:
 
 
 class TestFilterSensorsWithAbsDiffFromAverage:
-    "Test filter_sensors method of CapData when row_filter is abs_diff_from_average."
+    "Test CapData.filter_sensors_abs_diff (Sensors with method='abs_diff')."
 
     def test_does_not_drop_rows_when_no_outliers(self, capdata_irr):
         capdata_irr.filter_sensors_abs_diff({"poa": 25})
