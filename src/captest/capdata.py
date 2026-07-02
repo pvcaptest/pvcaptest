@@ -1846,7 +1846,13 @@ class CapData(param.Parameterized):
         custom_name : str, default None
             Optional display label for the recorded filter step.
         """
-        flt = Irradiance(low=low, high=high, col_name=column, custom_name=custom_name)
+        flt = Irradiance(
+            low=low,
+            high=high,
+            col_name=column,
+            units=None,
+            custom_name=custom_name,
+        )
         flt.run(self)
 
     def filter_pvsyst(self, custom_name=None):

@@ -414,7 +414,7 @@ class Irradiance(BaseFilter):
     """
 
     _explanation_template = (
-        "Intervals where {col_name} is below {low} or above {high} W/m^2 were removed."
+        "Intervals where {col_name} is below {low} or above {high}{units} were removed."
     )
 
     low = param.Number(
@@ -436,6 +436,12 @@ class Irradiance(BaseFilter):
         default=None,
         allow_None=True,
         doc="Irradiance column to filter. Inferred from regression_cols if None.",
+    )
+    units = param.String(
+        default="W/m^2",
+        allow_None=True,
+        doc="Unit label appended to the summary explanation. None/empty omits "
+        "it — used by filter_threshold for non-irradiance columns.",
     )
 
     def _execute(self, capdata):
@@ -481,6 +487,9 @@ class Irradiance(BaseFilter):
         resolved = getattr(self, "ref_val_resolved", None)
         if resolved is not None:
             vals["ref_val"] = resolved
+        # ``units`` only affects explanation wording; keep it out of the
+        # summary's filter_arguments column.
+        vals.pop("units", None)
         return vals
 
     def _explanation_values(self):
@@ -489,6 +498,7 @@ class Irradiance(BaseFilter):
             "col_name": self.col_name_resolved,
             "low": self.low_effective,
             "high": self.high_effective,
+            "units": f" {self.units}" if self.units else "",
         }
 
 

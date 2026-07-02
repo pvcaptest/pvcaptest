@@ -1000,6 +1000,14 @@ class TestFilterThreshold:
         cd_thresh.filter_threshold("avail", low=97.4, custom_name="availability")
         assert cd_thresh.filters[-1].custom_name == "availability"
 
+    def test_explanation_omits_wm2_units(self, cd_thresh):
+        cd_thresh.filter_threshold("avail", low=97.4, high=99.0)
+        exp = cd_thresh.filters[-1].explanation
+        assert "W/m^2" not in exp
+        assert exp == (
+            "Intervals where avail is below 97.4 or above 99.0 were removed."
+        )
+
     def test_serializes_and_replays_as_irradiance(self, cd_thresh):
         cd_thresh.filter_threshold("avail", low=97.4)
         config = cd_thresh.filters_to_config()
@@ -1564,6 +1572,7 @@ class TestFilterConfigRoundTrip:
             "high": 800,
             "ref_val": None,
             "col_name": None,
+            "units": "W/m^2",
             "custom_name": None,
         }
 
