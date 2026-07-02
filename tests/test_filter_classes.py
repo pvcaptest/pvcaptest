@@ -30,7 +30,6 @@ from captest.filters import (
     Time,
     RepCond,
     abs_diff_from_average,
-    check_all_perc_diff_comb,
 )
 from captest.filters import FILTER_REGISTRY, step_from_config
 
@@ -450,44 +449,58 @@ class TestDescribeFilters:
 
 
 class TestFilterSensors:
-    def test_execute_default_perc_diff_resolves(self, capdata_irr):
+    def test_execute_default_thresholds_resolves(self, capdata_irr):
         capdata_irr.regression_cols = {"poa": "poa"}
         f = Sensors()
         kept = f._execute(capdata_irr)
         # tightly-clustered random data (876-900) is within the 5% default,
         # so no rows are removed
         assert list(kept) == list(capdata_irr.data_filtered.index)
-        assert f.perc_diff_resolved == {"poa": 0.05}
+        assert f.thresholds_resolved == {"poa": 0.05}
 
-    def test_execute_explicit_row_filter_drops_outliers(self, capdata_irr):
+    def test_method_defaults_to_percent_diff(self):
+        assert Sensors().method == "percent_diff"
+
+    def test_execute_abs_diff_method_drops_outliers(self, capdata_irr):
         capdata_irr.data.iloc[0, 2] = 926
         capdata_irr.data.iloc[3, 0] = 850
-        f = Sensors(perc_diff={"poa": 25}, row_filter=abs_diff_from_average)
+        f = Sensors(method="abs_diff", thresholds={"poa": 25})
         kept = f._execute(capdata_irr)
         assert len(kept) == capdata_irr.data.shape[0] - 2
 
-    def test_row_filter_defaults_to_check_all_perc_diff_comb(self):
-        assert Sensors().row_filter is check_all_perc_diff_comb
+    def test_execute_custom_callable_method(self, capdata_irr):
+        capdata_irr.data.iloc[0, 2] = 926
+        capdata_irr.data.iloc[3, 0] = 850
+        f = Sensors(method=abs_diff_from_average, thresholds={"poa": 25})
+        assert f._resolve_comparison() is abs_diff_from_average
+        kept = f._execute(capdata_irr)
+        assert len(kept) == capdata_irr.data.shape[0] - 2
 
-    def test_args_repr_renders_row_filter_by_name(self):
-        f = Sensors(perc_diff={"poa": 0.05})
+    def test_execute_abs_diff_without_thresholds_raises(self, capdata_irr):
+        capdata_irr.regression_cols = {"poa": "poa"}
+        f = Sensors(method="abs_diff")
+        with pytest.raises(ValueError, match="thresholds is required"):
+            f._execute(capdata_irr)
+
+    def test_execute_empty_thresholds_raises(self, capdata_irr):
+        f = Sensors(thresholds={})
+        with pytest.raises(ValueError, match="must not be empty"):
+            f._execute(capdata_irr)
+
+    def test_args_repr_renders_method_name(self):
+        f = Sensors(thresholds={"poa": 0.05})
         args = f.args_repr
-        assert "row_filter=check_all_perc_diff_comb" in args
+        assert "method=percent_diff" in args
         assert "<function" not in args
 
-    def test_explanation_names_group_and_row_filter(self, capdata_irr):
+    def test_explanation_names_group_and_method(self, capdata_irr):
         capdata_irr.regression_cols = {"poa": "poa"}
         f = Sensors()
         f.run(capdata_irr)
         exp = f.explanation
         assert "poa" in exp
-        assert "check_all_perc_diff_comb" in exp
+        assert "percent_diff" in exp
         assert exp.endswith("were removed.")
-
-    def test_execute_empty_perc_diff_raises(self, capdata_irr):
-        f = Sensors(perc_diff={})
-        with pytest.raises(ValueError, match="must not be empty"):
-            f._execute(capdata_irr)
 
     def test_explanation_before_run_returns_none(self):
         # explanation is post-run; reading it before run() must not raise
@@ -1612,12 +1625,19 @@ class TestFilterConfigRoundTrip:
         with pytest.raises(ValueError, match="lambdas and closures"):
             Custom(lambda df: df).to_config()
 
-    def test_filter_sensors_row_filter_roundtrips(self):
-        cfg = Sensors(perc_diff={"irr-poa-": 0.05}).to_config()
-        assert cfg["row_filter"] == "captest.filters:check_all_perc_diff_comb"
+    def test_filter_sensors_method_roundtrips(self):
+        cfg = Sensors(thresholds={"irr-poa-": 0.05}).to_config()
+        assert cfg["method"] == "percent_diff"
         step = step_from_config(cfg)
-        assert step.row_filter is check_all_perc_diff_comb
-        assert step.perc_diff == {"irr-poa-": 0.05}
+        assert step.method == "percent_diff"
+        assert step.thresholds == {"irr-poa-": 0.05}
+
+    def test_filter_sensors_custom_callable_roundtrips(self):
+        cfg = Sensors(method=abs_diff_from_average, thresholds={"poa": 25}).to_config()
+        assert cfg["method"] == "captest.filters:abs_diff_from_average"
+        step = step_from_config(cfg)
+        assert step.method is abs_diff_from_average
+        assert step.thresholds == {"poa": 25}
 
     def test_unknown_type_suggests_closest(self):
         with pytest.raises(ValueError, match="Did you mean 'Irradiance'"):
@@ -1630,9 +1650,11 @@ class TestFilterConfigRoundTrip:
         base = Irradiance.from_config(Irradiance(low=200, high=800).to_config())
         assert isinstance(base, Irradiance) and base.low == 200
 
-        sensors = Sensors.from_config(Sensors(perc_diff={"irr-poa-": 0.05}).to_config())
-        assert sensors.perc_diff == {"irr-poa-": 0.05}
-        assert sensors.row_filter is check_all_perc_diff_comb
+        sensors = Sensors.from_config(
+            Sensors(thresholds={"irr-poa-": 0.05}).to_config()
+        )
+        assert sensors.thresholds == {"irr-poa-": 0.05}
+        assert sensors.method == "percent_diff"
 
         rep = RepCond.from_config(RepCond(func={"poa": util.perc_wrap(60)}).to_config())
         assert rep.func["poa"].__name__ == "perc_wrap(60)"
