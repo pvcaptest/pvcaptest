@@ -1831,9 +1831,10 @@ class CapData(param.Parameterized):
 
         Either bound may be None for a one-sided filter: pass only ``low`` to
         keep rows at or above it, or only ``high`` to keep rows at or below it.
-        Bounds are inclusive (``>=`` / ``<=``). Backed by the ``Irradiance``
-        filter, so the recorded step serializes and replays as an ``Irradiance``
-        step.
+        Bounds are inclusive (``>=`` / ``<=``) — unlike the former
+        ``filter_avail`` helper this replaces, which used a strict ``>``.
+        Backed by the ``Irradiance`` filter, so the recorded step serializes
+        and replays as an ``Irradiance`` step.
 
         Parameters
         ----------
