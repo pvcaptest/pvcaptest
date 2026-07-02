@@ -146,6 +146,20 @@ def cd_flag():
     return cd
 
 
+@pytest.fixture
+def cd_thresh():
+    """A CapData with an availability column and a temperature column."""
+    cd = CapData("thresh")
+    cd.data = pd.DataFrame(
+        {
+            "avail": [95.0, 97.4, 98.0, 99.0, 100.0],
+            "temp": [30.0, 40.0, 45.0, 50.0, 35.0],
+        },
+        index=pd.RangeIndex(5),
+    )
+    return cd
+
+
 class _DropFirstRow(BaseFilter):
     """Test-only filter: drops the first remaining row."""
 
@@ -947,6 +961,42 @@ class TestBooleanFlagWrapper:
     def test_wrapper_custom_name_sets_step_label(self, cd_flag):
         cd_flag.filter_flag("backtrack_on", custom_name="no backtracking")
         assert cd_flag.filters[-1].custom_name == "no backtracking"
+
+
+class TestFilterThreshold:
+    def test_wrapper_records_irradiance_step(self, cd_thresh):
+        cd_thresh.filter_threshold("avail", low=97.4)
+        assert len(cd_thresh.filters) == 1
+        step = cd_thresh.filters[0]
+        assert isinstance(step, Irradiance)
+        assert step.col_name == "avail"
+
+    def test_low_only_keeps_at_or_above(self, cd_thresh):
+        cd_thresh.filter_threshold("avail", low=97.4)
+        assert list(cd_thresh.data_filtered.index) == [1, 2, 3, 4]
+
+    def test_high_only_keeps_at_or_below(self, cd_thresh):
+        cd_thresh.filter_threshold("temp", high=40)
+        assert list(cd_thresh.data_filtered.index) == [0, 1, 4]
+
+    def test_both_bounds_keep_band(self, cd_thresh):
+        cd_thresh.filter_threshold("avail", low=97.4, high=99.0)
+        assert list(cd_thresh.data_filtered.index) == [1, 2, 3]
+
+    def test_custom_name_sets_step_label(self, cd_thresh):
+        cd_thresh.filter_threshold("avail", low=97.4, custom_name="availability")
+        assert cd_thresh.filters[-1].custom_name == "availability"
+
+    def test_serializes_and_replays_as_irradiance(self, cd_thresh):
+        cd_thresh.filter_threshold("avail", low=97.4)
+        config = cd_thresh.filters_to_config()
+        assert config[0]["type"] == "Irradiance"
+        assert config[0]["col_name"] == "avail"
+
+        fresh = CapData("fresh")
+        fresh.data = cd_thresh.data.copy()
+        fresh.run_pipeline(config)
+        assert list(fresh.data_filtered.index) == [1, 2, 3, 4]
 
 
 class TestFilterOutliers:

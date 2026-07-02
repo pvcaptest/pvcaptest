@@ -1826,6 +1826,29 @@ class CapData(param.Parameterized):
         flt = BooleanFlag(column=column, invert=invert, custom_name=custom_name)
         flt.run(self)
 
+    def filter_threshold(self, column, low=None, high=None, custom_name=None):
+        """Keep intervals where ``column`` is within ``[low, high]``.
+
+        Either bound may be None for a one-sided filter: pass only ``low`` to
+        keep rows at or above it, or only ``high`` to keep rows at or below it.
+        Bounds are inclusive (``>=`` / ``<=``). Backed by the ``Irradiance``
+        filter, so the recorded step serializes and replays as an ``Irradiance``
+        step.
+
+        Parameters
+        ----------
+        column : str
+            Column to threshold.
+        low : float, default None
+            Lower bound (inclusive). None means unbounded below.
+        high : float, default None
+            Upper bound (inclusive). None means unbounded above.
+        custom_name : str, default None
+            Optional display label for the recorded filter step.
+        """
+        flt = Irradiance(low=low, high=high, col_name=column, custom_name=custom_name)
+        flt.run(self)
+
     def filter_pvsyst(self, custom_name=None):
         """Remove PVsyst intervals operating off the maximum power point.
 
