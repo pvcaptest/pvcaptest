@@ -44,6 +44,17 @@ conditions computed via `rep_cond` (on `ct.meas` / `ct.sim`, or
 `ct.rep_cond(which=...)`) now populate `CapTest.rc` automatically —
 last-writer-wins, with a warning only when the source changes — and the single
 test RC round-trips through `to_yaml` / `from_yaml`.
+- New filter classes and `CapData.filter_*` wrappers promoting filters that were
+previously passed to `filter_custom` into first-class steps: `RollingStd` /
+`filter_rolling_std` (removes intervals whose rolling-window standard deviation is
+at or above a threshold — unstable/variable irradiance), `AbsDiffPrev` /
+`filter_abs_diff_prev` (removes intervals whose absolute fractional change from the
+previous interval exceeds a threshold), and `BooleanFlag` / `filter_flag` (removes
+intervals where a boolean/flag column is truthy, with an `invert` toggle to keep
+only the truthy rows). Added `CapData.filter_threshold(column, low, high)` — a
+one-sided or two-sided inclusive threshold on any column, backed by the
+`Irradiance` step. Added `CapData.filter_sensors_abs_diff(thresholds)` for the
+absolute-difference sensor comparison.
 
 ### Changed
 - **Breaking:** `CapData.data_filtered` is now a derived, read-only property — the
@@ -82,6 +93,16 @@ filter step — it now happens automatically at `CapTest.setup()` time via the n
 `CapTest.auto_wrap_sim` parameter (see Added). Code that called
 `filter_time(..., wrap_year=True)` to align a year-end-spanning test should drop
 that argument and let `CapTest` wrap the sim data on setup.
+- **Breaking:** Unified the `Sensors` filter's sensor-comparison selection. The
+`Sensors` step now takes `method` (`'percent_diff'` or `'abs_diff'`, or a custom
+`func(series, threshold) -> bool` callable) and `thresholds` (renamed from
+`perc_diff`); the separate `row_filter` parameter is removed.
+`CapData.filter_sensors(perc_diff=..., row_filter=...)` becomes
+`filter_sensors(thresholds=..., method=...)`. Callers that passed
+`row_filter=abs_diff_from_average` should use the new
+`filter_sensors_abs_diff(...)` wrapper or `method='abs_diff'`. The
+`check_all_perc_diff_comb` helper is no longer re-exported from `captest.capdata`;
+import it from `captest.filters`.
 
 ### Fixed
 - `CapTest._maybe_wrap_sim_year_end` now uses a fixed July 1 → June 30 wrap window
