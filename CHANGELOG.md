@@ -76,6 +76,12 @@ CapData (sim-side setup may read meas but mutates only sim); `CapTest.reload(sid
 `CapTestResults`); per-side runs re-run one chain and leave the other untouched.
 
 ### Changed
+- Modernized the docs toolchain for current Python: `sphinx>=8.1`,
+`sphinx_rtd_theme>=3.0`, `nbsphinx>=0.9.7`, and `myst-parser` replacing the
+archived `recommonmark` (dropped the stale `docutils` pin). The example
+notebooks (`captest_class`, `captest_class_bifi`, `concise_capacity_test`)
+now apply filter methods directly instead of the removed module-level
+`run_test` step lists, so they execute cleanly during the docs build.
 - `CapData.run_pipeline` now resets the applied chain before rebuilding (replay
 is restore-then-re-run); appending a pipeline onto an existing chain is no
 longer supported.

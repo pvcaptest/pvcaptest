@@ -13,7 +13,6 @@
 import os
 import sys
 from datetime import datetime
-from recommonmark.transform import AutoStructify
 
 sys.path.insert(0, os.path.abspath("../"))
 
@@ -32,7 +31,7 @@ master_doc = "index"
 # ones.
 extensions = [
     "nbsphinx",
-    "recommonmark",
+    "myst_parser",
     "sphinx.ext.autodoc",
     "sphinx.ext.autosummary",
     "sphinx.ext.napoleon",
@@ -101,15 +100,3 @@ html_theme = "sphinx_rtd_theme"
 # so a file named "default.css" will overwrite the builtin "default.css".
 html_static_path = ["_static"]
 html_css_files = ["custom.css"]
-
-
-def setup(app):
-    app.add_config_value(
-        "recommonmark_config",
-        {
-            "url_resolver": lambda url: github_doc_root + url,
-            "auto_toc_tree_section": "Contents",
-        },
-        True,
-    )
-    app.add_transform(AutoStructify)
