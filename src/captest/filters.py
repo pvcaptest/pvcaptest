@@ -300,9 +300,21 @@ class BaseSummaryStep(param.Parameterized):
         ``Outliers`` invoking ``filter_missing`` on NaN): the nested step
         is appended to ``capdata.filters`` before this one, so this step's
         ``_ix_before`` resolves to the post-nested-call state and counts only
-        what this step itself removed.
+        what this step itself removed. If ``_execute`` raises, any steps
+        appended by nested filter calls are rolled back (truncation by
+        reassignment) before the exception propagates.
         """
-        self.ix_after = self._execute(capdata)
+        n_before = len(capdata.filters)
+        try:
+            self.ix_after = self._execute(capdata)
+        except Exception:
+            # Roll back any steps appended by nested filter calls (e.g.
+            # Outliers -> filter_missing) so a failed step leaves the
+            # pipeline byte-identical. Truncate via REASSIGNMENT so param
+            # watchers fire.
+            if len(capdata.filters) != n_before:
+                capdata.filters = capdata.filters[:n_before]
+            raise
         self.pts_after = len(self.ix_after)
         capdata.filters = capdata.filters + [self]
         if self.pts_after == 0:
@@ -904,9 +916,8 @@ class Custom(BaseFilter):
         Uses ``getattr(self.func, '__name__', repr(self.func))`` because some
         callables (e.g. ``functools.partial`` instances, callable class
         instances) do not expose ``__name__``. Without the guard, accessing
-        ``args_repr`` from inside ``run()`` would raise ``AttributeError``
-        *after* ``_execute`` had already mutated
-        ``data_filtered``, leaving the step half-applied.
+        ``args_repr`` would raise ``AttributeError`` when the step is
+        rendered in the filtering summary.
         """
         name = getattr(self.func, "__name__", repr(self.func))
         arg_parts = [repr(a) for a in self.args]

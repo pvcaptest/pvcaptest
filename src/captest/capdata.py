@@ -2305,7 +2305,10 @@ class CapData(param.Parameterized):
         so ``filters.py`` needs no import of ``capdata`` or
         ``ReportingIrradiance``) and by the thin ``rep_cond`` wrapper. Sets
         ``self.rc`` (and ``self.rc_tool`` when ``irr_bal`` is True) as a side
-        effect; returns None.
+        effect; returns None. Computes fully before assigning: ``rc_tool`` and
+        ``rc`` are written only after the RC frame is built, and both are
+        restored to their prior values if the CapTest propagation callback
+        raises, so a failure leaves the RC side-state unchanged.
 
         Parameters
         ----------
@@ -2333,19 +2336,20 @@ class CapData(param.Parameterized):
 
         RCs_df = pd.DataFrame(df.agg(func)).T
 
+        rc_tool = None
         if irr_bal:
             if front_poa not in df.columns:
                 raise ValueError(
                     f"front_poa={front_poa!r} is not a right-hand-side variable "
                     f"of the regression formula."
                 )
-            self.rc_tool = ReportingIrradiance(
+            rc_tool = ReportingIrradiance(
                 df,
                 front_poa,
                 percent_band=percent_filter,
                 **rc_kwargs,
             )
-            results = self.rc_tool.get_rep_irr()
+            results = rc_tool.get_rep_irr()
             flt_df = results[1]
             RCs_df = pd.DataFrame(flt_df.agg(func)).T
             RCs_df.loc[RCs_df.index[0], front_poa] = results[0]
@@ -2355,13 +2359,32 @@ class CapData(param.Parameterized):
 
         print("Reporting conditions saved to rc attribute.")
         print(RCs_df)
+        # Compute-fully-assign-last: rc_tool/rc are written only after all
+        # computation above has succeeded, so a failure inside get_rep_irr or
+        # the aggregation leaves the prior RC side-state untouched.
+        prior_rc = self.rc
+        had_rc_tool = hasattr(self, "rc_tool")
+        prior_rc_tool = getattr(self, "rc_tool", None)
+        if irr_bal:
+            self.rc_tool = rc_tool
         self.rc = RCs_df
         # When this CapData belongs to a CapTest, propagate the freshly computed
         # rc to the single test rc (last-writer-wins). The CapTest decides warn
         # vs silent and config-seeded load behavior. Opaque call — capdata.py
         # never imports captest.
         if self._captest is not None:
-            self._captest._on_capdata_rep_cond(self)
+            try:
+                self._captest._on_capdata_rep_cond(self)
+            except Exception:
+                # Restore the prior RC side-state so a failed propagation
+                # leaves this CapData byte-identical to its pre-run state.
+                self.rc = prior_rc
+                if irr_bal:
+                    if had_rc_tool:
+                        self.rc_tool = prior_rc_tool
+                    else:
+                        del self.rc_tool
+                raise
 
     def rep_cond(
         self,

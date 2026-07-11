@@ -62,6 +62,10 @@ thresholds, round-trips through to_yaml/from_yaml.
 writes; symmetric with from_mapping.
 
 ### Changed
+- `BaseSummaryStep.run` now rolls back steps appended by nested filter calls
+when `_execute` raises, and `CapData._calc_rep_cond` assigns `rc`/`rc_tool`
+only after computation succeeds (restoring the prior `rc` if CapTest
+propagation fails) — a failed step leaves the pipeline and RC state unchanged.
 - **Breaking:** `CapData.data_filtered` is now a derived, read-only property — the
 `data` rows kept by the last filter (a defensive copy), or `data` when no filters
 have run. It has no setter; clear filtering with `CapData.reset_filter()`. Code

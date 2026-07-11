@@ -7,7 +7,7 @@ import pandas as pd
 import param
 import pytest
 
-from captest import util
+from captest import capdata, util
 from captest.capdata import CapData
 from captest.filters import (
     AbsDiffPrev,
@@ -1686,3 +1686,70 @@ class TestFilterConfigRoundTrip:
         assert concrete == set(FILTER_REGISTRY)
         assert FILTER_REGISTRY["RepCond"] is RepCond
         assert FILTER_REGISTRY["Custom"] is Custom
+
+
+class TestFailedStepRollback:
+    """A step whose ``_execute`` raises must leave the CapData unchanged.
+
+    Covers the G5 rollback contract: nested filter appends are rolled back
+    by ``BaseSummaryStep.run``, and ``_calc_rep_cond`` assigns ``rc`` /
+    ``rc_tool`` only after computation succeeds (restoring the prior values
+    if the CapTest propagation callback raises).
+    """
+
+    def test_failing_execute_rolls_back_nested_appends(self, make_capdata):
+        cd = make_capdata(5)
+
+        class _NestThenFail(BaseFilter):
+            def _execute(self, capdata):
+                capdata.filter_missing(columns=["power"])
+                raise RuntimeError("boom")
+
+        cd.filter_missing(columns=["power"])  # one applied step
+        before = cd.filters
+        with pytest.raises(RuntimeError, match="boom"):
+            _NestThenFail().run(cd)
+        assert cd.filters == before
+        assert len(cd.filters) == 1
+
+    def test_failing_execute_restores_data_filtered(self, make_capdata):
+        cd = make_capdata(5)
+
+        class _Fail(BaseFilter):
+            def _execute(self, capdata):
+                raise ValueError("nope")
+
+        with pytest.raises(ValueError):
+            _Fail().run(cd)
+        assert cd.filters == []
+        pd.testing.assert_frame_equal(cd.data_filtered, cd.data)
+
+    def test_repcond_failure_leaves_rc_and_rc_tool_unwritten(self, pvsyst):
+        # irr_bal path: force get_rep_irr to raise after the
+        # ReportingIrradiance would have been built; rc/rc_tool must remain
+        # at their prior values.
+        pvsyst.filter_irr(200, 900)
+        prior_rc = pvsyst.rc
+        prior_rc_tool = getattr(pvsyst, "rc_tool", None)
+        with unittest.mock.patch.object(
+            capdata.ReportingIrradiance,
+            "get_rep_irr",
+            side_effect=RuntimeError("irr fail"),
+        ):
+            with pytest.raises(RuntimeError, match="irr fail"):
+                pvsyst.rep_cond(irr_bal=True)
+        assert pvsyst.rc is prior_rc
+        assert getattr(pvsyst, "rc_tool", None) is prior_rc_tool
+        assert all(type(s).__name__ != "RepCond" for s in pvsyst.filters)
+
+    def test_propagation_failure_restores_rc(self, pvsyst):
+        class _BadCT:
+            def _on_capdata_rep_cond(self, cd):
+                raise RuntimeError("propagation fail")
+
+        pvsyst.filter_irr(200, 900)
+        prior_rc = pvsyst.rc
+        pvsyst._captest = _BadCT()
+        with pytest.raises(RuntimeError, match="propagation fail"):
+            pvsyst.rep_cond()
+        assert pvsyst.rc is prior_rc
