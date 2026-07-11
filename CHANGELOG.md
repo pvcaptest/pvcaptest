@@ -63,8 +63,16 @@ plant metadata and a convenient starting point for per-inverter clipping
 thresholds, round-trips through to_yaml/from_yaml.
 - New `CapTest.to_mapping()` — public dict export of the config mapping to_yaml
 writes; symmetric with from_mapping.
+- RC-staleness warning: an RC-changing write now warns once, naming applied
+`ref_val='rep_irr'`/`'self_val'` filter steps that resolved against the previous
+reporting conditions (merged with the rc_source-change warning when both apply);
+loading a config with RepCond steps in both pipelines under a computed rc_source
+warns that the configuration is ambiguous.
 
 ### Changed
+- `CapData.run_pipeline` now resets the applied chain before rebuilding (replay
+is restore-then-re-run); appending a pipeline onto an existing chain is no
+longer supported.
 - `CapTest.captest_results()` now returns a structured `CapTestResults` object
 (cap_ratio, pval-checked ratio, pass/fail + bounds, expected/actual/tested
 capacity, per-side points used, per-side regression tables, RC + provenance)

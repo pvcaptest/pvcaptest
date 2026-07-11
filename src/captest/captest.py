@@ -1628,6 +1628,11 @@ class CapTest(param.Parameterized):
         # during from_yaml replay (see Plan 5) to seed RC from config.
         self._rc = None
         self._loading = False
+        # Transient set of sides ('meas'/'sim') whose pipeline re-run is still
+        # ahead of an RC write; those sides are excluded from the RC-staleness
+        # warning in `_set_rc`. Registered by orchestrated replays (run_test)
+        # and always cleared in a `finally`, so it never outlives the call.
+        self._rc_pending_sides = set()
 
     @property
     def rc(self):
@@ -1735,9 +1740,16 @@ class CapTest(param.Parameterized):
     def _set_rc(self, rc, source, warn=True):
         """Single internal write point for ``_rc`` and ``rc_source``.
 
-        Emits a source-change ``UserWarning`` when ``warn`` is True, an RC is
-        already set, and ``source`` differs from the current ``rc_source``
-        (silent on first establishment and same-source recompute).
+        With ``warn`` True and an RC already set, emits at most ONE
+        ``UserWarning`` per write, merging (a) a source-change notice when
+        ``source`` differs from the current ``rc_source`` and (b) an
+        RC-staleness notice naming applied RC-dependent steps
+        (``ref_val`` of ``'rep_irr'``/``'self_val'``) that resolved against
+        the previous RC and are not excluded — sides in
+        ``self._rc_pending_sides`` (registered by ``run_test`` for chains it
+        is about to re-run) are excluded. Silent on first establishment and
+        on a same-source write of an unchanged RC. ``warn=False`` (config
+        load) suppresses both.
 
         Parameters
         ----------
@@ -1746,15 +1758,48 @@ class CapTest(param.Parameterized):
         source : {'meas', 'sim', 'manual'}
             Provenance to record in ``rc_source``.
         warn : bool, default True
-            Suppress the source-change warning when False (used during load).
+            Suppress the merged warning when False (used during load).
         """
-        if warn and self._rc is not None and source != self.rc_source:
-            warnings.warn(
-                f"Test reporting conditions rc_source changed from "
-                f"'{self.rc_source}' to '{source}'."
-            )
+        if warn and self._rc is not None:
+            parts = []
+            if source != self.rc_source:
+                parts.append(
+                    f"Test reporting conditions rc_source changed from "
+                    f"'{self.rc_source}' to '{source}'."
+                )
+            if not self._rc.equals(rc):
+                stale = self._stale_rc_dependent_steps()
+                if stale:
+                    parts.append(
+                        "The test reporting conditions changed; these applied "
+                        "filter steps resolved against the previous reporting "
+                        "conditions and must be re-run: " + ", ".join(stale) + "."
+                    )
+            if parts:
+                warnings.warn(" ".join(parts))
         self._rc = rc
         self.rc_source = source
+
+    def _stale_rc_dependent_steps(self):
+        """Applied steps whose ``ref_val`` resolves against the test RC.
+
+        Scans both sides' applied chains for steps configured with
+        ``ref_val`` in ``{'rep_irr', 'self_val'}`` (the param preserves the
+        user's original token), skipping sides registered in
+        ``self._rc_pending_sides``. Returns display labels like
+        ``"sim.filters[2] (Irradiance)"``.
+        """
+        stale = []
+        for side in ("meas", "sim"):
+            if side in self._rc_pending_sides:
+                continue
+            cd = getattr(self, side)
+            if cd is None:
+                continue
+            for i, step in enumerate(cd.filters):
+                if getattr(step, "ref_val", None) in ("rep_irr", "self_val"):
+                    stale.append(f"{side}.filters[{i}] ({type(step).__name__})")
+        return stale
 
     def _on_capdata_rep_cond(self, cd):
         """Update the test RC after a member CapData computed its own ``rc``.
@@ -2053,6 +2098,24 @@ class CapTest(param.Parameterized):
             if inst.rc_source == "manual" and rc_values is not None:
                 df = inst._coerce_and_validate_manual_rc(rc_values)
                 inst._set_rc(df, "manual", warn=False)
+
+            def _has_repcond(cfg):
+                return any(d.get("type") == "RepCond" for d in (cfg or []))
+
+            if (
+                inst.rc_source in ("meas", "sim")
+                and _has_repcond(meas_filters)
+                and _has_repcond(sim_filters)
+            ):
+                warnings.warn(
+                    "Config defines a RepCond step in both meas_filters and "
+                    "sim_filters with a computed rc_source "
+                    f"('{inst.rc_source}'): this is ambiguous and unsupported "
+                    "— on an interactive re-run the non-rc_source side's "
+                    "RepCond will overwrite the test reporting conditions "
+                    "and flip rc_source. Remove the RepCond step from the "
+                    "non-rc_source pipeline."
+                )
             # Replay the configured rc_source side FIRST so its RepCond populates
             # ct.rc before the other side's rep_irr filters run. _loading makes
             # the rep_cond sync config-seeded and warning-suppressed.

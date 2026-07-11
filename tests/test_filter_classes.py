@@ -1802,3 +1802,13 @@ class TestRerunFrom:
             cd.rerun_from(3)
         with pytest.raises(IndexError):
             cd.rerun_from(-1)
+
+
+def test_run_pipeline_resets_existing_chain(make_capdata):
+    """Replay is restore-then-re-run: run_pipeline resets the applied chain."""
+    cd = make_capdata(10)
+    cd.filter_irr(10, 80, col_name="poa")
+    config = cd.filters_to_config()
+    cd.filter_irr(20, 70, col_name="poa")
+    cd.run_pipeline(config)
+    assert len(cd.filters) == 1  # not appended onto the old chain

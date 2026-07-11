@@ -8,6 +8,7 @@ plan).
 
 from __future__ import annotations
 
+import warnings
 from unittest.mock import MagicMock
 
 import numpy as np
@@ -3149,3 +3150,113 @@ class TestRcOwnershipRoundTrip:
                 meas_loader=MagicMock(return_value=clean_meas),
                 sim_loader=MagicMock(return_value=clean_sim),
             )
+
+
+class TestRcStalenessWarning:
+    """_set_rc warns once on RC-changing writes, naming stale rep_irr steps."""
+
+    def _ct_with_rc_band(self, ct_default):
+        """Full canonical run: rep_cond on meas, rc-band filter on sim."""
+        ct_default.meas.filter_irr(400, 1400)
+        ct_default.rep_cond("meas")
+        ct_default.sim.filter_irr(0.8, 1.2, ref_val="rep_irr")
+        return ct_default
+
+    def test_same_source_recompute_warns_about_other_side(self, ct_default):
+        ct = self._ct_with_rc_band(ct_default)
+        # Narrow the meas data so the recomputed RC changes.
+        ct.meas.filter_time(start="1990-10-10", end="1990-10-11 23:55")
+        with pytest.warns(UserWarning, match="must be re-run"):
+            ct.rep_cond("meas")
+
+    def test_same_source_recompute_warning_names_the_stale_step(self, ct_default):
+        ct = self._ct_with_rc_band(ct_default)
+        ct.meas.filter_time(start="1990-10-10", end="1990-10-11 23:55")
+        with pytest.warns(UserWarning, match=r"sim\.filters\[\d+\] \(Irradiance\)"):
+            ct.rep_cond("meas")
+
+    def test_unchanged_rc_recompute_is_silent(self, ct_default):
+        ct = self._ct_with_rc_band(ct_default)
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            ct.rep_cond("meas")  # identical inputs -> identical RC
+
+    def test_manual_assignment_merges_source_and_staleness(self, ct_default):
+        ct = self._ct_with_rc_band(ct_default)
+        new_rc = ct.rc.copy()
+        new_rc.iloc[0, 0] = new_rc.iloc[0, 0] + 100
+        with pytest.warns(UserWarning) as rec:
+            ct.rc = new_rc
+        assert len(rec) == 1
+        msg = str(rec[0].message)
+        assert "rc_source changed" in msg and "must be re-run" in msg
+
+    def test_pending_side_is_excluded(self, ct_default):
+        ct = self._ct_with_rc_band(ct_default)
+        ct._rc_pending_sides = {"sim"}
+        try:
+            ct.meas.filter_time(start="1990-10-10", end="1990-10-11 23:55")
+            with warnings.catch_warnings():
+                warnings.simplefilter("error")
+                ct.rep_cond("meas")
+        finally:
+            ct._rc_pending_sides = set()
+
+    def test_self_val_alias_detected(self, ct_default):
+        ct = ct_default
+        ct.meas.filter_irr(400, 1400)
+        ct.rep_cond("meas")
+        ct.sim.filter_irr(0.8, 1.2, ref_val="self_val")
+        ct.meas.filter_time(start="1990-10-10", end="1990-10-11 23:55")
+        with pytest.warns(UserWarning, match="must be re-run"):
+            ct.rep_cond("meas")
+
+    def test_load_path_stays_silent(self, ct_default, recwarn):
+        """warn=False (the _loading config-replay path) suppresses everything."""
+        ct = self._ct_with_rc_band(ct_default)
+        new_rc = ct.rc.copy()
+        new_rc.iloc[0, 0] = new_rc.iloc[0, 0] + 100
+        recwarn.clear()
+        ct._set_rc(new_rc, "manual", warn=False)
+        assert len(recwarn) == 0
+
+
+class TestDualRepCondLoadWarning:
+    """from_mapping warns when both pipelines carry RepCond under a computed
+    rc_source."""
+
+    def test_from_mapping_warns_on_dual_repcond(self, ct_default, tmp_path):
+        clean_meas, clean_sim = ct_default.meas.copy(), ct_default.sim.copy()
+        ct_default.meas.filter_irr(400, 1400)
+        ct_default.rep_cond("meas")
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            ct_default.sim.rep_cond()  # RepCond now in BOTH pipelines
+        ct_default._meas_path = str(tmp_path / "meas.csv")
+        ct_default._sim_path = str(tmp_path / "sim.csv")
+        path = tmp_path / "dual.yaml"
+        ct_default.to_yaml(path)
+        with pytest.warns(UserWarning, match="ambiguous"):
+            CapTest.from_yaml(
+                path,
+                meas_loader=MagicMock(return_value=clean_meas),
+                sim_loader=MagicMock(return_value=clean_sim),
+            )
+
+    def test_single_repcond_load_emits_no_dual_warning(
+        self, ct_default, tmp_path, recwarn
+    ):
+        clean_meas, clean_sim = ct_default.meas.copy(), ct_default.sim.copy()
+        ct_default.meas.filter_irr(400, 1400)
+        ct_default.rep_cond("meas")
+        ct_default._meas_path = str(tmp_path / "meas.csv")
+        ct_default._sim_path = str(tmp_path / "sim.csv")
+        path = tmp_path / "single.yaml"
+        ct_default.to_yaml(path)
+        recwarn.clear()
+        CapTest.from_yaml(
+            path,
+            meas_loader=MagicMock(return_value=clean_meas),
+            sim_loader=MagicMock(return_value=clean_sim),
+        )
+        assert not any("ambiguous" in str(w.message) for w in recwarn)

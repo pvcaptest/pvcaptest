@@ -2290,7 +2290,15 @@ class CapData(param.Parameterized):
         via ``filters.step_from_config`` and run against this CapData in order.
         Requires ``data`` loaded and ``regression_cols`` resolved (run
         ``process_regression_columns`` first) for filters that need them.
+
+        Resets the applied chain first (``self.filters = []``) — replay is
+        restore-then-re-run, so re-run steps never coexist with their stale
+        predecessors. Appending a serialized pipeline onto an existing chain
+        is not a supported pattern; extend a chain with the ``filter_*``
+        wrappers instead.
         """
+        if self.filters:
+            self.filters = []
         for step_config in config:
             step_from_config(step_config).run(self)
 
