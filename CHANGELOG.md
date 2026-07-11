@@ -62,6 +62,16 @@ thresholds, round-trips through to_yaml/from_yaml.
 writes; symmetric with from_mapping.
 
 ### Changed
+- `CapTest.captest_results()` now returns a structured `CapTestResults` object
+(cap_ratio, pval-checked ratio, pass/fail + bounds, expected/actual/tested
+capacity, per-side points used, per-side regression tables, RC + provenance)
+instead of a bare float; the legacy printed report is `str(results)` and the
+p-value Styler is `results.styled_pvalues()`. On mismatched regression
+formulas the method still warns and now explicitly returns `None`. The
+module-level `print_results` helper is removed — its output lives on as
+`CapTestResults.summary()` — and `captest_results_check_pvalues` is now a thin
+display wrapper over a single `captest_results` call (same Styler return and
+printed cap-ratio lines).
 - `BaseSummaryStep.run` now rolls back steps appended by nested filter calls
 when `_execute` raises, and `CapData._calc_rep_cond` assigns `rc`/`rc_tool`
 only after computation succeeds (restoring the prior `rc` if CapTest

@@ -401,53 +401,63 @@ class TestTopLevelFuncs(unittest.TestCase):
         with self.assertWarns(UserWarning):
             ct_bad.determine_pass_or_fail(1.04)
 
-    @pytest.fixture(autouse=True)
-    def _pass_fixtures(self, capsys):
-        self.capsys = capsys
-
-    def test_print_results_pass(self):
-        """
-        This test uses the pytest autouse fixture defined above to
-        capture the print to stdout and test it, so it must be run
-        using pytest 'pytest tests/
-        test_CapData.py::TestTopLevelFuncs::test_print_results_pass'
-        """
-        test_passed = (True, "950, 1050")
-        captest_module.print_results(test_passed, 1000, 970, 0.97, 970, test_passed[1])
-        captured = self.capsys.readouterr()
+    def test_captest_results_summary_pass_format(self):
+        """Pin the exact legacy report format produced by CapTestResults."""
+        results = captest_module.CapTestResults(
+            cap_ratio=0.97,
+            cap_ratio_pval_check=0.97,
+            passed=True,
+            tolerance="+/- 5",
+            bounds="950, 1050",
+            expected_capacity=1000,
+            actual_capacity=970,
+            tested_capacity=970,
+            points_used={"meas": 100, "sim": 100},
+            regression_tables={},
+            rc=pd.DataFrame(),
+            rc_source="meas",
+        )
 
         results_str = (
+            "Using reporting conditions from meas. \n\n"
             "Capacity Test Result:         PASS\n"
             "Modeled test output:          1000.000\n"
             "Actual test output:           970.000\n"
             "Tested output ratio:          0.970\n"
             "Tested Capacity:              970.000\n"
-            "Bounds:                       950, 1050\n\n\n"
+            "Bounds:                       950, 1050\n"
         )
 
-        self.assertEqual(results_str, captured.out)
+        self.assertEqual(results_str, str(results))
 
-    def test_print_results_fail(self):
-        """
-        This test uses the pytest autouse fixture defined above to
-        capture the print to stdout and test it, so it must be run
-        using pytest 'pytest tests/
-        test_CapData.py::TestTopLevelFuncs::test_print_results_pass'
-        """
-        test_passed = (False, "950, 1050")
-        captest_module.print_results(test_passed, 1000, 940, 0.94, 940, test_passed[1])
-        captured = self.capsys.readouterr()
+    def test_captest_results_summary_fail_format(self):
+        """FAIL result renders with the same column alignment as PASS."""
+        results = captest_module.CapTestResults(
+            cap_ratio=0.94,
+            cap_ratio_pval_check=0.94,
+            passed=False,
+            tolerance="+/- 5",
+            bounds="950, 1050",
+            expected_capacity=1000,
+            actual_capacity=940,
+            tested_capacity=940,
+            points_used={"meas": 100, "sim": 100},
+            regression_tables={},
+            rc=pd.DataFrame(),
+            rc_source="meas",
+        )
 
         results_str = (
-            "Capacity Test Result:    FAIL\n"
+            "Using reporting conditions from meas. \n\n"
+            "Capacity Test Result:         FAIL\n"
             "Modeled test output:          1000.000\n"
             "Actual test output:           940.000\n"
             "Tested output ratio:          0.940\n"
             "Tested Capacity:              940.000\n"
-            "Bounds:                       950, 1050\n\n\n"
+            "Bounds:                       950, 1050\n"
         )
 
-        self.assertEqual(results_str, captured.out)
+        self.assertEqual(results_str, str(results))
 
 
 class TestCapDataEmpty:
@@ -2852,7 +2862,12 @@ class TestCapTestCpResultsSingleCoeff(unittest.TestCase):
         ct._set_rc(self.meas.rc, "meas")
         res = ct.captest_results(print_res=False)
 
-        self.assertIsInstance(res, float, "Returned value is not a tuple")
+        self.assertIsInstance(
+            res,
+            captest_module.CapTestResults,
+            "Returned value is not a CapTestResults",
+        )
+        self.assertIsInstance(float(res.cap_ratio), float)
 
 
 class TestCapTestCpResultsMultCoeffKwVsW(unittest.TestCase):
@@ -2905,7 +2920,7 @@ class TestCapTestCpResultsMultCoeffKwVsW(unittest.TestCase):
         ct._set_rc(meas.rc, "meas")
 
         with self.assertWarns(UserWarning):
-            cp_rat = ct.captest_results(check_pvalues=False, print_res=False)
+            cp_rat = ct.captest_results(check_pvalues=False, print_res=False).cap_ratio
 
         self.assertAlmostEqual(
             cp_rat, cp_rat_test_val, 6, "captest_results did not return expected value."
@@ -3014,7 +3029,7 @@ class TestCapTestCpResultsMultCoeff(unittest.TestCase):
         cp_rat_test_val = actual / expected
 
         ct = self._build_ct()
-        cp_rat = ct.captest_results(check_pvalues=False, print_res=False)
+        cp_rat = ct.captest_results(check_pvalues=False, print_res=False).cap_ratio
 
         self.assertEqual(
             cp_rat, cp_rat_test_val, "captest_results did not return expected value."
@@ -3027,14 +3042,9 @@ class TestCapTestCpResultsMultCoeff(unittest.TestCase):
         p-value is > 1e-15, which changes the prediction.
         """
         ct = self._build_ct()
-        # Get ratio without p-value check
-        cp_rat_no_check = ct.captest_results(
-            check_pvalues=False,
-            print_res=False,
-        )
-
-        # Get ratio with p-value check (pval=1e-15 zeros poa coefficient)
-        cp_rat_with_check = ct.captest_results(
+        # Both ratios come from one call; pval=1e-15 zeros the poa
+        # coefficient in the p-value-checked ratio only.
+        res = ct.captest_results(
             check_pvalues=True,
             pval=1e-15,
             print_res=False,
@@ -3042,8 +3052,8 @@ class TestCapTestCpResultsMultCoeff(unittest.TestCase):
 
         # The ratios should be different because poa coefficient is zeroed
         self.assertNotEqual(
-            cp_rat_no_check,
-            cp_rat_with_check,
+            res.cap_ratio,
+            res.cap_ratio_pval_check,
             "check_pvalues=True should produce different result than False",
         )
 
@@ -3063,28 +3073,24 @@ class TestCapTestCpResultsMultCoeff(unittest.TestCase):
         self.maxDiff = 10_000
 
         ct = self._build_ct()
-        ct.captest_results(
+        res = ct.captest_results(
             check_pvalues=True,
             pval=1e-15,
             print_res=True,
         )
         captured = self.capsys.readouterr()
 
-        # Expected output when poa coefficient is zeroed due to p-value check.
-        # CapTest picks reporting conditions from ``rc_source`` (default
-        # 'meas'), so the output says "from meas." instead of the legacy
-        # module-level "from das.".
-        results_str = (
-            "Using reporting conditions from meas. \n\n"
-            "Capacity Test Result:    FAIL\n"
-            "Modeled test output:          66.451\n"
-            "Actual test output:           72.429\n"
-            "Tested output ratio:          1.090\n"
-            "Tested Capacity:              108.996\n"
-            "Bounds:                       95.0, 105.0\n\n\n"
-        )
+        # print_res=True prints exactly the object's summary report.
+        self.assertEqual(str(res) + "\n", captured.out)
 
-        self.assertEqual(results_str, captured.out)
+        # Pin the pval-checked headline values from the legacy printed
+        # report: poa coefficient zeroed (pval=1e-15), so the checked ratio,
+        # tested capacity, and pass/fail match the pre-CapTestResults output.
+        self.assertAlmostEqual(res.cap_ratio_pval_check, 1.08996, 5)
+        self.assertAlmostEqual(res.tested_capacity, 108.996, 3)
+        self.assertFalse(res.passed)
+        self.assertEqual(res.bounds, "95.0, 105.0")
+        self.assertIn("Capacity Test Result:         FAIL", captured.out)
 
     def test_formulas_match(self):
         sim = pvc.CapData("sim")

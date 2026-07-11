@@ -16,6 +16,7 @@ import pytest
 import yaml
 
 from captest import CapTest, captest as ct, util
+from captest.captest import CapTestResults
 from captest.capdata import CapData
 from captest.calcparams import (
     apparent_zenith_pvsyst,
@@ -1738,9 +1739,9 @@ class TestPortedMethods:
         expected_expected = capt.sim.regression_results.predict(rc)[0]
         expected_ratio = expected_actual / expected_expected
 
-        cp_rat = capt.captest_results(print_res=False)
+        res = capt.captest_results(print_res=False)
 
-        assert cp_rat == pytest.approx(expected_ratio, rel=1e-10)
+        assert res.cap_ratio == pytest.approx(expected_ratio, rel=1e-10)
 
     def test_captest_results_uses_ct_rc_values_regardless_of_source(self):
         capt = self._build_ct()
@@ -1752,9 +1753,66 @@ class TestPortedMethods:
             / capt.sim.regression_results.predict(rc)[0]
         )
 
-        cp_rat = capt.captest_results(print_res=False)
+        res = capt.captest_results(print_res=False)
 
-        assert cp_rat == pytest.approx(expected_ratio, rel=1e-10)
+        assert res.cap_ratio == pytest.approx(expected_ratio, rel=1e-10)
+
+    def test_captest_results_returns_results_object(self):
+        capt = self._build_ct()
+        rc = pd.DataFrame({"poa": [6], "t_amb": [5], "w_vel": [3]})
+        capt._set_rc(rc, "meas")
+        res = capt.captest_results(print_res=False)
+        assert isinstance(res, CapTestResults)
+        meas_pred = capt.meas.regression_results.predict(rc)[0]
+        sim_pred = capt.sim.regression_results.predict(rc)[0]
+        assert res.cap_ratio == pytest.approx(meas_pred / sim_pred, rel=1e-10)
+        assert res.actual_capacity == pytest.approx(meas_pred, rel=1e-10)
+        assert res.expected_capacity == pytest.approx(sim_pred, rel=1e-10)
+        assert res.tested_capacity == pytest.approx(
+            capt.ac_nameplate * res.cap_ratio, rel=1e-10
+        )
+        assert res.rc_source == capt.rc_source
+        assert isinstance(res.passed, bool)
+        assert res.tolerance == capt.test_tolerance
+        assert set(res.points_used) == {"meas", "sim"}
+        assert set(res.regression_tables) == {"meas", "sim"}
+        assert list(res.regression_tables["meas"].columns) == ["coef", "pvalue"]
+        pd.testing.assert_frame_equal(res.rc, rc)
+
+    def test_captest_results_summary_contains_printed_fields(self):
+        capt = self._build_ct()
+        capt._set_rc(pd.DataFrame({"poa": [6], "t_amb": [5], "w_vel": [3]}), "meas")
+        res = capt.captest_results(print_res=False)
+        text = str(res)
+        for token in (
+            "Capacity Test Result:",
+            "Modeled test output:",
+            "Actual test output:",
+            "Tested output ratio:",
+            "Tested Capacity:",
+            "Bounds:",
+        ):
+            assert token in text
+        assert res.summary() == text
+
+    def test_captest_results_print_res_prints_summary(self, capsys):
+        capt = self._build_ct()
+        capt._set_rc(pd.DataFrame({"poa": [6], "t_amb": [5], "w_vel": [3]}), "meas")
+        res = capt.captest_results(print_res=True)
+        captured = capsys.readouterr()
+        assert captured.out == str(res) + "\n"
+
+    def test_styled_pvalues_reproducible_from_object(self):
+        capt = self._build_ct()
+        capt._set_rc(pd.DataFrame({"poa": [6], "t_amb": [5], "w_vel": [3]}), "meas")
+        res = capt.captest_results(print_res=False)
+        styled = res.styled_pvalues()
+        assert set(styled.data.columns) == {
+            "das_pvals",
+            "sim_pvals",
+            "das_params",
+            "sim_params",
+        }
 
     def test_captest_results_raises_when_ct_rc_none(self):
         capt = self._build_ct()
@@ -1766,7 +1824,8 @@ class TestPortedMethods:
         capt = self._build_ct()
         capt.sim.regression_formula = "power ~ poa + t_amb"
         with pytest.warns(UserWarning, match="regression formula"):
-            capt.captest_results(print_res=False)
+            res = capt.captest_results(print_res=False)
+        assert res is None
 
     def test_captest_results_check_pvalues_returns_styled_df(self):
         capt = self._build_ct()
@@ -2273,7 +2332,7 @@ class TestIntegration:
     def test_end_to_end_e2848_default(self, ct_default):
         """Default ASTM E2848 preset runs end-to-end to a plausible cap ratio."""
         self._run_canonical_sequence(ct_default)
-        cap_ratio = ct_default.captest_results(print_res=False)
+        cap_ratio = ct_default.captest_results(print_res=False).cap_ratio
         assert 0.8 < cap_ratio < 1.2
         # Regression-column resolution on setup() wires the aggregated names.
         assert ct_default.meas.regression_cols["poa"] == "irr_poa_mean_agg"
@@ -2287,7 +2346,7 @@ class TestIntegration:
         assert "e_total" in ct_etotal.sim.data.columns
 
         self._run_canonical_sequence(ct_etotal)
-        cap_ratio = ct_etotal.captest_results(print_res=False)
+        cap_ratio = ct_etotal.captest_results(print_res=False).cap_ratio
         assert 0.8 < cap_ratio < 1.2
         # The regression uses e_total as the "poa" column for both sides.
         assert ct_etotal.meas.regression_cols["poa"] == "e_total"
@@ -2313,7 +2372,7 @@ class TestIntegration:
         assert len(layout) == 2
 
         self._run_canonical_sequence(ct_bifi_power_tc)
-        cap_ratio = ct_bifi_power_tc.captest_results(print_res=False)
+        cap_ratio = ct_bifi_power_tc.captest_results(print_res=False).cap_ratio
         assert 0.8 < cap_ratio < 1.2
 
     def test_end_to_end_bifi_power_tc_meas_tbom(self, ct_bifi_power_tc_meas_tbom):
@@ -2334,7 +2393,9 @@ class TestIntegration:
         assert len(layout) == 2
 
         self._run_canonical_sequence(ct_bifi_power_tc_meas_tbom)
-        cap_ratio = ct_bifi_power_tc_meas_tbom.captest_results(print_res=False)
+        cap_ratio = ct_bifi_power_tc_meas_tbom.captest_results(
+            print_res=False
+        ).cap_ratio
         assert 0.8 < cap_ratio < 1.2
 
     def test_end_to_end_spec_corrected_etotal_sim(self, ct_spec_corrected_etotal_sim):
@@ -2343,7 +2404,7 @@ class TestIntegration:
         assert "e_total" in capt.meas.data.columns
         assert "poa_spec_corrected" in capt.meas.data.columns
         self._run_canonical_sequence(capt)
-        cap_ratio = capt.captest_results(print_res=False)
+        cap_ratio = capt.captest_results(print_res=False).cap_ratio
         assert 0.8 < cap_ratio < 1.2
         assert capt.meas.regression_cols["poa"] == "e_total"
         assert capt.sim.regression_cols["poa"] == "e_total"
@@ -2354,7 +2415,7 @@ class TestIntegration:
         assert "e_total" in capt.meas.data.columns
         assert "poa_spec_corrected" in capt.meas.data.columns
         self._run_canonical_sequence(capt)
-        cap_ratio = capt.captest_results(print_res=False)
+        cap_ratio = capt.captest_results(print_res=False).cap_ratio
         assert 0.8 < cap_ratio < 1.2
         assert capt.meas.regression_cols["poa"] == "e_total"
         assert capt.sim.regression_cols["poa"] == "e_total"
@@ -2365,7 +2426,7 @@ class TestIntegration:
         assert "power_temp_correct" in capt.meas.data.columns
         assert "e_total" in capt.meas.data.columns
         self._run_canonical_sequence(capt)
-        cap_ratio = capt.captest_results(print_res=False)
+        cap_ratio = capt.captest_results(print_res=False).cap_ratio
         assert 0.8 < cap_ratio < 1.2
         assert capt.meas.regression_cols["poa"] == "e_total"
         assert capt.sim.regression_cols["poa"] == "e_total"
@@ -2376,7 +2437,7 @@ class TestIntegration:
         assert "power_temp_correct" in capt.meas.data.columns
         assert "e_total" in capt.meas.data.columns
         self._run_canonical_sequence(capt)
-        cap_ratio = capt.captest_results(print_res=False)
+        cap_ratio = capt.captest_results(print_res=False).cap_ratio
         assert 0.8 < cap_ratio < 1.2
         assert capt.meas.regression_cols["poa"] == "e_total"
         assert capt.sim.regression_cols["poa"] == "e_total"

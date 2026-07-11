@@ -1,9 +1,10 @@
 """Unified test orchestrator and supporting utilities.
 
 This module houses the ``CapTest`` class, the ``TEST_SETUPS`` registry of
-named regression presets, and small formatting helpers (``print_results``,
-``highlight_pvals``, ``perc_wrap``) consumed by ``CapTest`` methods that
-compare a measured + modeled pair of ``CapData`` instances.
+named regression presets, the ``CapTestResults`` results container, and small
+formatting helpers (``highlight_pvals``, ``perc_wrap``) consumed by
+``CapTest`` methods that compare a measured + modeled pair of ``CapData``
+instances.
 
 Import direction
 ----------------
@@ -20,6 +21,7 @@ import copy
 import difflib
 import importlib.util
 import warnings
+from dataclasses import dataclass
 from pathlib import Path
 import textwrap
 
@@ -60,52 +62,103 @@ else:  # pragma: no cover - optional dep
     hv = None
 
 
-def print_results(test_passed, expected, actual, cap_ratio, capacity, bounds):
-    """Print formatted results of a capacity test.
-
-    Parameters
-    ----------
-    test_passed : tuple of (bool, str)
-        Pass/fail flag and bounds string produced by
-        ``CapTest.determine_pass_or_fail`` (or the legacy module-level
-        ``determine_pass_or_fail`` in ``capdata.py`` until Unit 7 removes it).
-    expected : float
-        Predicted modeled test output at reporting conditions.
-    actual : float
-        Predicted measured test output at reporting conditions.
-    cap_ratio : float
-        Capacity test ratio (``actual / expected``).
-    capacity : float
-        Tested capacity (``nameplate * cap_ratio``).
-    bounds : str
-        Human-readable bounds string for the test tolerance.
-    """
-    if test_passed[0]:
-        print("{:<30s}{}".format("Capacity Test Result:", "PASS"))
-    else:
-        print("{:<25s}{}".format("Capacity Test Result:", "FAIL"))
-
-    print(
-        "{:<30s}{:0.3f}".format("Modeled test output:", expected)
-        + "\n"
-        + "{:<30s}{:0.3f}".format("Actual test output:", actual)
-        + "\n"
-        + "{:<30s}{:0.3f}".format("Tested output ratio:", cap_ratio)
-        + "\n"
-        + "{:<30s}{:0.3f}".format("Tested Capacity:", capacity)
-    )
-
-    print("{:<30s}{}\n\n".format("Bounds:", bounds))
-
-
 def highlight_pvals(s):
     """Highlight Series entries >= 0.05 with a yellow background.
 
-    Intended for use with ``pandas.io.formats.style.Styler.apply``. Consumed by
-    ``CapTest.captest_results_check_pvalues`` (ported in Unit 7).
+    Intended for use with ``pandas.io.formats.style.Styler.apply``. Consumed
+    by ``CapTestResults.styled_pvalues``.
     """
     is_greaterthan = s >= 0.05
     return ["background-color: yellow" if v else "" for v in is_greaterthan]
+
+
+@dataclass
+class CapTestResults:
+    """Structured results of a measured-vs-modeled capacity test.
+
+    Returned by :meth:`CapTest.captest_results`. ``str(results)`` (or
+    :meth:`summary`) reproduces the legacy printed report;
+    :meth:`styled_pvalues` reproduces the legacy p-value Styler.
+
+    Attributes
+    ----------
+    cap_ratio : float
+        Capacity test ratio ``actual / expected`` (no p-value filtering).
+    cap_ratio_pval_check : float
+        Capacity ratio computed with above-threshold coefficients zeroed.
+    passed : bool
+        Pass/fail result for the headline ratio against ``tolerance``.
+    tolerance : str
+        The ``CapTest.test_tolerance`` string the test was judged against.
+    bounds : str
+        Human-readable capacity bounds string for the tolerance.
+    expected_capacity : float
+        Predicted modeled test output at reporting conditions.
+    actual_capacity : float
+        Predicted measured test output at reporting conditions.
+    tested_capacity : float
+        ``ac_nameplate`` times the headline capacity ratio.
+    points_used : dict
+        Points remaining after filtering, keyed by ``'meas'`` / ``'sim'``.
+    regression_tables : dict
+        Per-side DataFrames of regression terms with ``coef`` and ``pvalue``
+        columns, keyed by ``'meas'`` / ``'sim'``.
+    rc : pandas.DataFrame
+        The reporting conditions both regressions were predicted at.
+    rc_source : str
+        Provenance of ``rc`` (``'meas'``, ``'sim'``, or ``'manual'``).
+    """
+
+    cap_ratio: float
+    cap_ratio_pval_check: float
+    passed: bool
+    tolerance: str
+    bounds: str
+    expected_capacity: float
+    actual_capacity: float
+    tested_capacity: float
+    points_used: dict
+    regression_tables: dict
+    rc: pd.DataFrame
+    rc_source: str
+
+    def summary(self):
+        """Return the legacy printed report as a string."""
+        result = "PASS" if self.passed else "FAIL"
+        lines = [
+            f"Using reporting conditions from {self.rc_source}. \n",
+            "{:<30s}{}".format("Capacity Test Result:", result),
+            "{:<30s}{:0.3f}".format("Modeled test output:", self.expected_capacity),
+            "{:<30s}{:0.3f}".format("Actual test output:", self.actual_capacity),
+            "{:<30s}{:0.3f}".format("Tested output ratio:", self.cap_ratio),
+            "{:<30s}{:0.3f}".format("Tested Capacity:", self.tested_capacity),
+            "{:<30s}{}\n".format("Bounds:", self.bounds),
+        ]
+        return "\n".join(lines)
+
+    def __str__(self):
+        return self.summary()
+
+    def styled_pvalues(self):
+        """Return the legacy p-value/params Styler built from this object.
+
+        Returns
+        -------
+        pandas.io.formats.style.Styler
+            Styled DataFrame with p-values and coefficients for both sides;
+            p-values >= 0.05 are highlighted.
+        """
+        df_pvals = pd.DataFrame(
+            {
+                "das_pvals": self.regression_tables["meas"]["pvalue"],
+                "sim_pvals": self.regression_tables["sim"]["pvalue"],
+                "das_params": self.regression_tables["meas"]["coef"],
+                "sim_params": self.regression_tables["sim"]["coef"],
+            }
+        )
+        return df_pvals.style.format("{:20,.5f}").apply(
+            highlight_pvals, subset=["das_pvals", "sim_pvals"]
+        )
 
 
 # --- TEST_SETUPS registry -------------------------------------------------
@@ -2577,35 +2630,38 @@ class CapTest(param.Parameterized):
         return None
 
     def captest_results(self, check_pvalues=False, pval=0.05, print_res=True):
-        """Compute the capacity test ratio for ``self.meas`` vs ``self.sim``.
+        """Compute the capacity test results for ``self.meas`` vs ``self.sim``.
 
         Predicts both regressions at the single test reporting conditions
         ``self.rc`` (set via :meth:`rep_cond` or the ``rc`` setter);
         ``self.rc_source`` is reported for provenance. Raises ``ValueError``
         if ``self.rc`` is ``None``. Uses ``self.ac_nameplate`` for the
-        tested-capacity printout and ``self.test_tolerance`` (via
-        ``self.determine_pass_or_fail``) for the pass/fail result.
+        tested capacity and ``self.test_tolerance`` (via
+        ``self.determine_pass_or_fail``) for the pass/fail result. Both the
+        plain and the p-value-checked capacity ratios are always computed;
+        ``check_pvalues`` selects which one is the headline ratio used for
+        pass/fail and tested capacity.
 
         Parameters
         ----------
         check_pvalues : bool, default False
-            When True, coefficients with a p-value above ``pval`` are zeroed
-            before prediction.
+            When True, the headline ratio is the one computed with
+            above-``pval`` coefficients zeroed before prediction.
         pval : float, default 0.05
-            P-value cutoff used when ``check_pvalues`` is True.
+            P-value cutoff used for the p-value-checked ratio.
         print_res : bool, default True
-            When True, prints the formatted results.
+            When True, prints the formatted results (``str(results)``).
 
         Returns
         -------
-        float
-            Capacity test ratio ``actual / expected``.
+        CapTestResults or None
+            Structured results object. Returns ``None`` (after a
+            ``UserWarning``) when the two regression formulas differ.
         """
         self._require_meas_and_sim()
         if self.meas.regression_formula != self.sim.regression_formula:
-            return warnings.warn(
-                "CapData objects do not have the same regression formula."
-            )
+            warnings.warn("CapData objects do not have the same regression formula.")
+            return None
 
         rc = self.rc
         if rc is None:
@@ -2614,50 +2670,83 @@ class CapTest(param.Parameterized):
                 "ct.rep_cond(which) or assign ct.rc = df first."
             )
 
-        if print_res:
-            print(f"Using reporting conditions from {self.rc_source}. \n")
-
         # predict_with_pvalue_check is a single-CapData helper that stays in
         # capdata.py. Imported lazily to avoid importing holoviews-heavy
         # capdata internals at module-load time for callers that never
         # compute cap ratios (e.g. notebooks that only use setup + plots).
         from captest.capdata import predict_with_pvalue_check
 
-        pval_threshold = pval if check_pvalues else None
-        actual = predict_with_pvalue_check(
-            self.meas, rc=rc, pval_threshold=pval_threshold
+        pval_checked_actual = predict_with_pvalue_check(
+            self.meas, rc=rc, pval_threshold=pval
         )
-        expected = predict_with_pvalue_check(
-            self.sim, rc=rc, pval_threshold=pval_threshold
+        pval_checked_expected = predict_with_pvalue_check(
+            self.sim, rc=rc, pval_threshold=pval
         )
+        actual = predict_with_pvalue_check(self.meas, rc=rc, pval_threshold=None)
+        expected = predict_with_pvalue_check(self.sim, rc=rc, pval_threshold=None)
         cap_ratio = actual / expected
+        cap_ratio_pval_check = pval_checked_actual / pval_checked_expected
         if cap_ratio < 0.01:
             cap_ratio *= 1000
+            cap_ratio_pval_check *= 1000
             actual *= 1000
             warnings.warn(
                 "Capacity ratio and actual capacity multiplied by 1000"
                 " because the capacity ratio was less than 0.01."
             )
-        capacity = self.ac_nameplate * cap_ratio
+        headline = cap_ratio_pval_check if check_pvalues else cap_ratio
+        test_passed = self.determine_pass_or_fail(headline)
+        if test_passed is None:
+            test_passed = (False, "")
+        capacity = self.ac_nameplate * headline
 
+        def _points_used(cd):
+            if cd.filters:
+                return cd.filters[-1].pts_after
+            return len(cd.data)
+
+        def _reg_table(cd):
+            r = cd.regression_results
+            return pd.DataFrame({"coef": r.params, "pvalue": r.pvalues})
+
+        results = CapTestResults(
+            cap_ratio=cap_ratio,
+            cap_ratio_pval_check=cap_ratio_pval_check,
+            passed=bool(test_passed[0]),
+            tolerance=self.test_tolerance,
+            bounds=test_passed[1],
+            expected_capacity=expected,
+            actual_capacity=actual,
+            tested_capacity=capacity,
+            points_used={
+                "meas": _points_used(self.meas),
+                "sim": _points_used(self.sim),
+            },
+            regression_tables={
+                "meas": _reg_table(self.meas),
+                "sim": _reg_table(self.sim),
+            },
+            rc=rc.copy(),
+            rc_source=self.rc_source,
+        )
         if print_res:
-            test_passed = self.determine_pass_or_fail(cap_ratio)
-            print_results(
-                test_passed, expected, actual, cap_ratio, capacity, test_passed[1]
-            )
-
-        return cap_ratio
+            print(results)
+        return results
 
     def captest_results_check_pvalues(self, print_res=False, **kwargs):
         """Compute cap ratio with and without p-value filtering.
 
+        Thin display wrapper around :meth:`captest_results` (called once):
+        prints both capacity ratios and returns the p-value Styler view of
+        the results (``CapTestResults.styled_pvalues``).
+
         Parameters
         ----------
         print_res : bool, default False
-            Forwarded to both internal ``captest_results`` calls.
+            Forwarded to the internal ``captest_results`` call.
         **kwargs
-            Forwarded to ``captest_results``. Do not pass ``check_pvalues``;
-            this method sets it explicitly for each internal call.
+            Forwarded to ``captest_results`` (e.g. ``check_pvalues`` to pick
+            the headline ratio, ``pval`` for the cutoff).
 
         Returns
         -------
@@ -2665,34 +2754,11 @@ class CapTest(param.Parameterized):
             Styled DataFrame with p-values and parameter values for both
             ``self.meas`` and ``self.sim``. P-values >= 0.05 are highlighted.
         """
-        self._require_meas_and_sim()
-        das_pvals = self.meas.regression_results.pvalues
-        sim_pvals = self.sim.regression_results.pvalues
-        das_params = self.meas.regression_results.params
-        sim_params = self.sim.regression_results.params
+        res = self.captest_results(print_res=print_res, **kwargs)
 
-        df_pvals = pd.DataFrame([das_pvals, sim_pvals, das_params, sim_params])
-        df_pvals = df_pvals.transpose()
-        df_pvals.rename(
-            columns={
-                0: "das_pvals",
-                1: "sim_pvals",
-                2: "das_params",
-                3: "sim_params",
-            },
-            inplace=True,
-        )
-
-        cap_ratio = self.captest_results(
-            print_res=print_res, check_pvalues=False, **kwargs
-        )
-        cap_ratio_check_pvalues = self.captest_results(
-            print_res=print_res, check_pvalues=True, **kwargs
-        )
-
-        cap_ratio_rounded = np.round(cap_ratio, decimals=4) * 100
+        cap_ratio_rounded = np.round(res.cap_ratio, decimals=4) * 100
         cap_ratio_check_pvalues_rounded = (
-            np.round(cap_ratio_check_pvalues, decimals=4) * 100
+            np.round(res.cap_ratio_pval_check, decimals=4) * 100
         )
 
         print("{:.3f}% - Cap Ratio".format(cap_ratio_rounded))
@@ -2702,9 +2768,7 @@ class CapTest(param.Parameterized):
             )
         )
 
-        return df_pvals.style.format("{:20,.5f}").apply(
-            highlight_pvals, subset=["das_pvals", "sim_pvals"]
-        )
+        return res.styled_pvalues()
 
     def get_summary(self):
         """Concatenate ``self.meas.get_summary()`` and ``self.sim.get_summary()``.
@@ -2861,11 +2925,11 @@ class CapTest(param.Parameterized):
 # Silence ruff F401: these are public API; re-imported by `capdata.py`.
 __all__ = [
     "CapTest",
+    "CapTestResults",
     "TEST_SETUPS",
     "highlight_pvals",
     "load_config",
     "perc_wrap",
-    "print_results",
     "resolve_test_setup",
     "scatter_bifi_power_tc",
     "scatter_default",
