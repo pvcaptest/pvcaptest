@@ -1,0 +1,51 @@
+{
+    "current_cmb": [
+        "SMA SC Inverter Zones 1A: Zone1A_1 (ZoneAmps1) Amps",
+        "SMA SC Inverter Zones 1A: Zone1A_10 (ZoneAmps10) Amps",
+        "SMA SC Inverter Zones 1A: Zone1A_2 (ZoneAmps2) Amps",
+        "SMA SC Inverter Zones 1A: Zone1A_3 (ZoneAmps3) Amps",
+        "SMA SC Inverter Zones 1A: Zone1A_4 (ZoneAmps4) Amps",
+        "SMA SC Inverter Zones 1A: Zone1A_5 (ZoneAmps5) Amps",
+        "SMA SC Inverter Zones 1A: Zone1A_6 (ZoneAmps6) Amps",
+        "SMA SC Inverter Zones 1A: Zone1A_7 (ZoneAmps7) Amps",
+        "SMA SC Inverter Zones 1A: Zone1A_8 (ZoneAmps8) Amps",
+        "SMA SC Inverter Zones 1A: Zone1A_9 (ZoneAmps9) Amps",
+        "SMA SC Inverter Zones 1B: Zone1B_1 (ZoneAmps1) Amps",
+        "SMA SC Inverter Zones 1B: Zone1B_10 (ZoneAmps10) Amps",
+        "SMA SC Inverter Zones 1B: Zone1B_2 (ZoneAmps2) Amps",
+        "SMA SC Inverter Zones 1B: Zone1B_3 (ZoneAmps3) Amps",
+        "SMA SC Inverter Zones 1B: Zone1B_4 (ZoneAmps4) Amps",
+        "SMA SC Inverter Zones 1B: Zone1B_5 (ZoneAmps5) Amps",
+        "SMA SC Inverter Zones 1B: Zone1B_6 (ZoneAmps6) Amps",
+        "SMA SC Inverter Zones 1B: Zone1B_7 (ZoneAmps7) Amps",
+        "SMA SC Inverter Zones 1B: Zone1B_8 (ZoneAmps8) Amps",
+        "SMA SC Inverter Zones 1B: Zone1B_9 (ZoneAmps9) Amps"
+    ],
+    "energy_export": [
+        "SEL-735 Production Meter: Export energy (KWHdel) Kilowatt hours"
+    ],
+    "humidity": [
+        "Lufft WS601 Weather Station: Humidity (RH) Percent"
+    ],
+    "irr_ghi": [
+        "GHI SR30 Pyranometer: Sun (GHI Temp comp) (Sun2) Watts/meter\u00b2"
+    ],
+    "irr_poa": [
+        "POA SR30 Pyranometer: Sun (POA Temp comp) (Sun) Watts/meter\u00b2"
+    ],
+    "irr_rpoa": [
+        "Backside POA SR30 Pyranometer: BPOA (BPOA) Watts/meter\u00b2"
+    ],
+    "real_pwr_inv": [
+        "SMA SC4000 UP US: Active power (KwAC) Kilowatts"
+    ],
+    "real_pwr_mtr": [
+        "SEL-735 Production Meter: Real power (KW) Kilowatts"
+    ],
+    "temp_amb": [
+        "Lufft WS601 Weather Station: Temperature (TempF) Degrees Fahrenheit"
+    ],
+    "wind_speed": [
+        "Lufft WS601 Weather Station: Wind Speed (WindSpeed) Miles/hour"
+    ]
+}
