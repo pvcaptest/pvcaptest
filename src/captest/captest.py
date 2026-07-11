@@ -2029,7 +2029,8 @@ class CapTest(param.Parameterized):
     def to_yaml(self, path, key="captest", merge_into_existing=True):
         """Serialize the curated CapTest configuration to a yaml file.
 
-        The written sub-mapping lives under the top-level ``key`` (default
+        The written sub-mapping is :meth:`to_mapping`'s return value. It
+        lives under the top-level ``key`` (default
         ``"captest"``) and contains every scalar ``param.*`` plus
         ``test_setup``, any non-None override of ``reg_fml`` /
         ``reg_cols_meas`` / ``reg_cols_sim`` / ``rep_conditions``,
@@ -2071,7 +2072,45 @@ class CapTest(param.Parameterized):
         """
         path = Path(path)
 
-        # Warn once for any non-yaml-serializable user overrides.
+        sub = self.to_mapping()
+
+        # Merge with an existing file on disk when requested.
+        root_doc = {}
+        if merge_into_existing and path.exists():
+            try:
+                with path.open("r") as fh:
+                    existing = yaml.safe_load(fh)
+                if isinstance(existing, dict):
+                    root_doc = existing
+            except (OSError, yaml.YAMLError):  # pragma: no cover - rare IO/parse
+                root_doc = {}
+        root_doc[key] = sub
+
+        with path.open("w") as fh:
+            yaml.safe_dump(root_doc, fh, sort_keys=False)
+
+    def to_mapping(self):
+        """Return the curated config mapping ``to_yaml`` writes under ``key``.
+
+        The public dict counterpart of :meth:`to_yaml` and the symmetric
+        inverse of :meth:`from_mapping`. Emits the same programmatic-only
+        attribute warning as ``to_yaml`` (loaders, mutated scatter_plots).
+
+        Returns
+        -------
+        dict
+            The captest sub-mapping (scalars, overrides, paths, pipelines).
+        """
+        self._warn_unserializable()
+        return self._build_yaml_sub_mapping()
+
+    def _warn_unserializable(self):
+        """Warn once for any non-yaml-serializable user overrides.
+
+        Loader callables and a user-mutated ``scatter_plots`` entry cannot be
+        represented in the yaml config; name them in a single ``UserWarning``
+        so the omission is visible at export time.
+        """
         unserializable = []
         if self.meas_loader is not None:
             unserializable.append("meas_loader")
@@ -2093,23 +2132,6 @@ class CapTest(param.Parameterized):
                 f"{sorted(unserializable)}",
                 stacklevel=2,
             )
-
-        sub = self._build_yaml_sub_mapping()
-
-        # Merge with an existing file on disk when requested.
-        root_doc = {}
-        if merge_into_existing and path.exists():
-            try:
-                with path.open("r") as fh:
-                    existing = yaml.safe_load(fh)
-                if isinstance(existing, dict):
-                    root_doc = existing
-            except (OSError, yaml.YAMLError):  # pragma: no cover - rare IO/parse
-                root_doc = {}
-        root_doc[key] = sub
-
-        with path.open("w") as fh:
-            yaml.safe_dump(root_doc, fh, sort_keys=False)
 
     def _build_yaml_sub_mapping(self):
         """Build the dict written under ``key:`` by :meth:`to_yaml`.

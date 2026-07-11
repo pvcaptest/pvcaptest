@@ -2077,6 +2077,31 @@ class TestToYamlAndRoundTrip:
             capt.to_yaml(p, merge_into_existing=False)
 
 
+class TestToMapping:
+    """CapTest.to_mapping — public dict counterpart of to_yaml."""
+
+    def test_to_mapping_matches_to_yaml_bytes(self, tmp_path, ct_default):
+        path = tmp_path / "ct.yaml"
+        ct_default.to_yaml(path, merge_into_existing=False)
+        dumped = yaml.safe_dump({"captest": ct_default.to_mapping()}, sort_keys=False)
+        assert dumped == path.read_text()
+
+    def test_from_mapping_round_trips_to_mapping(self, ct_default):
+        sub = ct_default.to_mapping()
+        ct2 = CapTest.from_mapping(
+            sub,
+            meas_loader=lambda p, **k: ct_default.meas,
+            sim_loader=lambda p, **k: ct_default.sim,
+        )
+        assert ct2.test_setup == ct_default.test_setup
+        assert ct2.ac_nameplate == ct_default.ac_nameplate
+
+    def test_to_mapping_warns_on_unserializable_loader(self, ct_default):
+        ct_default.meas_loader = lambda p, **k: None
+        with pytest.warns(UserWarning, match="programmatic-only"):
+            ct_default.to_mapping()
+
+
 class TestYamlPercShorthand:
     """perc_N string shorthand round-trips through from_yaml / to_yaml."""
 

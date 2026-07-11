@@ -58,6 +58,8 @@ absolute-difference sensor comparison.
 - New `CapTest.inv_ac_nameplate` param — per-inverter AC nameplate rating (kW);
 plant metadata and a convenient starting point for per-inverter clipping
 thresholds, round-trips through to_yaml/from_yaml.
+- New `CapTest.to_mapping()` — public dict export of the config mapping to_yaml
+writes; symmetric with from_mapping.
 
 ### Changed
 - **Breaking:** `CapData.data_filtered` is now a derived, read-only property — the
