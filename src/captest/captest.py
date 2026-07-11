@@ -2142,6 +2142,52 @@ class CapTest(param.Parameterized):
             )
         return inst
 
+    def reload(self, side, verbose=True):
+        """Re-load one side's data from its stored path and re-run setup.
+
+        Re-invokes the stored loader (``meas_loader``/``sim_loader`` or the
+        module defaults) on the remembered ``meas_path``/``sim_path`` with
+        the stored ``*_load_kwargs``, replaces that ``CapData``, then runs
+        per-side ``setup(side=side)``. Relative stored paths resolve against
+        the current working directory.
+
+        Parameters
+        ----------
+        side : {'meas', 'sim'}
+            Which side to re-load.
+        verbose : bool, default True
+            Forwarded to ``setup``.
+
+        Returns
+        -------
+        CapTest
+            ``self``, for fluent chaining
+            (``ct.reload('sim').run_test(side='sim')``).
+
+        Raises
+        ------
+        ValueError
+            If ``side`` is invalid, or the instance holds no stored path for
+            that side (constructed from pre-built ``CapData`` objects).
+        """
+        if side not in ("meas", "sim"):
+            raise ValueError(f"side must be 'meas' or 'sim', got {side!r}.")
+        path = self._meas_path if side == "meas" else self._sim_path
+        if path is None:
+            raise ValueError(
+                f"CapTest holds no stored data path for '{side}'. reload() "
+                "requires construction from meas_path/sim_path (from_params, "
+                "from_yaml, or from_mapping)."
+            )
+        if side == "meas":
+            loader = self.meas_loader or _default_meas_loader()
+            self.meas = loader(path, **(self.meas_load_kwargs or {}))
+        else:
+            loader = self.sim_loader or _default_sim_loader()
+            self.sim = loader(path, **(self.sim_load_kwargs or {}))
+        self.setup(verbose=verbose, side=side)
+        return self
+
     def to_yaml(self, path, key="captest", merge_into_existing=True):
         """Serialize the curated CapTest configuration to a yaml file.
 
@@ -2467,32 +2513,54 @@ class CapTest(param.Parameterized):
         self.sim.data = wrapped
         self.sim.filters = []
 
-    def setup(self, verbose=True):
+    def setup(self, verbose=True, side="both"):
         """Resolve TEST_SETUPS, propagate scalars, process regression cols.
 
-        Raises ``RuntimeError`` if ``meas`` or ``sim`` is unset. Assigns the
-        resolved TEST_SETUPS entry to ``self._resolved_setup`` and returns
-        ``self`` for fluent chaining.
+        Raises ``RuntimeError`` if any ``CapData`` targeted by ``side`` is
+        unset. Assigns the resolved TEST_SETUPS entry to
+        ``self._resolved_setup`` and returns ``self`` for fluent chaining.
+
+        With ``side='meas'`` or ``side='sim'`` only the target ``CapData``
+        is re-wired; the other side's data, filter chain, and regression
+        state are left untouched. Sim-side setup may *read* meas (the
+        year-wrap span check and site propagation) but mutates only sim;
+        meas-side setup never touches sim — in particular the year-end
+        auto-wrap (``_maybe_wrap_sim_year_end``), which mutates ``sim.data``
+        while reading the meas span, is skipped for ``side='meas'``.
 
         Parameters
         ----------
         verbose : bool, default True
             Forwarded to ``CapData.process_regression_columns``.
+        side : {'both', 'meas', 'sim'}, default 'both'
+            Which CapData instance(s) to (re)wire.
 
         Returns
         -------
         CapTest
             ``self``, for fluent chaining.
+
+        Raises
+        ------
+        ValueError
+            If ``side`` is not ``'meas'``, ``'sim'``, or ``'both'``.
+        RuntimeError
+            If a ``CapData`` targeted by ``side`` is unset.
         """
-        if self.meas is None:
-            raise RuntimeError("CapTest.meas must be set before setup().")
-        if self.sim is None:
-            raise RuntimeError("CapTest.sim must be set before setup().")
+        if side not in ("meas", "sim", "both"):
+            raise ValueError(f"side must be 'meas', 'sim', or 'both', got {side!r}.")
+        sides = ("meas", "sim") if side == "both" else (side,)
+        for s in sides:
+            if getattr(self, s) is None:
+                raise RuntimeError(f"CapTest.{s} must be set before setup().")
 
         # Auto-wrap sim.data when measured spans (within 60 days of) a year
         # boundary. Idempotent and reversible — re-running setup() or toggling
-        # auto_wrap_sim restores the appropriate state.
-        self._maybe_wrap_sim_year_end()
+        # auto_wrap_sim restores the appropriate state. The wrap mutates
+        # sim.data while reading the meas span, so it is skipped for
+        # side='meas' (meas-side setup must not touch sim).
+        if "sim" in sides and self.meas is not None:
+            self._maybe_wrap_sim_year_end()
 
         # Build the overrides dict for resolve_test_setup. Only non-None
         # values are passed through so named-preset resolution falls back to
@@ -2506,38 +2574,36 @@ class CapTest(param.Parameterized):
         resolved = resolve_test_setup(self.test_setup, overrides=overrides)
         self._resolved_setup = resolved
 
-        # Propagate scalar calc-params onto the CapData instances. Names in
-        # _downstream_attrs_meas_only are copied onto meas only; all others
-        # are copied onto both meas and sim.
+        # Propagate scalar calc-params onto the targeted CapData instances.
+        # Names in _downstream_attrs_meas_only are copied onto meas only;
+        # all others are copied onto both meas and sim.
         for name in self._downstream_attrs:
-            setattr(self.meas, name, getattr(self, name))
-            if name not in self._downstream_attrs_meas_only:
+            if "meas" in sides:
+                setattr(self.meas, name, getattr(self, name))
+            if "sim" in sides and name not in self._downstream_attrs_meas_only:
                 setattr(self.sim, name, getattr(self, name))
 
         # Propagate site from meas -> sim with Etc/GMT±N tz for PVsyst.
-        self._propagate_sim_site()
+        # Reads meas.site but mutates only sim, so it runs for sim-side setup.
+        if "sim" in sides and self.meas is not None:
+            self._propagate_sim_site()
 
-        # Wire per-CapData regression state. Deepcopy the regression_cols
-        # dict because process_regression_columns mutates it in place.
-        self.meas.regression_cols = copy.deepcopy(resolved["reg_cols_meas"])
-        self.sim.regression_cols = copy.deepcopy(resolved["reg_cols_sim"])
-        self.meas.regression_formula = resolved["reg_fml"]
-        self.sim.regression_formula = resolved["reg_fml"]
-        self.meas.tolerance = self.test_tolerance
-        self.sim.tolerance = self.test_tolerance
-
-        # Run process_regression_columns on both. This also resets
-        # data_filtered to data.copy() so any prior filter state is
-        # dropped (intended behavior per the design spec).
-        self.meas.process_regression_columns(verbose=verbose)
-        self.sim.process_regression_columns(verbose=verbose)
-
-        # Wire each CapData back to this CapTest so filter_irr(ref_val='rep_irr')
-        # resolves against the single test RC (ct.rc), and (Plan 3) so cd.rep_cond
-        # can update it. Runtime reference only; capdata.py never imports captest.
-        # Assigned per side so a future per-side setup can re-wire one side alone.
-        self.meas._captest = self
-        self.sim._captest = self
+        # Wire per-CapData regression state on each targeted side. Deepcopy
+        # the regression_cols dict because process_regression_columns mutates
+        # it in place. process_regression_columns also resets data_filtered
+        # to data.copy() so any prior filter state on that side is dropped
+        # (intended behavior per the design spec).
+        for s in sides:
+            cd = getattr(self, s)
+            cd.regression_cols = copy.deepcopy(resolved[f"reg_cols_{s}"])
+            cd.regression_formula = resolved["reg_fml"]
+            cd.tolerance = self.test_tolerance
+            cd.process_regression_columns(verbose=verbose)
+            # Wire the CapData back to this CapTest so
+            # filter_irr(ref_val='rep_irr') resolves against the single test
+            # RC (ct.rc) and cd.rep_cond can update it. Runtime reference
+            # only; capdata.py never imports captest.
+            cd._captest = self
 
         return self
 

@@ -1045,6 +1045,57 @@ class TestSetup:
         assert resolved_rc["irr_bal"] is False
         assert set(resolved_rc["func"].keys()) == {"poa", "t_amb", "w_vel"}
 
+    def test_setup_side_meas_leaves_sim_untouched(self, ct_default):
+        sim_data_before = ct_default.sim.data.copy()
+        ct_default.sim.filter_irr(400, 1400)
+        ct_default.setup(side="meas", verbose=False)
+        # sim chain untouched (meas-side setup must not clear sim's filters)
+        assert len(ct_default.sim.filters) == 1
+        pd.testing.assert_frame_equal(ct_default.sim.data, sim_data_before)
+
+    def test_setup_side_sim_reprocesses_sim_only(self, ct_default):
+        ct_default.meas.filter_irr(400, 1400)
+        ct_default.setup(side="sim", verbose=False)
+        assert len(ct_default.meas.filters) == 1  # meas chain untouched
+
+    def test_setup_side_requires_target(self):
+        ct_ = CapTest(test_setup="e2848_default")
+        with pytest.raises(RuntimeError):
+            ct_.setup(side="meas")
+
+    def test_setup_invalid_side_raises(self, ct_default):
+        with pytest.raises(ValueError):
+            ct_default.setup(side="bogus")
+
+
+class TestReload:
+    """Behavior of CapTest.reload(side)."""
+
+    def test_reload_requires_stored_path(self, ct_default):
+        with pytest.raises(ValueError, match="no stored data path"):
+            ct_default.reload("meas")
+
+    def test_reload_invalid_side_raises(self, ct_default):
+        with pytest.raises(ValueError):
+            ct_default.reload("both")
+
+    def test_reload_sim_reloads_and_reruns_setup(self, ct_default):
+        ct_default._sim_path = "sentinel.csv"
+        fresh = ct_default.sim
+        calls = {}
+
+        def fake_loader(path, **kwargs):
+            calls["path"] = path
+            calls["kwargs"] = kwargs
+            return fresh
+
+        ct_default.sim_loader = fake_loader
+        ct_default.sim_load_kwargs = {"encoding": "latin1"}
+        out = ct_default.reload("sim", verbose=False)
+        assert out is ct_default
+        assert calls == {"path": "sentinel.csv", "kwargs": {"encoding": "latin1"}}
+        assert ct_default.sim._captest is ct_default
+
 
 class TestRepIrrCrossInstance:
     """filter_irr(ref_val='rep_irr') resolving against the ct.rc in a CapTest."""

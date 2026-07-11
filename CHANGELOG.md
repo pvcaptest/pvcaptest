@@ -68,6 +68,9 @@ writes; symmetric with from_mapping.
 reporting conditions (merged with the rc_source-change warning when both apply);
 loading a config with RepCond steps in both pipelines under a computed rc_source
 warns that the configuration is ambiguous.
+- `CapTest.setup(side=...)` — per-side setup that re-wires only the target
+CapData (sim-side setup may read meas but mutates only sim); `CapTest.reload(side)`
+— re-load one side from its stored path/loader and re-run per-side setup.
 
 ### Changed
 - `CapData.run_pipeline` now resets the applied chain before rebuilding (replay
