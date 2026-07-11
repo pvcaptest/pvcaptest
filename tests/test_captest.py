@@ -2028,6 +2028,19 @@ class TestToYamlAndRoundTrip:
         assert loaded.airmass_model == "kasten1966"
         assert loaded.altitude_override == 500
 
+    def test_inv_ac_nameplate_round_trips(self, tmp_path, ct_default):
+        ct_default.inv_ac_nameplate = 2500.0
+        path = tmp_path / "ct.yaml"
+        ct_default.to_yaml(path)
+        sub = yaml.safe_load(path.read_text())["captest"]
+        assert sub["inv_ac_nameplate"] == 2500.0
+
+    def test_inv_ac_nameplate_none_round_trips(self, tmp_path, ct_default):
+        path = tmp_path / "ct.yaml"
+        ct_default.to_yaml(path)
+        sub = yaml.safe_load(path.read_text())["captest"]
+        assert sub["inv_ac_nameplate"] is None
+
     def test_to_yaml_round_trips_altitude_override_none(self, tmp_path):
         """altitude_override=None (respect site altitude) survives the round
         trip as None rather than being coerced to the default of 0."""

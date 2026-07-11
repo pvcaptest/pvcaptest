@@ -55,6 +55,9 @@ only the truthy rows). Added `CapData.filter_threshold(column, low, high)` — a
 one-sided or two-sided inclusive threshold on any column, backed by the
 `Irradiance` step. Added `CapData.filter_sensors_abs_diff(thresholds)` for the
 absolute-difference sensor comparison.
+- New `CapTest.inv_ac_nameplate` param — per-inverter AC nameplate rating (kW);
+plant metadata and a convenient starting point for per-inverter clipping
+thresholds, round-trips through to_yaml/from_yaml.
 
 ### Changed
 - **Breaking:** `CapData.data_filtered` is now a derived, read-only property — the

@@ -1116,6 +1116,7 @@ _CAPTEST_YAML_KEYS = frozenset(
         "shade_filter_start",
         "shade_filter_end",
         "ac_nameplate",
+        "inv_ac_nameplate",
         "test_tolerance",
         "min_irr",
         "max_irr",
@@ -1380,6 +1381,15 @@ class CapTest(param.Parameterized):
         default=None,
         allow_None=True,
         doc="Nameplate AC power in W.",
+    )
+    inv_ac_nameplate = param.Number(
+        default=None,
+        allow_None=True,
+        bounds=(0, None),
+        doc="Per-inverter AC nameplate rating, kW. Plant metadata and a "
+        "prefill source for per-inverter clipping filters; never a hidden "
+        "input to results (serialized filter steps record resolved "
+        "thresholds).",
     )
     test_tolerance = param.String(
         default="- 4",
@@ -2159,6 +2169,7 @@ class CapTest(param.Parameterized):
         scalar_names = (
             "rc_source",
             "ac_nameplate",
+            "inv_ac_nameplate",
             "test_tolerance",
             "sim_days",
             "shade_filter_start",
