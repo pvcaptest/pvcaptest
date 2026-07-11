@@ -1753,3 +1753,52 @@ class TestFailedStepRollback:
         with pytest.raises(RuntimeError, match="propagation fail"):
             pvsyst.rep_cond()
         assert pvsyst.rc is prior_rc
+
+
+class TestRerunFrom:
+    """CapData.rerun_from(index): partial pipeline re-run (G1)."""
+
+    def _chain(self, make_capdata):
+        cd = make_capdata(10)
+        cd.filter_irr(10, 80, col_name="poa")
+        cd.filter_irr(20, 70, col_name="poa")
+        return cd
+
+    def test_rerun_from_matches_fresh_run_pipeline(self, make_capdata):
+        cd = self._chain(make_capdata)
+        cd.filters[1].low = 30  # edit a live step param
+        cd.rerun_from(1)
+        fresh = make_capdata(10)
+        fresh.run_pipeline(cd.filters_to_config())
+        pd.testing.assert_frame_equal(cd.data_filtered, fresh.data_filtered)
+        pd.testing.assert_frame_equal(cd.get_summary(), fresh.get_summary())
+
+    def test_rerun_from_zero_full_rerun(self, make_capdata):
+        cd = self._chain(make_capdata)
+        expected = cd.data_filtered
+        cd.rerun_from(0)
+        pd.testing.assert_frame_equal(cd.data_filtered, expected)
+        assert len(cd.filters) == 2
+
+    def test_rerun_from_len_is_noop_and_fires_no_watcher(self, make_capdata):
+        cd = self._chain(make_capdata)
+        events = []
+        cd.param.watch(lambda e: events.append(e), "filters")
+        cd.rerun_from(2)
+        assert events == []
+
+    def test_rerun_fires_truncation_plus_per_step_events(self, make_capdata):
+        cd = self._chain(make_capdata)
+        events = []
+        cd.param.watch(lambda e: events.append(e), "filters")
+        cd.rerun_from(1)
+        # one truncation reassignment + one append per re-run step
+        assert len(events) == 2
+        assert len(events[0].new) == 1 and len(events[1].new) == 2
+
+    def test_rerun_from_out_of_range_raises(self, make_capdata):
+        cd = self._chain(make_capdata)
+        with pytest.raises(IndexError):
+            cd.rerun_from(3)
+        with pytest.raises(IndexError):
+            cd.rerun_from(-1)

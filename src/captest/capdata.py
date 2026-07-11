@@ -2294,6 +2294,42 @@ class CapData(param.Parameterized):
         for step_config in config:
             step_from_config(step_config).run(self)
 
+    def rerun_from(self, index):
+        """Re-execute steps ``index..end`` of the applied filter chain.
+
+        Restores the pipeline to the state after ``filters[index - 1]``
+        (the unfiltered data for ``index == 0``) by truncating ``filters``
+        to the retained prefix, then re-runs each retained tail step as a
+        live object with its current param values — edits made to a step's
+        params are picked up. Steps are appended per-step (one ``filters``
+        reassignment each, exactly like ``run_pipeline``), so watchers see
+        the truncation followed by one event per re-run step, and mid-replay
+        ``filters`` always equals the applied steps.
+
+        Parameters
+        ----------
+        index : int
+            First chain position to re-run. ``0`` re-runs everything;
+            ``len(self.filters)`` is a no-op.
+
+        Raises
+        ------
+        IndexError
+            If ``index`` is negative or greater than ``len(self.filters)``.
+        """
+        n = len(self.filters)
+        if not 0 <= index <= n:
+            raise IndexError(
+                f"rerun_from index {index} out of range for a chain of "
+                f"{n} steps (valid: 0..{n})."
+            )
+        if index == n:
+            return
+        tail = list(self.filters[index:])
+        self.filters = self.filters[:index]
+        for step in tail:
+            step.run(self)
+
     def _calc_rep_cond(
         self, func, w_vel, irr_bal, percent_filter, front_poa, rc_kwargs
     ):
