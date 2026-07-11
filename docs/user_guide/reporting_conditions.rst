@@ -62,7 +62,17 @@ current ``rc_source``, so re-running it does not silently switch sides.
 When a computation *changes* the source — for example computing from ``sim``
 after the RC was previously taken from ``meas``, or overwriting a computed RC
 with a manual one — a ``UserWarning`` is emitted so an unintended switch is
-visible. Re-computing on the same side is silent.
+visible. Re-computing on the same side with an unchanged result is silent.
+
+A write that *changes the RC values* also checks for stale RC-dependent
+filters: any applied ``filter_irr`` step with ``ref_val='rep_irr'`` (or
+``'self_val'``) resolved its irradiance window against the *previous*
+reporting conditions and no longer matches. When such steps exist, the same
+single ``UserWarning`` names them (e.g. ``meas.filters[5] (Irradiance)``) so
+they can be re-run — for example with
+:py:meth:`~captest.capdata.CapData.rerun_from` — against the new conditions.
+:py:meth:`~captest.captest.CapTest.run_test` re-runs both pipelines itself, so
+it suppresses this notice for the steps it is about to replay.
 
 Anchoring irradiance filters on the reporting irradiance
 --------------------------------------------------------
@@ -127,10 +137,12 @@ Reporting conditions and results
 --------------------------------
 :py:meth:`~captest.captest.CapTest.captest_results` (and
 :py:meth:`~captest.captest.CapTest.captest_results_check_pvalues`) predict both
-the measured and modeled regressions at the single test RC ``ct.rc`` and return
-the capacity ratio. ``ct.rc_source`` is reported for provenance. If no reporting
-conditions have been established, ``captest_results`` raises a ``ValueError`` —
-call ``ct.rep_cond(...)`` or assign ``ct.rc`` first.
+the measured and modeled regressions at the single test RC ``ct.rc``. The
+returned :py:class:`~captest.captest.CapTestResults` object carries the
+reporting conditions the predictions were made at (``results.rc``) and their
+provenance (``results.rc_source``) alongside the capacity ratio. If no
+reporting conditions have been established, ``captest_results`` raises a
+``ValueError`` — call ``ct.rep_cond(...)`` or assign ``ct.rc`` first.
 
 Saving and restoring reporting conditions
 -----------------------------------------
@@ -149,6 +161,15 @@ The single test RC round-trips through
 On load the configured ``rc_source`` side's pipeline is replayed first, so a
 cross-side ``ref_val='rep_irr'`` filter (for example a measured filter anchored on
 a modeled reporting irradiance) resolves against an already-established ``ct.rc``.
+
+.. note::
+
+    Only the ``rc_source`` side's pipeline should contain a reporting-conditions
+    step. A configuration with a ``RepCond`` step in *both* pipelines under a
+    computed ``rc_source`` is ambiguous — whichever side replays second would
+    overwrite the test reporting conditions and flip ``rc_source`` — so loading
+    or re-running such a configuration emits a ``UserWarning`` asking for the
+    ``RepCond`` step to be removed from the non-``rc_source`` pipeline.
 
 Adjusting the default aggregation
 ---------------------------------

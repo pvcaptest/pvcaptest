@@ -15,8 +15,9 @@ helps with the pieces that are repeated from project to project:
   ``ct.sim``.
 - Applying a named regression setup, such as the standard ASTM E2848 equation
   or one of the bifacial options.
-- Storing common test values, such as nameplate capacity, test tolerance,
-  irradiance filter limits, shade-filter settings, and bifaciality.
+- Storing common test values, such as nameplate capacity, per-inverter AC
+  nameplate (``inv_ac_nameplate``), test tolerance, irradiance filter limits,
+  shade-filter settings, and bifaciality.
 - Creating comparison plots and pass/fail summaries from the same test object.
 - Reading and writing the test setup from a yaml file, which can be helpful
   when you want a repeatable project record.
@@ -373,7 +374,7 @@ to match the contract and test procedure.
     ct.sim.filter_pvsyst()
     ct.sim.fit_regression()
 
-    cap_ratio = ct.captest_results_check_pvalues()
+    results = ct.captest_results()
 
 :py:meth:`~captest.captest.CapTest.rep_cond` calculates reporting conditions
 using the selected setup's defaults. For the standard E2848 setup, POA is
@@ -413,17 +414,93 @@ single test reporting conditions (``ct.rc``), so the measured and modeled
 filters anchor on the same value. See :ref:`reporting_conditions` for the full
 reporting-conditions model.
 
+.. _running-with-run-test:
+
+Running the whole test with run_test
+------------------------------------
+Once the filter pipelines have been applied — whether interactively as shown
+above or by loading a saved config file —
+:py:meth:`~captest.captest.CapTest.run_test` re-runs the complete test in one
+call. It runs :py:meth:`~captest.captest.CapTest.setup`, replays each side's
+filter pipeline (the ``rc_source`` side first, so its reporting-conditions
+step establishes ``ct.rc`` before the other side's RC-dependent filters
+resolve), fits both regressions, verifies the reporting conditions were
+computed during the run, and returns the results.
+
+.. code-block:: Python
+
+    results = ct.run_test()
+    results.cap_ratio
+
+Combined with :py:meth:`~captest.captest.CapTest.from_yaml`, this reproduces a
+whole capacity test — data loading, setup, filtering, reporting conditions,
+regressions, and results — from a single config file:
+
+.. code-block:: Python
+
+    results = CapTest.from_yaml('./project.yaml').run_test()
+
+``run_test`` is re-entrant: it snapshots the applied filter pipelines before
+``setup()`` clears them, so calling it again after adjusting a test-level
+parameter re-runs the same pipelines with the new settings.
+
+Re-running one side
+~~~~~~~~~~~~~~~~~~~
+Pass ``side='meas'`` or ``side='sim'`` to re-run only one side's setup,
+filter pipeline, and regression, leaving the other side untouched. Per-side
+runs return the ``CapTest`` instance itself rather than results, so a full
+comparison still ends with :py:meth:`~captest.captest.CapTest.captest_results`.
+
+This pairs well with :py:meth:`~captest.captest.CapTest.reload`, which
+re-loads one side's data from its stored path with the stored loader and
+keyword arguments and re-runs the per-side setup. For example, after dropping
+an updated PVsyst export into the project folder, refresh and re-run just the
+modeled side:
+
+.. code-block:: Python
+
+    ct.reload('sim').run_test(side='sim')
+    results = ct.captest_results()
+
+.. note::
+
+    ``reload`` requires the ``CapTest`` to have been constructed from data
+    paths (``from_params`` with ``meas_path`` / ``sim_path``, ``from_yaml``,
+    or ``from_mapping``); it raises a ``ValueError`` when the instance was
+    built from pre-loaded ``CapData`` objects.
+
 Reviewing results
 -----------------
 The main comparison method is
 :py:meth:`~captest.captest.CapTest.captest_results`. It predicts the measured
 and modeled capacities at the reporting conditions, calculates the capacity
-ratio, and can print a pass/fail summary using the AC nameplate and test
-tolerance stored on your instance of Captest, e.g. ``ct``.
+ratio, and prints a pass/fail summary using the AC nameplate and test
+tolerance stored on your instance of Captest, e.g. ``ct``. It returns a
+:py:class:`~captest.captest.CapTestResults` object holding the individual
+result values:
 
 .. code-block:: Python
 
-    cap_ratio = ct.captest_results()
+    results = ct.captest_results()
+    results.cap_ratio            # capacity ratio, actual / expected
+    results.passed               # pass/fail against the test tolerance
+    results.expected_capacity    # modeled output at reporting conditions
+    results.actual_capacity      # measured output at reporting conditions
+
+``str(results)`` (or ``print(results)``) reproduces the printed report, and
+``results.styled_pvalues()`` returns a styled table of the regression
+coefficients and p-values for both sides with high p-values highlighted.
+Other fields include the p-value-checked capacity ratio
+(``cap_ratio_pval_check``), the tolerance and capacity bounds the test was
+judged against, the points remaining after filtering on each side
+(``points_used``), per-side regression tables, and the reporting conditions
+used with their provenance (``rc``, ``rc_source``).
+
+.. note::
+
+    Versions before v0.17.0 returned the capacity ratio as a bare float from
+    ``captest_results``. Code that used the return value directly should now
+    read ``results.cap_ratio``.
 
 Additional review methods are available from the same ``CapTest`` object:
 

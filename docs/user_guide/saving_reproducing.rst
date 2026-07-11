@@ -28,6 +28,12 @@ test settings, data paths, and the filter pipelines applied to the measured and
 modeled data (see :ref:`reproducing-a-test` below). It does not write the
 measured data, modeled data, fitted regression results, or plots.
 
+:py:meth:`~captest.captest.CapTest.to_mapping` returns the same configuration
+as a plain dictionary instead of writing a file. It is the symmetric inverse
+of :py:meth:`~captest.captest.CapTest.from_mapping` and is useful when the
+configuration should be inspected, stored, or transformed programmatically
+rather than written straight to yaml.
+
 .. _reproducing-a-test:
 
 Reproducing a complete test from a config file
@@ -98,6 +104,27 @@ columns, and then re-applies both filter pipelines in order:
 After this call ``tst.meas`` and ``tst.sim`` hold the same filtered data as the
 original test, so the filtering summaries, visualizations, reporting conditions,
 and capacity-ratio results match the run that produced the file.
+
+Chaining :py:meth:`~captest.captest.CapTest.run_test` onto ``from_yaml`` takes
+this one step further and reproduces the complete test — including fitting both
+regressions and computing the results — in a single line:
+
+.. code-block:: Python
+
+    results = CapTest.from_yaml('./project.yaml').run_test()
+    results.cap_ratio
+
+See :ref:`running-with-run-test` for the full description of ``run_test``,
+including re-running a single side after re-loading its data with
+:py:meth:`~captest.captest.CapTest.reload`.
+
+.. note::
+
+    Replaying a pipeline with :py:meth:`~captest.capdata.CapData.run_pipeline`
+    (which ``from_yaml`` and ``run_test`` use internally) always resets the
+    applied filter chain before rebuilding it — replay is restore-then-re-run.
+    Appending a serialized pipeline onto an existing chain is not supported;
+    extend a chain with the ``filter_*`` methods instead.
 
 .. note::
 
