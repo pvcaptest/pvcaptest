@@ -89,6 +89,16 @@ module-level `print_results` helper is removed — its output lives on as
 `CapTestResults.summary()` — and `captest_results_check_pvalues` is now a thin
 display wrapper over a single `captest_results` call (same Styler return and
 printed cap-ratio lines).
+- `CapTest.captest_results(check_pvalues=True)` now reports the
+p-value-checked predictions consistently throughout the results:
+`cap_ratio`, `actual_capacity`, `expected_capacity`, `tested_capacity`, and
+the pass/fail decision all use the headline (checked) values, and the new
+`CapTestResults.pvalues_checked` flag records which variant is the headline
+(`cap_ratio_pval_check` still always carries the checked ratio). Also,
+`CapTest.run_test()` no longer overwrites a manual reporting-conditions value
+(`rc_source='manual'`) when a replayed pipeline contains a RepCond step — the
+manual RC stays authoritative and the step computes a side-local RC only,
+matching the `from_yaml`/`from_mapping` replay semantics.
 - `BaseSummaryStep.run` now rolls back steps appended by nested filter calls
 when `_execute` raises, and `CapData._calc_rep_cond` assigns `rc`/`rc_tool`
 only after computation succeeds (restoring the prior `rc` if CapTest

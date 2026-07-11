@@ -129,9 +129,11 @@ preserved. The assignment validates the input and raises:
   missing (the message names the missing variables);
 - ``TypeError`` if the value is not a DataFrame, Series, or dict.
 
-A manual RC is treated as the authoritative value: it is not overwritten by the
-filter-replay on load, and a later ``rep_cond`` call that would change the source
-back to a computed value emits the source-change warning.
+A manual RC is treated as the authoritative value: it is not overwritten by
+pipeline replay — on load or during :py:meth:`~captest.captest.CapTest.run_test`
+(replayed RepCond steps compute side-local RCs only) — and a later ``rep_cond``
+call that would change the source back to a computed value emits the
+source-change warning.
 
 Reporting conditions and results
 --------------------------------

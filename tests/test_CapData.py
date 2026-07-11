@@ -3036,15 +3036,21 @@ class TestCapTestCpResultsMultCoeff(unittest.TestCase):
         )
 
     def test_pvals_true(self):
-        """Test that check_pvalues=True returns different result than False.
+        """Test that the p-value check changes the result and sets the headline.
 
         With pval=1e-15, the 'poa' coefficient should be zeroed because its
-        p-value is > 1e-15, which changes the prediction.
+        p-value is > 1e-15, which changes the checked prediction. With
+        check_pvalues=False the headline ``cap_ratio`` is the plain ratio and
+        differs from the checked one; with check_pvalues=True the checked
+        ratio IS the headline.
         """
         ct = self._build_ct()
-        # Both ratios come from one call; pval=1e-15 zeros the poa
-        # coefficient in the p-value-checked ratio only.
-        res = ct.captest_results(
+        plain_res = ct.captest_results(
+            check_pvalues=False,
+            pval=1e-15,
+            print_res=False,
+        )
+        checked_res = ct.captest_results(
             check_pvalues=True,
             pval=1e-15,
             print_res=False,
@@ -3052,10 +3058,14 @@ class TestCapTestCpResultsMultCoeff(unittest.TestCase):
 
         # The ratios should be different because poa coefficient is zeroed
         self.assertNotEqual(
-            res.cap_ratio,
-            res.cap_ratio_pval_check,
-            "check_pvalues=True should produce different result than False",
+            plain_res.cap_ratio,
+            plain_res.cap_ratio_pval_check,
+            "the p-value check should change the capacity ratio",
         )
+        self.assertFalse(plain_res.pvalues_checked)
+        # With check_pvalues=True the checked ratio is the headline ratio.
+        self.assertEqual(checked_res.cap_ratio, checked_res.cap_ratio_pval_check)
+        self.assertTrue(checked_res.pvalues_checked)
 
     @pytest.fixture(autouse=True)
     def _pass_fixtures(self, capsys):

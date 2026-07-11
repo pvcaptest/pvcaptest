@@ -83,7 +83,10 @@ class CapTestResults:
     Attributes
     ----------
     cap_ratio : float
-        Capacity test ratio ``actual / expected`` (no p-value filtering).
+        Headline capacity test ratio ``actual / expected`` — the ratio the
+        pass/fail decision was made on. P-value-checked when the test ran
+        with ``check_pvalues=True`` (see ``pvalues_checked``), otherwise
+        computed without p-value filtering.
     cap_ratio_pval_check : float
         Capacity ratio computed with above-threshold coefficients zeroed.
     passed : bool
@@ -93,9 +96,11 @@ class CapTestResults:
     bounds : str
         Human-readable capacity bounds string for the tolerance.
     expected_capacity : float
-        Predicted modeled test output at reporting conditions.
+        Predicted modeled test output at reporting conditions (headline
+        variant; see ``pvalues_checked``).
     actual_capacity : float
-        Predicted measured test output at reporting conditions.
+        Predicted measured test output at reporting conditions (headline
+        variant; see ``pvalues_checked``).
     tested_capacity : float
         ``ac_nameplate`` times the headline capacity ratio.
     points_used : dict
@@ -107,6 +112,11 @@ class CapTestResults:
         The reporting conditions both regressions were predicted at.
     rc_source : str
         Provenance of ``rc`` (``'meas'``, ``'sim'``, or ``'manual'``).
+    pvalues_checked : bool
+        Which variant is the headline: ``True`` when ``cap_ratio``,
+        ``actual_capacity``, ``expected_capacity``, and the pass/fail
+        decision used the p-value-checked predictions
+        (``check_pvalues=True``), ``False`` for the plain predictions.
     """
 
     cap_ratio: float
@@ -121,6 +131,7 @@ class CapTestResults:
     regression_tables: dict
     rc: pd.DataFrame
     rc_source: str
+    pvalues_checked: bool = False
 
     def summary(self):
         """Return the legacy printed report as a string."""
@@ -1625,7 +1636,9 @@ class CapTest(param.Parameterized):
         # The single test reporting-conditions DataFrame (or None). Plain attr,
         # not a param.*, so the `rc` property setter can validate and the
         # `_set_rc` write point can manage provenance. `_loading` is True only
-        # during from_yaml replay (see Plan 5) to seed RC from config.
+        # during from_yaml replay (see Plan 5), to seed RC from config, and
+        # during run_test pipeline replay with rc_source='manual', to keep the
+        # manual RC authoritative.
         self._rc = None
         self._loading = False
         # Transient set of sides ('meas'/'sim') whose pipeline re-run is still
@@ -1807,9 +1820,11 @@ class CapTest(param.Parameterized):
         Called by :meth:`CapData._calc_rep_cond` when the CapData belongs to this
         test. Runtime behavior is last-writer-wins: the calling side's ``rc``
         becomes ``ct.rc`` and ``rc_source`` (a source-change ``UserWarning`` is
-        emitted by :meth:`_set_rc`). During ``from_yaml`` load (``_loading``
-        True) the update is config-seeded: only the configured ``rc_source``
-        side updates ``ct.rc``, silently (see Plan 5 / spec §4.7).
+        emitted by :meth:`_set_rc`). During ``from_yaml`` load and during
+        ``run_test`` manual-RC replay (``_loading`` True) the update is
+        config-seeded: only the configured ``rc_source`` side updates
+        ``ct.rc``, silently (see Plan 5 / spec §4.7) — so with
+        ``rc_source='manual'`` no replayed RepCond step ever propagates.
 
         Parameters
         ----------
@@ -2767,15 +2782,18 @@ class CapTest(param.Parameterized):
         if ``self.rc`` is ``None``. Uses ``self.ac_nameplate`` for the
         tested capacity and ``self.test_tolerance`` (via
         ``self.determine_pass_or_fail``) for the pass/fail result. Both the
-        plain and the p-value-checked capacity ratios are always computed;
-        ``check_pvalues`` selects which one is the headline ratio used for
-        pass/fail and tested capacity.
+        plain and the p-value-checked predictions are always computed;
+        ``check_pvalues`` selects which pair is the headline reported as
+        ``cap_ratio`` / ``actual_capacity`` / ``expected_capacity`` and used
+        for pass/fail and tested capacity (``cap_ratio_pval_check`` always
+        carries the checked ratio; ``pvalues_checked`` records the choice).
 
         Parameters
         ----------
         check_pvalues : bool, default False
-            When True, the headline ratio is the one computed with
-            above-``pval`` coefficients zeroed before prediction.
+            When True, the headline predictions and ratio are the ones
+            computed with above-``pval`` coefficients zeroed before
+            prediction.
         pval : float, default 0.05
             P-value cutoff used for the p-value-checked ratio.
         print_res : bool, default True
@@ -2805,16 +2823,22 @@ class CapTest(param.Parameterized):
         # compute cap ratios (e.g. notebooks that only use setup + plots).
         from captest.capdata import predict_with_pvalue_check
 
-        pval_checked_actual = predict_with_pvalue_check(
+        checked_actual = predict_with_pvalue_check(
             self.meas, rc=rc, pval_threshold=pval
         )
-        pval_checked_expected = predict_with_pvalue_check(
+        checked_expected = predict_with_pvalue_check(
             self.sim, rc=rc, pval_threshold=pval
         )
-        actual = predict_with_pvalue_check(self.meas, rc=rc, pval_threshold=None)
-        expected = predict_with_pvalue_check(self.sim, rc=rc, pval_threshold=None)
-        cap_ratio = actual / expected
-        cap_ratio_pval_check = pval_checked_actual / pval_checked_expected
+        plain_actual = predict_with_pvalue_check(self.meas, rc=rc, pval_threshold=None)
+        plain_expected = predict_with_pvalue_check(self.sim, rc=rc, pval_threshold=None)
+        cap_ratio_pval_check = checked_actual / checked_expected
+        # The headline pair drives the report and the pass/fail decision.
+        if check_pvalues:
+            actual, expected = checked_actual, checked_expected
+            cap_ratio = cap_ratio_pval_check
+        else:
+            actual, expected = plain_actual, plain_expected
+            cap_ratio = plain_actual / plain_expected
         if cap_ratio < 0.01:
             cap_ratio *= 1000
             cap_ratio_pval_check *= 1000
@@ -2823,11 +2847,10 @@ class CapTest(param.Parameterized):
                 "Capacity ratio and actual capacity multiplied by 1000"
                 " because the capacity ratio was less than 0.01."
             )
-        headline = cap_ratio_pval_check if check_pvalues else cap_ratio
-        test_passed = self.determine_pass_or_fail(headline)
+        test_passed = self.determine_pass_or_fail(cap_ratio)
         if test_passed is None:
             test_passed = (False, "")
-        capacity = self.ac_nameplate * headline
+        capacity = self.ac_nameplate * cap_ratio
 
         def _points_used(cd):
             if cd.filters:
@@ -2857,6 +2880,7 @@ class CapTest(param.Parameterized):
             },
             rc=rc.copy(),
             rc_source=self.rc_source,
+            pvalues_checked=check_pvalues,
         )
         if print_res:
             print(results)
@@ -2880,6 +2904,9 @@ class CapTest(param.Parameterized):
         RC-changing recompute warns about the other side's applied
         RC-dependent steps. The ``process_regression_columns`` lost-filters
         warning is suppressed for this intentional orchestrated clearing.
+        When ``rc_source='manual'`` the manual reporting conditions remain
+        authoritative during replay: pipeline RepCond steps compute
+        side-local RCs only, matching ``from_mapping``.
 
         Parameters
         ----------
@@ -2951,6 +2978,15 @@ class CapTest(param.Parameterized):
             stage = "filter pipelines"
             if side == "both":
                 self._rc_pending_sides = set(run_sides)
+            # A manual RC is authoritative: suppress live RepCond propagation
+            # during the replay (mirroring from_mapping's manual-RC replay
+            # semantics) so a replayed RepCond step still computes that side's
+            # local cd.rc but never overwrites ct.rc or flips rc_source.
+            # Computed sources keep live propagation — the staleness
+            # machinery depends on it.
+            manual_rc = self.rc_source == "manual"
+            if manual_rc:
+                self._loading = True
             try:
                 for s in run_sides:
                     # Consume the pending registration as this side's replay
@@ -2961,6 +2997,8 @@ class CapTest(param.Parameterized):
                         getattr(self, s).run_pipeline(configs[s])
             finally:
                 self._rc_pending_sides = set()
+                if manual_rc:
+                    self._loading = False
 
             stage = "fit_regression"
             for s in run_sides:
