@@ -8,6 +8,7 @@ plan).
 
 from __future__ import annotations
 
+import sys
 import warnings
 from unittest.mock import MagicMock
 
@@ -16,7 +17,8 @@ import pandas as pd
 import pytest
 import yaml
 
-from captest import CapTest, captest as ct, util
+from captest import CapTest, captest as ct, load_pvsyst, util
+from captest import columngroups as cg
 from captest.captest import CapTestResults
 from captest.capdata import CapData
 from captest.calcparams import (
@@ -2493,6 +2495,124 @@ class TestIntegration:
         assert 0.8 < cap_ratio < 1.2
         assert capt.meas.regression_cols["poa"] == "e_total"
         assert capt.sim.regression_cols["poa"] == "e_total"
+
+
+class TestRunTest:
+    """``CapTest.run_test`` orchestrator (spec G2)."""
+
+    @staticmethod
+    def _fresh_meas():
+        """Rebuild the ``meas_cd_default`` fixture CapData from disk.
+
+        Used as a ``meas_loader`` so ``from_yaml(...).run_test()`` runs on a
+        genuinely fresh instance rather than the fixture objects the
+        hand-sequenced run mutated.
+        """
+        cd = CapData("meas")
+        df = pd.read_csv(
+            "./tests/data/example_measured_data.csv",
+            index_col=0,
+            parse_dates=True,
+        )
+        df["met1_rpoa"] = df["met1_poa_pyranometer"] * 0.15
+        df["met2_rpoa"] = df["met2_poa_pyranometer"] * 0.15
+        cd.data = df
+        cd.column_groups = cg.ColumnGroups(
+            {
+                "real_pwr_mtr": ["meter_power"],
+                "irr_poa": ["met1_poa_pyranometer", "met2_poa_pyranometer"],
+                "irr_rpoa": ["met1_rpoa", "met2_rpoa"],
+                "temp_amb": ["met1_amb_temp", "met2_amb_temp"],
+                "wind_speed": ["met1_windspeed", "met2_windspeed"],
+            }
+        )
+        return cd
+
+    @staticmethod
+    def _fresh_sim():
+        """Rebuild the ``sim_cd_default`` fixture CapData from disk."""
+        cd = load_pvsyst(path="./tests/data/pvsyst_example_HourlyRes_2.CSV")
+        cd.data["GlobBak"] = cd.data["GlobInc"] * 0.15
+        cd.data["BackShd"] = 0.0
+        return cd
+
+    def _hand_sequenced(self, capt):
+        """Run the canonical sequence by hand (mirrors TestIntegration)."""
+        capt.meas.filter_irr(capt.min_irr, capt.max_irr)
+        capt.sim.filter_irr(capt.min_irr, capt.max_irr)
+        capt.sim.filter_shade(fshdbm=capt.fshdbm)
+        capt.sim.filter_time(start=_SIM_WINDOW[0], end=_SIM_WINDOW[1])
+        capt.rep_cond()
+        capt.meas.fit_regression(summary=False)
+        capt.sim.fit_regression(summary=False)
+
+    def test_run_test_reproduces_hand_sequenced_results(self, ct_default, tmp_path):
+        self._hand_sequenced(ct_default)
+        res1 = ct_default.captest_results(print_res=False)
+        # The fixture CapData were built in memory, so no paths were stored;
+        # inject placeholder paths so to_yaml serializes them and from_yaml
+        # invokes the loaders (which rebuild the fixture data and ignore the
+        # path argument).
+        ct_default._meas_path = "meas.csv"
+        ct_default._sim_path = "sim.csv"
+        path = tmp_path / "ct.yaml"
+        ct_default.to_yaml(path)
+        ct2 = CapTest.from_yaml(
+            path,
+            meas_loader=lambda p, **k: self._fresh_meas(),
+            sim_loader=lambda p, **k: self._fresh_sim(),
+        )
+        res2 = ct2.run_test()
+        assert res2.cap_ratio == pytest.approx(res1.cap_ratio, rel=1e-10)
+        assert res2.expected_capacity == pytest.approx(
+            res1.expected_capacity, rel=1e-10
+        )
+        assert res2.passed == res1.passed
+
+    def test_run_test_is_reentrant_and_silent(self, ct_default):
+        self._hand_sequenced(ct_default)
+        res1 = ct_default.run_test()
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            res2 = ct_default.run_test()
+        assert res2.cap_ratio == pytest.approx(res1.cap_ratio, rel=1e-10)
+
+    def test_run_test_per_side_leaves_other_side_untouched(self, ct_default):
+        self._hand_sequenced(ct_default)
+        ct_default.run_test()
+        sim_filters = ct_default.sim.filters
+        sim_data = ct_default.sim.data.copy()
+        out = ct_default.run_test(side="meas")
+        assert out is ct_default
+        assert ct_default.sim.filters is sim_filters
+        pd.testing.assert_frame_equal(ct_default.sim.data, sim_data)
+
+    def test_run_test_stage_identified_on_error(self, ct_default):
+        # no RepCond anywhere and rc_source computed -> stage
+        # 'reporting conditions' error
+        ct_default.meas.filter_irr(400, 1400)
+        ct_default.sim.filter_irr(400, 1400)
+        with pytest.raises(RuntimeError, match="no RepCond step"):
+            ct_default.run_test()
+
+    @pytest.mark.skipif(sys.version_info < (3, 11), reason="add_note")
+    def test_stage_note_attached(self, ct_default):
+        ct_default.meas.filter_irr(400, 1400)
+        ct_default.sim.filter_irr(400, 1400)
+        with pytest.raises(RuntimeError) as excinfo:
+            ct_default.run_test()
+        assert any(
+            "run_test stage" in n for n in getattr(excinfo.value, "__notes__", [])
+        )
+
+    def test_run_test_invalid_side(self, ct_default):
+        with pytest.raises(ValueError):
+            ct_default.run_test(side="bogus")
+
+    def test_legacy_module_run_test_removed(self):
+        from captest import capdata as cd_mod
+
+        assert not hasattr(cd_mod, "run_test")
 
 
 def _hourly_typical_year(year=1990):

@@ -71,6 +71,9 @@ warns that the configuration is ambiguous.
 - `CapTest.setup(side=...)` — per-side setup that re-wires only the target
 CapData (sim-side setup may read meas but mutates only sim); `CapTest.reload(side)`
 — re-load one side from its stored path/loader and re-run per-side setup.
+- New `CapTest.run_test(side='both'|'meas'|'sim')` — one-call orchestrator
+(setup → pipeline replay, rc_source side first → fit → RC verification →
+`CapTestResults`); per-side runs re-run one chain and leave the other untouched.
 
 ### Changed
 - `CapData.run_pipeline` now resets the applied chain before rebuilding (replay
@@ -136,6 +139,12 @@ that argument and let `CapTest` wrap the sim data on setup.
 `filter_sensors_abs_diff(...)` wrapper or `method='abs_diff'`. The
 `check_all_perc_diff_comb` helper is no longer re-exported from `captest.capdata`;
 import it from `captest.filters`.
+
+### Removed
+- Removed the legacy module-level `capdata.run_test(cd, steps)` (imperative
+method+args tuples); the name is reused by the new `CapTest.run_test()`
+orchestrator. Config-driven pipelines (`run_pipeline`, `from_yaml`) supersede
+it. (Historical references in the docs/example notebooks are out of scope.)
 
 ### Fixed
 - `CapTest._maybe_wrap_sim_year_end` now uses a fixed July 1 → June 30 wrap window

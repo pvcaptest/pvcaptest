@@ -2862,6 +2862,143 @@ class CapTest(param.Parameterized):
             print(results)
         return results
 
+    def run_test(self, side="both", check_pvalues=False, pval=0.05, print_res=False):
+        """Run the full capacity test (or one side of it) end to end.
+
+        Canonical sequence: (1) ``setup(side=side)``; (2) replay each side's
+        filter pipeline, the ``rc_source`` side first so its RepCond step
+        populates the test RC before the other side's RC-dependent filters
+        resolve; (3) ``fit_regression`` per side; then, for ``side='both'``
+        only, (4) verify the rc_source pipeline computed the RC this run and
+        (5) return :class:`CapTestResults`.
+
+        Pipelines are snapshotted (``filters_to_config``) before setup
+        clears the chains, then replayed — the call is re-entrant. During a
+        full run the not-yet-replayed side is registered in
+        ``_rc_pending_sides`` so the RC write does not warn about steps this
+        call is about to re-run; per-side runs register nothing, so an
+        RC-changing recompute warns about the other side's applied
+        RC-dependent steps. The ``process_regression_columns`` lost-filters
+        warning is suppressed for this intentional orchestrated clearing.
+
+        Parameters
+        ----------
+        side : {'both', 'meas', 'sim'}, default 'both'
+        check_pvalues, pval, print_res
+            Forwarded to :meth:`captest_results` (``side='both'`` only).
+
+        Returns
+        -------
+        CapTestResults or CapTest
+            Results for ``side='both'``; ``self`` for per-side runs.
+
+        Raises
+        ------
+        ValueError
+            If ``side`` is not ``'meas'``, ``'sim'``, or ``'both'``.
+        RuntimeError
+            For ``side='both'``: a computed ``rc_source`` whose replayed
+            pipeline contains no RepCond step, or ``rc_source='manual'``
+            with no reporting conditions set. Exceptions raised in any
+            stage carry a ``[CapTest.run_test stage: ...]`` note on
+            Python 3.11+.
+        """
+        if side not in ("meas", "sim", "both"):
+            raise ValueError(f"side must be 'meas', 'sim', or 'both', got {side!r}.")
+        run_sides = ["meas", "sim"] if side == "both" else [side]
+        if side == "both" and self.rc_source == "sim":
+            run_sides = ["sim", "meas"]
+
+        # Snapshot pipelines BEFORE setup: process_regression_columns clears
+        # each targeted side's applied chain.
+        configs = {
+            s: (
+                getattr(self, s).filters_to_config()
+                if getattr(self, s) is not None
+                else []
+            )
+            for s in run_sides
+        }
+        if (
+            side == "both"
+            and self.rc_source in ("meas", "sim")
+            and all(
+                any(d.get("type") == "RepCond" for d in configs[s])
+                for s in ("meas", "sim")
+            )
+        ):
+            warnings.warn(
+                "Both pipelines contain a RepCond step with a computed "
+                f"rc_source ('{self.rc_source}'): this is ambiguous and "
+                "unsupported — the non-rc_source side's RepCond will "
+                "overwrite the test reporting conditions and flip "
+                "rc_source. Remove the RepCond step from the non-rc_source "
+                "pipeline."
+            )
+
+        stage = "setup"
+        try:
+            with warnings.catch_warnings():
+                # setup()'s chain-clearing is intentional here (the chains
+                # were snapshotted above); keep the lost-filters warning for
+                # direct interactive process_regression_columns calls.
+                warnings.filterwarnings(
+                    "ignore",
+                    message="The data_filtered attribute has been overwritten",
+                )
+                self.setup(verbose=False, side=side)
+
+            stage = "filter pipelines"
+            if side == "both":
+                self._rc_pending_sides = set(run_sides)
+            try:
+                for s in run_sides:
+                    # Consume the pending registration as this side's replay
+                    # begins: the currently-replaying side is never in its
+                    # own exclusion set.
+                    self._rc_pending_sides.discard(s)
+                    if configs[s]:
+                        getattr(self, s).run_pipeline(configs[s])
+            finally:
+                self._rc_pending_sides = set()
+
+            stage = "fit_regression"
+            for s in run_sides:
+                getattr(self, s).fit_regression(summary=False)
+
+            if side != "both":
+                return self
+
+            stage = "reporting conditions"
+            if self.rc_source in ("meas", "sim"):
+                # Verification, not computation: run_pipeline truncated the
+                # chain first, so a RepCond in the applied chain proves the
+                # step executed and wrote ct.rc THIS run (a bare rc-is-set
+                # check would accept a stale RC from a prior run).
+                src_cd = getattr(self, self.rc_source)
+                if not any(type(st).__name__ == "RepCond" for st in src_cd.filters):
+                    raise RuntimeError(
+                        f"rc_source='{self.rc_source}' but the "
+                        f"{self.rc_source} pipeline contains no RepCond "
+                        "step; the test reporting conditions were not "
+                        "computed this run."
+                    )
+            elif self._rc is None:
+                raise RuntimeError(
+                    "rc_source='manual' but no reporting conditions are "
+                    "set; assign ct.rc = df before run_test()."
+                )
+
+            stage = "results"
+            return self.captest_results(
+                check_pvalues=check_pvalues, pval=pval, print_res=print_res
+            )
+        except Exception as e:
+            # add_note exists on 3.11+; the project floor is 3.10.
+            if hasattr(e, "add_note"):
+                e.add_note(f"[CapTest.run_test stage: {stage}]")
+            raise
+
     def captest_results_check_pvalues(self, print_res=False, **kwargs):
         """Compute cap ratio with and without p-value filtering.
 
