@@ -1,5 +1,6 @@
 """Tests for the filter-step class hierarchy (BaseSummaryStep / BaseFilter)."""
 
+import math
 import unittest.mock
 
 import numpy as np
@@ -29,6 +30,7 @@ from captest.filters import (
     Shade,
     Time,
     RepCond,
+    _backtracking_geometry_error,
     abs_diff_from_average,
 )
 from captest.filters import FILTER_REGISTRY, step_from_config
@@ -1686,3 +1688,47 @@ class TestFilterConfigRoundTrip:
         assert concrete == set(FILTER_REGISTRY)
         assert FILTER_REGISTRY["RepCond"] is RepCond
         assert FILTER_REGISTRY["Custom"] is Custom
+
+
+class TestBacktrackingGeometryError:
+    def test_valid_geometry_returns_none(self):
+        assert _backtracking_geometry_error(0, 180, 0.3, 0) is None
+
+    def test_none_value_reports_param_name(self):
+        assert "gcr" in _backtracking_geometry_error(0, 180, None, 0)
+        assert "axis_tilt" in _backtracking_geometry_error(None, 180, 0.3, 0)
+
+    def test_gcr_zero_is_invalid(self):
+        reason = _backtracking_geometry_error(0, 180, 0, 0)
+        assert reason is not None
+        assert "gcr" in reason
+
+    def test_gcr_negative_is_invalid(self):
+        assert "gcr" in _backtracking_geometry_error(0, 180, -0.3, 0)
+
+    def test_non_finite_values_are_invalid(self):
+        assert _backtracking_geometry_error(0, 180, math.nan, 0) is not None
+        assert _backtracking_geometry_error(0, 180, math.inf, 0) is not None
+        assert _backtracking_geometry_error(math.nan, 180, 0.3, 0) is not None
+
+    def test_string_value_is_invalid_without_typeerror(self):
+        # Must not raise TypeError from math.isfinite on a str.
+        reason = _backtracking_geometry_error(0, 180, "0.3", 0)
+        assert reason is not None
+        assert "gcr" in reason
+
+    def test_pd_na_is_invalid_without_typeerror(self):
+        reason = _backtracking_geometry_error(0, 180, pd.NA, 0)
+        assert reason is not None
+
+    def test_bool_is_invalid(self):
+        # bool is a numbers.Real subtype; must be rejected, not coerced to 1/0.
+        assert _backtracking_geometry_error(0, 180, True, 0) is not None
+
+    def test_cross_axis_tilt_at_90_is_invalid(self):
+        assert _backtracking_geometry_error(0, 180, 0.3, 90) is not None
+        assert _backtracking_geometry_error(0, 180, 0.3, -90) is not None
+
+    def test_cross_axis_tilt_within_range_is_valid(self):
+        assert _backtracking_geometry_error(0, 180, 0.3, 45) is None
+        assert _backtracking_geometry_error(0, 180, 0.3, -45) is None

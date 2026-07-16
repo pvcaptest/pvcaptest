@@ -9,6 +9,8 @@ import copy
 import difflib
 import importlib.util
 from itertools import combinations
+import math
+import numbers
 import warnings
 
 import pandas as pd
@@ -262,6 +264,56 @@ def fit_model(
     mod = smf.ols(formula=fml, data=df)
     reg = mod.fit()
     return reg
+
+
+def _backtracking_geometry_error(axis_tilt, axis_azimuth, gcr, cross_axis_tilt):
+    """Return a reason string if the resolved backtracking geometry is invalid.
+
+    Returns ``None`` when every value is usable. Invalid conditions, checked in
+    order: any value is ``None`` (unresolved); any value is not a real number
+    (``bool`` is rejected explicitly, since it is a ``numbers.Real`` subtype and
+    would otherwise be silently coerced to 1/0); any value is non-finite
+    (``NaN``/``inf``); ``gcr <= 0`` (the axes-distance denominator must be
+    positive and nonzero); or ``cross_axis_tilt`` outside the open interval
+    ``(-90, 90)`` (so ``cosd(cross_axis_tilt)`` is finite and strictly positive
+    — a robust replacement for a ``cosd(...) == 0`` check that pvlib's non-exact
+    ``cosd(90) ≈ 6e-17`` would defeat).
+
+    The type check precedes ``math.isfinite`` so non-numeric site metadata (a
+    string, ``pd.NA``, an arbitrary object) is reported as a reason rather than
+    raising ``TypeError``.
+
+    Parameters
+    ----------
+    axis_tilt, axis_azimuth, gcr, cross_axis_tilt
+        Resolved tracker-geometry values to validate.
+
+    Returns
+    -------
+    str or None
+        A human-readable reason when the geometry is invalid, otherwise None.
+    """
+    checks = {
+        "axis_tilt": axis_tilt,
+        "axis_azimuth": axis_azimuth,
+        "gcr": gcr,
+        "cross_axis_tilt": cross_axis_tilt,
+    }
+    for name, value in checks.items():
+        if value is None:
+            return (
+                f"{name} could not be resolved (pass it explicitly or set it "
+                "in site['sys'])"
+            )
+        if isinstance(value, bool) or not isinstance(value, numbers.Real):
+            return f"{name}={value!r} is not a real number"
+        if not math.isfinite(value):
+            return f"{name}={value!r} is not a finite number"
+    if gcr <= 0:
+        return f"gcr={gcr!r} must be greater than 0"
+    if not (-90 < cross_axis_tilt < 90):
+        return f"cross_axis_tilt={cross_axis_tilt!r} must be between -90 and 90"
+    return None
 
 
 class BaseSummaryStep(param.Parameterized):
