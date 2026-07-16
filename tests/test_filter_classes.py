@@ -1437,6 +1437,43 @@ class TestFilterBacktracking:
         assert "removed" in f.explanation
 
 
+class TestBacktrackingWrapper:
+    def test_wrapper_records_step(self, cd_backtrack):
+        cd_backtrack.filter_backtracking()
+        assert len(cd_backtrack.filters) == 1
+        assert isinstance(cd_backtrack.filters[0], Backtracking)
+
+    def test_wrapper_filters_data(self, cd_backtrack):
+        n_before = cd_backtrack.data_filtered.shape[0]
+        cd_backtrack.filter_backtracking()
+        assert cd_backtrack.data_filtered.shape[0] < n_before
+
+    def test_wrapper_custom_name_sets_step_label(self, cd_backtrack):
+        cd_backtrack.filter_backtracking(custom_name="no backtrack")
+        assert cd_backtrack.filters[-1].custom_name == "no backtrack"
+
+    def test_wrapper_keep_backtracking(self, cd_backtrack):
+        cd_default = cd_backtrack
+        n_full = cd_default.data.shape[0]
+        cd_default.filter_backtracking(keep_backtracking=True)
+        # Keeping only backtracking removes the true-tracking midday rows.
+        assert cd_default.data_filtered.shape[0] < n_full
+
+    def test_serializes_and_replays(self, cd_backtrack):
+        cd_backtrack.filter_backtracking()
+        expected_index = list(cd_backtrack.data_filtered.index)
+        config = cd_backtrack.filters_to_config()
+        assert config[0]["type"] == "Backtracking"
+
+        fresh = CapData("fresh")
+        fresh.data = cd_backtrack.data.copy()
+        fresh.site = cd_backtrack.site
+        fresh.regression_cols = dict(cd_backtrack.regression_cols)
+        fresh.run_pipeline(config)
+        # None geometry re-resolves from site on replay -> identical result.
+        assert list(fresh.data_filtered.index) == expected_index
+
+
 class TestFilterPvsyst:
     def _cd(self):
         cd = CapData("pv")
