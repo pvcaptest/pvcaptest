@@ -377,7 +377,7 @@ The `BaseFilter` step: resolve geometry from params/`site['sys']`, guard, comput
 
 **Interfaces:**
 - Consumes: `backtracking_active` (Task 2), `_backtracking_geometry_error` (Task 1), `BaseFilter` (existing).
-- Produces: `class Backtracking(BaseFilter)` with params `axis_tilt` (Number, None), `axis_azimuth` (Number, None), `gcr` (Number, None), `cross_axis_tilt` (Number, default 0), `keep_backtracking` (Boolean, default False). `_execute(capdata) -> pd.Index`. Registry key `"Backtracking"`. On no-op paths returns `capdata.data_filtered.index` unchanged after `warnings.warn`.
+- Produces: `class Backtracking(BaseFilter)` with params `axis_tilt` (Number, None), `axis_azimuth` (Number, None), `gcr` (Number, None), `cross_axis_tilt` (Number, None → resolves to `site['sys'].get('cross_axis_tilt', 0)`), `keep_backtracking` (Boolean, default False). `_execute(capdata) -> pd.Index`. Registry key `"Backtracking"`. On every no-op path (pvlib missing, site missing, invalid geometry, solar-position failure) returns `capdata.data_filtered.index` unchanged after `warnings.warn`.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -448,6 +448,27 @@ class TestFilterBacktracking:
         f._execute(cd_backtrack)
         assert f.gcr_resolved == 0.25
 
+    def test_resolves_cross_axis_tilt_from_site(self, cd_backtrack):
+        # A site-provided cross_axis_tilt must be honored (not silently 0).
+        f_flat = Backtracking()
+        f_flat._execute(cd_backtrack)
+        flat_kept = set(f_flat.ix_after) if hasattr(f_flat, "ix_after") else None
+
+        cd_backtrack.site["sys"]["cross_axis_tilt"] = 20
+        f_sloped = Backtracking()
+        sloped_kept = f_sloped._execute(cd_backtrack)
+        assert f_sloped.cross_axis_tilt_resolved == 20
+        # The resolved slope changes the classification vs. the flat default.
+        f_flat_again = Backtracking(cross_axis_tilt=0)
+        assert not sloped_kept.equals(f_flat_again._execute(cd_backtrack))
+
+    def test_cross_axis_tilt_defaults_to_zero_when_absent(self, cd_backtrack):
+        # No cross_axis_tilt in site sys and none passed -> resolves to 0.
+        assert "cross_axis_tilt" not in cd_backtrack.site["sys"]
+        f = Backtracking()
+        f._execute(cd_backtrack)
+        assert f.cross_axis_tilt_resolved == 0
+
     def test_no_site_warns_and_keeps_all(self, cd_backtrack):
         cd_backtrack.site = None
         n_before = cd_backtrack.data_filtered.shape[0]
@@ -475,6 +496,39 @@ class TestFilterBacktracking:
             kept = Backtracking(cross_axis_tilt=90)._execute(cd_backtrack)
         assert len(kept) == n_before
 
+    def test_naive_fall_dst_index_does_not_crash(self, cd_backtrack):
+        # A tz-naive index spanning the fall-back DST transition with a lone
+        # ambiguous 01:00-01:59 local hour would make ambiguous="infer" raise.
+        # The filter's ambiguous=True policy must localize it and run normally.
+        idx = pd.date_range(
+            "2023-11-05 00:00", "2023-11-05 05:00", freq="30min"
+        )  # America/Chicago fall-back at 02:00; tz-naive
+        cd_backtrack.data = pd.DataFrame({"poa": range(len(idx))}, index=idx)
+        cd_backtrack.regression_cols = {"poa": "poa"}
+        n_before = cd_backtrack.data_filtered.shape[0]
+        # Night-time rows: predicate is False everywhere, so nothing is removed,
+        # but crucially _execute must not raise.
+        kept = Backtracking()._execute(cd_backtrack)
+        assert len(kept) == n_before
+
+    def test_malformed_location_warns_and_keeps_all(self, cd_backtrack):
+        # An unknown tz raises ZoneInfoNotFoundError (a KeyError subclass) from
+        # get_solarposition; the filter must warn-and-no-op, not crash.
+        cd_backtrack.site["loc"]["tz"] = "Not/AZone"
+        n_before = cd_backtrack.data_filtered.shape[0]
+        with pytest.warns(UserWarning, match="solar position"):
+            kept = Backtracking()._execute(cd_backtrack)
+        assert len(kept) == n_before
+
+    def test_missing_location_key_warns_and_keeps_all(self, cd_backtrack):
+        # A missing required loc key makes Location(**loc) raise TypeError;
+        # the filter must warn-and-no-op.
+        del cd_backtrack.site["loc"]["longitude"]
+        n_before = cd_backtrack.data_filtered.shape[0]
+        with pytest.warns(UserWarning, match="solar position"):
+            kept = Backtracking()._execute(cd_backtrack)
+        assert len(kept) == n_before
+
     def test_registered_in_registry(self):
         assert FILTER_REGISTRY["Backtracking"] is Backtracking
 
@@ -491,11 +545,15 @@ class TestFilterBacktracking:
         assert f2.keep_backtracking is True
 
     def test_config_preserves_none_geometry(self):
-        # None geometry (resolve-from-site intent) must survive serialization.
+        # None geometry (resolve-from-site intent) must survive serialization,
+        # including cross_axis_tilt.
         cfg = Backtracking().to_config()
         assert cfg["gcr"] is None
         assert cfg["axis_tilt"] is None
-        assert step_from_config(cfg).gcr is None
+        assert cfg["cross_axis_tilt"] is None
+        rebuilt = step_from_config(cfg)
+        assert rebuilt.gcr is None
+        assert rebuilt.cross_axis_tilt is None
 
     def test_explanation_reports_resolved_geometry(self, cd_backtrack):
         f = Backtracking()
@@ -553,9 +611,10 @@ class Backtracking(BaseFilter):
         doc="Ground coverage ratio. Resolved from site['sys']['gcr'] when None.",
     )
     cross_axis_tilt = param.Number(
-        default=0,
-        doc="Cross-axis tilt (deg) for sloped terrain. Defaults to 0 (flat), "
-        "matching pvlib's default. Must be in (-90, 90).",
+        default=None, allow_None=True,
+        doc="Cross-axis tilt (deg) for sloped terrain. Resolved from "
+        "site['sys'].get('cross_axis_tilt', 0) when None (flat terrain, "
+        "matching pvlib's default). Must be in (-90, 90).",
     )
     keep_backtracking = param.Boolean(
         default=False,
@@ -591,7 +650,11 @@ class Backtracking(BaseFilter):
             else sys.get("axis_azimuth")
         )
         self.gcr_resolved = self.gcr if self.gcr is not None else sys.get("gcr")
-        self.cross_axis_tilt_resolved = self.cross_axis_tilt
+        self.cross_axis_tilt_resolved = (
+            self.cross_axis_tilt
+            if self.cross_axis_tilt is not None
+            else sys.get("cross_axis_tilt", 0)
+        )
 
         reason = _backtracking_geometry_error(
             self.axis_tilt_resolved,
@@ -606,7 +669,17 @@ class Backtracking(BaseFilter):
             )
             return df.index
 
-        apparent_zenith, solar_azimuth = self._solar_position(capdata, df)
+        try:
+            apparent_zenith, solar_azimuth = self._solar_position(capdata, df)
+        except (TypeError, ValueError, KeyError) as err:
+            # Malformed site['loc'] (missing key -> TypeError; unknown tz ->
+            # ZoneInfoNotFoundError/KeyError) or an unresolvable DST ambiguity
+            # (ValueError) must degrade gracefully, not crash the pipeline.
+            warnings.warn(
+                f"Backtracking filter could not compute solar position "
+                f"({type(err).__name__}: {err}); no intervals removed."
+            )
+            return df.index
 
         mask = backtracking_active(
             apparent_zenith,
@@ -626,6 +699,16 @@ class Backtracking(BaseFilter):
         altitude and calls ``get_solarposition``. Timezone handling mirrors
         ``calcparams.apparent_zenith``: a tz-naive index is localized with the
         site tz; results are returned tz-naive and reindexed to ``df.index``.
+
+        Ambiguity policy: fall-back DST duplicates are localized with
+        ``ambiguous=True`` (assume DST) and spring-forward gaps with
+        ``nonexistent="shift_forward"`` rather than ``"infer"``/``"NaT"``. A lone
+        ambiguous local timestamp makes ``ambiguous="infer"`` raise, which would
+        crash the filter; these near-midnight edge intervals sit below the
+        horizon (``apparent_zenith > 90``), where the predicate is ``False``
+        regardless, so the exact wall-clock offset does not affect the result.
+        Any residual localization error is caught by ``_execute`` and turned
+        into a warn-and-no-op.
         """
         from pvlib.location import Location
 
@@ -634,7 +717,7 @@ class Backtracking(BaseFilter):
         times = df.index
         if times.tz is None:
             times = times.tz_localize(
-                loc["tz"], ambiguous="infer", nonexistent="NaT"
+                loc["tz"], ambiguous=True, nonexistent="shift_forward"
             )
         solpos = location.get_solarposition(times)
         solpos.index = solpos.index.tz_localize(None)
@@ -645,7 +728,7 @@ class Backtracking(BaseFilter):
 
     def _args_for_repr(self):
         vals = dict(self.param.values())
-        for key in ("axis_tilt", "axis_azimuth", "gcr"):
+        for key in ("axis_tilt", "axis_azimuth", "gcr", "cross_axis_tilt"):
             resolved = getattr(self, f"{key}_resolved", None)
             if resolved is not None:
                 vals[key] = resolved
@@ -658,7 +741,9 @@ class Backtracking(BaseFilter):
             "gcr": getattr(self, "gcr_resolved", self.gcr),
             "axis_tilt": getattr(self, "axis_tilt_resolved", self.axis_tilt),
             "axis_azimuth": getattr(self, "axis_azimuth_resolved", self.axis_azimuth),
-            "cross_axis_tilt": self.cross_axis_tilt,
+            "cross_axis_tilt": getattr(
+                self, "cross_axis_tilt_resolved", self.cross_axis_tilt
+            ),
         }
 ```
 
@@ -673,7 +758,7 @@ In `src/captest/filters.py`, add to `FILTER_REGISTRY` (after `"Clearsky": Clears
 - [ ] **Step 5: Run tests to verify they pass**
 
 Run: `uv run --python 3.12 pytest tests/test_filter_classes.py::TestFilterBacktracking -v`
-Expected: PASS (all 12 tests).
+Expected: PASS (all 17 tests).
 
 - [ ] **Step 6: Lint and commit**
 
@@ -698,7 +783,7 @@ The thin in-place wrapper, plus a full serialize/replay integration test.
 
 **Interfaces:**
 - Consumes: `Backtracking` (Task 3).
-- Produces: `CapData.filter_backtracking(self, axis_tilt=None, axis_azimuth=None, gcr=None, cross_axis_tilt=0, keep_backtracking=False, custom_name=None) -> None` — builds a `Backtracking` step and `run()`s it in place (appends to `self.filters`, updates `data_filtered`).
+- Produces: `CapData.filter_backtracking(self, axis_tilt=None, axis_azimuth=None, gcr=None, cross_axis_tilt=None, keep_backtracking=False, custom_name=None) -> None` — builds a `Backtracking` step and `run()`s it in place (appends to `self.filters`, updates `data_filtered`).
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -772,7 +857,7 @@ In `src/captest/capdata.py`, insert immediately after the end of `filter_clearsk
         axis_tilt=None,
         axis_azimuth=None,
         gcr=None,
-        cross_axis_tilt=0,
+        cross_axis_tilt=None,
         keep_backtracking=False,
         custom_name=None,
     ):
@@ -783,7 +868,8 @@ In `src/captest/capdata.py`, insert immediately after the end of `filter_clearsk
         is computed from the site location; tracker geometry defaults to the
         site system definition (``site['sys']``) and may be overridden per
         argument. Degrades to a warn-and-no-op when site/geometry/pvlib are
-        unavailable or the resolved geometry is invalid.
+        unavailable, the resolved geometry is invalid, or solar position cannot
+        be computed (e.g. malformed ``site['loc']``).
 
         Parameters
         ----------
@@ -794,8 +880,10 @@ In `src/captest/capdata.py`, insert immediately after the end of `filter_clearsk
             None.
         gcr : float, default None
             Ground coverage ratio. Uses site['sys']['gcr'] when None.
-        cross_axis_tilt : float, default 0
-            Cross-axis tilt (deg) for sloped terrain. Must be in (-90, 90).
+        cross_axis_tilt : float, default None
+            Cross-axis tilt (deg) for sloped terrain. Uses
+            site['sys'].get('cross_axis_tilt', 0) when None. Must be in
+            (-90, 90).
         keep_backtracking : bool, default False
             If True, keep only backtracking intervals and remove true-tracking
             ones.
@@ -840,7 +928,7 @@ Confirm nothing regressed and the new code integrates cleanly.
 - [ ] **Step 1: Run the full test suite**
 
 Run: `uv run --python 3.12 pytest tests/ -q`
-Expected: PASS — the prior baseline of `953 passed` plus the new tests (32 added across Tasks 1–4), no failures. Warnings unrelated to backtracking are pre-existing.
+Expected: PASS — the prior baseline of `953 passed` plus the new tests (~39 added across Tasks 1–4: 10 + 5 + 17 + wrapper tests), no failures. Warnings unrelated to backtracking are pre-existing.
 
 - [ ] **Step 2: Lint and format the whole tree**
 
@@ -863,3 +951,4 @@ Expected: empty output.
 - **`cd.site` shape** matches `tests/conftest.py:363` and `clearsky.py` — `{"loc": {latitude, longitude, altitude, tz}, "sys": {...}}`. Tracker `sys` uses `axis_tilt`/`axis_azimuth`/`gcr` (plus `max_angle`/`backtrack`/`albedo`); a fixed-tilt `sys` (`surface_tilt`/`surface_azimuth`) has no `axis_*`/`gcr`, so the filter warn-and-no-ops on it — expected.
 - **Why `max_angle=90` in the oracle test:** it prevents pvlib from clipping the true-tracking angle, so the on/off `tracker_theta` difference isolates the backtracking decision the geometry predicate computes.
 - **Index alignment:** `_execute` returns `df.index[keep.to_numpy()]`; `keep` is a boolean Series aligned to `df.index` (reindexed inside `_solar_position`), and `.to_numpy()` avoids any label-vs-position ambiguity when indexing `df.index`.
+- **DST / malformed-location resilience:** `_solar_position` localizes tz-naive indices with `ambiguous=True, nonexistent="shift_forward"` (a lone fall-back hour makes `ambiguous="infer"` raise; the affected near-midnight intervals are below the horizon so the predicate is `False` there regardless). `_execute` wraps the `_solar_position` call in `try/except (TypeError, ValueError, KeyError)` so malformed `site['loc']` (missing key → `TypeError`; unknown tz → `ZoneInfoNotFoundError`, a `KeyError` subclass) becomes a warn-and-no-op instead of a crash. Both paths are covered by tests in Task 3.

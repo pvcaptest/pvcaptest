@@ -205,9 +205,10 @@ class Backtracking(BaseFilter):
         default=None, allow_None=True,
         doc="Ground coverage ratio. Resolved from site['sys']['gcr'] when None.")
     cross_axis_tilt = param.Number(
-        default=0,
-        doc="Cross-axis tilt (deg) for sloped terrain. Defaults to 0 (flat), "
-            "matching pvlib's default.")
+        default=None, allow_None=True,
+        doc="Cross-axis tilt (deg) for sloped terrain. Resolved from "
+            "site['sys'].get('cross_axis_tilt', 0) when None (flat terrain, "
+            "matching pvlib's default).")
     keep_backtracking = param.Boolean(
         default=False,
         doc="Keep true-tracking intervals (False) or keep backtracking "
@@ -223,7 +224,10 @@ class Backtracking(BaseFilter):
    removes nothing.
 2. **Resolve geometry.** For each of `axis_tilt`/`axis_azimuth`/`gcr`, use the
    param value if not None, else `capdata.site['sys'].get(<key>)` (missing key →
-   `None`). `cross_axis_tilt` uses the param directly (default 0). Store resolved
+   `None`). `cross_axis_tilt` resolves the same way but falls back to `0` when
+   absent from both the param and `site['sys']`
+   (`capdata.site['sys'].get('cross_axis_tilt', 0)`), so a site with sloped-terrain
+   metadata is honored while a flat site defaults to 0. Store resolved
    values as **runtime attributes** (`self.axis_tilt_resolved`, etc.) for
    `args_repr`/`explanation` — never as params, so the serialized config
    preserves the user's intent (`None` = "resolve from site"). This mirrors
@@ -245,6 +249,15 @@ class Backtracking(BaseFilter):
    both `apparent_zenith` and `azimuth`. Timezone handling mirrors
    `calcparams.apparent_zenith`: tz-localize a tz-naive index using
    `site['loc']['tz']`, then align results back to `data_filtered.index`.
+   **Ambiguity policy:** localize with `ambiguous=True, nonexistent="shift_forward"`
+   rather than `ambiguous="infer"` — a dataset containing a single occurrence of
+   a fall-back-DST local hour makes `"infer"` raise `ValueError`, which would
+   crash the filter. The affected intervals sit near midnight where
+   `apparent_zenith > 90` (predicate is `False` regardless), so the exact offset
+   does not change the result. This whole step is wrapped so that a malformed
+   `site['loc']` (missing key → `TypeError`; unknown tz →
+   `ZoneInfoNotFoundError`/`KeyError`) or any residual localization error becomes
+   a **warn-and-no-op** rather than an exception (see Error handling).
 5. **Apply predicate.** Call the module-level `backtracking_active(...)` helper,
    then return `data_filtered.index[~mask]` (default) or `data_filtered.index[mask]`
    when `keep_backtracking=True`. (Geometry is already validated in step 3, so
@@ -346,10 +359,18 @@ unmasked zenith for the `<= 90` test, and wants true altitude.
   `backtracking_active` helper *raises* `ValueError` on the same conditions for
   direct callers.
 - **pvlib unavailable** → warn and no-op.
-- **`cross_axis_tilt`** defaults to 0 (flat terrain, pvlib's own default) and is
-  overridable via kwarg, constrained to `(-90, 90)` by validation. Deriving it
-  from site slope (via `pvlib.tracking.calc_cross_axis_tilt`) is out of scope —
-  `load_data` does not currently capture the slope keys that would require.
+- **Solar-position failure** — a malformed `site['loc']` (missing required key →
+  `TypeError` from `Location(**loc)`; unknown tz → `ZoneInfoNotFoundError`, a
+  `KeyError` subclass) or an unresolvable timezone localization → warn and no-op.
+  The solar-position computation is wrapped in `try/except (TypeError,
+  ValueError, KeyError)`; combined with the `ambiguous=True` DST policy this
+  guarantees the documented graceful degradation instead of a mid-pipeline crash.
+- **`cross_axis_tilt`** resolves from `site['sys']` and falls back to 0 (flat
+  terrain, pvlib's own default) when neither the param nor the site provides it;
+  it is overridable via kwarg and constrained to `(-90, 90)` by validation.
+  Deriving it from site slope (via `pvlib.tracking.calc_cross_axis_tilt`) is out
+  of scope — `load_data` does not currently capture the slope keys that would
+  require.
 
 ## Testing
 
@@ -387,6 +408,8 @@ test dependency.
   `keep_backtracking=True` inverts.
 - Geometry resolves from `capdata.site['sys']` when params are None; explicit
   params override site.
+- `cross_axis_tilt` resolves from `site['sys']` — a site-provided value changes
+  the classification versus the flat default, and its absence resolves to 0.
 - Warn-and-no-op when `site` is absent, when a required geometry value cannot be
   resolved, and when pvlib is unavailable — asserting the index is returned
   unchanged and a warning is emitted.
@@ -396,6 +419,11 @@ test dependency.
   naming the reason is emitted, and the step still appears in the summary. This
   confirms the filter degrades gracefully (including on `TypeError`-prone
   non-numeric metadata) where the standalone helper would raise.
+- Warn-and-no-op on a solar-position failure: a malformed `site['loc']` (unknown
+  tz, missing required key) is caught and the index returned unchanged.
+- No crash on a tz-naive index spanning the fall-back DST transition with a lone
+  ambiguous local hour — the `ambiguous=True` policy localizes it and `_execute`
+  runs to completion.
 
 **Wrapper + integration:**
 
