@@ -1380,8 +1380,13 @@ class TestFilterBacktracking:
         # but crucially _execute must not raise, and must not silently degrade
         # to the warn-and-no-op path (which would also happen to keep the full
         # index if ambiguous="infer" raised and got swallowed).
+        # Scope the promotion to UserWarning so a regression to ambiguous=
+        # "infer" (whose swallowed ValueError surfaces as the filter's
+        # warn-and-no-op UserWarning) fails here, without turning an unrelated
+        # future pvlib/pandas warning in get_solarposition into a spurious
+        # failure.
         with warnings.catch_warnings():
-            warnings.simplefilter("error")
+            warnings.simplefilter("error", UserWarning)
             kept = Backtracking()._execute(cd_backtrack)
         assert len(kept) == n_before
 

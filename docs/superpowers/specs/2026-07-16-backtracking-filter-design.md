@@ -279,7 +279,7 @@ Thin, in-place, following every other `filter_*`:
 
 ```python
 def filter_backtracking(self, axis_tilt=None, axis_azimuth=None, gcr=None,
-                        cross_axis_tilt=0, keep_backtracking=False,
+                        cross_axis_tilt=None, keep_backtracking=False,
                         custom_name=None):
     """Remove intervals where single-axis-tracker backtracking is active.
 
@@ -296,8 +296,9 @@ def filter_backtracking(self, axis_tilt=None, axis_azimuth=None, gcr=None,
         Tracker axis azimuth (deg). Uses site['sys']['axis_azimuth'] when None.
     gcr : float, default None
         Ground coverage ratio. Uses site['sys']['gcr'] when None.
-    cross_axis_tilt : float, default 0
-        Cross-axis tilt (deg) for sloped terrain.
+    cross_axis_tilt : float, default None
+        Cross-axis tilt (deg) for sloped terrain. Uses
+        site['sys'].get('cross_axis_tilt', 0) when None.
     keep_backtracking : bool, default False
         If True, keep only backtracking intervals and remove true-tracking ones.
     custom_name : str, default None

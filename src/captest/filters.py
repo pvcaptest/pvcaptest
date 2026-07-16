@@ -333,9 +333,9 @@ def backtracking_active(
 
     Parameters
     ----------
-    apparent_zenith : Series
+    apparent_zenith : pd.Series
         Apparent solar zenith angle (degrees).
-    solar_azimuth : Series
+    solar_azimuth : pd.Series
         Solar azimuth angle (degrees).
     axis_tilt : float
         Tracker axis tilt (degrees).
@@ -348,7 +348,7 @@ def backtracking_active(
 
     Returns
     -------
-    Series
+    pd.Series
         Boolean Series indexed like ``apparent_zenith``; True where backtracking
         is geometrically active.
 
