@@ -2,6 +2,7 @@
 
 import math
 import unittest.mock
+import warnings
 
 import numpy as np
 import pandas as pd
@@ -1373,10 +1374,15 @@ class TestFilterBacktracking:
         )  # America/Chicago fall-back at 02:00; tz-naive
         cd_backtrack.data = pd.DataFrame({"poa": range(len(idx))}, index=idx)
         cd_backtrack.regression_cols = {"poa": "poa"}
+        cd_backtrack.site["loc"]["tz"] = "America/Chicago"
         n_before = cd_backtrack.data_filtered.shape[0]
         # Night-time rows: predicate is False everywhere, so nothing is removed,
-        # but crucially _execute must not raise.
-        kept = Backtracking()._execute(cd_backtrack)
+        # but crucially _execute must not raise, and must not silently degrade
+        # to the warn-and-no-op path (which would also happen to keep the full
+        # index if ambiguous="infer" raised and got swallowed).
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            kept = Backtracking()._execute(cd_backtrack)
         assert len(kept) == n_before
 
     def test_malformed_location_warns_and_keeps_all(self, cd_backtrack):
