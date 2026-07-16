@@ -32,6 +32,7 @@ from captest.filters import (
     RepCond,
     _backtracking_geometry_error,
     abs_diff_from_average,
+    backtracking_active,
 )
 from captest.filters import FILTER_REGISTRY, step_from_config
 
@@ -1732,3 +1733,79 @@ class TestBacktrackingGeometryError:
     def test_cross_axis_tilt_within_range_is_valid(self):
         assert _backtracking_geometry_error(0, 180, 0.3, 45) is None
         assert _backtracking_geometry_error(0, 180, 0.3, -45) is None
+
+
+class TestBacktrackingActiveHelper:
+    @pytest.fixture
+    def clear_day_solpos(self):
+        """Solar position over a clear June day at a mid-latitude site."""
+        from pvlib.location import Location
+
+        loc = Location(35.0, -100.0, altitude=300, tz="Etc/GMT+7")
+        times = pd.date_range(
+            "2023-06-15 04:00", "2023-06-15 20:00", freq="5min", tz="Etc/GMT+7"
+        )
+        sp = loc.get_solarposition(times)
+        return sp["apparent_zenith"], sp["azimuth"]
+
+    def test_matches_pvlib_singleaxis_at_sun_up(self, clear_day_solpos):
+        from pvlib import tracking
+
+        zen, azi = clear_day_solpos
+        axis_tilt, axis_azimuth, gcr = 0, 180, 0.4
+        # Oracle: singleaxis with max_angle high enough to avoid clipping so the
+        # backtrack on/off difference isolates the backtracking decision.
+        tracked = tracking.singleaxis(
+            apparent_zenith=zen,
+            solar_azimuth=azi,
+            axis_tilt=axis_tilt,
+            axis_azimuth=axis_azimuth,
+            max_angle=90,
+            backtrack=True,
+            gcr=gcr,
+            cross_axis_tilt=0,
+        )
+        true_track = tracking.singleaxis(
+            apparent_zenith=zen,
+            solar_azimuth=azi,
+            axis_tilt=axis_tilt,
+            axis_azimuth=axis_azimuth,
+            max_angle=90,
+            backtrack=False,
+            gcr=gcr,
+            cross_axis_tilt=0,
+        )
+        # pvlib backtracks exactly where the tracked angle differs from the
+        # true-tracking angle (both non-NaN, i.e. sun up).
+        sun_up = tracked["tracker_theta"].notna() & true_track["tracker_theta"].notna()
+        pvlib_backtracking = (
+            (tracked["tracker_theta"] - true_track["tracker_theta"]).abs() > 1e-6
+        ) & sun_up
+
+        mask = backtracking_active(zen, azi, axis_tilt, axis_azimuth, gcr)
+        # Compare only where the sun is up (the helper's <=90 term and pvlib's
+        # NaN handling agree there).
+        assert mask[sun_up].equals(pvlib_backtracking[sun_up])
+
+    def test_sun_down_intervals_are_false(self, clear_day_solpos):
+        zen, azi = clear_day_solpos
+        mask = backtracking_active(zen, azi, 0, 180, 0.4)
+        assert not mask[zen > 90].any()
+
+    def test_cross_axis_tilt_changes_result(self, clear_day_solpos):
+        zen, azi = clear_day_solpos
+        flat = backtracking_active(zen, azi, 0, 180, 0.4, cross_axis_tilt=0)
+        sloped = backtracking_active(zen, azi, 0, 180, 0.4, cross_axis_tilt=20)
+        assert not flat.equals(sloped)
+
+    def test_invalid_gcr_raises(self):
+        zen = pd.Series([30.0, 45.0])
+        azi = pd.Series([90.0, 100.0])
+        with pytest.raises(ValueError, match="gcr"):
+            backtracking_active(zen, azi, 0, 180, 0)
+
+    def test_non_numeric_geometry_raises_valueerror_not_typeerror(self):
+        zen = pd.Series([30.0, 45.0])
+        azi = pd.Series([90.0, 100.0])
+        with pytest.raises(ValueError):
+            backtracking_active(zen, azi, 0, 180, "0.4")

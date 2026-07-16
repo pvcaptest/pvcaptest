@@ -316,6 +316,66 @@ def _backtracking_geometry_error(axis_tilt, axis_azimuth, gcr, cross_axis_tilt):
     return None
 
 
+def backtracking_active(
+    apparent_zenith,
+    solar_azimuth,
+    axis_tilt,
+    axis_azimuth,
+    gcr,
+    cross_axis_tilt=0,
+):
+    """Return a boolean Series marking single-axis-tracker backtracking.
+
+    Direct transcription of pvlib's ``tracking.singleaxis`` backtracking test
+    (Anderson & Mikofski 2020): an interval is backtracking-active when the sun
+    is above the horizon (``apparent_zenith <= 90``) and row-to-row shade would
+    occur under true-tracking.
+
+    Parameters
+    ----------
+    apparent_zenith : Series
+        Apparent solar zenith angle (degrees).
+    solar_azimuth : Series
+        Solar azimuth angle (degrees).
+    axis_tilt : float
+        Tracker axis tilt (degrees).
+    axis_azimuth : float
+        Tracker axis azimuth (degrees).
+    gcr : float
+        Ground coverage ratio; must be greater than 0.
+    cross_axis_tilt : float, default 0
+        Cross-axis tilt (degrees); must be in the open interval (-90, 90).
+
+    Returns
+    -------
+    Series
+        Boolean Series indexed like ``apparent_zenith``; True where backtracking
+        is geometrically active.
+
+    Raises
+    ------
+    ValueError
+        If the geometry is invalid (see ``_backtracking_geometry_error``).
+    """
+    from pvlib import shading
+    from pvlib.tools import cosd
+
+    reason = _backtracking_geometry_error(axis_tilt, axis_azimuth, gcr, cross_axis_tilt)
+    if reason is not None:
+        raise ValueError(f"Invalid backtracking geometry: {reason}.")
+
+    omega_ideal = shading.projected_solar_zenith_angle(
+        solar_zenith=apparent_zenith,
+        solar_azimuth=solar_azimuth,
+        axis_tilt=axis_tilt,
+        axis_azimuth=axis_azimuth,
+    )
+    axes_distance = 1 / (gcr * cosd(cross_axis_tilt))
+    return (apparent_zenith <= 90) & (
+        (axes_distance * cosd(omega_ideal - cross_axis_tilt)).abs() < 1
+    )
+
+
 class BaseSummaryStep(param.Parameterized):
     """Common ancestor for steps that appear in the filtering summary.
 
