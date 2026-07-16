@@ -14,6 +14,7 @@ from captest.filters import (
     AbsDiffPrev,
     BaseSummaryStep,
     BaseFilter,
+    Backtracking,
     BooleanFlag,
     Clearsky,
     Custom,
@@ -1250,6 +1251,184 @@ class TestFilterClearskyWrapper:
         resolved = nrel_clear_sky.filters[0].detect_kwargs_resolved
         assert resolved["infer_limits"] is False
         assert resolved["window_length"] == 30
+
+
+@pytest.fixture
+def cd_backtrack():
+    """A tracker CapData with a clear-day index and a tracker site dict.
+
+    Solar position is computed by the filter from ``site['loc']``; geometry
+    defaults come from ``site['sys']``.
+    """
+    from pvlib.location import Location
+
+    idx = pd.date_range(
+        "2023-06-15 04:00", "2023-06-15 20:00", freq="5min", tz="Etc/GMT+7"
+    )
+    cd = CapData("backtrack")
+    # A single poa column is enough; the filter reads geometry/solpos, not poa.
+    loc = Location(35.0, -100.0, altitude=300, tz="Etc/GMT+7")
+    poa = loc.get_solarposition(idx)["apparent_zenith"].to_numpy()
+    cd.data = pd.DataFrame({"poa": poa}, index=idx.tz_localize(None))
+    cd.regression_cols = {"poa": "poa"}
+    cd.site = {
+        "loc": {
+            "latitude": 35.0,
+            "longitude": -100.0,
+            "altitude": 300,
+            "tz": "Etc/GMT+7",
+        },
+        "sys": {
+            "axis_tilt": 0,
+            "axis_azimuth": 180,
+            "gcr": 0.4,
+            "max_angle": 60,
+            "backtrack": True,
+            "albedo": 0.2,
+        },
+    }
+    return cd
+
+
+class TestFilterBacktracking:
+    def test_removes_backtracking_keeps_true_tracking(self, cd_backtrack):
+        n_before = cd_backtrack.data_filtered.shape[0]
+        kept = Backtracking()._execute(cd_backtrack)
+        assert len(kept) < n_before
+        # data_filtered is not mutated by _execute alone.
+        assert cd_backtrack.data_filtered.shape[0] == n_before
+
+    def test_keep_backtracking_inverts_mask(self, cd_backtrack):
+        removed_default = Backtracking()._execute(cd_backtrack)
+        kept_backtracking = Backtracking(keep_backtracking=True)._execute(cd_backtrack)
+        full = cd_backtrack.data_filtered.index
+        assert removed_default.union(kept_backtracking).equals(full)
+        assert removed_default.intersection(kept_backtracking).empty
+
+    def test_resolves_geometry_from_site(self, cd_backtrack):
+        f = Backtracking()
+        f._execute(cd_backtrack)
+        assert f.gcr_resolved == 0.4
+        assert f.axis_tilt_resolved == 0
+        assert f.axis_azimuth_resolved == 180
+
+    def test_explicit_params_override_site(self, cd_backtrack):
+        f = Backtracking(gcr=0.25)
+        f._execute(cd_backtrack)
+        assert f.gcr_resolved == 0.25
+
+    def test_resolves_cross_axis_tilt_from_site(self, cd_backtrack):
+        # A site-provided cross_axis_tilt must be honored (not silently 0).
+        f_flat = Backtracking()
+        f_flat._execute(cd_backtrack)
+
+        cd_backtrack.site["sys"]["cross_axis_tilt"] = 20
+        f_sloped = Backtracking()
+        sloped_kept = f_sloped._execute(cd_backtrack)
+        assert f_sloped.cross_axis_tilt_resolved == 20
+        # The resolved slope changes the classification vs. the flat default.
+        f_flat_again = Backtracking(cross_axis_tilt=0)
+        assert not sloped_kept.equals(f_flat_again._execute(cd_backtrack))
+
+    def test_cross_axis_tilt_defaults_to_zero_when_absent(self, cd_backtrack):
+        # No cross_axis_tilt in site sys and none passed -> resolves to 0.
+        assert "cross_axis_tilt" not in cd_backtrack.site["sys"]
+        f = Backtracking()
+        f._execute(cd_backtrack)
+        assert f.cross_axis_tilt_resolved == 0
+
+    def test_no_site_warns_and_keeps_all(self, cd_backtrack):
+        cd_backtrack.site = None
+        n_before = cd_backtrack.data_filtered.shape[0]
+        with pytest.warns(UserWarning, match="site"):
+            kept = Backtracking()._execute(cd_backtrack)
+        assert len(kept) == n_before
+
+    def test_gcr_zero_in_site_warns_and_keeps_all(self, cd_backtrack):
+        cd_backtrack.site["sys"]["gcr"] = 0
+        n_before = cd_backtrack.data_filtered.shape[0]
+        with pytest.warns(UserWarning, match="gcr"):
+            kept = Backtracking()._execute(cd_backtrack)
+        assert len(kept) == n_before
+
+    def test_missing_gcr_key_warns_and_keeps_all(self, cd_backtrack):
+        del cd_backtrack.site["sys"]["gcr"]
+        n_before = cd_backtrack.data_filtered.shape[0]
+        with pytest.warns(UserWarning, match="gcr"):
+            kept = Backtracking()._execute(cd_backtrack)
+        assert len(kept) == n_before
+
+    def test_invalid_cross_axis_tilt_warns_and_keeps_all(self, cd_backtrack):
+        n_before = cd_backtrack.data_filtered.shape[0]
+        with pytest.warns(UserWarning, match="cross_axis_tilt"):
+            kept = Backtracking(cross_axis_tilt=90)._execute(cd_backtrack)
+        assert len(kept) == n_before
+
+    def test_naive_fall_dst_index_does_not_crash(self, cd_backtrack):
+        # A tz-naive index spanning the fall-back DST transition with a lone
+        # ambiguous 01:00-01:59 local hour would make ambiguous="infer" raise.
+        # The filter's ambiguous=True policy must localize it and run normally.
+        idx = pd.date_range(
+            "2023-11-05 00:00", "2023-11-05 05:00", freq="30min"
+        )  # America/Chicago fall-back at 02:00; tz-naive
+        cd_backtrack.data = pd.DataFrame({"poa": range(len(idx))}, index=idx)
+        cd_backtrack.regression_cols = {"poa": "poa"}
+        n_before = cd_backtrack.data_filtered.shape[0]
+        # Night-time rows: predicate is False everywhere, so nothing is removed,
+        # but crucially _execute must not raise.
+        kept = Backtracking()._execute(cd_backtrack)
+        assert len(kept) == n_before
+
+    def test_malformed_location_warns_and_keeps_all(self, cd_backtrack):
+        # An unknown tz raises ZoneInfoNotFoundError (a KeyError subclass) from
+        # get_solarposition; the filter must warn-and-no-op, not crash.
+        cd_backtrack.site["loc"]["tz"] = "Not/AZone"
+        n_before = cd_backtrack.data_filtered.shape[0]
+        with pytest.warns(UserWarning, match="solar position"):
+            kept = Backtracking()._execute(cd_backtrack)
+        assert len(kept) == n_before
+
+    def test_missing_location_key_warns_and_keeps_all(self, cd_backtrack):
+        # A missing required loc key makes Location(**loc) raise TypeError;
+        # the filter must warn-and-no-op.
+        del cd_backtrack.site["loc"]["longitude"]
+        n_before = cd_backtrack.data_filtered.shape[0]
+        with pytest.warns(UserWarning, match="solar position"):
+            kept = Backtracking()._execute(cd_backtrack)
+        assert len(kept) == n_before
+
+    def test_registered_in_registry(self):
+        assert FILTER_REGISTRY["Backtracking"] is Backtracking
+
+    def test_config_round_trips(self):
+        f = Backtracking(
+            gcr=0.3, axis_tilt=5, cross_axis_tilt=10, keep_backtracking=True
+        )
+        cfg = f.to_config()
+        assert cfg["type"] == "Backtracking"
+        f2 = step_from_config(cfg)
+        assert isinstance(f2, Backtracking)
+        assert f2.gcr == 0.3
+        assert f2.axis_tilt == 5
+        assert f2.cross_axis_tilt == 10
+        assert f2.keep_backtracking is True
+
+    def test_config_preserves_none_geometry(self):
+        # None geometry (resolve-from-site intent) must survive serialization,
+        # including cross_axis_tilt.
+        cfg = Backtracking().to_config()
+        assert cfg["gcr"] is None
+        assert cfg["axis_tilt"] is None
+        assert cfg["cross_axis_tilt"] is None
+        rebuilt = step_from_config(cfg)
+        assert rebuilt.gcr is None
+        assert rebuilt.cross_axis_tilt is None
+
+    def test_explanation_reports_resolved_geometry(self, cd_backtrack):
+        f = Backtracking()
+        f.run(cd_backtrack)
+        assert "0.4" in f.explanation
+        assert "removed" in f.explanation
 
 
 class TestFilterPvsyst:
