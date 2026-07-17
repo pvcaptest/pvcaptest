@@ -357,7 +357,9 @@ After ``ct`` has been created, use ``ct.meas`` and ``ct.sim`` in the same way
 you would use separate ``CapData`` objects.
 
 The example below shows the general pattern. Actual filters should be selected
-to match the contract and test procedure.
+to match the contract and test procedure; for the complete list of available
+filtering methods, see the :ref:`Filtering section <capdata-api-filtering>` of
+the CapData API reference.
 
 .. code-block:: Python
     

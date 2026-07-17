@@ -37,6 +37,7 @@ from captest import plotting
 from captest.filters import (
     AbsDiffPrev,
     BaseSummaryStep,
+    Backtracking,
     BooleanFlag,
     Clearsky,
     Custom,
@@ -2101,6 +2102,62 @@ class CapData(param.Parameterized):
             ghi_col=ghi_col,
             keep_clear=keep_clear,
             detect_kwargs=kwargs or None,
+            custom_name=custom_name,
+        )
+        flt.run(self)
+
+    def filter_backtracking(
+        self,
+        axis_tilt=None,
+        axis_azimuth=None,
+        gcr=None,
+        cross_axis_tilt=None,
+        keep_backtracking=False,
+        custom_name=None,
+    ):
+        """Remove intervals where single-axis-tracker backtracking is active.
+
+        Backtracking activity is decided per interval from solar geometry using
+        a transcription of pvlib's ``tracking.singleaxis`` test. Solar position
+        is computed from the site location; tracker geometry defaults to the
+        site system definition (``site['sys']``) and may be overridden per
+        argument. Degrades to a warn-and-no-op when site/geometry/pvlib are
+        unavailable, the resolved geometry is invalid, or solar position cannot
+        be computed (e.g. malformed ``site['loc']``).
+
+        This filter needs the site information (location and tracker geometry)
+        that load_data() stores when you pass its site argument. If that
+        information is missing, or the site is fixed-tilt rather than a
+        tracker, the filter makes no change and prints a warning rather than
+        stopping your analysis. You can also supply the geometry directly with
+        the axis_tilt, axis_azimuth, and gcr arguments if it is not on the site
+        record.
+
+        Parameters
+        ----------
+        axis_tilt : float, default None
+            Tracker axis tilt (deg). Uses site['sys']['axis_tilt'] when None.
+        axis_azimuth : float, default None
+            Tracker axis azimuth (deg). Uses site['sys']['axis_azimuth'] when
+            None.
+        gcr : float, default None
+            Ground coverage ratio. Uses site['sys']['gcr'] when None.
+        cross_axis_tilt : float, default None
+            Cross-axis tilt (deg) for sloped terrain. Uses
+            site['sys'].get('cross_axis_tilt', 0) when None. Must be in
+            (-90, 90).
+        keep_backtracking : bool, default False
+            If True, keep only backtracking intervals and remove true-tracking
+            ones.
+        custom_name : str, default None
+            Optional display label for the recorded filter step.
+        """
+        flt = Backtracking(
+            axis_tilt=axis_tilt,
+            axis_azimuth=axis_azimuth,
+            gcr=gcr,
+            cross_axis_tilt=cross_axis_tilt,
+            keep_backtracking=keep_backtracking,
             custom_name=custom_name,
         )
         flt.run(self)

@@ -9,6 +9,8 @@ import copy
 import difflib
 import importlib.util
 from itertools import combinations
+import math
+import numbers
 import warnings
 
 import pandas as pd
@@ -262,6 +264,116 @@ def fit_model(
     mod = smf.ols(formula=fml, data=df)
     reg = mod.fit()
     return reg
+
+
+def _backtracking_geometry_error(axis_tilt, axis_azimuth, gcr, cross_axis_tilt):
+    """Return a reason string if the resolved backtracking geometry is invalid.
+
+    Returns ``None`` when every value is usable. Invalid conditions, checked in
+    order: any value is ``None`` (unresolved); any value is not a real number
+    (``bool`` is rejected explicitly, since it is a ``numbers.Real`` subtype and
+    would otherwise be silently coerced to 1/0); any value is non-finite
+    (``NaN``/``inf``); ``gcr <= 0`` (the axes-distance denominator must be
+    positive and nonzero); or ``cross_axis_tilt`` outside the open interval
+    ``(-90, 90)`` (so ``cosd(cross_axis_tilt)`` is finite and strictly positive
+    — a robust replacement for a ``cosd(...) == 0`` check that pvlib's non-exact
+    ``cosd(90) ≈ 6e-17`` would defeat).
+
+    The type check precedes ``math.isfinite`` so non-numeric site metadata (a
+    string, ``pd.NA``, an arbitrary object) is reported as a reason rather than
+    raising ``TypeError``.
+
+    Parameters
+    ----------
+    axis_tilt, axis_azimuth, gcr, cross_axis_tilt
+        Resolved tracker-geometry values to validate.
+
+    Returns
+    -------
+    str or None
+        A human-readable reason when the geometry is invalid, otherwise None.
+    """
+    checks = {
+        "axis_tilt": axis_tilt,
+        "axis_azimuth": axis_azimuth,
+        "gcr": gcr,
+        "cross_axis_tilt": cross_axis_tilt,
+    }
+    for name, value in checks.items():
+        if value is None:
+            return (
+                f"{name} could not be resolved (pass it explicitly or set it "
+                "in site['sys'])"
+            )
+        if isinstance(value, bool) or not isinstance(value, numbers.Real):
+            return f"{name}={value!r} is not a real number"
+        if not math.isfinite(value):
+            return f"{name}={value!r} is not a finite number"
+    if gcr <= 0:
+        return f"gcr={gcr!r} must be greater than 0"
+    if not (-90 < cross_axis_tilt < 90):
+        return f"cross_axis_tilt={cross_axis_tilt!r} must be between -90 and 90"
+    return None
+
+
+def backtracking_active(
+    apparent_zenith,
+    solar_azimuth,
+    axis_tilt,
+    axis_azimuth,
+    gcr,
+    cross_axis_tilt=0,
+):
+    """Return a boolean Series marking single-axis-tracker backtracking.
+
+    Direct transcription of pvlib's ``tracking.singleaxis`` backtracking test
+    (Anderson & Mikofski 2020): an interval is backtracking-active when the sun
+    is above the horizon (``apparent_zenith <= 90``) and row-to-row shade would
+    occur under true-tracking.
+
+    Parameters
+    ----------
+    apparent_zenith : pd.Series
+        Apparent solar zenith angle (degrees).
+    solar_azimuth : pd.Series
+        Solar azimuth angle (degrees).
+    axis_tilt : float
+        Tracker axis tilt (degrees).
+    axis_azimuth : float
+        Tracker axis azimuth (degrees).
+    gcr : float
+        Ground coverage ratio; must be greater than 0.
+    cross_axis_tilt : float, default 0
+        Cross-axis tilt (degrees); must be in the open interval (-90, 90).
+
+    Returns
+    -------
+    pd.Series
+        Boolean Series indexed like ``apparent_zenith``; True where backtracking
+        is geometrically active.
+
+    Raises
+    ------
+    ValueError
+        If the geometry is invalid (see ``_backtracking_geometry_error``).
+    """
+    from pvlib import shading
+    from pvlib.tools import cosd
+
+    reason = _backtracking_geometry_error(axis_tilt, axis_azimuth, gcr, cross_axis_tilt)
+    if reason is not None:
+        raise ValueError(f"Invalid backtracking geometry: {reason}.")
+
+    omega_ideal = shading.projected_solar_zenith_angle(
+        solar_zenith=apparent_zenith,
+        solar_azimuth=solar_azimuth,
+        axis_tilt=axis_tilt,
+        axis_azimuth=axis_azimuth,
+    )
+    axes_distance = 1 / (gcr * cosd(cross_axis_tilt))
+    return (apparent_zenith <= 90) & (
+        (axes_distance * cosd(omega_ideal - cross_axis_tilt)).abs() < 1
+    )
 
 
 class BaseSummaryStep(param.Parameterized):
@@ -1125,6 +1237,184 @@ class Clearsky(BaseFilter):
         }
 
 
+class Backtracking(BaseFilter):
+    """Remove intervals where single-axis-tracker backtracking is active.
+
+    Transcribes pvlib's own ``tracking.singleaxis`` backtracking test (Anderson
+    & Mikofski 2020): an interval is backtracking-active when the sun is above
+    the horizon and row-to-row shade would occur under true-tracking. Solar
+    position is computed from ``capdata.site['loc']`` via pvlib; tracker
+    geometry defaults to ``capdata.site['sys']`` and is overridable per
+    parameter.
+
+    By default keeps true-tracking intervals and removes backtracking-active
+    ones; set ``keep_backtracking=True`` to invert (keep only backtracking).
+
+    Degrades to a warn-and-no-op (returns the index unchanged) when pvlib is
+    unavailable, ``capdata.site`` (or its ``loc``/``sys``) is missing, or the
+    resolved geometry is invalid.
+    """
+
+    _explanation_template = (
+        "{kind} intervals (gcr={gcr}, axis_tilt={axis_tilt}, "
+        "axis_azimuth={axis_azimuth}, cross_axis_tilt={cross_axis_tilt}) "
+        "were removed."
+    )
+
+    axis_tilt = param.Number(
+        default=None,
+        allow_None=True,
+        doc="Tracker axis tilt (deg). Resolved from site['sys']['axis_tilt'] "
+        "when None.",
+    )
+    axis_azimuth = param.Number(
+        default=None,
+        allow_None=True,
+        doc="Tracker axis azimuth (deg). Resolved from "
+        "site['sys']['axis_azimuth'] when None.",
+    )
+    gcr = param.Number(
+        default=None,
+        allow_None=True,
+        doc="Ground coverage ratio. Resolved from site['sys']['gcr'] when None.",
+    )
+    cross_axis_tilt = param.Number(
+        default=None,
+        allow_None=True,
+        doc="Cross-axis tilt (deg) for sloped terrain. Resolved from "
+        "site['sys'].get('cross_axis_tilt', 0) when None (flat terrain, "
+        "matching pvlib's default). Must be in (-90, 90).",
+    )
+    keep_backtracking = param.Boolean(
+        default=False,
+        doc="Keep true-tracking intervals (False) or keep backtracking "
+        "intervals (True).",
+    )
+
+    def _execute(self, capdata):
+        df = capdata.data_filtered
+
+        if pvlib_spec is None:
+            warnings.warn(
+                "Backtracking filtering requires the pvlib package; "
+                "no intervals removed."
+            )
+            return df.index
+
+        site = getattr(capdata, "site", None)
+        if not site or "loc" not in site or "sys" not in site:
+            warnings.warn(
+                "Backtracking filter requires capdata.site with 'loc' and "
+                "'sys'; no intervals removed."
+            )
+            return df.index
+
+        sys = site["sys"]
+        self.axis_tilt_resolved = (
+            self.axis_tilt if self.axis_tilt is not None else sys.get("axis_tilt")
+        )
+        self.axis_azimuth_resolved = (
+            self.axis_azimuth
+            if self.axis_azimuth is not None
+            else sys.get("axis_azimuth")
+        )
+        self.gcr_resolved = self.gcr if self.gcr is not None else sys.get("gcr")
+        self.cross_axis_tilt_resolved = (
+            self.cross_axis_tilt
+            if self.cross_axis_tilt is not None
+            else sys.get("cross_axis_tilt", 0)
+        )
+
+        reason = _backtracking_geometry_error(
+            self.axis_tilt_resolved,
+            self.axis_azimuth_resolved,
+            self.gcr_resolved,
+            self.cross_axis_tilt_resolved,
+        )
+        if reason is not None:
+            warnings.warn(
+                f"Backtracking filter geometry invalid: {reason}; no intervals removed."
+            )
+            return df.index
+
+        try:
+            apparent_zenith, solar_azimuth = self._solar_position(capdata, df)
+        except (TypeError, ValueError, KeyError) as err:
+            # Malformed site['loc'] (missing key -> TypeError; unknown tz ->
+            # ZoneInfoNotFoundError/KeyError) or an unresolvable DST ambiguity
+            # (ValueError) must degrade gracefully, not crash the pipeline.
+            warnings.warn(
+                f"Backtracking filter could not compute solar position "
+                f"({type(err).__name__}: {err}); no intervals removed."
+            )
+            return df.index
+
+        mask = backtracking_active(
+            apparent_zenith,
+            solar_azimuth,
+            self.axis_tilt_resolved,
+            self.axis_azimuth_resolved,
+            self.gcr_resolved,
+            cross_axis_tilt=self.cross_axis_tilt_resolved,
+        )
+        keep = mask if self.keep_backtracking else ~mask
+        return df.index[keep.to_numpy()]
+
+    def _solar_position(self, capdata, df):
+        """Compute (apparent_zenith, solar_azimuth) aligned to ``df.index``.
+
+        Builds a pvlib Location from ``capdata.site['loc']`` at the site's true
+        altitude and calls ``get_solarposition``. Timezone handling mirrors
+        ``calcparams.apparent_zenith``: a tz-naive index is localized with the
+        site tz; results are returned tz-naive and reindexed to ``df.index``.
+
+        Ambiguity policy: fall-back DST duplicates are localized with
+        ``ambiguous=True`` (assume DST) and spring-forward gaps with
+        ``nonexistent="shift_forward"`` rather than ``"infer"``/``"NaT"``. A lone
+        ambiguous local timestamp makes ``ambiguous="infer"`` raise, which would
+        crash the filter; these near-midnight edge intervals sit below the
+        horizon (``apparent_zenith > 90``), where the predicate is ``False``
+        regardless, so the exact wall-clock offset does not affect the result.
+        Any residual localization error is caught by ``_execute`` and turned
+        into a warn-and-no-op.
+        """
+        from pvlib.location import Location
+
+        loc = capdata.site["loc"]
+        location = Location(**loc)
+        times = df.index
+        if times.tz is None:
+            times = times.tz_localize(
+                loc["tz"], ambiguous=True, nonexistent="shift_forward"
+            )
+        solpos = location.get_solarposition(times)
+        solpos.index = solpos.index.tz_localize(None)
+        target = df.index.tz_localize(None) if df.index.tz is not None else df.index
+        apparent_zenith = solpos["apparent_zenith"].reindex(target)
+        solar_azimuth = solpos["azimuth"].reindex(target)
+        return apparent_zenith, solar_azimuth
+
+    def _args_for_repr(self):
+        vals = dict(self.param.values())
+        for key in ("axis_tilt", "axis_azimuth", "gcr", "cross_axis_tilt"):
+            resolved = getattr(self, f"{key}_resolved", None)
+            if resolved is not None:
+                vals[key] = resolved
+        return vals
+
+    def _explanation_values(self):
+        kind = "Non-backtracking" if self.keep_backtracking else "Backtracking-active"
+        return {
+            "kind": kind,
+            "gcr": getattr(self, "gcr_resolved", self.gcr),
+            "axis_tilt": getattr(self, "axis_tilt_resolved", self.axis_tilt),
+            "axis_azimuth": getattr(self, "axis_azimuth_resolved", self.axis_azimuth),
+            "cross_axis_tilt": getattr(
+                self, "cross_axis_tilt_resolved", self.cross_axis_tilt
+            ),
+        }
+
+
 class Pvsyst(BaseFilter):
     """Remove PVsyst intervals operating off the maximum power point.
 
@@ -1504,6 +1794,7 @@ FILTER_REGISTRY = {
     "Custom": Custom,
     "Sensors": Sensors,
     "Clearsky": Clearsky,
+    "Backtracking": Backtracking,
     "Missing": Missing,
     "Regression": Regression,
     "RepCond": RepCond,

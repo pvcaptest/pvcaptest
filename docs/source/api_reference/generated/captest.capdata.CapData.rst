@@ -27,9 +27,12 @@
       ~CapData.empty
       ~CapData.expand_agg_map
       ~CapData.expanded_uncert
+      ~CapData.filter_abs_diff_prev
+      ~CapData.filter_backtracking
       ~CapData.filter_clearsky
       ~CapData.filter_custom
       ~CapData.filter_days
+      ~CapData.filter_flag
       ~CapData.filter_irr
       ~CapData.filter_missing
       ~CapData.filter_op_state
@@ -37,8 +40,11 @@
       ~CapData.filter_pf
       ~CapData.filter_power
       ~CapData.filter_pvsyst
+      ~CapData.filter_rolling_std
       ~CapData.filter_sensors
+      ~CapData.filter_sensors_abs_diff
       ~CapData.filter_shade
+      ~CapData.filter_threshold
       ~CapData.filter_time
       ~CapData.filters_to_config
       ~CapData.fit_regression

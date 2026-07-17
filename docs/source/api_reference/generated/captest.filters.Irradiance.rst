@@ -35,5 +35,6 @@
       ~Irradiance.name
       ~Irradiance.param
       ~Irradiance.ref_val
+      ~Irradiance.units
    
    
