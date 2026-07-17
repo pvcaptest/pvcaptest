@@ -2125,6 +2125,14 @@ class CapData(param.Parameterized):
         unavailable, the resolved geometry is invalid, or solar position cannot
         be computed (e.g. malformed ``site['loc']``).
 
+        This filter needs the site information (location and tracker geometry)
+        that load_data() stores when you pass its site argument. If that
+        information is missing, or the site is fixed-tilt rather than a
+        tracker, the filter makes no change and prints a warning rather than
+        stopping your analysis. You can also supply the geometry directly with
+        the axis_tilt, axis_azimuth, and gcr arguments if it is not on the site
+        record.
+
         Parameters
         ----------
         axis_tilt : float, default None
