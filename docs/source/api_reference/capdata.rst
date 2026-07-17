@@ -59,6 +59,8 @@ Methods for aggregating sensor readings into single representative columns.
    capdata.CapData.expand_agg_map
    capdata.CapData.reset_agg
 
+.. _capdata-api-filtering:
+
 Filtering
 ---------
 
@@ -88,6 +90,7 @@ chain. See :doc:`filters` for the underlying step classes.
    capdata.CapData.filter_sensors
    capdata.CapData.filter_sensors_abs_diff
    capdata.CapData.filter_clearsky
+   capdata.CapData.filter_backtracking
    capdata.CapData.filter_missing
    capdata.CapData.filter_op_state
    capdata.CapData.reset_filter
