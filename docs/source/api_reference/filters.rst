@@ -51,6 +51,7 @@ Each step removes rows from ``CapData.data_filtered``. The corresponding
    filters.Custom
    filters.Sensors
    filters.Clearsky
+   filters.Backtracking
    filters.Missing
    filters.RollingStd
    filters.AbsDiffPrev
@@ -85,3 +86,4 @@ Standalone row-filtering functions that the step classes (and a few non-filter
    filters.check_all_perc_diff_comb
    filters.perc_difference
    filters.abs_diff_from_average
+   filters.backtracking_active
