@@ -6,6 +6,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Added
+- Added `CapData.filter_backtracking()` (and the underlying `Backtracking`
+filter step) to remove single-axis-tracker backtracking intervals from the
+data. Backtracking activity is determined per interval from solar position and
+tracker geometry using the same geometric test as pvlib's
+`tracking.singleaxis`. Tracker geometry (`axis_tilt`, `axis_azimuth`, `gcr`,
+`cross_axis_tilt`) defaults to the `site` record set by `load_data` and can be
+overridden per call; `keep_backtracking=True` inverts the filter to keep only
+backtracking intervals. When site/geometry are unavailable or invalid, the
+filter warns and makes no change.
 - New `captest.filters` module holding the entire filter-step surface: the
 `BaseSummaryStep` / `BaseFilter` base classes and the concrete step classes
 `Irradiance`, `Sensors`, `Time`, `Custom`, `Outliers`, `Clearsky`, `Pvsyst`,

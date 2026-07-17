@@ -261,6 +261,56 @@ Running filters removes data from :py:attr:`data_filtered`. Each subsequent filt
 
 The :py:meth:`~captest.capdata.CapData.get_summary` method will return a summary dataframe showing the number of rows in the :py:attr:`data_filtered` DataFrame before and after each filter was applied, the name of the each filter, and the arguments passed when calling each filter.
 
+Removing tracker backtracking intervals
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Sites built on single-axis trackers rotate their panels through the day to face
+the sun. Early and late in the day, when the sun is low, a row tilted straight
+at the sun would cast a shadow on the row behind it. To avoid that, the trackers
+deliberately tilt back toward flat — this is called **backtracking**. During
+backtracking the panels are not pointed at the sun, so the plant's output for
+those intervals does not represent normal operation, and you usually want to
+leave those intervals out of a capacity test.
+
+:py:meth:`~captest.capdata.CapData.filter_backtracking` removes the intervals
+when the trackers were backtracking:
+
+.. code-block:: Python
+
+    cd.filter_backtracking()
+
+You do not have to tell it the sun's position or the tracker layout. It works
+these out for you from the site information you supplied when loading the data
+(latitude, longitude, and the tracker geometry — the axis tilt, axis azimuth,
+and ground coverage ratio). It calculates, for every timestamp, whether a
+true-sun-tracking panel would have shaded the row behind it; where that is true,
+the trackers were backtracking, and that interval is removed. This is the same
+test the ``pvlib`` solar library uses internally to decide when a tracker
+backtracks, so the result matches an industry-standard reference.
+
+If your site sits on sloped ground, pass the cross-axis tilt (the slope measured
+across the tracker rows, in degrees):
+
+.. code-block:: Python
+
+    cd.filter_backtracking(cross_axis_tilt=10)
+
+To keep *only* the backtracking intervals and remove everything else — for
+example, to inspect what was taken out — set ``keep_backtracking=True``:
+
+.. code-block:: Python
+
+    cd.filter_backtracking(keep_backtracking=True)
+
+.. note::
+
+    This filter needs the site information (location and tracker geometry) that
+    :py:func:`~captest.io.load_data` stores when you pass its ``site`` argument.
+    If that information is missing, or the site is fixed-tilt rather than a
+    tracker, the filter makes no change and prints a warning rather than
+    stopping your analysis. You can also supply the geometry directly with the
+    ``axis_tilt``, ``axis_azimuth``, and ``gcr`` arguments if it is not on the
+    site record.
+
 Reporting conditions
 --------------------
 :py:meth:`~captest.capdata.CapData.rep_cond` can be used to calculate the reporting conditions. ``rep_cond`` is formula-agnostic: its right-hand-side variables are derived from :py:attr:`regression_formula` via :py:func:`~captest.util.parse_regression_formula`, so it supports any regression equation (not just the default ASTM E2848 formula). Results are stored in the :py:attr:`rc` attribute.

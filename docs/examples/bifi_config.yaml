@@ -40,6 +40,7 @@ captest:
     high: 1400
     low: 400
     ref_val: null
+    units: W/m^2
   - type: Outliers
     custom_name: null
     envelope_kwargs: null
@@ -60,6 +61,7 @@ captest:
     high: 1.2
     low: 0.8
     ref_val: rep_irr
+    units: W/m^2
   sim_filters:
   - type: Time
     custom_name: null
@@ -74,6 +76,7 @@ captest:
     high: 930
     low: 400
     ref_val: null
+    units: W/m^2
   - type: Pvsyst
     custom_name: null
   - type: Irradiance
@@ -82,3 +85,4 @@ captest:
     high: 1.2
     low: 0.8
     ref_val: rep_irr
+    units: W/m^2

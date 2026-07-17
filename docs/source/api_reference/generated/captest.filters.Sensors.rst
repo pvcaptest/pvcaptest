@@ -15,7 +15,6 @@
    
       ~Sensors.__init__
       ~Sensors.from_config
-      ~Sensors.row_filter
       ~Sensors.run
       ~Sensors.to_config
    
@@ -30,8 +29,9 @@
       ~Sensors.args_repr
       ~Sensors.custom_name
       ~Sensors.explanation
+      ~Sensors.method
       ~Sensors.name
       ~Sensors.param
-      ~Sensors.perc_diff
+      ~Sensors.thresholds
    
    
