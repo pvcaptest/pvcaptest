@@ -86,6 +86,12 @@ now apply filter methods directly instead of the removed module-level
 - `CapData.run_pipeline` now resets the applied chain before rebuilding (replay
 is restore-then-re-run); appending a pipeline onto an existing chain is no
 longer supported.
+- Replay rollback is now a full state transaction for both
+`CapData.run_pipeline` and `CapData.rerun_filters_from`: a failing step
+restores the filter chain, each re-run step's runtime state, `rc`/`rc_tool`,
+and — when the CapData belongs to a CapTest — the test-level reporting
+conditions and their provenance (`rc`/`rc_source`) to their pre-call values,
+and attaches a note naming the failing step (Python 3.11+).
 - `CapTest.captest_results()` now returns a structured `CapTestResults` object
 (cap_ratio, pval-checked ratio, pass/fail + bounds, expected/actual/tested
 capacity, per-side points used, per-side regression tables, RC + provenance)

@@ -102,6 +102,10 @@ plot_colors_brewer = {
 
 met_keys = ["poa", "t_amb", "w_vel", "power"]
 
+# Sentinel distinguishing "attribute absent" from "attribute is None" in the
+# replay-rollback RC snapshots (``CapData._rc_state_snapshot``).
+_MISSING = object()
+
 
 columns = ["function_name", "pts_after_filter", "pts_removed", "filter_arguments"]
 
@@ -2258,6 +2262,26 @@ class CapData(param.Parameterized):
         """
         return [step.to_config() for step in self.filters]
 
+    def _rc_state_snapshot(self):
+        """Capture rc/rc_tool and (when test-wired) the CapTest RC state."""
+        ct = self._captest
+        return (
+            self.rc,
+            self.__dict__.get("rc_tool", _MISSING),
+            None if ct is None else (ct._rc, ct.rc_source),
+        )
+
+    def _rc_state_restore(self, snapshot):
+        """Restore a :meth:`_rc_state_snapshot` after a failed replay."""
+        rc, rc_tool, ct_state = snapshot
+        self.rc = rc
+        if rc_tool is _MISSING:
+            self.__dict__.pop("rc_tool", None)
+        else:
+            self.rc_tool = rc_tool
+        if ct_state is not None and self._captest is not None:
+            self._captest._set_rc(ct_state[0], ct_state[1], warn=False)
+
     def run_pipeline(self, config):
         """Rebuild and run each filter step from a list of config dicts.
 
@@ -2272,11 +2296,35 @@ class CapData(param.Parameterized):
         predecessors. Appending a serialized pipeline onto an existing chain
         is not a supported pattern; extend a chain with the ``filter_*``
         wrappers instead.
+
+        The replay is a transaction: if any step raises, the pre-call state
+        is restored before the exception propagates — the ``filters`` chain,
+        ``rc``/``rc_tool``, and, when this CapData belongs to a CapTest, the
+        test-level ``rc``/``rc_source`` (a mid-pipeline ``RepCond`` write is
+        undone). A note naming the failing step is attached to the exception
+        (Python 3.11+). The transaction covers state pvcaptest owns or that
+        step execution replaces; external side effects — warnings already
+        emitted mid-replay, or mutations a user-supplied callable makes to
+        its own objects — are not undone.
         """
+        prior_filters = self.filters
+        rc_snapshot = self._rc_state_snapshot()
         if self.filters:
             self.filters = []
-        for step_config in config:
-            step_from_config(step_config).run(self)
+        step_label = "?"
+        try:
+            for i, step_config in enumerate(config):
+                step_label = f"{i} ({step_config.get('type', '?')})"
+                step_from_config(step_config).run(self)
+        except Exception as e:
+            self.filters = prior_filters
+            self._rc_state_restore(rc_snapshot)
+            if hasattr(e, "add_note"):
+                e.add_note(
+                    f"Pipeline step {step_label} failed; the pipeline was "
+                    "rolled back to its pre-call state."
+                )
+            raise
 
     def rerun_filters_from(self, index):
         """Re-execute steps ``index..end`` of the applied filter chain.
@@ -2289,6 +2337,18 @@ class CapData(param.Parameterized):
         reassignment each, exactly like ``run_pipeline``), so watchers see
         the truncation followed by one event per re-run step, and mid-replay
         ``filters`` always equals the applied steps.
+
+        The re-run is a transaction: if any tail step raises, the pre-call
+        state is restored before the exception propagates — the ``filters``
+        chain, each tail step's complete instance state (runtime attributes
+        such as ``ix_after``/``pts_after`` and resolved fields; param edits
+        made before the call are pre-call state and are kept),
+        ``rc``/``rc_tool``, and, when this CapData belongs to a CapTest, the
+        test-level ``rc``/``rc_source``. A note naming the failing step is
+        attached to the exception (Python 3.11+). The transaction covers
+        state pvcaptest owns or that step execution replaces; external side
+        effects — warnings already emitted mid-replay, or mutations a
+        user-supplied callable makes to its own objects — are not undone.
 
         Parameters
         ----------
@@ -2310,9 +2370,27 @@ class CapData(param.Parameterized):
         if index == n:
             return
         tail = list(self.filters[index:])
+        prior_filters = self.filters
+        tail_state = [dict(step.__dict__) for step in tail]
+        rc_snapshot = self._rc_state_snapshot()
         self.filters = self.filters[:index]
-        for step in tail:
-            step.run(self)
+        try:
+            for step in tail:
+                step.run(self)
+        except Exception as e:
+            failing_step = type(step).__name__
+            for tail_step, saved in zip(tail, tail_state):
+                tail_step.__dict__.clear()
+                tail_step.__dict__.update(saved)
+            self.filters = prior_filters
+            self._rc_state_restore(rc_snapshot)
+            if hasattr(e, "add_note"):
+                e.add_note(
+                    f"rerun_filters_from({index}) failed at step "
+                    f"'{failing_step}'; the chain and step state were "
+                    "restored to their pre-call values."
+                )
+            raise
 
     def _calc_rep_cond(
         self, func, w_vel, irr_bal, percent_filter, front_poa, rc_kwargs

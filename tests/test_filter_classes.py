@@ -1,5 +1,6 @@
 """Tests for the filter-step class hierarchy (BaseSummaryStep / BaseFilter)."""
 
+import sys
 import unittest.mock
 
 import numpy as np
@@ -1802,6 +1803,91 @@ class TestRerunFrom:
             cd.rerun_filters_from(3)
         with pytest.raises(IndexError):
             cd.rerun_filters_from(-1)
+
+
+class TestReplayRollback:
+    """Replay failure is a full state transaction (spec R2 rule 3).
+
+    A step failure inside ``run_pipeline`` or ``rerun_filters_from`` must
+    restore the ``filters`` chain, ``rc``/``rc_tool``, the test-level RC
+    state when the CapData is test-wired, and (for ``rerun_filters_from``)
+    each tail step's complete instance state.
+    """
+
+    def _failing_time(self, monkeypatch):
+        monkeypatch.setattr(
+            Time,
+            "_execute",
+            lambda self, capdata: (_ for _ in ()).throw(RuntimeError("boom")),
+        )
+
+    def test_run_pipeline_failure_restores_chain_and_rc(self, pvsyst, monkeypatch):
+        pvsyst.filter_irr(200, 900)
+        prior_filters = pvsyst.filters
+        prior_rc = pvsyst.rc
+        cfg = pvsyst.filters_to_config() + [
+            {"type": "RepCond"},
+            {"type": "Time", "start": "1990-10-10", "end": "1990-10-11"},
+        ]
+        self._failing_time(monkeypatch)
+        with pytest.raises(RuntimeError, match="boom"):
+            pvsyst.run_pipeline(cfg)
+        assert pvsyst.filters is prior_filters  # pre-call list restored
+        assert pvsyst.rc is prior_rc  # RepCond's write undone
+        assert not hasattr(pvsyst, "rc_tool") or pvsyst.rc_tool is None
+
+    def test_run_pipeline_failure_restores_captest_rc(self, ct_default, monkeypatch):
+        ct = ct_default
+        ct.meas.filter_irr(400, 1400)
+        ct.rep_cond("meas")
+        prior_ct_rc = ct.rc
+        prior_source = ct.rc_source
+        cfg = [
+            {"type": "Irradiance", "low": 400, "high": 1400},
+            {"type": "RepCond"},
+            {"type": "Time", "start": "1990-10-10", "end": "1990-10-11"},
+        ]
+        self._failing_time(monkeypatch)
+        with pytest.raises(RuntimeError, match="boom"):
+            ct.meas.run_pipeline(cfg)
+        assert ct.rc is prior_ct_rc
+        assert ct.rc_source == prior_source
+
+    def test_rerun_failure_restores_tail_step_state(self, make_capdata, monkeypatch):
+        cd = make_capdata(10)
+        cd.filter_irr(10, 80, col_name="poa")
+        cd.filter_irr(20, 70, col_name="poa")
+        cd.filter_missing(columns=["power"])
+        prior_filters = cd.filters
+        mid = cd.filters[1]
+        prior_mid_state = dict(mid.__dict__)
+        monkeypatch.setattr(
+            Missing,
+            "_execute",
+            lambda self, capdata: (_ for _ in ()).throw(RuntimeError("tail fail")),
+        )
+        mid.low = 30  # live param edit survives the rollback
+        with pytest.raises(RuntimeError, match="tail fail"):
+            cd.rerun_filters_from(1)
+        assert cd.filters is prior_filters
+        # runtime fields restored to pre-call values (incl. resolved fields)
+        for key in ("ix_after", "pts_after", "low_effective", "high_effective"):
+            assert mid.__dict__.get(key) is prior_mid_state.get(key)
+        assert mid.low == 30  # user edit kept — it is pre-call state
+
+    def test_failure_note_names_step(self, make_capdata, monkeypatch):
+        if sys.version_info < (3, 11):
+            pytest.skip("add_note")
+        cd = make_capdata(10)
+        monkeypatch.setattr(
+            Missing,
+            "_execute",
+            lambda self, capdata: (_ for _ in ()).throw(RuntimeError("x")),
+        )
+        with pytest.raises(RuntimeError) as excinfo:
+            cd.run_pipeline([{"type": "Missing"}])
+        notes = getattr(excinfo.value, "__notes__", [])
+        assert any("Missing" in n and "rolled back" in n for n in notes)
 
 
 def test_run_pipeline_resets_existing_chain(make_capdata):
