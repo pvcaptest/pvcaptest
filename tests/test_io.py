@@ -1004,3 +1004,74 @@ class TestLoadDataMethods(unittest.TestCase):
             all(das_2.data.columns == col_names2),
             "Column names are not expected value for ae_site2",
         )
+
+
+class TestLoadDataRemotePaths:
+    """Loading data, column groups, and site files from remote URIs and
+    path objects.
+
+    Uses fsspec's in-memory filesystem (``memory://``) as a stand-in for
+    remote object storage such as S3: like S3 paths, ``memory://`` paths
+    are not local files and are only reachable through fsspec-aware
+    readers, so they exercise the same code paths without needing
+    credentials or network access.
+    """
+
+    @pytest.fixture
+    def remote_files(self):
+        base = UPath("memory://captest_remote")
+        base.mkdir(parents=True, exist_ok=True)
+        for fname in [
+            "example_measured_data.csv",
+            "example_measured_data_column_groups.json",
+            "site_loc_orientation.json",
+        ]:
+            local = Path("./tests/data") / fname
+            (base / fname).write_bytes(local.read_bytes())
+        return base
+
+    def test_load_data_from_remote_uri(self, remote_files):
+        cd = load_data(path=str(remote_files / "example_measured_data.csv"))
+        assert isinstance(cd.data, pd.DataFrame)
+        assert cd.data.shape[0] > 0
+
+    def test_group_columns_from_remote_uri(self, remote_files):
+        cd = load_data(
+            path="./tests/data/example_measured_data.csv",
+            group_columns=str(
+                remote_files / "example_measured_data_column_groups.json"
+            ),
+        )
+        expected = cg.ColumnGroups(
+            util.read_json("./tests/data/example_measured_data_column_groups.json")
+        )
+        assert cd.column_groups == expected
+
+    def test_group_columns_accepts_path_object(self):
+        cd = load_data(
+            path="./tests/data/example_measured_data.csv",
+            group_columns=Path(
+                "./tests/data/example_measured_data_column_groups.json"
+            ),
+        )
+        expected = cg.ColumnGroups(
+            util.read_json("./tests/data/example_measured_data_column_groups.json")
+        )
+        assert cd.column_groups == expected
+
+    def test_site_from_remote_uri(self, remote_files):
+        cd = load_data(
+            path="./tests/data/example_measured_data.csv",
+            site=str(remote_files / "site_loc_orientation.json"),
+        )
+        assert "ghi_mod_csky" in cd.data.columns
+        assert "poa_mod_csky" in cd.data.columns
+        assert isinstance(cd.site, dict)
+
+    def test_site_accepts_path_object(self):
+        cd = load_data(
+            path="./tests/data/example_measured_data.csv",
+            site=Path("./tests/data/site_loc_orientation.json"),
+        )
+        assert "ghi_mod_csky" in cd.data.columns
+        assert isinstance(cd.site, dict)

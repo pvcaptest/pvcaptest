@@ -1,7 +1,10 @@
+import json
+
 import pytest
 import copy
 import numpy as np
 import pandas as pd
+from upath import UPath
 
 from captest import util
 from captest.filters import check_all_perc_diff_comb
@@ -472,3 +475,45 @@ class TestPercHelpersInUtil:
     def test_plain_string_passes_through(self):
         assert util._perc_wrap_to_string("mean") == "mean"
         assert util._resolve_perc_string("mean") == "mean"
+
+
+class TestReadJsonYamlPathTypes:
+    """read_json / read_yaml must accept str, Path, UPath, and remote URIs.
+
+    Uses fsspec's in-memory filesystem (``memory://``) as a stand-in for
+    remote object storage such as S3; like S3 paths, ``memory://`` paths
+    cannot be read with the built-in ``open``.
+    """
+
+    def test_read_json_local_str(self, tmp_path):
+        p = tmp_path / "data.json"
+        p.write_text(json.dumps({"group1": ["col_a", "col_b"]}))
+        assert util.read_json(str(p)) == {"group1": ["col_a", "col_b"]}
+
+    def test_read_json_local_path_object(self, tmp_path):
+        p = tmp_path / "data.json"
+        p.write_text(json.dumps({"group1": ["col_a"]}))
+        assert util.read_json(p) == {"group1": ["col_a"]}
+
+    def test_read_json_remote_uri(self):
+        p = UPath("memory://util_tests/data.json")
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps({"group1": ["col_a", "col_b"]}))
+        assert util.read_json(str(p)) == {"group1": ["col_a", "col_b"]}
+
+    def test_read_yaml_local_str(self, tmp_path):
+        p = tmp_path / "data.yaml"
+        p.write_text("group1:\n- col_a\n- col_b\n")
+        assert util.read_yaml(str(p)) == {"group1": ["col_a", "col_b"]}
+
+    def test_read_yaml_remote_uri(self):
+        p = UPath("memory://util_tests/data.yaml")
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text("group1:\n- col_a\n- col_b\n")
+        assert util.read_yaml(str(p)) == {"group1": ["col_a", "col_b"]}
+
+    def test_read_yaml_invalid_returns_none(self, tmp_path, capsys):
+        p = tmp_path / "bad.yaml"
+        p.write_text("key: [unclosed")
+        assert util.read_yaml(str(p)) is None
+        assert capsys.readouterr().out != ""
