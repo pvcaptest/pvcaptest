@@ -300,6 +300,6 @@ The results from that example display as follows:
 
 .. image:: ../_images/results.png
 
-By default the results will be calculated twice. The second calculation will set the regression coefficient for any term where the p-value is greater than 0.05 to zero before calculating the predicted power. These high p-values are highlighted in yellow as shown in the above example for the wind speed regression term of the simulated data.
+By default the results will be calculated twice. The second calculation will set the regression coefficient for any term where the p-value is greater than 0.05 to zero before calculating the predicted power. These high p-values are highlighted in yellow as shown in the above example for the wind speed regression term of the simulated data. See :ref:`reviewing-results` for how the ``check_pvalues`` argument selects which of the two calculations is the headline result.
 
 

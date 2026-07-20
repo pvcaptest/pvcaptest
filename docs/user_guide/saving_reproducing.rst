@@ -92,39 +92,53 @@ measured-side pipeline written by the bifacial example notebook:
         col_name: null
         custom_name: null
 
-Loading the file with :py:meth:`~captest.captest.CapTest.from_yaml` reproduces
-the test in one step. It loads the measured and modeled data, runs
-:py:meth:`~captest.captest.CapTest.setup` to assign the regression and calculated
-columns, and then re-applies both filter pipelines in order:
+Loading the file with :py:meth:`~captest.captest.CapTest.from_yaml` loads the
+measured and modeled data and runs
+:py:meth:`~captest.captest.CapTest.setup` to assign the regression and
+calculated columns. The recorded filter pipelines are **not** applied at load
+— they are stored on the instance as ``tst.meas_filters_pending`` and
+``tst.sim_filters_pending``, so a freshly loaded test holds unfiltered data,
+ready for review:
 
 .. code-block:: Python
 
     tst = CapTest.from_yaml('./project.yaml')
 
-After this call ``tst.meas`` and ``tst.sim`` hold the same filtered data as the
-original test, so the filtering summaries, visualizations, reporting conditions,
-and capacity-ratio results match the run that produced the file.
-
-Chaining :py:meth:`~captest.captest.CapTest.run_test` onto ``from_yaml`` takes
-this one step further and reproduces the complete test — including fitting both
-regressions and computing the results — in a single line:
+Running the test replays the pending pipelines and reproduces the complete
+test — filtering, reporting conditions, both regression fits, and the results
+— in a single line:
 
 .. code-block:: Python
 
     results = CapTest.from_yaml('./project.yaml').run_test()
     results.cap_ratio
 
-See :ref:`running-with-run-test` for the full description of ``run_test``,
-including re-running a single side after re-loading its data with
-:py:meth:`~captest.captest.CapTest.reload`.
+Each pipeline executes exactly once: the load stores it pending, and
+``run_test`` replays it (the ``rc_source`` side first) and consumes it. After
+the run, ``tst.meas`` and ``tst.sim`` hold the same filtered data as the test
+that produced the file, so the filtering summaries, visualizations, reporting
+conditions, and capacity-ratio results match. The pipelines can also be run
+one side at a time (``tst.run_test(side='meas')``) or manually with
+:py:meth:`~captest.capdata.CapData.run_pipeline`, e.g.
+``tst.meas.run_pipeline(tst.meas_filters_pending)``.
+
+See :ref:`running-with-run-test` for the full description of ``run_test`` —
+including how it chooses between an applied chain and a pending pipeline, and
+re-running a single side after re-loading its data with
+:py:meth:`~captest.captest.CapTest.reload` — and :ref:`captest-typical-workflow`
+for the step-by-step states of a loaded test.
 
 .. note::
 
     Replaying a pipeline with :py:meth:`~captest.capdata.CapData.run_pipeline`
-    (which ``from_yaml`` and ``run_test`` use internally) always resets the
-    applied filter chain before rebuilding it — replay is restore-then-re-run.
-    Appending a serialized pipeline onto an existing chain is not supported;
-    extend a chain with the ``filter_*`` methods instead.
+    (which ``run_test`` uses internally) always resets the applied filter
+    chain before rebuilding it — replay is restore-then-re-run. Appending a
+    serialized pipeline onto an existing chain is not supported; extend a
+    chain with the ``filter_*`` methods instead. Replay is also
+    transactional: if a step fails, the chain and the reporting-conditions
+    state are rolled back to their pre-call values, and a ``run_test`` replay
+    failure retains the pipeline in ``<side>_filters_pending`` for editing
+    (see :ref:`replay-failure`).
 
 .. note::
 

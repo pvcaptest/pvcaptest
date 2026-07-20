@@ -129,11 +129,11 @@ preserved. The assignment validates the input and raises:
   missing (the message names the missing variables);
 - ``TypeError`` if the value is not a DataFrame, Series, or dict.
 
-A manual RC is treated as the authoritative value: it is not overwritten by
-pipeline replay — on load or during :py:meth:`~captest.captest.CapTest.run_test`
-(replayed RepCond steps compute side-local RCs only) — and a later ``rep_cond``
-call that would change the source back to a computed value emits the
-source-change warning.
+A manual RC is treated as the authoritative value: it is not overwritten when
+:py:meth:`~captest.captest.CapTest.run_test` replays a pipeline containing a
+``RepCond`` step (the replayed step computes a side-local RC only), and a
+later ``rep_cond`` call that would change the source back to a computed value
+emits the source-change warning.
 
 Reporting conditions and results
 --------------------------------
@@ -152,17 +152,24 @@ The single test RC round-trips through
 :py:meth:`~captest.captest.CapTest.to_yaml` /
 :py:meth:`~captest.captest.CapTest.from_yaml` (see :ref:`saving_reproducing`):
 
-- **Computed** reporting conditions are not value-serialized. They are recomputed
-  on load by replaying the ``RepCond`` step in the ``rc_source`` side's filter
-  pipeline, so the restored RC reflects the same filtered data.
+- **Computed** reporting conditions are not value-serialized. The ``RepCond``
+  step is saved in the ``rc_source`` side's filter pipeline, and the
+  conditions are recomputed when that pipeline runs. Because ``from_yaml``
+  stores the pipelines as pending rather than applying them, ``ct.rc`` is
+  ``None`` after the load; running the test
+  (:py:meth:`~captest.captest.CapTest.run_test`, or a manual
+  :py:meth:`~captest.capdata.CapData.run_pipeline`) replays the ``RepCond``
+  step, so the restored RC reflects the same filtered data.
 - **Manual** reporting conditions carry their values in a
-  ``reporting_conditions_values`` block. On load they are re-validated and seeded
-  before the filter pipelines replay, so a self-anchoring ``ref_val='rep_irr'``
-  filter resolves correctly.
+  ``reporting_conditions_values`` block. On load they are re-validated and
+  seeded during the construction-time ``setup()``, so ``ct.rc`` is available
+  immediately and a self-anchoring ``ref_val='rep_irr'`` filter resolves
+  correctly when the pipelines later run.
 
-On load the configured ``rc_source`` side's pipeline is replayed first, so a
-cross-side ``ref_val='rep_irr'`` filter (for example a measured filter anchored on
-a modeled reporting irradiance) resolves against an already-established ``ct.rc``.
+When ``run_test`` replays the pipelines, it runs the configured ``rc_source``
+side first, so a cross-side ``ref_val='rep_irr'`` filter (for example a
+measured filter anchored on a modeled reporting irradiance) resolves against
+an already-established ``ct.rc``.
 
 .. note::
 

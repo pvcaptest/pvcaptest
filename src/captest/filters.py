@@ -412,7 +412,7 @@ class BaseFilter(BaseSummaryStep):
 
     Adds no interface beyond `BaseSummaryStep`; exists to distinguish row
     filters from non-filter summary steps (e.g. RepCond, FitRegression) for
-    GUI styling and type checks.
+    display styling and type checks.
     """
 
     pass
