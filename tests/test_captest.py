@@ -1138,6 +1138,20 @@ class TestReload:
         ct_default.reload("sim", path="new.CSV", verbose=False)
         assert ct_default.sim_filters_pending is pending
 
+    def test_reload_then_run_test_replays_filters_on_fresh_data(self, ct_default):
+        """The advertised workflow: reload a new file, re-run the same filters."""
+        fresh = ct_default.sim.copy()  # unfiltered replacement dataset
+        ct_default.sim.filter_irr(400, 1400)
+        cfg = ct_default.sim.filters_to_config()
+        ct_default.sim_loader = lambda path, **kwargs: fresh
+        ct_default.reload("sim", path="new.CSV", verbose=False)
+        assert ct_default.sim is fresh
+        assert ct_default.sim.filters == []
+        ct_default.run_test(side="sim")
+        assert ct_default.sim.filters_to_config() == cfg
+        assert len(ct_default.sim.data_filtered) < len(ct_default.sim.data)
+        assert ct_default.sim_filters_pending == []  # consumed by the run
+
 
 class TestRepIrrCrossInstance:
     """filter_irr(ref_val='rep_irr') resolving against the ct.rc in a CapTest."""
