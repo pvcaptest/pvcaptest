@@ -1636,11 +1636,18 @@ class CapTest(param.Parameterized):
         # The single test reporting-conditions DataFrame (or None). Plain attr,
         # not a param.*, so the `rc` property setter can validate and the
         # `_set_rc` write point can manage provenance. `_loading` is True only
-        # during from_yaml replay (see Plan 5), to seed RC from config, and
         # during run_test pipeline replay with rc_source='manual', to keep the
         # manual RC authoritative.
         self._rc = None
         self._loading = False
+        # Serialized filter pipelines stored at load (from_mapping) and not
+        # yet applied; consumed by run_test (spec R2). Plain lists of
+        # filter-config dicts, public so users can inspect or edit them.
+        self.meas_filters_pending = []
+        self.sim_filters_pending = []
+        # Manual reporting-conditions values stashed at load when setup()
+        # has not run yet; consumed by the next full setup() (spec R1).
+        self._pending_manual_rc = None
         # Transient set of sides ('meas'/'sim') whose pipeline re-run is still
         # ahead of an RC write; those sides are excluded from the RC-staleness
         # warning in `_set_rc`. Registered by orchestrated replays (run_test)
@@ -1817,31 +1824,29 @@ class CapTest(param.Parameterized):
     def _on_capdata_rep_cond(self, cd):
         """Update the test RC after a member CapData computed its own ``rc``.
 
-        Called by :meth:`CapData._calc_rep_cond` when the CapData belongs to this
-        test. Runtime behavior is last-writer-wins: the calling side's ``rc``
-        becomes ``ct.rc`` and ``rc_source`` (a source-change ``UserWarning`` is
-        emitted by :meth:`_set_rc`). During ``from_yaml`` load and during
-        ``run_test`` manual-RC replay (``_loading`` True) the update is
-        config-seeded: only the configured ``rc_source`` side updates
-        ``ct.rc``, silently (see Plan 5 / spec §4.7) — so with
-        ``rc_source='manual'`` no replayed RepCond step ever propagates.
+        Called by :meth:`CapData._calc_rep_cond` when the CapData belongs to
+        this test. Behavior is last-writer-wins: the calling side's ``rc``
+        becomes ``ct.rc`` and ``rc_source`` (a source-change ``UserWarning``
+        is emitted by :meth:`_set_rc`). ``_loading`` exists solely for
+        ``run_test``'s manual-RC replay: with ``rc_source='manual'`` the
+        manual reporting conditions stay authoritative, so propagation from
+        replayed RepCond steps is suppressed entirely (the step still
+        computes that side's local ``cd.rc``).
 
         Parameters
         ----------
         cd : CapData
             The member CapData that just (re)computed its ``rc``.
         """
-        side = "meas" if cd is self.meas else "sim"
         if self._loading:
-            if side == self.rc_source:
-                self._set_rc(cd.rc.copy(), side, warn=False)
             return
+        side = "meas" if cd is self.meas else "sim"
         self._set_rc(cd.rc.copy(), side, warn=True)
 
     # --- constructors ----------------------------------------------------
 
     @classmethod
-    def from_params(cls, **kwargs):
+    def from_params(cls, run_setup=True, **kwargs):
         """Construct a CapTest from parameter kwargs.
 
         Recognizes the non-param kwargs ``meas``, ``sim``, ``meas_path``,
@@ -1849,12 +1854,20 @@ class CapTest(param.Parameterized):
         ``meas`` and ``meas_path`` are supplied the pre-built instance
         wins and a warning is emitted (same for ``sim`` / ``sim_path``).
 
-        When both ``meas`` and ``sim`` end up populated, ``setup()`` is
-        called automatically. Otherwise the partially-initialized instance
-        is returned and the caller finishes the workflow manually.
+        When both ``meas`` and ``sim`` end up populated and ``run_setup``
+        is True, ``setup()`` is called automatically. Otherwise the
+        partially-initialized instance is returned and the caller finishes
+        the workflow manually.
 
         Parameters
         ----------
+        run_setup : bool, default True
+            When False, skip the automatic ``setup()`` even when both
+            ``meas`` and ``sim`` are populated (load-only construction).
+            Nothing setup produces is present: no scalar propagation, no
+            derived-parameter calculation, no regression-column
+            processing, no ``_captest`` back-references. A later
+            ``ct.setup()`` or ``ct.run_test()`` proceeds normally.
         **kwargs
             Any declared CapTest parameter, plus ``meas``, ``sim``,
             ``meas_path``, ``sim_path``.
@@ -1908,19 +1921,24 @@ class CapTest(param.Parameterized):
             load_kwargs = inst.sim_load_kwargs or {}
             inst.sim = _sim_loader()(sim_path, **load_kwargs)
 
-        if inst.meas is not None and inst.sim is not None:
+        if run_setup and inst.meas is not None and inst.sim is not None:
             inst.setup()
 
         return inst
 
     @classmethod
-    def from_yaml(cls, path, key="captest", meas_loader=None, sim_loader=None):
+    def from_yaml(
+        cls, path, key="captest", meas_loader=None, sim_loader=None, run_setup=True
+    ):
         """Construct a CapTest from a yaml config file.
 
         Reads the sub-mapping at the given top-level ``key`` of the yaml
         file and delegates to :meth:`from_mapping` with
         ``base_dir=path.parent`` so relative ``meas_path`` / ``sim_path``
-        values resolve against the yaml's directory.
+        values resolve against the yaml's directory. Serialized filter
+        pipelines are stored as :attr:`meas_filters_pending` /
+        :attr:`sim_filters_pending`, not applied; run them with
+        :meth:`run_test` (or per side via ``CapData.run_pipeline``).
 
         Parameters
         ----------
@@ -1935,6 +1953,9 @@ class CapTest(param.Parameterized):
             yaml. Useful for downstream wrappers that drive yaml-based
             construction but need a custom measured-data loader.
             When ``None`` the default resolution applies.
+        run_setup : bool, default True
+            Forwarded to :meth:`from_mapping`. When False, only the data
+            is loaded (see :meth:`from_params`).
 
         Returns
         -------
@@ -1948,11 +1969,19 @@ class CapTest(param.Parameterized):
             base_dir=path.parent,
             meas_loader=meas_loader,
             sim_loader=sim_loader,
+            run_setup=run_setup,
         )
 
     @classmethod
     def from_mapping(
-        cls, sub, *, key="captest", base_dir=None, meas_loader=None, sim_loader=None
+        cls,
+        sub,
+        *,
+        key="captest",
+        base_dir=None,
+        meas_loader=None,
+        sim_loader=None,
+        run_setup=True,
     ):
         """Construct a CapTest from an already-parsed captest sub-mapping.
 
@@ -1962,6 +1991,15 @@ class CapTest(param.Parameterized):
         to validate and build the ``CapTest``. Exposes the same
         validate-and-construct pipeline that ``from_yaml`` runs after
         reading the file, without the file read.
+
+        Serialized ``meas_filters`` / ``sim_filters`` pipelines are stored
+        as :attr:`meas_filters_pending` / :attr:`sim_filters_pending` —
+        nothing is replayed at load. Run them with :meth:`run_test` (or per
+        side via ``CapData.run_pipeline``). Manual reporting-conditions
+        values (``reporting_conditions_values`` with
+        ``rc_source='manual'``) are validated and seeded during the
+        construction-time ``setup()``; with ``run_setup=False`` they are
+        stashed and consumed by the next full ``setup()``.
 
         Parameters
         ----------
@@ -1991,6 +2029,9 @@ class CapTest(param.Parameterized):
             Programmatic-only loader callables that override the default
             resolution (``captest.io.load_data`` / ``captest.io.load_pvsyst``).
             Same semantics as :meth:`from_yaml`.
+        run_setup : bool, default True
+            Forwarded to :meth:`from_params`. When False, only the data
+            is loaded — no ``setup()``, nothing seeded (load-only).
 
         Returns
         -------
@@ -2086,7 +2127,7 @@ class CapTest(param.Parameterized):
         if sim_loader is not None:
             kwargs["sim_loader"] = sim_loader
 
-        inst = cls.from_params(**kwargs)
+        inst = cls.from_params(run_setup=run_setup, **kwargs)
         # Preserve the raw relative-or-absolute paths the user wrote in
         # the sub-mapping so a later ``to_yaml`` round-trips them.
         # ``from_params`` overwrites ``_meas_path`` / ``_sim_path`` with
@@ -2098,63 +2139,42 @@ class CapTest(param.Parameterized):
             inst._meas_path = raw_meas_path
         if raw_sim_path is not None:
             inst._sim_path = raw_sim_path
-        # Re-apply serialized filter pipelines. from_params auto-runs setup()
-        # when both meas and sim are populated, so regression_cols/data are
-        # ready; guard on _resolved_setup so a partially-built CapTest doesn't
-        # try to filter un-setup data.
+        # Serialized filter pipelines are stored pending, never replayed at
+        # load; run_test consumes them (spec R2). Manual RC values are seeded
+        # by the construction-time setup() when it ran, else stashed for the
+        # next full setup().
         meas_filters = sub.get("meas_filters")
         sim_filters = sub.get("sim_filters")
         rc_values = sub.get("reporting_conditions_values")
-        if inst._resolved_setup is not None:
-            # Seed a manual RC before replay so self-filtering pipelines resolve
-            # ref_val='rep_irr' against it; no RepCond step will set it. Computed
-            # RC is (re)established during replay by the configured rc_source
-            # side's RepCond step (see _on_capdata_rep_cond's _loading branch).
-            if inst.rc_source == "manual" and rc_values is not None:
+
+        def _has_repcond(cfg):
+            return any(d.get("type") == "RepCond" for d in (cfg or []))
+
+        # The dual-RepCond ambiguity warning scans the serialized configs,
+        # so it fires at load regardless of whether setup() ran.
+        if (
+            inst.rc_source in ("meas", "sim")
+            and _has_repcond(meas_filters)
+            and _has_repcond(sim_filters)
+        ):
+            warnings.warn(
+                "Config defines a RepCond step in both meas_filters and "
+                "sim_filters with a computed rc_source "
+                f"('{inst.rc_source}'): this is ambiguous and unsupported "
+                "— on a re-run the non-rc_source side's RepCond will "
+                "overwrite the test reporting conditions and flip "
+                "rc_source. Remove the RepCond step from the non-rc_source "
+                "pipeline."
+            )
+
+        inst.meas_filters_pending = list(meas_filters or [])
+        inst.sim_filters_pending = list(sim_filters or [])
+        if inst.rc_source == "manual" and rc_values is not None:
+            if inst._resolved_setup is not None:
                 df = inst._coerce_and_validate_manual_rc(rc_values)
                 inst._set_rc(df, "manual", warn=False)
-
-            def _has_repcond(cfg):
-                return any(d.get("type") == "RepCond" for d in (cfg or []))
-
-            if (
-                inst.rc_source in ("meas", "sim")
-                and _has_repcond(meas_filters)
-                and _has_repcond(sim_filters)
-            ):
-                warnings.warn(
-                    "Config defines a RepCond step in both meas_filters and "
-                    "sim_filters with a computed rc_source "
-                    f"('{inst.rc_source}'): this is ambiguous and unsupported "
-                    "— on an interactive re-run the non-rc_source side's "
-                    "RepCond will overwrite the test reporting conditions "
-                    "and flip rc_source. Remove the RepCond step from the "
-                    "non-rc_source pipeline."
-                )
-            # Replay the configured rc_source side FIRST so its RepCond populates
-            # ct.rc before the other side's rep_irr filters run. _loading makes
-            # the rep_cond sync config-seeded and warning-suppressed.
-            pipelines = [(inst.meas, meas_filters), (inst.sim, sim_filters)]
-            if inst.rc_source == "sim":
-                pipelines.reverse()
-            inst._loading = True
-            try:
-                for cd, filters in pipelines:
-                    if filters and cd is not None:
-                        cd.run_pipeline(filters)
-            finally:
-                inst._loading = False
-        elif meas_filters or sim_filters:
-            # Pipelines were serialized but setup() never ran (both meas and
-            # sim must be loaded). Don't silently drop them — warn so the
-            # write/read round-trip asymmetry is visible.
-            warnings.warn(
-                "Filter pipelines (meas_filters/sim_filters) in the config "
-                "were not applied because setup() did not run (both meas and "
-                "sim must be loaded). Load both data sources and re-apply via "
-                "CapData.run_pipeline().",
-                stacklevel=2,
-            )
+            else:
+                inst._pending_manual_rc = dict(rc_values)
         return inst
 
     def reload(self, side, verbose=True):
@@ -2214,10 +2234,11 @@ class CapTest(param.Parameterized):
         ``meas_path`` / ``sim_path`` (when the instance was constructed from
         paths), and non-empty ``meas_load_kwargs`` / ``sim_load_kwargs``.
 
-        The applied filter chains of ``meas`` and ``sim`` are written as
+        The filter pipelines of ``meas`` and ``sim`` are written as
         ``meas_filters`` / ``sim_filters`` (lists of filter-step config dicts
-        from :meth:`CapData.filters_to_config`), each only when non-empty;
-        ``from_yaml`` re-applies them after data load and ``setup()``. When a
+        from :meth:`CapData.filters_to_config`, or the side's pending config
+        when its chain is empty), each only when non-empty; ``from_yaml``
+        stores them as pending pipelines that :meth:`run_test` replays. When a
         ``RepCond`` step is present in either pipeline, ``overrides.rep_conditions``
         is omitted — the step is then the authoritative reporting-conditions
         source (avoids representing it in two places).
@@ -2314,11 +2335,13 @@ class CapTest(param.Parameterized):
         """Build the dict written under ``key:`` by :meth:`to_yaml`.
 
         Kept separate from ``to_yaml`` so it is testable in isolation and
-        so the merge/write step stays short. Embeds the ``meas``/``sim``
-        filter chains as ``meas_filters``/``sim_filters`` (when non-empty)
-        and omits ``overrides.rep_conditions`` when a ``RepCond`` step is
-        present in either pipeline (the step is then the single source of
-        reporting conditions).
+        so the merge/write step stays short. Embeds each side's pipeline as
+        ``meas_filters``/``sim_filters``: the applied filter chain when
+        non-empty, else the side's pending config (so a load → save without
+        running is lossless), else the key is omitted. Omits
+        ``overrides.rep_conditions`` when a ``RepCond`` step is present in
+        either pipeline (the step is then the single source of reporting
+        conditions).
         """
         sub = {"test_setup": self.test_setup}
 
@@ -2344,8 +2367,16 @@ class CapTest(param.Parameterized):
                 val = getattr(self, name)
                 if val is not None and val != preset.get(name):
                     overrides[name] = copy.deepcopy(val)
-        meas_filters = self.meas.filters_to_config() if self.meas is not None else []
-        sim_filters = self.sim.filters_to_config() if self.sim is not None else []
+        meas_filters = (
+            self.meas.filters_to_config()
+            if self.meas is not None and self.meas.filters
+            else list(self.meas_filters_pending)
+        )
+        sim_filters = (
+            self.sim.filters_to_config()
+            if self.sim is not None and self.sim.filters
+            else list(self.sim_filters_pending)
+        )
         has_rep_cond_step = any(
             d["type"] == "RepCond" for d in (meas_filters + sim_filters)
         )
@@ -2410,12 +2441,16 @@ class CapTest(param.Parameterized):
         # Manual reporting conditions are data, not config: serialize their
         # values so from_yaml can restore them (computed RC is recomputed by
         # replaying the source pipeline's RepCond step). Numpy scalars are
-        # coerced to native python types for yaml.safe_dump.
-        if self.rc_source == "manual" and self._rc is not None:
-            row = self._rc.iloc[0]
-            sub["reporting_conditions_values"] = {
-                str(col): to_native(val) for col, val in row.items()
-            }
+        # coerced to native python types for yaml.safe_dump. Values stashed
+        # by a load-only construction (run_setup=False) round-trip too.
+        if self.rc_source == "manual":
+            if self._rc is not None:
+                row = self._rc.iloc[0]
+                sub["reporting_conditions_values"] = {
+                    str(col): to_native(val) for col, val in row.items()
+                }
+            elif self._pending_manual_rc is not None:
+                sub["reporting_conditions_values"] = dict(self._pending_manual_rc)
 
         return sub
 
@@ -2535,6 +2570,12 @@ class CapTest(param.Parameterized):
         unset. Assigns the resolved TEST_SETUPS entry to
         ``self._resolved_setup`` and returns ``self`` for fluent chaining.
 
+        A full setup (``side='both'``) also consumes manual
+        reporting-conditions values stashed by a load-only
+        ``from_mapping(run_setup=False)``, validating and seeding them as
+        ``rc_source='manual'``; per-side setup leaves the stash untouched
+        (validation needs both sides' regression formulas).
+
         With ``side='meas'`` or ``side='sim'`` only the target ``CapData``
         is re-wired; the other side's data, filter chain, and regression
         state are left untouched. Sim-side setup may *read* meas (the
@@ -2619,6 +2660,14 @@ class CapTest(param.Parameterized):
             # RC (ct.rc) and cd.rep_cond can update it. Runtime reference
             # only; capdata.py never imports captest.
             cd._captest = self
+
+        # Consume manual reporting-conditions values stashed by a load-only
+        # from_mapping (run_setup=False). Only a full setup can seed them:
+        # validation needs both sides' regression formulas, wired just above.
+        if side == "both" and self._pending_manual_rc is not None:
+            df = self._coerce_and_validate_manual_rc(self._pending_manual_rc)
+            self._set_rc(df, "manual", warn=False)
+            self._pending_manual_rc = None
 
         return self
 
@@ -2896,8 +2945,15 @@ class CapTest(param.Parameterized):
         only, (4) verify the rc_source pipeline computed the RC this run and
         (5) return :class:`CapTestResults`.
 
-        Pipelines are snapshotted (``filters_to_config``) before setup
-        clears the chains, then replayed — the call is re-entrant. During a
+        Each side's replay source is chosen before setup clears the chains:
+        the live chain when non-empty (snapshotted via ``filters_to_config``
+        — interactive edits win), else the side's pending config
+        (``meas_filters_pending`` / ``sim_filters_pending``, stored by
+        ``from_yaml`` / ``from_mapping``). The call is re-entrant. A side's
+        pending list is consumed after its replay succeeds — a later
+        ``reset_filter()`` + ``run_test`` means "no filters", not
+        "resurrect the config's filters" — and retained (holding the full
+        failed pipeline) when the replay fails. During a
         full run the not-yet-replayed side is registered in
         ``_rc_pending_sides`` so the RC write does not warn about steps this
         call is about to re-run; per-side runs register nothing, so an
@@ -2936,16 +2992,17 @@ class CapTest(param.Parameterized):
         if side == "both" and self.rc_source == "sim":
             run_sides = ["sim", "meas"]
 
-        # Snapshot pipelines BEFORE setup: process_regression_columns clears
-        # each targeted side's applied chain.
-        configs = {
-            s: (
-                getattr(self, s).filters_to_config()
-                if getattr(self, s) is not None
-                else []
-            )
-            for s in run_sides
-        }
+        # Select each side's replay source BEFORE setup:
+        # process_regression_columns clears each targeted side's applied
+        # chain. The live chain wins when non-empty (interactive edits are
+        # authoritative); otherwise the side's pending config is replayed.
+        configs = {}
+        for s in run_sides:
+            cd = getattr(self, s)
+            if cd is not None and cd.filters:
+                configs[s] = cd.filters_to_config()
+            else:
+                configs[s] = list(getattr(self, f"{s}_filters_pending"))
         if (
             side == "both"
             and self.rc_source in ("meas", "sim")
@@ -2994,7 +3051,29 @@ class CapTest(param.Parameterized):
                     # own exclusion set.
                     self._rc_pending_sides.discard(s)
                     if configs[s]:
-                        getattr(self, s).run_pipeline(configs[s])
+                        try:
+                            getattr(self, s).run_pipeline(configs[s])
+                        except Exception as e:
+                            # Keep the failed pipeline's definition editable:
+                            # setup() already cleared the live chain, so after
+                            # the rollback the pending list is the only copy
+                            # of a live-chain snapshot (spec R2 rule 3).
+                            setattr(self, f"{s}_filters_pending", configs[s])
+                            if hasattr(e, "add_note"):
+                                e.add_note(
+                                    f"The {s} filter pipeline failed and was "
+                                    "rolled back. Its definition is retained "
+                                    f"in ct.{s}_filters_pending — edit the "
+                                    "failing step's dict and re-run "
+                                    "ct.run_test() (or "
+                                    f"ct.{s}.run_pipeline(ct.{s}_filters_pending"
+                                    ")), or edit the yaml config and reload."
+                                )
+                            raise
+                    # A completed pass makes the live chain the single source
+                    # of truth for this side; the pending config is consumed
+                    # regardless of which source was replayed (spec R2).
+                    setattr(self, f"{s}_filters_pending", [])
             finally:
                 self._rc_pending_sides = set()
                 if manual_rc:

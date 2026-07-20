@@ -75,6 +75,13 @@ CapData (sim-side setup may read meas but mutates only sim); `CapTest.reload(sid
 - New `CapTest.run_test(side='both'|'meas'|'sim')` — one-call orchestrator
 (setup → pipeline replay, rc_source side first → fit → RC verification →
 `CapTestResults`); per-side runs re-run one chain and leave the other untouched.
+- New `run_setup` flag (default `True`) on `CapTest.from_params` / `from_yaml` /
+`from_mapping` — pass `False` for load-only construction: data is loaded but
+`setup()` is skipped (no scalar propagation, no regression-column processing,
+nothing seeded); a later `setup()` or `run_test()` proceeds normally. New public
+`CapTest.meas_filters_pending` / `sim_filters_pending` attributes hold the
+config's serialized filter pipelines until `run_test` replays and consumes them
+(retained, with recovery guidance attached to the error, when a replay fails).
 
 ### Changed
 - Modernized the docs toolchain for current Python: `sphinx>=8.1`,
@@ -83,6 +90,14 @@ archived `recommonmark` (dropped the stale `docutils` pin). The example
 notebooks (`captest_class`, `captest_class_bifi`, `concise_capacity_test`)
 now apply filter methods directly instead of the removed module-level
 `run_test` step lists, so they execute cleanly during the docs build.
+- **Breaking:** `CapTest.from_yaml` / `from_mapping` no longer apply the config's
+filter pipelines at load. Pipelines are stored on the instance as
+`meas_filters_pending` / `sim_filters_pending` and run by `run_test()` (or
+manually via `CapData.run_pipeline`), so a freshly loaded test holds unfiltered
+data for review and `from_yaml(path).run_test()` executes each pipeline exactly
+once. Consequently, after loading a config with a computed `rc_source`, `ct.rc`
+is `None` until the filters run; manual-RC configs are unchanged (values are
+validated and seeded during the construction-time `setup()`).
 - `CapData.run_pipeline` now resets the applied chain before rebuilding (replay
 is restore-then-re-run); appending a pipeline onto an existing chain is no
 longer supported.

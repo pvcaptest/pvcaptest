@@ -21,6 +21,7 @@ from captest import CapTest, captest as ct, load_pvsyst, util
 from captest import columngroups as cg
 from captest.captest import CapTestResults
 from captest.capdata import CapData
+from captest.filters import Irradiance
 from captest.calcparams import (
     apparent_zenith_pvsyst,
     cell_temp,
@@ -839,12 +840,13 @@ class TestFromMapping:
 
         real_from_mapping = CapTest.from_mapping
 
-        def spy(sub, *, key, base_dir, meas_loader, sim_loader):
+        def spy(sub, *, key, base_dir, meas_loader, sim_loader, run_setup):
             recorded["sub"] = sub
             recorded["key"] = key
             recorded["base_dir"] = base_dir
             recorded["meas_loader"] = meas_loader
             recorded["sim_loader"] = sim_loader
+            recorded["run_setup"] = run_setup
             return real_from_mapping.__func__(
                 CapTest,
                 sub,
@@ -852,6 +854,7 @@ class TestFromMapping:
                 base_dir=base_dir,
                 meas_loader=meas_loader,
                 sim_loader=sim_loader,
+                run_setup=run_setup,
             )
 
         monkeypatch.setattr(CapTest, "from_mapping", spy)
@@ -863,6 +866,7 @@ class TestFromMapping:
         assert recorded["sub"]["ac_nameplate"] == 42
         assert recorded["meas_loader"] is None
         assert recorded["sim_loader"] is None
+        assert recorded["run_setup"] is True
 
 
 class TestLoadConfigPublicExport:
@@ -2922,7 +2926,7 @@ class TestPipelineYaml:
         sub = capt._build_yaml_sub_mapping()
         assert sub["overrides"]["rep_conditions"]["func"]["poa"] == "mean"
 
-    def test_from_mapping_reapplies_pipelines(
+    def test_from_mapping_stores_pending_and_run_test_replays(
         self, tmp_path, meas_cd_default, sim_cd_default
     ):
         meas_file = tmp_path / "meas.csv"
@@ -2959,13 +2963,22 @@ class TestPipelineYaml:
             meas_loader=MagicMock(return_value=meas_cd_default),
             sim_loader=MagicMock(return_value=sim_cd_default),
         )
+        # Nothing replayed at load: pipelines are stored pending.
+        assert capt.meas.filters == [] and capt.sim.filters == []
+        assert [d["type"] for d in capt.meas_filters_pending] == ["Irradiance"]
+        assert [d["type"] for d in capt.sim_filters_pending] == ["Irradiance"]
+        # Per-side run_test replays and consumes each side's pending config.
+        capt.run_test(side="meas")
+        capt.run_test(side="sim")
         assert [type(s).__name__ for s in capt.meas.filters] == ["Irradiance"]
         assert [type(s).__name__ for s in capt.sim.filters] == ["Irradiance"]
+        assert capt.meas_filters_pending == [] and capt.sim_filters_pending == []
 
     def test_to_yaml_from_yaml_file_roundtrip(
         self, tmp_path, meas_cd_default, sim_cd_default
     ):
-        """End-to-end: filters written by to_yaml are re-applied by from_yaml."""
+        """End-to-end: filters written by to_yaml land as pending pipelines
+        on from_yaml and are applied by run_test."""
         capt = self._capt(meas_cd_default, sim_cd_default)
         clean_meas, clean_sim = capt.meas.copy(), capt.sim.copy()  # pre-filter
         capt.meas.filter_irr(200, 800)
@@ -2980,14 +2993,20 @@ class TestPipelineYaml:
             meas_loader=MagicMock(return_value=clean_meas),
             sim_loader=MagicMock(return_value=clean_sim),
         )
+        assert reloaded.meas.filters == [] and reloaded.sim.filters == []
+        assert [d["type"] for d in reloaded.meas_filters_pending] == ["Irradiance"]
+        assert [d["type"] for d in reloaded.sim_filters_pending] == ["Irradiance"]
+        reloaded.run_test(side="meas")
+        reloaded.run_test(side="sim")
         assert [type(s).__name__ for s in reloaded.meas.filters] == ["Irradiance"]
         assert [type(s).__name__ for s in reloaded.sim.filters] == ["Irradiance"]
 
     def test_file_roundtrip_with_rep_cond_step_reconstitutes_rc(
         self, tmp_path, meas_cd_default, sim_cd_default
     ):
-        """A RepCond step round-trips and recomputes rc on load, even though
-        overrides.rep_conditions is omitted from the file (decision B)."""
+        """A RepCond step round-trips and recomputes rc when run_test replays
+        the pending pipeline, even though overrides.rep_conditions is omitted
+        from the file (decision B)."""
         capt = self._capt(meas_cd_default, sim_cd_default)
         clean_meas, clean_sim = capt.meas.copy(), capt.sim.copy()
         capt.rep_conditions = {"func": {"poa": "mean"}}
@@ -3002,17 +3021,19 @@ class TestPipelineYaml:
             meas_loader=MagicMock(return_value=clean_meas),
             sim_loader=MagicMock(return_value=clean_sim),
         )
+        assert reloaded.rc is None  # computed source: nothing seeded at load
+        reloaded.run_test()
         assert any(type(s).__name__ == "RepCond" for s in reloaded.meas.filters)
         assert reloaded.meas.rc is not None
         # The test-level ct.rc is reconstituted from the replayed RepCond step.
         assert reloaded.rc is not None
         assert reloaded.rc_source == "meas"
 
-    def test_from_mapping_warns_when_pipelines_cannot_be_applied(
-        self, tmp_path, meas_cd_default
+    def test_from_mapping_partial_stores_pending_without_setup(
+        self, tmp_path, meas_cd_default, recwarn
     ):
         """Partial CapTest (only meas) can't run setup(); serialized pipelines
-        are skipped with a warning rather than silently dropped."""
+        are stored pending — never dropped, no warning needed."""
         meas_file = tmp_path / "meas.csv"
         meas_file.write_text("x")
         sub = {
@@ -3029,10 +3050,12 @@ class TestPipelineYaml:
                 }
             ],
         }
-        with pytest.warns(UserWarning, match="were not applied because setup"):
-            CapTest.from_mapping(
-                sub, meas_loader=MagicMock(return_value=meas_cd_default)
-            )
+        capt = CapTest.from_mapping(
+            sub, meas_loader=MagicMock(return_value=meas_cd_default)
+        )
+        assert capt._resolved_setup is None
+        assert [d["type"] for d in capt.meas_filters_pending] == ["Irradiance"]
+        assert not any("were not applied" in str(w.message) for w in recwarn)
 
 
 class TestTestRc:
@@ -3343,6 +3366,8 @@ class TestRcOwnershipRoundTrip:
         expected_poa = capt.rc["poa"].iloc[0]
 
         reloaded = self._roundtrip(capt, tmp_path, clean_meas, clean_sim)
+        assert reloaded.rc is None  # nothing replayed at load
+        reloaded.run_test()
 
         assert reloaded.rc_source == "meas"
         assert reloaded.rc is not None
@@ -3364,7 +3389,7 @@ class TestRcOwnershipRoundTrip:
         self, tmp_path, meas_cd_default, sim_cd_default
     ):
         # The OTHER side (meas) carries the rep_irr filter; sim is the source.
-        # This fails under a fixed meas-before-sim load order.
+        # This fails under a fixed meas-before-sim replay order in run_test.
         capt = self._capt(meas_cd_default, sim_cd_default, rc_source="sim")
         clean_meas, clean_sim = capt.meas.copy(), capt.sim.copy()
         capt.sim.filter_irr(200, 800)
@@ -3372,6 +3397,7 @@ class TestRcOwnershipRoundTrip:
         capt.meas.filter_irr(0.8, 1.2, ref_val="rep_irr")  # anchors on sim rep irr
 
         reloaded = self._roundtrip(capt, tmp_path, clean_meas, clean_sim)
+        reloaded.run_test()
 
         assert reloaded.rc_source == "sim"
         meas_irr = [
@@ -3379,7 +3405,7 @@ class TestRcOwnershipRoundTrip:
         ][-1]
         assert meas_irr.ref_val_resolved == pytest.approx(reloaded.rc["poa"].iloc[0])
 
-    def test_load_is_config_seeded_and_silent(
+    def test_load_stores_pending_and_stays_silent(
         self, tmp_path, meas_cd_default, sim_cd_default, recwarn
     ):
         capt = self._capt(meas_cd_default, sim_cd_default)
@@ -3391,10 +3417,15 @@ class TestRcOwnershipRoundTrip:
 
         reloaded = self._roundtrip(capt, tmp_path, clean_meas, clean_sim)
 
-        # Config-seeded: meas drives despite sim also carrying a RepCond step.
+        # Nothing replayed at load: rc_source comes from the config scalar,
+        # both RepCond-carrying pipelines are held pending, rc is unseeded.
         assert reloaded.rc_source == "meas"
-        # No source-change warning during load.
+        assert reloaded.rc is None
+        assert reloaded.meas.filters == [] and reloaded.sim.filters == []
+        # No source-change warning during load (the dual-RepCond ambiguity
+        # warning is expected instead).
         assert not any("rc_source changed" in str(w.message) for w in recwarn)
+        assert any("ambiguous" in str(w.message) for w in recwarn)
 
     def test_corrupted_manual_rc_in_yaml_raises_on_load(
         self, tmp_path, meas_cd_default, sim_cd_default
@@ -3534,3 +3565,190 @@ class TestDualRepCondLoadWarning:
             sim_loader=MagicMock(return_value=clean_sim),
         )
         assert not any("ambiguous" in str(w.message) for w in recwarn)
+
+    def test_dual_repcond_warns_even_without_setup(self, tmp_path, meas_cd_default):
+        """The ambiguity warning scans the serialized configs, so it fires at
+        load even when setup() cannot run (only one side loaded)."""
+        meas_file = tmp_path / "meas.csv"
+        meas_file.write_text("x")
+        sub = {
+            "test_setup": "e2848_default",
+            "meas_path": str(meas_file),
+            "meas_filters": [{"type": "RepCond"}],
+            "sim_filters": [{"type": "RepCond"}],
+        }
+        with pytest.warns(UserWarning, match="ambiguous"):
+            capt = CapTest.from_mapping(
+                sub, meas_loader=MagicMock(return_value=meas_cd_default)
+            )
+        assert capt._resolved_setup is None
+
+
+class TestLifecycleStaging:
+    """Spec R1/R2: load stores pipelines pending; run_test replays them."""
+
+    def _build(self, meas_cd_default, sim_cd_default, tmp_path):
+        """Build a computed-source mapping with applied chains (RepCond on
+        meas) plus loaders that return clean CapData copies."""
+        clean_meas = meas_cd_default.copy()
+        clean_sim = sim_cd_default.copy()
+        capt = CapTest.from_params(
+            test_setup="e2848_default",
+            meas=meas_cd_default,
+            sim=sim_cd_default,
+            ac_nameplate=6_000_000,
+        )
+        capt.meas.filter_irr(400, 1400)
+        capt.rep_cond("meas")
+        capt.sim.filter_irr(400, 1400)
+        capt._meas_path = str(tmp_path / "meas.csv")
+        capt._sim_path = str(tmp_path / "sim.csv")
+        sub = capt.to_mapping()
+        loaders = {
+            "meas_loader": MagicMock(return_value=clean_meas),
+            "sim_loader": MagicMock(return_value=clean_sim),
+        }
+        return sub, loaders
+
+    def test_from_mapping_stores_pending_and_does_not_replay(
+        self, meas_cd_default, sim_cd_default, tmp_path
+    ):
+        sub, loaders = self._build(meas_cd_default, sim_cd_default, tmp_path)
+        ct2 = CapTest.from_mapping(sub, **loaders)
+        assert ct2.meas.filters == [] and ct2.sim.filters == []
+        assert [d["type"] for d in ct2.meas_filters_pending] == [
+            d["type"] for d in sub["meas_filters"]
+        ]
+        assert [d["type"] for d in ct2.sim_filters_pending] == [
+            d["type"] for d in sub["sim_filters"]
+        ]
+        assert ct2.rc is None  # computed source
+        assert ct2._resolved_setup is not None  # setup DID run
+
+    def test_run_setup_false_loads_only(
+        self, meas_cd_default, sim_cd_default, tmp_path
+    ):
+        sub, loaders = self._build(meas_cd_default, sim_cd_default, tmp_path)
+        ct2 = CapTest.from_mapping(sub, run_setup=False, **loaders)
+        assert ct2._resolved_setup is None
+        assert ct2.meas.regression_cols in (None, {})
+        assert ct2.meas._captest is None
+        assert ct2.meas_filters_pending  # still stored
+
+    def test_run_test_replays_pending_once_and_consumes(
+        self, meas_cd_default, sim_cd_default, tmp_path, monkeypatch
+    ):
+        sub, loaders = self._build(meas_cd_default, sim_cd_default, tmp_path)
+        ct2 = CapTest.from_mapping(sub, **loaders)
+        calls = []
+        orig = CapData.run_pipeline
+
+        def counting(self, cfg):
+            calls.append(len(cfg))
+            return orig(self, cfg)
+
+        monkeypatch.setattr(CapData, "run_pipeline", counting)
+        results = ct2.run_test()
+        assert results is not None
+        assert len(calls) == 2  # one replay per side
+        assert ct2.meas_filters_pending == [] and ct2.sim_filters_pending == []
+        assert len(ct2.meas.filters) == len(sub["meas_filters"])
+        assert len(ct2.sim.filters) == len(sub["sim_filters"])
+
+    def test_live_chain_wins_over_pending(
+        self, meas_cd_default, sim_cd_default, tmp_path
+    ):
+        sub, loaders = self._build(meas_cd_default, sim_cd_default, tmp_path)
+        ct2 = CapTest.from_mapping(sub, **loaders)
+        # Apply ONE filter by hand on meas: the live chain, not the pending
+        # config, is what run_test replays.
+        ct2.meas.filter_irr(200, 900)
+        ct2.run_test(side="meas")
+        assert len(ct2.meas.filters) == 1
+        assert ct2.meas.filters[0].low == 200
+        # sim untouched by the per-side run; its pending list survives.
+        assert ct2.sim.filters == []
+        assert ct2.sim_filters_pending
+
+    def test_reset_then_run_after_prior_run_applies_no_filters(
+        self, meas_cd_default, sim_cd_default, tmp_path
+    ):
+        sub, loaders = self._build(meas_cd_default, sim_cd_default, tmp_path)
+        ct2 = CapTest.from_mapping(sub, **loaders)
+        ct2.run_test()
+        ct2.meas.reset_filter()
+        ct2.run_test(side="meas")
+        assert ct2.meas.filters == []  # pending not resurrected
+
+    def test_pending_retained_and_error_guides_on_failure(
+        self, meas_cd_default, sim_cd_default, tmp_path, monkeypatch
+    ):
+        sub, loaders = self._build(meas_cd_default, sim_cd_default, tmp_path)
+        ct2 = CapTest.from_mapping(sub, **loaders)
+        monkeypatch.setattr(
+            Irradiance,
+            "_execute",
+            lambda self, capdata: (_ for _ in ()).throw(RuntimeError("boom")),
+        )
+        with pytest.raises(RuntimeError, match="boom") as excinfo:
+            ct2.run_test()
+        # Chain restored empty by the transactional rollback; pending retained.
+        assert ct2.meas.filters == []
+        assert [d["type"] for d in ct2.meas_filters_pending] == [
+            d["type"] for d in sub["meas_filters"]
+        ]
+        if sys.version_info >= (3, 11):
+            notes = getattr(excinfo.value, "__notes__", [])
+            assert any("meas_filters_pending" in n for n in notes)
+
+    def test_to_mapping_serializes_pending_when_chains_empty(
+        self, meas_cd_default, sim_cd_default, tmp_path
+    ):
+        sub, loaders = self._build(meas_cd_default, sim_cd_default, tmp_path)
+        ct2 = CapTest.from_mapping(sub, **loaders)
+        sub2 = ct2.to_mapping()  # before any run
+        assert sub2["meas_filters"] == sub["meas_filters"]
+        assert sub2["sim_filters"] == sub["sim_filters"]
+
+
+class TestManualRcStaging:
+    """Spec R1: manual-RC seeding moves into setup(); stash with run_setup=False."""
+
+    def _build(self, meas_cd_default, sim_cd_default, tmp_path):
+        clean_meas = meas_cd_default.copy()
+        clean_sim = sim_cd_default.copy()
+        capt = CapTest.from_params(
+            test_setup="e2848_default",
+            meas=meas_cd_default,
+            sim=sim_cd_default,
+            ac_nameplate=6_000_000,
+        )
+        capt.rc = pd.DataFrame({"poa": [805.0], "t_amb": [25.0], "w_vel": [2.0]})
+        capt._meas_path = str(tmp_path / "meas.csv")
+        capt._sim_path = str(tmp_path / "sim.csv")
+        sub = capt.to_mapping()
+        loaders = {
+            "meas_loader": MagicMock(return_value=clean_meas),
+            "sim_loader": MagicMock(return_value=clean_sim),
+        }
+        return sub, loaders
+
+    def test_manual_rc_seeded_by_construction_setup(
+        self, meas_cd_default, sim_cd_default, tmp_path
+    ):
+        sub, loaders = self._build(meas_cd_default, sim_cd_default, tmp_path)
+        ct2 = CapTest.from_mapping(sub, **loaders)
+        assert ct2.rc_source == "manual" and ct2.rc is not None
+        assert ct2.rc["poa"].iloc[0] == pytest.approx(805.0)
+        assert ct2._pending_manual_rc is None  # consumed
+
+    def test_manual_rc_stashed_with_run_setup_false(
+        self, meas_cd_default, sim_cd_default, tmp_path
+    ):
+        sub, loaders = self._build(meas_cd_default, sim_cd_default, tmp_path)
+        ct2 = CapTest.from_mapping(sub, run_setup=False, **loaders)
+        assert ct2.rc is None
+        assert ct2._pending_manual_rc == sub["reporting_conditions_values"]
+        ct2.setup()
+        assert ct2.rc_source == "manual" and ct2.rc is not None
+        assert ct2._pending_manual_rc is None
