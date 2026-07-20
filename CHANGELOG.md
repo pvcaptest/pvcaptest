@@ -6,9 +6,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Added
-- New `CapData.rerun_from(index)` — partial pipeline re-run: truncates the chain
-to the retained prefix and re-runs the tail as live step objects with their
-current param values.
+- New `CapData.rerun_filters_from(index)` — partial pipeline re-run: truncates
+the chain to the retained prefix and re-runs the tail as live step objects with
+their current param values (introduced this cycle as `rerun_from`, renamed
+before release).
 - New `captest.filters` module holding the entire filter-step surface: the
 `BaseSummaryStep` / `BaseFilter` base classes and the concrete step classes
 `Irradiance`, `Sensors`, `Time`, `Custom`, `Outliers`, `Clearsky`, `Pvsyst`,

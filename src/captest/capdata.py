@@ -2278,7 +2278,7 @@ class CapData(param.Parameterized):
         for step_config in config:
             step_from_config(step_config).run(self)
 
-    def rerun_from(self, index):
+    def rerun_filters_from(self, index):
         """Re-execute steps ``index..end`` of the applied filter chain.
 
         Restores the pipeline to the state after ``filters[index - 1]``
@@ -2304,7 +2304,7 @@ class CapData(param.Parameterized):
         n = len(self.filters)
         if not 0 <= index <= n:
             raise IndexError(
-                f"rerun_from index {index} out of range for a chain of "
+                f"rerun_filters_from index {index} out of range for a chain of "
                 f"{n} steps (valid: 0..{n})."
             )
         if index == n:

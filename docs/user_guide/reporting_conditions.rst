@@ -70,7 +70,7 @@ filters: any applied ``filter_irr`` step with ``ref_val='rep_irr'`` (or
 reporting conditions and no longer matches. When such steps exist, the same
 single ``UserWarning`` names them (e.g. ``meas.filters[5] (Irradiance)``) so
 they can be re-run — for example with
-:py:meth:`~captest.capdata.CapData.rerun_from` — against the new conditions.
+:py:meth:`~captest.capdata.CapData.rerun_filters_from` — against the new conditions.
 :py:meth:`~captest.captest.CapTest.run_test` re-runs both pipelines itself, so
 it suppresses this notice for the steps it is about to replay.
 

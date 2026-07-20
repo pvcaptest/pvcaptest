@@ -60,7 +60,7 @@
       ~CapData.rename_cols
       ~CapData.rep_cond
       ~CapData.rep_cond_freq
-      ~CapData.rerun_from
+      ~CapData.rerun_filters_from
       ~CapData.reset_agg
       ~CapData.reset_filter
       ~CapData.review_column_groups

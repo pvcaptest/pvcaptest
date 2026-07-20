@@ -259,7 +259,7 @@ Running filters removes data from :py:attr:`data_filtered`. Each subsequent filt
 
 :py:meth:`~captest.capdata.CapData.reset_filter` method can be used to reset the :py:attr:`data_filtered` DataFrame to the unfiltered data.
 
-Each filter that is run is recorded as a step in the :py:attr:`filters` list. :py:meth:`~captest.capdata.CapData.rerun_from` re-executes part of the applied filter chain without starting over: it restores the data to the state after the step before the given index and then re-runs the remaining steps with their current settings. This is useful for adjusting one filter in the middle of a chain — edit the step's parameters (e.g. ``cd.filters[2].low = 300``) and call ``cd.rerun_from(2)`` to re-apply that step and everything after it. Passing ``0`` re-runs the whole chain.
+Each filter that is run is recorded as a step in the :py:attr:`filters` list. :py:meth:`~captest.capdata.CapData.rerun_filters_from` re-executes part of the applied filter chain without starting over: it restores the data to the state after the step before the given index and then re-runs the remaining steps with their current settings. This is useful for adjusting one filter in the middle of a chain — edit the step's parameters (e.g. ``cd.filters[2].low = 300``) and call ``cd.rerun_filters_from(2)`` to re-apply that step and everything after it. Passing ``0`` re-runs the whole chain.
 
 The :py:meth:`~captest.capdata.CapData.get_summary` method will return a summary dataframe showing the number of rows in the :py:attr:`data_filtered` DataFrame before and after each filter was applied, the name of the each filter, and the arguments passed when calling each filter.
 

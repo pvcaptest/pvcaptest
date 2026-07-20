@@ -67,7 +67,7 @@ Thin wrappers that build a step class from :py:mod:`captest.filters` and
 of truth from which ``data_filtered`` is derived). Each accepts an optional
 ``custom_name`` label. ``describe_filters`` returns a written summary of the
 run, while ``filters_to_config`` / ``run_pipeline`` serialize and replay the
-chain and ``rerun_from`` re-runs the chain from a given step with the steps'
+chain and ``rerun_filters_from`` re-runs the chain from a given step with the steps'
 current parameter values. See :doc:`filters` for the underlying step classes.
 
 .. autosummary::
@@ -95,7 +95,7 @@ current parameter values. See :doc:`filters` for the underlying step classes.
    capdata.CapData.describe_filters
    capdata.CapData.filters_to_config
    capdata.CapData.run_pipeline
-   capdata.CapData.rerun_from
+   capdata.CapData.rerun_filters_from
 
 Reporting Conditions
 --------------------
