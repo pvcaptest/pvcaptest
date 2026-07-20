@@ -56,7 +56,7 @@ os.environ["PYTHONPATH"] = os.path.abspath("../")
 
 # This is processed by Jinja2 and inserted before each notebook
 nbsphinx_prolog = r"""
-{% set docname = 'docs/' + env.doc2path(env.docname, base=False) %}
+{% set docname = 'docs/' + env.doc2path(env.docname, base=False)|string %}
 
 .. only:: html
 
