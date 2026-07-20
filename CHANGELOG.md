@@ -72,6 +72,10 @@ warns that the configuration is ambiguous.
 - `CapTest.setup(side=...)` — per-side setup that re-wires only the target
 CapData (sim-side setup may read meas but mutates only sim); `CapTest.reload(side)`
 — re-load one side from its stored path/loader and re-run per-side setup.
+`reload` accepts `path=` to point the side at a new data file (the new path
+replaces the stored one for later reloads and serialization) and preserves
+the outgoing side's applied filter chain as its pending config so
+`run_test(side=...)` re-applies it against the fresh data.
 - New `CapTest.run_test(side='both'|'meas'|'sim')` — one-call orchestrator
 (setup → pipeline replay, rc_source side first → fit → RC verification →
 `CapTestResults`); per-side runs re-run one chain and leave the other untouched.

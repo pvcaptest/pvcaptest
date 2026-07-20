@@ -2177,19 +2177,30 @@ class CapTest(param.Parameterized):
                 inst._pending_manual_rc = dict(rc_values)
         return inst
 
-    def reload(self, side, verbose=True):
-        """Re-load one side's data from its stored path and re-run setup.
+    def reload(self, side, path=None, verbose=True):
+        """Re-load one side's data and re-run per-side setup.
 
         Re-invokes the stored loader (``meas_loader``/``sim_loader`` or the
-        module defaults) on the remembered ``meas_path``/``sim_path`` with
-        the stored ``*_load_kwargs``, replaces that ``CapData``, then runs
-        per-side ``setup(side=side)``. Relative stored paths resolve against
-        the current working directory.
+        module defaults) on the side's data path with the stored
+        ``*_load_kwargs``, replaces that ``CapData``, then runs per-side
+        ``setup(side=side)``. Pass ``path`` to point the side at a new data
+        file first — the new path replaces the stored one, so later
+        ``reload`` calls and ``to_yaml``/``to_mapping`` use it. Relative
+        paths resolve against the current working directory.
+
+        The outgoing side's applied filter chain is preserved: its config is
+        snapshot into ``<side>_filters_pending`` before the data is
+        replaced, so a follow-up ``run_test(side=side)`` re-applies the same
+        filters against the fresh data. When the outgoing chain is empty, an
+        existing pending config is left untouched.
 
         Parameters
         ----------
         side : {'meas', 'sim'}
             Which side to re-load.
+        path : str or Path, optional
+            New data file for this side. Stored (replacing the remembered
+            ``meas_path``/``sim_path``) before loading.
         verbose : bool, default True
             Forwarded to ``setup``.
 
@@ -2197,29 +2208,38 @@ class CapTest(param.Parameterized):
         -------
         CapTest
             ``self``, for fluent chaining
-            (``ct.reload('sim').run_test(side='sim')``).
+            (``ct.reload('sim', path='new.CSV').run_test(side='sim')``).
 
         Raises
         ------
         ValueError
-            If ``side`` is invalid, or the instance holds no stored path for
-            that side (constructed from pre-built ``CapData`` objects).
+            If ``side`` is invalid, or no path is stored for that side and
+            none was passed (instance constructed from pre-built ``CapData``
+            objects).
         """
         if side not in ("meas", "sim"):
             raise ValueError(f"side must be 'meas' or 'sim', got {side!r}.")
-        path = self._meas_path if side == "meas" else self._sim_path
-        if path is None:
+        if path is not None:
+            if side == "meas":
+                self._meas_path = str(path)
+            else:
+                self._sim_path = str(path)
+        stored_path = self._meas_path if side == "meas" else self._sim_path
+        if stored_path is None:
             raise ValueError(
-                f"CapTest holds no stored data path for '{side}'. reload() "
-                "requires construction from meas_path/sim_path (from_params, "
+                f"CapTest holds no stored data path for '{side}'. Pass "
+                "path=... or construct from meas_path/sim_path (from_params, "
                 "from_yaml, or from_mapping)."
             )
+        outgoing = getattr(self, side)
+        if outgoing is not None and outgoing.filters:
+            setattr(self, f"{side}_filters_pending", outgoing.filters_to_config())
         if side == "meas":
             loader = self.meas_loader or _default_meas_loader()
-            self.meas = loader(path, **(self.meas_load_kwargs or {}))
+            self.meas = loader(stored_path, **(self.meas_load_kwargs or {}))
         else:
             loader = self.sim_loader or _default_sim_loader()
-            self.sim = loader(path, **(self.sim_load_kwargs or {}))
+            self.sim = loader(stored_path, **(self.sim_load_kwargs or {}))
         self.setup(verbose=verbose, side=side)
         return self
 

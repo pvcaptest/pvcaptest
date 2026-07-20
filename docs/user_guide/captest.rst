@@ -636,22 +636,35 @@ runs return the ``CapTest`` instance itself rather than results, so a full
 comparison still ends with :py:meth:`~captest.captest.CapTest.captest_results`.
 
 This pairs well with :py:meth:`~captest.captest.CapTest.reload`, which
-re-loads one side's data from its stored path with the stored loader and
-keyword arguments and re-runs the per-side setup. For example, after dropping
-an updated PVsyst export into the project folder, refresh and re-run just the
-modeled side:
+re-loads one side's data with the stored loader and keyword arguments and
+re-runs the per-side setup. ``reload`` preserves the side's filter
+definitions: the outgoing applied chain is snapshot into
+``<side>_filters_pending``, so the follow-up ``run_test(side=...)``
+re-applies the same filters against the fresh data. For example, after
+dropping an updated PVsyst export into the project folder, refresh and
+re-run just the modeled side:
 
 .. code-block:: Python
 
     ct.reload('sim').run_test(side='sim')
     results = ct.captest_results()
 
+To point the side at a *different* data file — a new PVsyst run, say — pass
+``path``; the new path replaces the stored one, so later ``reload`` calls
+and ``to_yaml`` use it:
+
+.. code-block:: Python
+
+    ct.reload('sim', path='pvsyst_run_7.CSV').run_test(side='sim')
+    results = ct.captest_results()
+
 .. note::
 
-    ``reload`` requires the ``CapTest`` to have been constructed from data
-    paths (``from_params`` with ``meas_path`` / ``sim_path``, ``from_yaml``,
-    or ``from_mapping``); it raises a ``ValueError`` when the instance was
-    built from pre-loaded ``CapData`` objects.
+    Without ``path``, ``reload`` requires the ``CapTest`` to have been
+    constructed from data paths (``from_params`` with ``meas_path`` /
+    ``sim_path``, ``from_yaml``, or ``from_mapping``); it raises a
+    ``ValueError`` when the instance was built from pre-loaded ``CapData``
+    objects and no ``path`` is given.
 
 .. _load-only:
 

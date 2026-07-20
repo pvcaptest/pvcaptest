@@ -1102,6 +1102,42 @@ class TestReload:
         assert calls == {"path": "sentinel.csv", "kwargs": {"encoding": "latin1"}}
         assert ct_default.sim._captest is ct_default
 
+    def test_reload_path_kwarg_replaces_stored_path(self, ct_default):
+        """path= works with no prior stored path and persists for later use."""
+        fresh = ct_default.sim
+        calls = {}
+
+        def fake_loader(path, **kwargs):
+            calls["path"] = path
+            return fresh
+
+        ct_default.sim_loader = fake_loader
+        ct_default.reload("sim", path="/data/new_run.CSV", verbose=False)
+        assert calls["path"] == "/data/new_run.CSV"
+        assert ct_default._sim_path == "/data/new_run.CSV"
+        # persists: a later plain reload uses the new path
+        ct_default.reload("sim", verbose=False)
+        assert calls["path"] == "/data/new_run.CSV"
+        # and serialization records it
+        assert ct_default.to_mapping()["sim_path"] == "/data/new_run.CSV"
+
+    def test_reload_stashes_applied_chain_into_pending(self, ct_default):
+        """The outgoing side's applied filters survive as the pending config."""
+        ct_default.sim.filter_irr(400, 1400)
+        cfg = ct_default.sim.filters_to_config()
+        fresh = ct_default.sim
+        ct_default.sim_loader = lambda path, **kwargs: fresh
+        ct_default.reload("sim", path="new.CSV", verbose=False)
+        assert ct_default.sim_filters_pending == cfg
+
+    def test_reload_keeps_pending_when_chain_empty(self, ct_default):
+        pending = [{"type": "Irradiance", "low": 400, "high": 1400}]
+        ct_default.sim_filters_pending = pending
+        fresh = ct_default.sim
+        ct_default.sim_loader = lambda path, **kwargs: fresh
+        ct_default.reload("sim", path="new.CSV", verbose=False)
+        assert ct_default.sim_filters_pending is pending
+
 
 class TestRepIrrCrossInstance:
     """filter_irr(ref_val='rep_irr') resolving against the ct.rc in a CapTest."""
