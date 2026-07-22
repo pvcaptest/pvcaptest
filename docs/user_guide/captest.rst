@@ -523,7 +523,9 @@ to replay — the filter pipeline is built by calling the filtering methods on
 objects are used.
 
 The example below shows the general pattern. Actual filters should be selected
-to match the contract and test procedure.
+to match the contract and test procedure; for the complete list of available
+filtering methods, see the :ref:`Filtering section <capdata-api-filtering>` of
+the CapData API reference.
 
 .. code-block:: Python
 

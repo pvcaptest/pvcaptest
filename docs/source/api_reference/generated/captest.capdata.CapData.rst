@@ -28,6 +28,7 @@
       ~CapData.expand_agg_map
       ~CapData.expanded_uncert
       ~CapData.filter_abs_diff_prev
+      ~CapData.filter_backtracking
       ~CapData.filter_clearsky
       ~CapData.filter_custom
       ~CapData.filter_days

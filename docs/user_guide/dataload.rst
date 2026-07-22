@@ -253,7 +253,7 @@ Filtering
 
         cd.filter_clearsky(window_length=10)
 
-The :py:class:`~captest.capdata.CapData` class provides a variety of methods for filtering as described in ASTM E2848. These methods are all begin with "filter\_" and are well described in the docstrings of each method.
+The :py:class:`~captest.capdata.CapData` class provides a variety of methods for filtering as described in ASTM E2848. These methods are all begin with "filter\_" and are well described in the docstrings of each method. For the complete list of filtering methods, see the :ref:`Filtering section <capdata-api-filtering>` of the CapData API reference.
 
 Running filters removes data from :py:attr:`data_filtered`. Each subsequent filtering method called will be applied to :py:attr:`data_filtered`, so the overall filtering is cumulative.
 
