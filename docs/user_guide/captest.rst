@@ -15,8 +15,9 @@ helps with the pieces that are repeated from project to project:
   ``ct.sim``.
 - Applying a named regression setup, such as the standard ASTM E2848 equation
   or one of the bifacial options.
-- Storing common test values, such as nameplate capacity, test tolerance,
-  irradiance filter limits, shade-filter settings, and bifaciality.
+- Storing common test values, such as nameplate capacity, per-inverter AC
+  nameplate (``inv_ac_nameplate``), test tolerance, irradiance filter limits,
+  shade-filter settings, and bifaciality.
 - Creating comparison plots and pass/fail summaries from the same test object.
 - Reading and writing the test setup from a yaml file, which can be helpful
   when you want a repeatable project record.
@@ -292,6 +293,16 @@ file and loaded with :py:meth:`~captest.captest.CapTest.from_yaml`.
 
     ct = CapTest.from_yaml('./project.yaml')
 
+``from_yaml`` loads the measured and modeled data and runs
+:py:meth:`~captest.captest.CapTest.setup`. Filter pipelines saved in the file
+(``meas_filters`` / ``sim_filters``) are **not** applied at load — they are
+stored on the instance as ``ct.meas_filters_pending`` and
+``ct.sim_filters_pending`` and run later by
+:py:meth:`~captest.captest.CapTest.run_test`. The
+:ref:`captest-typical-workflow` section walks through the resulting states
+step by step. Pass ``run_setup=False`` to skip ``setup()`` as well and load
+the data only (see :ref:`load-only`).
+
 Relative ``meas_path`` and ``sim_path`` values are interpreted relative to the
 yaml file location. This makes the yaml file portable with the project folder.
 
@@ -327,7 +338,8 @@ What setup does
 When ``CapTest`` has both measured and modeled data, it prepares each
 ``CapData`` object for the selected test setup. This happens automatically when
 using :py:meth:`~captest.captest.CapTest.from_params` or
-:py:meth:`~captest.captest.CapTest.from_yaml` with both datasets present.
+:py:meth:`~captest.captest.CapTest.from_yaml` with both datasets present,
+unless ``run_setup=False`` is passed (see :ref:`load-only`).
 
 The setup step:
 
@@ -351,10 +363,164 @@ If you change a setup value after creating ``ct``, call
     you want after changing the setup, but it also means filters should be
     re-applied after calling ``setup()`` again.
 
-Running a capacity test
------------------------
-After ``ct`` has been created, use ``ct.meas`` and ``ct.sim`` in the same way
-you would use separate ``CapData`` objects.
+.. _captest-typical-workflow:
+
+The typical workflow, step by step
+----------------------------------
+This section walks the typical notebook workflow — from a saved config file to
+results — and spells out the state of the ``CapTest`` after each step. The
+same methods apply when a test is being built for the first time; the only
+difference is that the filter steps are created interactively (see
+:ref:`building-the-pipeline`) instead of being replayed from the config file.
+
+Step 1 — load the test
+~~~~~~~~~~~~~~~~~~~~~~
+
+.. code-block:: Python
+
+    from captest import CapTest
+
+    ct = CapTest.from_yaml('./project.yaml')
+
+The measured and modeled data are loaded and
+:py:meth:`~captest.captest.CapTest.setup` runs: scalar settings are propagated
+to ``ct.meas`` / ``ct.sim``, calculated columns (e.g. ``e_total``) are
+created, and the regression columns are resolved and aggregated. The filter
+pipelines saved in the file are stored as pending — they have not touched the
+data.
+
+.. note::
+
+    **State after this step.**
+
+    - ``ct.meas.data`` / ``ct.sim.data`` hold the loaded (plus calculated)
+      columns, and ``data_filtered`` equals ``data`` — nothing is filtered.
+    - The applied filter chains (``ct.meas.filters`` / ``ct.sim.filters``)
+      are empty; the config's pipelines are held in
+      ``ct.meas_filters_pending`` / ``ct.sim_filters_pending``.
+    - ``ct.rc`` is ``None`` when the config's ``rc_source`` is a computed
+      source (``'meas'`` or ``'sim'``). For ``rc_source: manual`` the
+      ``reporting_conditions_values`` are validated and seeded during
+      ``setup()``, so ``ct.rc`` is set and ``ct.rc_source == 'manual'``.
+    - No regressions are fitted (``regression_results`` is ``None`` on both
+      sides).
+
+Step 2 — review the raw data
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Because nothing is filtered yet, the review tools show the full dataset:
+
+.. code-block:: Python
+
+    ct.meas.plot()
+    ct.scatter_plots()
+
+.. note::
+
+    **State after this step.** Unchanged — reviewing does not modify the
+    test.
+
+Step 3 — run the measured side
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. code-block:: Python
+
+    ct.run_test(side='meas')
+
+This runs the measured side's setup, replays the pending measured pipeline,
+and fits the measured regression. The modeled side is untouched.
+
+.. note::
+
+    **State after this step.**
+
+    - ``ct.meas.filters`` holds the applied chain and
+      ``ct.meas.data_filtered`` is the filtered data;
+      ``ct.meas_filters_pending`` is empty (consumed by the run).
+    - ``ct.rc`` is set by the pipeline's ``RepCond`` step
+      (``rc_source == 'meas'`` for a measured-source config).
+    - ``ct.meas.regression_results`` holds the fitted measured regression.
+    - ``ct.sim`` still holds unfiltered data with its pipeline pending;
+      nothing is fitted on the modeled side.
+
+Step 4 — summarize the measured filtering
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. code-block:: Python
+
+    ct.meas.get_summary()
+    print(ct.meas.describe_filters())
+    ct.meas.scatter_filters() + ct.meas.timeseries_filters()
+
+Step 5 — adjust the filtering (optional)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+To append a filter, call any ``filter_*`` method — it runs immediately at the
+tail of the applied chain:
+
+.. code-block:: Python
+
+    ct.meas.filter_time(start='2026-03-26', end='2026-04-12')
+
+To change a filter in the middle of the chain, edit the applied step's
+parameters and re-run from its position with
+:py:meth:`~captest.capdata.CapData.rerun_filters_from`; to insert, delete, or
+reorder steps, use the serialize–edit–replay workflow described in
+:ref:`editing-filter-pipeline`. Re-run the summaries afterwards. If an edit
+changes the reporting conditions, a warning names any applied
+``ref_val='rep_irr'`` steps that resolved against the previous conditions so
+they can be re-run (see :ref:`reporting_conditions`).
+
+.. note::
+
+    **State after this step.** The measured chain and
+    ``ct.meas.data_filtered`` reflect the edits. The measured regression fit
+    is stale until it is re-fitted (step 7, or another
+    ``run_test(side='meas')``).
+
+Step 6 — run and summarize the modeled side
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. code-block:: Python
+
+    ct.run_test(side='sim')
+    ct.sim.get_summary()
+
+Modeled filters that anchor on the reporting irradiance
+(``ref_val='rep_irr'``) resolve against the test reporting conditions
+``ct.rc`` established in step 3.
+
+.. note::
+
+    **State after this step.** Both chains are applied, both pending lists
+    are consumed, both regressions are fitted, and ``ct.rc`` is set.
+
+Step 7 — results
+~~~~~~~~~~~~~~~~
+When both fits are current, compare them directly:
+
+.. code-block:: Python
+
+    results = ct.captest_results()
+
+If filters were adjusted after the last per-side run, re-fit first
+(``ct.meas.fit_regression()`` / ``ct.sim.fit_regression()``) — or simply
+re-run the whole test from the applied chains in one call:
+
+.. code-block:: Python
+
+    results = ct.run_test()
+
+``str(results)`` (or ``print(results)``) is the test report. See
+:ref:`reviewing-results` for the fields of the returned
+:py:class:`~captest.captest.CapTestResults`.
+
+.. _building-the-pipeline:
+
+Building the filter pipeline interactively
+------------------------------------------
+When a test is being put together for the first time there is no config file
+to replay — the filter pipeline is built by calling the filtering methods on
+``ct.meas`` and ``ct.sim`` directly, in the same way separate ``CapData``
+objects are used.
 
 The example below shows the general pattern. Actual filters should be selected
 to match the contract and test procedure; for the complete list of available
@@ -362,7 +528,7 @@ filtering methods, see the :ref:`Filtering section <capdata-api-filtering>` of
 the CapData API reference.
 
 .. code-block:: Python
-    
+
     # measured filters
     ct.meas.filter_irr(ct.min_irr, ct.max_irr)
     ct.meas.filter_outliers()
@@ -375,7 +541,7 @@ the CapData API reference.
     ct.sim.filter_pvsyst()
     ct.sim.fit_regression()
 
-    cap_ratio = ct.captest_results_check_pvalues()
+    results = ct.captest_results()
 
 :py:meth:`~captest.captest.CapTest.rep_cond` calculates reporting conditions
 using the selected setup's defaults. For the standard E2848 setup, POA is
@@ -415,17 +581,314 @@ single test reporting conditions (``ct.rc``), so the measured and modeled
 filters anchor on the same value. See :ref:`reporting_conditions` for the full
 reporting-conditions model.
 
+Once the pipelines are in place, save the whole test — settings and both
+pipelines — with :py:meth:`~captest.captest.CapTest.to_yaml` so it can be
+reproduced later (see :ref:`saving_reproducing`).
+
+.. _running-with-run-test:
+
+Running the whole test with run_test
+------------------------------------
+:py:meth:`~captest.captest.CapTest.run_test` runs the complete test in one
+call. It runs :py:meth:`~captest.captest.CapTest.setup`, replays each side's
+filter pipeline (the ``rc_source`` side first, so its reporting-conditions
+step establishes ``ct.rc`` before the other side's RC-dependent filters
+resolve), fits both regressions, verifies the reporting conditions were
+computed during the run, and returns the results.
+
+.. code-block:: Python
+
+    results = ct.run_test()
+    results.cap_ratio
+
+Combined with :py:meth:`~captest.captest.CapTest.from_yaml`, this reproduces a
+whole capacity test — data loading, setup, filtering, reporting conditions,
+regressions, and results — from a single config file, with each pipeline
+executed exactly once (the load stores the pipelines pending; ``run_test``
+replays them):
+
+.. code-block:: Python
+
+    results = CapTest.from_yaml('./project.yaml').run_test()
+
+For each side, ``run_test`` chooses the pipeline it replays:
+
+- the **applied chain**, when ``cd.filters`` is non-empty — interactive edits
+  always win. The chain is snapshotted with
+  :py:meth:`~captest.capdata.CapData.filters_to_config` before ``setup()``
+  clears it, which is what makes ``run_test`` re-entrant: calling it again
+  after adjusting a test-level parameter re-runs the same pipeline with the
+  new settings;
+- otherwise, the side's **pending pipeline** (``ct.meas_filters_pending`` /
+  ``ct.sim_filters_pending``, stored by ``from_yaml`` / ``from_mapping``).
+
+A side's pending list is consumed once its replay succeeds — after a test has
+run, the applied chain is the single source of truth, and a later
+``reset_filter()`` + ``run_test()`` means "no filters", not "restore the
+config's filters". If a step fails during a replay, the pipeline is rolled
+back to its pre-call state and the failed side's pipeline definition is
+retained in ``ct.<side>_filters_pending``; see :ref:`replay-failure` for the
+recovery loop.
+
+Re-running one side
+~~~~~~~~~~~~~~~~~~~
+Pass ``side='meas'`` or ``side='sim'`` to re-run only one side's setup,
+filter pipeline, and regression, leaving the other side untouched. Per-side
+runs return the ``CapTest`` instance itself rather than results, so a full
+comparison still ends with :py:meth:`~captest.captest.CapTest.captest_results`.
+
+This pairs well with :py:meth:`~captest.captest.CapTest.reload`, which
+re-loads one side's data with the stored loader and keyword arguments and
+re-runs the per-side setup. ``reload`` preserves the side's filter
+definitions: the outgoing applied chain is snapshot into
+``<side>_filters_pending``, so the follow-up ``run_test(side=...)``
+re-applies the same filters against the fresh data. For example, after
+dropping an updated PVsyst export into the project folder, refresh and
+re-run just the modeled side:
+
+.. code-block:: Python
+
+    ct.reload('sim').run_test(side='sim')
+    results = ct.captest_results()
+
+To point the side at a *different* data file — a new PVsyst run, say — pass
+``path``; the new path replaces the stored one, so later ``reload`` calls
+and ``to_yaml`` use it:
+
+.. code-block:: Python
+
+    ct.reload('sim', path='pvsyst_run_7.CSV').run_test(side='sim')
+    results = ct.captest_results()
+
+.. note::
+
+    Without ``path``, ``reload`` requires the ``CapTest`` to have been
+    constructed from data paths (``from_params`` with ``meas_path`` /
+    ``sim_path``, ``from_yaml``, or ``from_mapping``); it raises a
+    ``ValueError`` when the instance was built from pre-loaded ``CapData``
+    objects and no ``path`` is given.
+
+.. _load-only:
+
+Loading without running setup
+-----------------------------
+Pass ``run_setup=False`` to :py:meth:`~captest.captest.CapTest.from_params`,
+:py:meth:`~captest.captest.CapTest.from_yaml`, or
+:py:meth:`~captest.captest.CapTest.from_mapping` to load the data and stop
+there — for example to inspect the raw data or review the column groups
+before the regression mapping is applied:
+
+.. code-block:: Python
+
+    ct = CapTest.from_yaml('./project.yaml', run_setup=False)
+
+.. note::
+
+    **State after this call.** ``ct.meas`` and ``ct.sim`` hold the loaded
+    data, but nothing ``setup()`` produces exists yet: no scalar
+    propagation, no calculated columns, no regression-column processing or
+    aggregation. Pending pipelines (and, for a manual-RC config, the pending
+    reporting-conditions values) are stored for later. A subsequent
+    ``ct.setup()`` or ``ct.run_test()`` proceeds normally from this state.
+
+.. _editing-filter-pipeline:
+
+Editing the filter pipeline
+---------------------------
+Appending a filter is direct — every ``filter_*`` method runs immediately at
+the tail of the applied chain. Editing the *middle* of a pipeline — changing
+a step's settings, inserting, deleting, or reordering steps — uses the
+pipeline's serialized form: get the pipeline as a list of plain dicts, edit
+the list, and replay it.
+
+.. code-block:: Python
+
+    cfg = ct.meas.filters_to_config()      # list of dicts, one per step
+
+    cfg[1]['low'] = 300                    # change a setting
+    del cfg[2]                             # drop a step
+    cfg.insert(1, {'type': 'Time', 'start': '2026-03-26', 'end': '2026-04-12'})
+
+    ct.meas.run_pipeline(cfg)              # re-run the edited pipeline
+
+:py:meth:`~captest.capdata.CapData.run_pipeline` always resets the applied
+chain and rebuilds it from the config — replay is restore-then-re-run — so
+the result is exactly the edited pipeline, in order. To review a pipeline
+before replaying it, dump it as yaml:
+
+.. code-block:: Python
+
+    import yaml
+    print(yaml.safe_dump(cfg, sort_keys=False))
+
+When the edit only changes parameters of steps already in the chain,
+:py:meth:`~captest.capdata.CapData.rerun_filters_from` avoids the
+serialization round-trip: edit the live step object and re-run from its
+position.
+
+.. code-block:: Python
+
+    ct.meas.filters[2].low = 300
+    ct.meas.rerun_filters_from(2)
+
+Which list do I edit?
+~~~~~~~~~~~~~~~~~~~~~
+- **Applied chain** (``cd.filters`` non-empty): start from
+  ``cd.filters_to_config()`` and replay with ``cd.run_pipeline(cfg)``.
+- **Pending pipeline** (just loaded from a config file, or after a failed
+  ``run_test`` replay): edit ``ct.meas_filters_pending`` /
+  ``ct.sim_filters_pending`` in place — that list *is* the pipeline
+  ``run_test`` will run. ``filters_to_config()`` cannot serve here because
+  the applied chain holds none of the pending steps.
+
+Choosing a re-run method
+~~~~~~~~~~~~~~~~~~~~~~~~
+- :py:meth:`~captest.capdata.CapData.rerun_filters_from` — replay-only, one
+  side, from a chain position onward; picks up live edits to the applied
+  steps' parameters; no setup, no regression fit.
+- ``ct.run_test(side='meas')`` / ``ct.run_test(side='sim')`` — one side's
+  setup, full pipeline replay, and regression fit.
+- ``ct.run_test()`` — the whole test; returns
+  :py:class:`~captest.captest.CapTestResults`.
+
+.. _replay-failure:
+
+When a replay fails
+~~~~~~~~~~~~~~~~~~~
+``run_pipeline`` and ``rerun_filters_from`` are transactional: if any step
+raises, the filter chain, the steps' runtime state, and the reporting
+conditions (``rc`` / ``rc_tool`` on the ``CapData``, and the test-level
+``ct.rc`` / ``ct.rc_source``) are restored to their pre-call values before
+the exception propagates, and a note naming the failing step is attached to
+the error (Python 3.11+). A partially applied pipeline is never left behind.
+
+When the failure happens inside ``run_test``, the failed side's pipeline
+definition is retained in ``ct.<side>_filters_pending`` and the error's note
+points there. The recovery loop is:
+
+1. Read the error — it names the failing step (position and type).
+2. Edit that step's dict in ``ct.meas_filters_pending`` (or
+   ``ct.sim_filters_pending``).
+3. Re-run with ``ct.run_test()`` — the rollback left the chain empty, so the
+   corrected pending pipeline is selected again — or replay directly with
+   ``ct.meas.run_pipeline(ct.meas_filters_pending)``.
+4. Repeat until the pipeline runs clean. Alternatively, fix the yaml config
+   file and reload it with ``from_yaml``.
+
+Recipe: switching the reporting-conditions source
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+A test that computed its reporting conditions from the measured data can be
+re-run with modeled reporting conditions (or vice versa) using the editing
+workflow — no dedicated API is needed.
+
+The cleanest route is through the config file: edit the yaml so that
+``rc_source: sim``, move the ``RepCond`` entry from ``meas_filters`` to
+``sim_filters`` (placing it before any ``ref_val: rep_irr`` step), then
+reload and run:
+
+.. code-block:: Python
+
+    results = CapTest.from_yaml('./project.yaml').run_test()
+
+In-session, the same move is the edit workflow applied to both pipeline
+configs:
+
+.. code-block:: Python
+
+    meas_cfg = ct.meas.filters_to_config()
+    sim_cfg = ct.sim.filters_to_config()
+
+    # move the RepCond dict from the measured list to the modeled list
+    rep_cond_step = next(s for s in meas_cfg if s['type'] == 'RepCond')
+    meas_cfg.remove(rep_cond_step)
+    sim_cfg.insert(2, rep_cond_step)   # before any ref_val: rep_irr step
+
+    ct.sim.run_pipeline(sim_cfg)    # RepCond flips ct.rc / rc_source to 'sim'
+    ct.meas.run_pipeline(meas_cfg)  # rep_irr filters resolve against new ct.rc
+
+    ct.meas.fit_regression()
+    ct.sim.fit_regression()
+    results = ct.captest_results()
+
+Run the modeled side first: its ``RepCond`` step computes the new reporting
+conditions and flips ``ct.rc`` / ``ct.rc_source`` to ``'sim'`` — the
+source-change ``UserWarning`` at that point is expected and confirms the
+switch. Two other warnings guide wrong-order mistakes:
+
+- If both pipelines contain a ``RepCond`` step (e.g. the measured copy was
+  not removed), the dual-``RepCond`` warning flags the configuration as
+  ambiguous — whichever side runs second would overwrite the test reporting
+  conditions and flip ``rc_source`` again.
+- If the measured pipeline is replayed first, its ``ref_val='rep_irr'``
+  filter resolves against the *old* reporting conditions; when the modeled
+  ``RepCond`` then changes ``ct.rc``, the staleness warning names the
+  measured steps that no longer match so they can be re-run — for example
+  with ``ct.meas.rerun_filters_from(...)``.
+
+See :ref:`reporting_conditions` for the full description of both warnings.
+
+.. _reviewing-results:
+
 Reviewing results
 -----------------
 The main comparison method is
 :py:meth:`~captest.captest.CapTest.captest_results`. It predicts the measured
 and modeled capacities at the reporting conditions, calculates the capacity
-ratio, and can print a pass/fail summary using the AC nameplate and test
-tolerance stored on your instance of Captest, e.g. ``ct``.
+ratio, and prints a pass/fail summary using the AC nameplate and test
+tolerance stored on your instance of Captest, e.g. ``ct``. It returns a
+:py:class:`~captest.captest.CapTestResults` object holding the individual
+result values:
 
 .. code-block:: Python
 
-    cap_ratio = ct.captest_results()
+    results = ct.captest_results()
+    results.cap_ratio            # capacity ratio, actual / expected
+    results.passed               # pass/fail against the test tolerance
+    results.expected_capacity    # modeled output at reporting conditions
+    results.actual_capacity      # measured output at reporting conditions
+
+``str(results)`` (or ``print(results)``) reproduces the printed report, and
+``results.styled_pvalues()`` returns a styled table of the regression
+coefficients and p-values for both sides with high p-values highlighted.
+Other fields include the p-value-checked capacity ratio
+(``cap_ratio_pval_check``), the tolerance and capacity bounds the test was
+judged against, the points remaining after filtering on each side
+(``points_used``), per-side regression tables, and the reporting conditions
+used with their provenance (``rc``, ``rc_source``).
+
+Headline selection with check_pvalues
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+``captest_results`` always computes two variants of the predicted capacities:
+the plain predictions from the fitted coefficients, and the
+**p-value-checked** predictions, in which any coefficient whose p-value is
+above the ``pval`` cutoff (default ``0.05``) is set to zero before
+predicting. The ``check_pvalues`` argument selects which variant is the
+*headline* — the values reported as ``cap_ratio``, ``actual_capacity``,
+``expected_capacity``, and ``tested_capacity`` and used for the pass/fail
+decision:
+
+.. code-block:: Python
+
+    results = ct.captest_results()                    # headline = plain
+    results = ct.captest_results(check_pvalues=True)  # headline = checked
+
+Two fields make the selection unambiguous regardless of how the test was
+run:
+
+- ``results.cap_ratio_pval_check`` always carries the p-value-checked ratio,
+  even when the headline is the plain variant.
+- ``results.pvalues_checked`` records which variant the headline fields hold
+  (``True`` when the test ran with ``check_pvalues=True``).
+
+The same arguments are accepted by
+:py:meth:`~captest.captest.CapTest.run_test`, which forwards them to
+``captest_results``.
+
+.. note::
+
+    Versions before v0.17.0 returned the capacity ratio as a bare float from
+    ``captest_results``. Code that used the return value directly should now
+    read ``results.cap_ratio``.
 
 Additional review methods are available from the same ``CapTest`` object:
 

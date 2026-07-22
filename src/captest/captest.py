@@ -1,9 +1,10 @@
 """Unified test orchestrator and supporting utilities.
 
 This module houses the ``CapTest`` class, the ``TEST_SETUPS`` registry of
-named regression presets, and small formatting helpers (``print_results``,
-``highlight_pvals``, ``perc_wrap``) consumed by ``CapTest`` methods that
-compare a measured + modeled pair of ``CapData`` instances.
+named regression presets, the ``CapTestResults`` results container, and small
+formatting helpers (``highlight_pvals``, ``perc_wrap``) consumed by
+``CapTest`` methods that compare a measured + modeled pair of ``CapData``
+instances.
 
 Import direction
 ----------------
@@ -20,6 +21,7 @@ import copy
 import difflib
 import importlib.util
 import warnings
+from dataclasses import dataclass
 from pathlib import Path
 import textwrap
 
@@ -60,52 +62,114 @@ else:  # pragma: no cover - optional dep
     hv = None
 
 
-def print_results(test_passed, expected, actual, cap_ratio, capacity, bounds):
-    """Print formatted results of a capacity test.
-
-    Parameters
-    ----------
-    test_passed : tuple of (bool, str)
-        Pass/fail flag and bounds string produced by
-        ``CapTest.determine_pass_or_fail`` (or the legacy module-level
-        ``determine_pass_or_fail`` in ``capdata.py`` until Unit 7 removes it).
-    expected : float
-        Predicted modeled test output at reporting conditions.
-    actual : float
-        Predicted measured test output at reporting conditions.
-    cap_ratio : float
-        Capacity test ratio (``actual / expected``).
-    capacity : float
-        Tested capacity (``nameplate * cap_ratio``).
-    bounds : str
-        Human-readable bounds string for the test tolerance.
-    """
-    if test_passed[0]:
-        print("{:<30s}{}".format("Capacity Test Result:", "PASS"))
-    else:
-        print("{:<25s}{}".format("Capacity Test Result:", "FAIL"))
-
-    print(
-        "{:<30s}{:0.3f}".format("Modeled test output:", expected)
-        + "\n"
-        + "{:<30s}{:0.3f}".format("Actual test output:", actual)
-        + "\n"
-        + "{:<30s}{:0.3f}".format("Tested output ratio:", cap_ratio)
-        + "\n"
-        + "{:<30s}{:0.3f}".format("Tested Capacity:", capacity)
-    )
-
-    print("{:<30s}{}\n\n".format("Bounds:", bounds))
-
-
 def highlight_pvals(s):
     """Highlight Series entries >= 0.05 with a yellow background.
 
-    Intended for use with ``pandas.io.formats.style.Styler.apply``. Consumed by
-    ``CapTest.captest_results_check_pvalues`` (ported in Unit 7).
+    Intended for use with ``pandas.io.formats.style.Styler.apply``. Consumed
+    by ``CapTestResults.styled_pvalues``.
     """
     is_greaterthan = s >= 0.05
     return ["background-color: yellow" if v else "" for v in is_greaterthan]
+
+
+@dataclass
+class CapTestResults:
+    """Structured results of a measured-vs-modeled capacity test.
+
+    Returned by :meth:`CapTest.captest_results`. ``str(results)`` (or
+    :meth:`summary`) reproduces the legacy printed report;
+    :meth:`styled_pvalues` reproduces the legacy p-value Styler.
+
+    Attributes
+    ----------
+    cap_ratio : float
+        Headline capacity test ratio ``actual / expected`` — the ratio the
+        pass/fail decision was made on. P-value-checked when the test ran
+        with ``check_pvalues=True`` (see ``pvalues_checked``), otherwise
+        computed without p-value filtering.
+    cap_ratio_pval_check : float
+        Capacity ratio computed with above-threshold coefficients zeroed.
+    passed : bool
+        Pass/fail result for the headline ratio against ``tolerance``.
+    tolerance : str
+        The ``CapTest.test_tolerance`` string the test was judged against.
+    bounds : str
+        Human-readable capacity bounds string for the tolerance.
+    expected_capacity : float
+        Predicted modeled test output at reporting conditions (headline
+        variant; see ``pvalues_checked``).
+    actual_capacity : float
+        Predicted measured test output at reporting conditions (headline
+        variant; see ``pvalues_checked``).
+    tested_capacity : float
+        ``ac_nameplate`` times the headline capacity ratio.
+    points_used : dict
+        Points remaining after filtering, keyed by ``'meas'`` / ``'sim'``.
+    regression_tables : dict
+        Per-side DataFrames of regression terms with ``coef`` and ``pvalue``
+        columns, keyed by ``'meas'`` / ``'sim'``.
+    rc : pandas.DataFrame
+        The reporting conditions both regressions were predicted at.
+    rc_source : str
+        Provenance of ``rc`` (``'meas'``, ``'sim'``, or ``'manual'``).
+    pvalues_checked : bool
+        Which variant is the headline: ``True`` when ``cap_ratio``,
+        ``actual_capacity``, ``expected_capacity``, and the pass/fail
+        decision used the p-value-checked predictions
+        (``check_pvalues=True``), ``False`` for the plain predictions.
+    """
+
+    cap_ratio: float
+    cap_ratio_pval_check: float
+    passed: bool
+    tolerance: str
+    bounds: str
+    expected_capacity: float
+    actual_capacity: float
+    tested_capacity: float
+    points_used: dict
+    regression_tables: dict
+    rc: pd.DataFrame
+    rc_source: str
+    pvalues_checked: bool = False
+
+    def summary(self):
+        """Return the legacy printed report as a string."""
+        result = "PASS" if self.passed else "FAIL"
+        lines = [
+            f"Using reporting conditions from {self.rc_source}. \n",
+            "{:<30s}{}".format("Capacity Test Result:", result),
+            "{:<30s}{:0.3f}".format("Modeled test output:", self.expected_capacity),
+            "{:<30s}{:0.3f}".format("Actual test output:", self.actual_capacity),
+            "{:<30s}{:0.3f}".format("Tested output ratio:", self.cap_ratio),
+            "{:<30s}{:0.3f}".format("Tested Capacity:", self.tested_capacity),
+            "{:<30s}{}\n".format("Bounds:", self.bounds),
+        ]
+        return "\n".join(lines)
+
+    def __str__(self):
+        return self.summary()
+
+    def styled_pvalues(self):
+        """Return the legacy p-value/params Styler built from this object.
+
+        Returns
+        -------
+        pandas.io.formats.style.Styler
+            Styled DataFrame with p-values and coefficients for both sides;
+            p-values >= 0.05 are highlighted.
+        """
+        df_pvals = pd.DataFrame(
+            {
+                "das_pvals": self.regression_tables["meas"]["pvalue"],
+                "sim_pvals": self.regression_tables["sim"]["pvalue"],
+                "das_params": self.regression_tables["meas"]["coef"],
+                "sim_params": self.regression_tables["sim"]["coef"],
+            }
+        )
+        return df_pvals.style.format("{:20,.5f}").apply(
+            highlight_pvals, subset=["das_pvals", "sim_pvals"]
+        )
 
 
 # --- TEST_SETUPS registry -------------------------------------------------
@@ -1116,6 +1180,7 @@ _CAPTEST_YAML_KEYS = frozenset(
         "shade_filter_start",
         "shade_filter_end",
         "ac_nameplate",
+        "inv_ac_nameplate",
         "test_tolerance",
         "min_irr",
         "max_irr",
@@ -1381,6 +1446,15 @@ class CapTest(param.Parameterized):
         allow_None=True,
         doc="Nameplate AC power in W.",
     )
+    inv_ac_nameplate = param.Number(
+        default=None,
+        allow_None=True,
+        bounds=(0, None),
+        doc="Per-inverter AC nameplate rating, kW. Plant metadata and a "
+        "prefill source for per-inverter clipping filters; never a hidden "
+        "input to results (serialized filter steps record resolved "
+        "thresholds).",
+    )
     test_tolerance = param.String(
         default="- 4",
         doc="Tolerance string forwarded to pass/fail logic.",
@@ -1562,9 +1636,23 @@ class CapTest(param.Parameterized):
         # The single test reporting-conditions DataFrame (or None). Plain attr,
         # not a param.*, so the `rc` property setter can validate and the
         # `_set_rc` write point can manage provenance. `_loading` is True only
-        # during from_yaml replay (see Plan 5) to seed RC from config.
+        # during run_test pipeline replay with rc_source='manual', to keep the
+        # manual RC authoritative.
         self._rc = None
         self._loading = False
+        # Serialized filter pipelines stored at load (from_mapping) and not
+        # yet applied; consumed by run_test (spec R2). Plain lists of
+        # filter-config dicts, public so users can inspect or edit them.
+        self.meas_filters_pending = []
+        self.sim_filters_pending = []
+        # Manual reporting-conditions values stashed at load when setup()
+        # has not run yet; consumed by the next full setup() (spec R1).
+        self._pending_manual_rc = None
+        # Transient set of sides ('meas'/'sim') whose pipeline re-run is still
+        # ahead of an RC write; those sides are excluded from the RC-staleness
+        # warning in `_set_rc`. Registered by orchestrated replays (run_test)
+        # and always cleared in a `finally`, so it never outlives the call.
+        self._rc_pending_sides = set()
 
     @property
     def rc(self):
@@ -1672,9 +1760,16 @@ class CapTest(param.Parameterized):
     def _set_rc(self, rc, source, warn=True):
         """Single internal write point for ``_rc`` and ``rc_source``.
 
-        Emits a source-change ``UserWarning`` when ``warn`` is True, an RC is
-        already set, and ``source`` differs from the current ``rc_source``
-        (silent on first establishment and same-source recompute).
+        With ``warn`` True and an RC already set, emits at most ONE
+        ``UserWarning`` per write, merging (a) a source-change notice when
+        ``source`` differs from the current ``rc_source`` and (b) an
+        RC-staleness notice naming applied RC-dependent steps
+        (``ref_val`` of ``'rep_irr'``/``'self_val'``) that resolved against
+        the previous RC and are not excluded — sides in
+        ``self._rc_pending_sides`` (registered by ``run_test`` for chains it
+        is about to re-run) are excluded. Silent on first establishment and
+        on a same-source write of an unchanged RC. ``warn=False`` (config
+        load) suppresses both.
 
         Parameters
         ----------
@@ -1683,42 +1778,75 @@ class CapTest(param.Parameterized):
         source : {'meas', 'sim', 'manual'}
             Provenance to record in ``rc_source``.
         warn : bool, default True
-            Suppress the source-change warning when False (used during load).
+            Suppress the merged warning when False (used during load).
         """
-        if warn and self._rc is not None and source != self.rc_source:
-            warnings.warn(
-                f"Test reporting conditions rc_source changed from "
-                f"'{self.rc_source}' to '{source}'."
-            )
+        if warn and self._rc is not None:
+            parts = []
+            if source != self.rc_source:
+                parts.append(
+                    f"Test reporting conditions rc_source changed from "
+                    f"'{self.rc_source}' to '{source}'."
+                )
+            if not self._rc.equals(rc):
+                stale = self._stale_rc_dependent_steps()
+                if stale:
+                    parts.append(
+                        "The test reporting conditions changed; these applied "
+                        "filter steps resolved against the previous reporting "
+                        "conditions and must be re-run: " + ", ".join(stale) + "."
+                    )
+            if parts:
+                warnings.warn(" ".join(parts))
         self._rc = rc
         self.rc_source = source
+
+    def _stale_rc_dependent_steps(self):
+        """Applied steps whose ``ref_val`` resolves against the test RC.
+
+        Scans both sides' applied chains for steps configured with
+        ``ref_val`` in ``{'rep_irr', 'self_val'}`` (the param preserves the
+        user's original token), skipping sides registered in
+        ``self._rc_pending_sides``. Returns display labels like
+        ``"sim.filters[2] (Irradiance)"``.
+        """
+        stale = []
+        for side in ("meas", "sim"):
+            if side in self._rc_pending_sides:
+                continue
+            cd = getattr(self, side)
+            if cd is None:
+                continue
+            for i, step in enumerate(cd.filters):
+                if getattr(step, "ref_val", None) in ("rep_irr", "self_val"):
+                    stale.append(f"{side}.filters[{i}] ({type(step).__name__})")
+        return stale
 
     def _on_capdata_rep_cond(self, cd):
         """Update the test RC after a member CapData computed its own ``rc``.
 
-        Called by :meth:`CapData._calc_rep_cond` when the CapData belongs to this
-        test. Runtime behavior is last-writer-wins: the calling side's ``rc``
-        becomes ``ct.rc`` and ``rc_source`` (a source-change ``UserWarning`` is
-        emitted by :meth:`_set_rc`). During ``from_yaml`` load (``_loading``
-        True) the update is config-seeded: only the configured ``rc_source``
-        side updates ``ct.rc``, silently (see Plan 5 / spec §4.7).
+        Called by :meth:`CapData._calc_rep_cond` when the CapData belongs to
+        this test. Behavior is last-writer-wins: the calling side's ``rc``
+        becomes ``ct.rc`` and ``rc_source`` (a source-change ``UserWarning``
+        is emitted by :meth:`_set_rc`). ``_loading`` exists solely for
+        ``run_test``'s manual-RC replay: with ``rc_source='manual'`` the
+        manual reporting conditions stay authoritative, so propagation from
+        replayed RepCond steps is suppressed entirely (the step still
+        computes that side's local ``cd.rc``).
 
         Parameters
         ----------
         cd : CapData
             The member CapData that just (re)computed its ``rc``.
         """
-        side = "meas" if cd is self.meas else "sim"
         if self._loading:
-            if side == self.rc_source:
-                self._set_rc(cd.rc.copy(), side, warn=False)
             return
+        side = "meas" if cd is self.meas else "sim"
         self._set_rc(cd.rc.copy(), side, warn=True)
 
     # --- constructors ----------------------------------------------------
 
     @classmethod
-    def from_params(cls, **kwargs):
+    def from_params(cls, run_setup=True, **kwargs):
         """Construct a CapTest from parameter kwargs.
 
         Recognizes the non-param kwargs ``meas``, ``sim``, ``meas_path``,
@@ -1726,12 +1854,20 @@ class CapTest(param.Parameterized):
         ``meas`` and ``meas_path`` are supplied the pre-built instance
         wins and a warning is emitted (same for ``sim`` / ``sim_path``).
 
-        When both ``meas`` and ``sim`` end up populated, ``setup()`` is
-        called automatically. Otherwise the partially-initialized instance
-        is returned and the caller finishes the workflow manually.
+        When both ``meas`` and ``sim`` end up populated and ``run_setup``
+        is True, ``setup()`` is called automatically. Otherwise the
+        partially-initialized instance is returned and the caller finishes
+        the workflow manually.
 
         Parameters
         ----------
+        run_setup : bool, default True
+            When False, skip the automatic ``setup()`` even when both
+            ``meas`` and ``sim`` are populated (load-only construction).
+            Nothing setup produces is present: no scalar propagation, no
+            derived-parameter calculation, no regression-column
+            processing, no ``_captest`` back-references. A later
+            ``ct.setup()`` or ``ct.run_test()`` proceeds normally.
         **kwargs
             Any declared CapTest parameter, plus ``meas``, ``sim``,
             ``meas_path``, ``sim_path``.
@@ -1785,19 +1921,24 @@ class CapTest(param.Parameterized):
             load_kwargs = inst.sim_load_kwargs or {}
             inst.sim = _sim_loader()(sim_path, **load_kwargs)
 
-        if inst.meas is not None and inst.sim is not None:
+        if run_setup and inst.meas is not None and inst.sim is not None:
             inst.setup()
 
         return inst
 
     @classmethod
-    def from_yaml(cls, path, key="captest", meas_loader=None, sim_loader=None):
+    def from_yaml(
+        cls, path, key="captest", meas_loader=None, sim_loader=None, run_setup=True
+    ):
         """Construct a CapTest from a yaml config file.
 
         Reads the sub-mapping at the given top-level ``key`` of the yaml
         file and delegates to :meth:`from_mapping` with
         ``base_dir=path.parent`` so relative ``meas_path`` / ``sim_path``
-        values resolve against the yaml's directory.
+        values resolve against the yaml's directory. Serialized filter
+        pipelines are stored as :attr:`meas_filters_pending` /
+        :attr:`sim_filters_pending`, not applied; run them with
+        :meth:`run_test` (or per side via ``CapData.run_pipeline``).
 
         Parameters
         ----------
@@ -1812,6 +1953,9 @@ class CapTest(param.Parameterized):
             yaml. Useful for downstream wrappers that drive yaml-based
             construction but need a custom measured-data loader.
             When ``None`` the default resolution applies.
+        run_setup : bool, default True
+            Forwarded to :meth:`from_mapping`. When False, only the data
+            is loaded (see :meth:`from_params`).
 
         Returns
         -------
@@ -1825,11 +1969,19 @@ class CapTest(param.Parameterized):
             base_dir=path.parent,
             meas_loader=meas_loader,
             sim_loader=sim_loader,
+            run_setup=run_setup,
         )
 
     @classmethod
     def from_mapping(
-        cls, sub, *, key="captest", base_dir=None, meas_loader=None, sim_loader=None
+        cls,
+        sub,
+        *,
+        key="captest",
+        base_dir=None,
+        meas_loader=None,
+        sim_loader=None,
+        run_setup=True,
     ):
         """Construct a CapTest from an already-parsed captest sub-mapping.
 
@@ -1839,6 +1991,15 @@ class CapTest(param.Parameterized):
         to validate and build the ``CapTest``. Exposes the same
         validate-and-construct pipeline that ``from_yaml`` runs after
         reading the file, without the file read.
+
+        Serialized ``meas_filters`` / ``sim_filters`` pipelines are stored
+        as :attr:`meas_filters_pending` / :attr:`sim_filters_pending` —
+        nothing is replayed at load. Run them with :meth:`run_test` (or per
+        side via ``CapData.run_pipeline``). Manual reporting-conditions
+        values (``reporting_conditions_values`` with
+        ``rc_source='manual'``) are validated and seeded during the
+        construction-time ``setup()``; with ``run_setup=False`` they are
+        stashed and consumed by the next full ``setup()``.
 
         Parameters
         ----------
@@ -1868,6 +2029,9 @@ class CapTest(param.Parameterized):
             Programmatic-only loader callables that override the default
             resolution (``captest.io.load_data`` / ``captest.io.load_pvsyst``).
             Same semantics as :meth:`from_yaml`.
+        run_setup : bool, default True
+            Forwarded to :meth:`from_params`. When False, only the data
+            is loaded — no ``setup()``, nothing seeded (load-only).
 
         Returns
         -------
@@ -1963,7 +2127,7 @@ class CapTest(param.Parameterized):
         if sim_loader is not None:
             kwargs["sim_loader"] = sim_loader
 
-        inst = cls.from_params(**kwargs)
+        inst = cls.from_params(run_setup=run_setup, **kwargs)
         # Preserve the raw relative-or-absolute paths the user wrote in
         # the sub-mapping so a later ``to_yaml`` round-trips them.
         # ``from_params`` overwrites ``_meas_path`` / ``_sim_path`` with
@@ -1975,61 +2139,126 @@ class CapTest(param.Parameterized):
             inst._meas_path = raw_meas_path
         if raw_sim_path is not None:
             inst._sim_path = raw_sim_path
-        # Re-apply serialized filter pipelines. from_params auto-runs setup()
-        # when both meas and sim are populated, so regression_cols/data are
-        # ready; guard on _resolved_setup so a partially-built CapTest doesn't
-        # try to filter un-setup data.
+        # Serialized filter pipelines are stored pending, never replayed at
+        # load; run_test consumes them (spec R2). Manual RC values are seeded
+        # by the construction-time setup() when it ran, else stashed for the
+        # next full setup().
         meas_filters = sub.get("meas_filters")
         sim_filters = sub.get("sim_filters")
         rc_values = sub.get("reporting_conditions_values")
-        if inst._resolved_setup is not None:
-            # Seed a manual RC before replay so self-filtering pipelines resolve
-            # ref_val='rep_irr' against it; no RepCond step will set it. Computed
-            # RC is (re)established during replay by the configured rc_source
-            # side's RepCond step (see _on_capdata_rep_cond's _loading branch).
-            if inst.rc_source == "manual" and rc_values is not None:
+
+        def _has_repcond(cfg):
+            return any(d.get("type") == "RepCond" for d in (cfg or []))
+
+        # The dual-RepCond ambiguity warning scans the serialized configs,
+        # so it fires at load regardless of whether setup() ran.
+        if (
+            inst.rc_source in ("meas", "sim")
+            and _has_repcond(meas_filters)
+            and _has_repcond(sim_filters)
+        ):
+            warnings.warn(
+                "Config defines a RepCond step in both meas_filters and "
+                "sim_filters with a computed rc_source "
+                f"('{inst.rc_source}'): this is ambiguous and unsupported "
+                "— on a re-run the non-rc_source side's RepCond will "
+                "overwrite the test reporting conditions and flip "
+                "rc_source. Remove the RepCond step from the non-rc_source "
+                "pipeline."
+            )
+
+        inst.meas_filters_pending = list(meas_filters or [])
+        inst.sim_filters_pending = list(sim_filters or [])
+        if inst.rc_source == "manual" and rc_values is not None:
+            if inst._resolved_setup is not None:
                 df = inst._coerce_and_validate_manual_rc(rc_values)
                 inst._set_rc(df, "manual", warn=False)
-            # Replay the configured rc_source side FIRST so its RepCond populates
-            # ct.rc before the other side's rep_irr filters run. _loading makes
-            # the rep_cond sync config-seeded and warning-suppressed.
-            pipelines = [(inst.meas, meas_filters), (inst.sim, sim_filters)]
-            if inst.rc_source == "sim":
-                pipelines.reverse()
-            inst._loading = True
-            try:
-                for cd, filters in pipelines:
-                    if filters and cd is not None:
-                        cd.run_pipeline(filters)
-            finally:
-                inst._loading = False
-        elif meas_filters or sim_filters:
-            # Pipelines were serialized but setup() never ran (both meas and
-            # sim must be loaded). Don't silently drop them — warn so the
-            # write/read round-trip asymmetry is visible.
-            warnings.warn(
-                "Filter pipelines (meas_filters/sim_filters) in the config "
-                "were not applied because setup() did not run (both meas and "
-                "sim must be loaded). Load both data sources and re-apply via "
-                "CapData.run_pipeline().",
-                stacklevel=2,
-            )
+            else:
+                inst._pending_manual_rc = dict(rc_values)
         return inst
+
+    def reload(self, side, path=None, verbose=True):
+        """Re-load one side's data and re-run per-side setup.
+
+        Re-invokes the stored loader (``meas_loader``/``sim_loader`` or the
+        module defaults) on the side's data path with the stored
+        ``*_load_kwargs``, replaces that ``CapData``, then runs per-side
+        ``setup(side=side)``. Pass ``path`` to point the side at a new data
+        file first — the new path replaces the stored one, so later
+        ``reload`` calls and ``to_yaml``/``to_mapping`` use it. Relative
+        paths resolve against the current working directory.
+
+        The outgoing side's applied filter chain is preserved: its config is
+        snapshot into ``<side>_filters_pending`` before the data is
+        replaced, so a follow-up ``run_test(side=side)`` re-applies the same
+        filters against the fresh data. When the outgoing chain is empty, an
+        existing pending config is left untouched.
+
+        Parameters
+        ----------
+        side : {'meas', 'sim'}
+            Which side to re-load.
+        path : str or Path, optional
+            New data file for this side. Stored (replacing the remembered
+            ``meas_path``/``sim_path``) before loading.
+        verbose : bool, default True
+            Forwarded to ``setup``.
+
+        Returns
+        -------
+        CapTest
+            ``self``, for fluent chaining
+            (``ct.reload('sim', path='new.CSV').run_test(side='sim')``).
+
+        Raises
+        ------
+        ValueError
+            If ``side`` is invalid, or no path is stored for that side and
+            none was passed (instance constructed from pre-built ``CapData``
+            objects).
+        """
+        if side not in ("meas", "sim"):
+            raise ValueError(f"side must be 'meas' or 'sim', got {side!r}.")
+        if path is not None:
+            if side == "meas":
+                self._meas_path = str(path)
+            else:
+                self._sim_path = str(path)
+        stored_path = self._meas_path if side == "meas" else self._sim_path
+        if stored_path is None:
+            raise ValueError(
+                f"CapTest holds no stored data path for '{side}'. Pass "
+                "path=... or construct from meas_path/sim_path (from_params, "
+                "from_yaml, or from_mapping)."
+            )
+        outgoing = getattr(self, side)
+        if outgoing is not None and outgoing.filters:
+            setattr(self, f"{side}_filters_pending", outgoing.filters_to_config())
+        if side == "meas":
+            loader = self.meas_loader or _default_meas_loader()
+            self.meas = loader(stored_path, **(self.meas_load_kwargs or {}))
+        else:
+            loader = self.sim_loader or _default_sim_loader()
+            self.sim = loader(stored_path, **(self.sim_load_kwargs or {}))
+        self.setup(verbose=verbose, side=side)
+        return self
 
     def to_yaml(self, path, key="captest", merge_into_existing=True):
         """Serialize the curated CapTest configuration to a yaml file.
 
-        The written sub-mapping lives under the top-level ``key`` (default
+        The written sub-mapping is :meth:`to_mapping`'s return value. It
+        lives under the top-level ``key`` (default
         ``"captest"``) and contains every scalar ``param.*`` plus
         ``test_setup``, any non-None override of ``reg_fml`` /
         ``reg_cols_meas`` / ``reg_cols_sim`` / ``rep_conditions``,
         ``meas_path`` / ``sim_path`` (when the instance was constructed from
         paths), and non-empty ``meas_load_kwargs`` / ``sim_load_kwargs``.
 
-        The applied filter chains of ``meas`` and ``sim`` are written as
+        The filter pipelines of ``meas`` and ``sim`` are written as
         ``meas_filters`` / ``sim_filters`` (lists of filter-step config dicts
-        from :meth:`CapData.filters_to_config`), each only when non-empty;
-        ``from_yaml`` re-applies them after data load and ``setup()``. When a
+        from :meth:`CapData.filters_to_config`, or the side's pending config
+        when its chain is empty), each only when non-empty; ``from_yaml``
+        stores them as pending pipelines that :meth:`run_test` replays. When a
         ``RepCond`` step is present in either pipeline, ``overrides.rep_conditions``
         is omitted — the step is then the authoritative reporting-conditions
         source (avoids representing it in two places).
@@ -2061,7 +2290,45 @@ class CapTest(param.Parameterized):
         """
         path = Path(path)
 
-        # Warn once for any non-yaml-serializable user overrides.
+        sub = self.to_mapping()
+
+        # Merge with an existing file on disk when requested.
+        root_doc = {}
+        if merge_into_existing and path.exists():
+            try:
+                with path.open("r") as fh:
+                    existing = yaml.safe_load(fh)
+                if isinstance(existing, dict):
+                    root_doc = existing
+            except (OSError, yaml.YAMLError):  # pragma: no cover - rare IO/parse
+                root_doc = {}
+        root_doc[key] = sub
+
+        with path.open("w") as fh:
+            yaml.safe_dump(root_doc, fh, sort_keys=False)
+
+    def to_mapping(self):
+        """Return the curated config mapping ``to_yaml`` writes under ``key``.
+
+        The public dict counterpart of :meth:`to_yaml` and the symmetric
+        inverse of :meth:`from_mapping`. Emits the same programmatic-only
+        attribute warning as ``to_yaml`` (loaders, mutated scatter_plots).
+
+        Returns
+        -------
+        dict
+            The captest sub-mapping (scalars, overrides, paths, pipelines).
+        """
+        self._warn_unserializable()
+        return self._build_yaml_sub_mapping()
+
+    def _warn_unserializable(self):
+        """Warn once for any non-yaml-serializable user overrides.
+
+        Loader callables and a user-mutated ``scatter_plots`` entry cannot be
+        represented in the yaml config; name them in a single ``UserWarning``
+        so the omission is visible at export time.
+        """
         unserializable = []
         if self.meas_loader is not None:
             unserializable.append("meas_loader")
@@ -2084,32 +2351,17 @@ class CapTest(param.Parameterized):
                 stacklevel=2,
             )
 
-        sub = self._build_yaml_sub_mapping()
-
-        # Merge with an existing file on disk when requested.
-        root_doc = {}
-        if merge_into_existing and path.exists():
-            try:
-                with path.open("r") as fh:
-                    existing = yaml.safe_load(fh)
-                if isinstance(existing, dict):
-                    root_doc = existing
-            except (OSError, yaml.YAMLError):  # pragma: no cover - rare IO/parse
-                root_doc = {}
-        root_doc[key] = sub
-
-        with path.open("w") as fh:
-            yaml.safe_dump(root_doc, fh, sort_keys=False)
-
     def _build_yaml_sub_mapping(self):
         """Build the dict written under ``key:`` by :meth:`to_yaml`.
 
         Kept separate from ``to_yaml`` so it is testable in isolation and
-        so the merge/write step stays short. Embeds the ``meas``/``sim``
-        filter chains as ``meas_filters``/``sim_filters`` (when non-empty)
-        and omits ``overrides.rep_conditions`` when a ``RepCond`` step is
-        present in either pipeline (the step is then the single source of
-        reporting conditions).
+        so the merge/write step stays short. Embeds each side's pipeline as
+        ``meas_filters``/``sim_filters``: the applied filter chain when
+        non-empty, else the side's pending config (so a load → save without
+        running is lossless), else the key is omitted. Omits
+        ``overrides.rep_conditions`` when a ``RepCond`` step is present in
+        either pipeline (the step is then the single source of reporting
+        conditions).
         """
         sub = {"test_setup": self.test_setup}
 
@@ -2135,8 +2387,16 @@ class CapTest(param.Parameterized):
                 val = getattr(self, name)
                 if val is not None and val != preset.get(name):
                     overrides[name] = copy.deepcopy(val)
-        meas_filters = self.meas.filters_to_config() if self.meas is not None else []
-        sim_filters = self.sim.filters_to_config() if self.sim is not None else []
+        meas_filters = (
+            self.meas.filters_to_config()
+            if self.meas is not None and self.meas.filters
+            else list(self.meas_filters_pending)
+        )
+        sim_filters = (
+            self.sim.filters_to_config()
+            if self.sim is not None and self.sim.filters
+            else list(self.sim_filters_pending)
+        )
         has_rep_cond_step = any(
             d["type"] == "RepCond" for d in (meas_filters + sim_filters)
         )
@@ -2159,6 +2419,7 @@ class CapTest(param.Parameterized):
         scalar_names = (
             "rc_source",
             "ac_nameplate",
+            "inv_ac_nameplate",
             "test_tolerance",
             "sim_days",
             "shade_filter_start",
@@ -2200,12 +2461,16 @@ class CapTest(param.Parameterized):
         # Manual reporting conditions are data, not config: serialize their
         # values so from_yaml can restore them (computed RC is recomputed by
         # replaying the source pipeline's RepCond step). Numpy scalars are
-        # coerced to native python types for yaml.safe_dump.
-        if self.rc_source == "manual" and self._rc is not None:
-            row = self._rc.iloc[0]
-            sub["reporting_conditions_values"] = {
-                str(col): to_native(val) for col, val in row.items()
-            }
+        # coerced to native python types for yaml.safe_dump. Values stashed
+        # by a load-only construction (run_setup=False) round-trip too.
+        if self.rc_source == "manual":
+            if self._rc is not None:
+                row = self._rc.iloc[0]
+                sub["reporting_conditions_values"] = {
+                    str(col): to_native(val) for col, val in row.items()
+                }
+            elif self._pending_manual_rc is not None:
+                sub["reporting_conditions_values"] = dict(self._pending_manual_rc)
 
         return sub
 
@@ -2318,32 +2583,60 @@ class CapTest(param.Parameterized):
         self.sim.data = wrapped
         self.sim.filters = []
 
-    def setup(self, verbose=True):
+    def setup(self, verbose=True, side="both"):
         """Resolve TEST_SETUPS, propagate scalars, process regression cols.
 
-        Raises ``RuntimeError`` if ``meas`` or ``sim`` is unset. Assigns the
-        resolved TEST_SETUPS entry to ``self._resolved_setup`` and returns
-        ``self`` for fluent chaining.
+        Raises ``RuntimeError`` if any ``CapData`` targeted by ``side`` is
+        unset. Assigns the resolved TEST_SETUPS entry to
+        ``self._resolved_setup`` and returns ``self`` for fluent chaining.
+
+        A full setup (``side='both'``) also consumes manual
+        reporting-conditions values stashed by a load-only
+        ``from_mapping(run_setup=False)``, validating and seeding them as
+        ``rc_source='manual'``; per-side setup leaves the stash untouched
+        (validation needs both sides' regression formulas).
+
+        With ``side='meas'`` or ``side='sim'`` only the target ``CapData``
+        is re-wired; the other side's data, filter chain, and regression
+        state are left untouched. Sim-side setup may *read* meas (the
+        year-wrap span check and site propagation) but mutates only sim;
+        meas-side setup never touches sim — in particular the year-end
+        auto-wrap (``_maybe_wrap_sim_year_end``), which mutates ``sim.data``
+        while reading the meas span, is skipped for ``side='meas'``.
 
         Parameters
         ----------
         verbose : bool, default True
             Forwarded to ``CapData.process_regression_columns``.
+        side : {'both', 'meas', 'sim'}, default 'both'
+            Which CapData instance(s) to (re)wire.
 
         Returns
         -------
         CapTest
             ``self``, for fluent chaining.
+
+        Raises
+        ------
+        ValueError
+            If ``side`` is not ``'meas'``, ``'sim'``, or ``'both'``.
+        RuntimeError
+            If a ``CapData`` targeted by ``side`` is unset.
         """
-        if self.meas is None:
-            raise RuntimeError("CapTest.meas must be set before setup().")
-        if self.sim is None:
-            raise RuntimeError("CapTest.sim must be set before setup().")
+        if side not in ("meas", "sim", "both"):
+            raise ValueError(f"side must be 'meas', 'sim', or 'both', got {side!r}.")
+        sides = ("meas", "sim") if side == "both" else (side,)
+        for s in sides:
+            if getattr(self, s) is None:
+                raise RuntimeError(f"CapTest.{s} must be set before setup().")
 
         # Auto-wrap sim.data when measured spans (within 60 days of) a year
         # boundary. Idempotent and reversible — re-running setup() or toggling
-        # auto_wrap_sim restores the appropriate state.
-        self._maybe_wrap_sim_year_end()
+        # auto_wrap_sim restores the appropriate state. The wrap mutates
+        # sim.data while reading the meas span, so it is skipped for
+        # side='meas' (meas-side setup must not touch sim).
+        if "sim" in sides and self.meas is not None:
+            self._maybe_wrap_sim_year_end()
 
         # Build the overrides dict for resolve_test_setup. Only non-None
         # values are passed through so named-preset resolution falls back to
@@ -2357,38 +2650,44 @@ class CapTest(param.Parameterized):
         resolved = resolve_test_setup(self.test_setup, overrides=overrides)
         self._resolved_setup = resolved
 
-        # Propagate scalar calc-params onto the CapData instances. Names in
-        # _downstream_attrs_meas_only are copied onto meas only; all others
-        # are copied onto both meas and sim.
+        # Propagate scalar calc-params onto the targeted CapData instances.
+        # Names in _downstream_attrs_meas_only are copied onto meas only;
+        # all others are copied onto both meas and sim.
         for name in self._downstream_attrs:
-            setattr(self.meas, name, getattr(self, name))
-            if name not in self._downstream_attrs_meas_only:
+            if "meas" in sides:
+                setattr(self.meas, name, getattr(self, name))
+            if "sim" in sides and name not in self._downstream_attrs_meas_only:
                 setattr(self.sim, name, getattr(self, name))
 
         # Propagate site from meas -> sim with Etc/GMT±N tz for PVsyst.
-        self._propagate_sim_site()
+        # Reads meas.site but mutates only sim, so it runs for sim-side setup.
+        if "sim" in sides and self.meas is not None:
+            self._propagate_sim_site()
 
-        # Wire per-CapData regression state. Deepcopy the regression_cols
-        # dict because process_regression_columns mutates it in place.
-        self.meas.regression_cols = copy.deepcopy(resolved["reg_cols_meas"])
-        self.sim.regression_cols = copy.deepcopy(resolved["reg_cols_sim"])
-        self.meas.regression_formula = resolved["reg_fml"]
-        self.sim.regression_formula = resolved["reg_fml"]
-        self.meas.tolerance = self.test_tolerance
-        self.sim.tolerance = self.test_tolerance
+        # Wire per-CapData regression state on each targeted side. Deepcopy
+        # the regression_cols dict because process_regression_columns mutates
+        # it in place. process_regression_columns also resets data_filtered
+        # to data.copy() so any prior filter state on that side is dropped
+        # (intended behavior per the design spec).
+        for s in sides:
+            cd = getattr(self, s)
+            cd.regression_cols = copy.deepcopy(resolved[f"reg_cols_{s}"])
+            cd.regression_formula = resolved["reg_fml"]
+            cd.tolerance = self.test_tolerance
+            cd.process_regression_columns(verbose=verbose)
+            # Wire the CapData back to this CapTest so
+            # filter_irr(ref_val='rep_irr') resolves against the single test
+            # RC (ct.rc) and cd.rep_cond can update it. Runtime reference
+            # only; capdata.py never imports captest.
+            cd._captest = self
 
-        # Run process_regression_columns on both. This also resets
-        # data_filtered to data.copy() so any prior filter state is
-        # dropped (intended behavior per the design spec).
-        self.meas.process_regression_columns(verbose=verbose)
-        self.sim.process_regression_columns(verbose=verbose)
-
-        # Wire each CapData back to this CapTest so filter_irr(ref_val='rep_irr')
-        # resolves against the single test RC (ct.rc), and (Plan 3) so cd.rep_cond
-        # can update it. Runtime reference only; capdata.py never imports captest.
-        # Assigned per side so a future per-side setup can re-wire one side alone.
-        self.meas._captest = self
-        self.sim._captest = self
+        # Consume manual reporting-conditions values stashed by a load-only
+        # from_mapping (run_setup=False). Only a full setup can seed them:
+        # validation needs both sides' regression formulas, wired just above.
+        if side == "both" and self._pending_manual_rc is not None:
+            df = self._coerce_and_validate_manual_rc(self._pending_manual_rc)
+            self._set_rc(df, "manual", warn=False)
+            self._pending_manual_rc = None
 
         return self
 
@@ -2544,35 +2843,41 @@ class CapTest(param.Parameterized):
         return None
 
     def captest_results(self, check_pvalues=False, pval=0.05, print_res=True):
-        """Compute the capacity test ratio for ``self.meas`` vs ``self.sim``.
+        """Compute the capacity test results for ``self.meas`` vs ``self.sim``.
 
         Predicts both regressions at the single test reporting conditions
         ``self.rc`` (set via :meth:`rep_cond` or the ``rc`` setter);
         ``self.rc_source`` is reported for provenance. Raises ``ValueError``
         if ``self.rc`` is ``None``. Uses ``self.ac_nameplate`` for the
-        tested-capacity printout and ``self.test_tolerance`` (via
-        ``self.determine_pass_or_fail``) for the pass/fail result.
+        tested capacity and ``self.test_tolerance`` (via
+        ``self.determine_pass_or_fail``) for the pass/fail result. Both the
+        plain and the p-value-checked predictions are always computed;
+        ``check_pvalues`` selects which pair is the headline reported as
+        ``cap_ratio`` / ``actual_capacity`` / ``expected_capacity`` and used
+        for pass/fail and tested capacity (``cap_ratio_pval_check`` always
+        carries the checked ratio; ``pvalues_checked`` records the choice).
 
         Parameters
         ----------
         check_pvalues : bool, default False
-            When True, coefficients with a p-value above ``pval`` are zeroed
-            before prediction.
+            When True, the headline predictions and ratio are the ones
+            computed with above-``pval`` coefficients zeroed before
+            prediction.
         pval : float, default 0.05
-            P-value cutoff used when ``check_pvalues`` is True.
+            P-value cutoff used for the p-value-checked ratio.
         print_res : bool, default True
-            When True, prints the formatted results.
+            When True, prints the formatted results (``str(results)``).
 
         Returns
         -------
-        float
-            Capacity test ratio ``actual / expected``.
+        CapTestResults or None
+            Structured results object. Returns ``None`` (after a
+            ``UserWarning``) when the two regression formulas differ.
         """
         self._require_meas_and_sim()
         if self.meas.regression_formula != self.sim.regression_formula:
-            return warnings.warn(
-                "CapData objects do not have the same regression formula."
-            )
+            warnings.warn("CapData objects do not have the same regression formula.")
+            return None
 
         rc = self.rc
         if rc is None:
@@ -2581,50 +2886,270 @@ class CapTest(param.Parameterized):
                 "ct.rep_cond(which) or assign ct.rc = df first."
             )
 
-        if print_res:
-            print(f"Using reporting conditions from {self.rc_source}. \n")
-
         # predict_with_pvalue_check is a single-CapData helper that stays in
         # capdata.py. Imported lazily to avoid importing holoviews-heavy
         # capdata internals at module-load time for callers that never
         # compute cap ratios (e.g. notebooks that only use setup + plots).
         from captest.capdata import predict_with_pvalue_check
 
-        pval_threshold = pval if check_pvalues else None
-        actual = predict_with_pvalue_check(
-            self.meas, rc=rc, pval_threshold=pval_threshold
+        checked_actual = predict_with_pvalue_check(
+            self.meas, rc=rc, pval_threshold=pval
         )
-        expected = predict_with_pvalue_check(
-            self.sim, rc=rc, pval_threshold=pval_threshold
+        checked_expected = predict_with_pvalue_check(
+            self.sim, rc=rc, pval_threshold=pval
         )
-        cap_ratio = actual / expected
+        plain_actual = predict_with_pvalue_check(self.meas, rc=rc, pval_threshold=None)
+        plain_expected = predict_with_pvalue_check(self.sim, rc=rc, pval_threshold=None)
+        cap_ratio_pval_check = checked_actual / checked_expected
+        # The headline pair drives the report and the pass/fail decision.
+        if check_pvalues:
+            actual, expected = checked_actual, checked_expected
+            cap_ratio = cap_ratio_pval_check
+        else:
+            actual, expected = plain_actual, plain_expected
+            cap_ratio = plain_actual / plain_expected
         if cap_ratio < 0.01:
             cap_ratio *= 1000
+            cap_ratio_pval_check *= 1000
             actual *= 1000
             warnings.warn(
                 "Capacity ratio and actual capacity multiplied by 1000"
                 " because the capacity ratio was less than 0.01."
             )
+        test_passed = self.determine_pass_or_fail(cap_ratio)
+        if test_passed is None:
+            test_passed = (False, "")
         capacity = self.ac_nameplate * cap_ratio
 
+        def _points_used(cd):
+            if cd.filters:
+                return cd.filters[-1].pts_after
+            return len(cd.data)
+
+        def _reg_table(cd):
+            r = cd.regression_results
+            return pd.DataFrame({"coef": r.params, "pvalue": r.pvalues})
+
+        results = CapTestResults(
+            cap_ratio=cap_ratio,
+            cap_ratio_pval_check=cap_ratio_pval_check,
+            passed=bool(test_passed[0]),
+            tolerance=self.test_tolerance,
+            bounds=test_passed[1],
+            expected_capacity=expected,
+            actual_capacity=actual,
+            tested_capacity=capacity,
+            points_used={
+                "meas": _points_used(self.meas),
+                "sim": _points_used(self.sim),
+            },
+            regression_tables={
+                "meas": _reg_table(self.meas),
+                "sim": _reg_table(self.sim),
+            },
+            rc=rc.copy(),
+            rc_source=self.rc_source,
+            pvalues_checked=check_pvalues,
+        )
         if print_res:
-            test_passed = self.determine_pass_or_fail(cap_ratio)
-            print_results(
-                test_passed, expected, actual, cap_ratio, capacity, test_passed[1]
+            print(results)
+        return results
+
+    def run_test(self, side="both", check_pvalues=False, pval=0.05, print_res=False):
+        """Run the full capacity test (or one side of it) end to end.
+
+        Canonical sequence: (1) ``setup(side=side)``; (2) replay each side's
+        filter pipeline, the ``rc_source`` side first so its RepCond step
+        populates the test RC before the other side's RC-dependent filters
+        resolve; (3) ``fit_regression`` per side; then, for ``side='both'``
+        only, (4) verify the rc_source pipeline computed the RC this run and
+        (5) return :class:`CapTestResults`.
+
+        Each side's replay source is chosen before setup clears the chains:
+        the live chain when non-empty (snapshotted via ``filters_to_config``
+        — interactive edits win), else the side's pending config
+        (``meas_filters_pending`` / ``sim_filters_pending``, stored by
+        ``from_yaml`` / ``from_mapping``). The call is re-entrant. A side's
+        pending list is consumed after its replay succeeds — a later
+        ``reset_filter()`` + ``run_test`` means "no filters", not
+        "resurrect the config's filters" — and retained (holding the full
+        failed pipeline) when the replay fails. During a
+        full run the not-yet-replayed side is registered in
+        ``_rc_pending_sides`` so the RC write does not warn about steps this
+        call is about to re-run; per-side runs register nothing, so an
+        RC-changing recompute warns about the other side's applied
+        RC-dependent steps. The ``process_regression_columns`` lost-filters
+        warning is suppressed for this intentional orchestrated clearing.
+        When ``rc_source='manual'`` the manual reporting conditions remain
+        authoritative during replay: pipeline RepCond steps compute
+        side-local RCs only, matching ``from_mapping``.
+
+        Parameters
+        ----------
+        side : {'both', 'meas', 'sim'}, default 'both'
+        check_pvalues, pval, print_res
+            Forwarded to :meth:`captest_results` (``side='both'`` only).
+
+        Returns
+        -------
+        CapTestResults or CapTest
+            Results for ``side='both'``; ``self`` for per-side runs.
+
+        Raises
+        ------
+        ValueError
+            If ``side`` is not ``'meas'``, ``'sim'``, or ``'both'``.
+        RuntimeError
+            For ``side='both'``: a computed ``rc_source`` whose replayed
+            pipeline contains no RepCond step, or ``rc_source='manual'``
+            with no reporting conditions set. Exceptions raised in any
+            stage carry a ``[CapTest.run_test stage: ...]`` note on
+            Python 3.11+.
+        """
+        if side not in ("meas", "sim", "both"):
+            raise ValueError(f"side must be 'meas', 'sim', or 'both', got {side!r}.")
+        run_sides = ["meas", "sim"] if side == "both" else [side]
+        if side == "both" and self.rc_source == "sim":
+            run_sides = ["sim", "meas"]
+
+        # Select each side's replay source BEFORE setup:
+        # process_regression_columns clears each targeted side's applied
+        # chain. The live chain wins when non-empty (interactive edits are
+        # authoritative); otherwise the side's pending config is replayed.
+        configs = {}
+        for s in run_sides:
+            cd = getattr(self, s)
+            if cd is not None and cd.filters:
+                configs[s] = cd.filters_to_config()
+            else:
+                configs[s] = list(getattr(self, f"{s}_filters_pending"))
+        if (
+            side == "both"
+            and self.rc_source in ("meas", "sim")
+            and all(
+                any(d.get("type") == "RepCond" for d in configs[s])
+                for s in ("meas", "sim")
+            )
+        ):
+            warnings.warn(
+                "Both pipelines contain a RepCond step with a computed "
+                f"rc_source ('{self.rc_source}'): this is ambiguous and "
+                "unsupported — the non-rc_source side's RepCond will "
+                "overwrite the test reporting conditions and flip "
+                "rc_source. Remove the RepCond step from the non-rc_source "
+                "pipeline."
             )
 
-        return cap_ratio
+        stage = "setup"
+        try:
+            with warnings.catch_warnings():
+                # setup()'s chain-clearing is intentional here (the chains
+                # were snapshotted above); keep the lost-filters warning for
+                # direct interactive process_regression_columns calls.
+                warnings.filterwarnings(
+                    "ignore",
+                    message="The data_filtered attribute has been overwritten",
+                )
+                self.setup(verbose=False, side=side)
+
+            stage = "filter pipelines"
+            if side == "both":
+                self._rc_pending_sides = set(run_sides)
+            # A manual RC is authoritative: suppress live RepCond propagation
+            # during the replay (mirroring from_mapping's manual-RC replay
+            # semantics) so a replayed RepCond step still computes that side's
+            # local cd.rc but never overwrites ct.rc or flips rc_source.
+            # Computed sources keep live propagation — the staleness
+            # machinery depends on it.
+            manual_rc = self.rc_source == "manual"
+            if manual_rc:
+                self._loading = True
+            try:
+                for s in run_sides:
+                    # Consume the pending registration as this side's replay
+                    # begins: the currently-replaying side is never in its
+                    # own exclusion set.
+                    self._rc_pending_sides.discard(s)
+                    if configs[s]:
+                        try:
+                            getattr(self, s).run_pipeline(configs[s])
+                        except Exception as e:
+                            # Keep the failed pipeline's definition editable:
+                            # setup() already cleared the live chain, so after
+                            # the rollback the pending list is the only copy
+                            # of a live-chain snapshot (spec R2 rule 3).
+                            setattr(self, f"{s}_filters_pending", configs[s])
+                            if hasattr(e, "add_note"):
+                                e.add_note(
+                                    f"The {s} filter pipeline failed and was "
+                                    "rolled back. Its definition is retained "
+                                    f"in ct.{s}_filters_pending — edit the "
+                                    "failing step's dict and re-run "
+                                    "ct.run_test() (or "
+                                    f"ct.{s}.run_pipeline(ct.{s}_filters_pending"
+                                    ")), or edit the yaml config and reload."
+                                )
+                            raise
+                    # A completed pass makes the live chain the single source
+                    # of truth for this side; the pending config is consumed
+                    # regardless of which source was replayed (spec R2).
+                    setattr(self, f"{s}_filters_pending", [])
+            finally:
+                self._rc_pending_sides = set()
+                if manual_rc:
+                    self._loading = False
+
+            stage = "fit_regression"
+            for s in run_sides:
+                getattr(self, s).fit_regression(summary=False)
+
+            if side != "both":
+                return self
+
+            stage = "reporting conditions"
+            if self.rc_source in ("meas", "sim"):
+                # Verification, not computation: run_pipeline truncated the
+                # chain first, so a RepCond in the applied chain proves the
+                # step executed and wrote ct.rc THIS run (a bare rc-is-set
+                # check would accept a stale RC from a prior run).
+                src_cd = getattr(self, self.rc_source)
+                if not any(type(st).__name__ == "RepCond" for st in src_cd.filters):
+                    raise RuntimeError(
+                        f"rc_source='{self.rc_source}' but the "
+                        f"{self.rc_source} pipeline contains no RepCond "
+                        "step; the test reporting conditions were not "
+                        "computed this run."
+                    )
+            elif self._rc is None:
+                raise RuntimeError(
+                    "rc_source='manual' but no reporting conditions are "
+                    "set; assign ct.rc = df before run_test()."
+                )
+
+            stage = "results"
+            return self.captest_results(
+                check_pvalues=check_pvalues, pval=pval, print_res=print_res
+            )
+        except Exception as e:
+            # add_note exists on 3.11+; the project floor is 3.10.
+            if hasattr(e, "add_note"):
+                e.add_note(f"[CapTest.run_test stage: {stage}]")
+            raise
 
     def captest_results_check_pvalues(self, print_res=False, **kwargs):
         """Compute cap ratio with and without p-value filtering.
 
+        Thin display wrapper around :meth:`captest_results` (called once):
+        prints both capacity ratios and returns the p-value Styler view of
+        the results (``CapTestResults.styled_pvalues``).
+
         Parameters
         ----------
         print_res : bool, default False
-            Forwarded to both internal ``captest_results`` calls.
+            Forwarded to the internal ``captest_results`` call.
         **kwargs
-            Forwarded to ``captest_results``. Do not pass ``check_pvalues``;
-            this method sets it explicitly for each internal call.
+            Forwarded to ``captest_results`` (e.g. ``check_pvalues`` to pick
+            the headline ratio, ``pval`` for the cutoff).
 
         Returns
         -------
@@ -2632,34 +3157,11 @@ class CapTest(param.Parameterized):
             Styled DataFrame with p-values and parameter values for both
             ``self.meas`` and ``self.sim``. P-values >= 0.05 are highlighted.
         """
-        self._require_meas_and_sim()
-        das_pvals = self.meas.regression_results.pvalues
-        sim_pvals = self.sim.regression_results.pvalues
-        das_params = self.meas.regression_results.params
-        sim_params = self.sim.regression_results.params
+        res = self.captest_results(print_res=print_res, **kwargs)
 
-        df_pvals = pd.DataFrame([das_pvals, sim_pvals, das_params, sim_params])
-        df_pvals = df_pvals.transpose()
-        df_pvals.rename(
-            columns={
-                0: "das_pvals",
-                1: "sim_pvals",
-                2: "das_params",
-                3: "sim_params",
-            },
-            inplace=True,
-        )
-
-        cap_ratio = self.captest_results(
-            print_res=print_res, check_pvalues=False, **kwargs
-        )
-        cap_ratio_check_pvalues = self.captest_results(
-            print_res=print_res, check_pvalues=True, **kwargs
-        )
-
-        cap_ratio_rounded = np.round(cap_ratio, decimals=4) * 100
+        cap_ratio_rounded = np.round(res.cap_ratio, decimals=4) * 100
         cap_ratio_check_pvalues_rounded = (
-            np.round(cap_ratio_check_pvalues, decimals=4) * 100
+            np.round(res.cap_ratio_pval_check, decimals=4) * 100
         )
 
         print("{:.3f}% - Cap Ratio".format(cap_ratio_rounded))
@@ -2669,9 +3171,7 @@ class CapTest(param.Parameterized):
             )
         )
 
-        return df_pvals.style.format("{:20,.5f}").apply(
-            highlight_pvals, subset=["das_pvals", "sim_pvals"]
-        )
+        return res.styled_pvalues()
 
     def get_summary(self):
         """Concatenate ``self.meas.get_summary()`` and ``self.sim.get_summary()``.
@@ -2828,11 +3328,11 @@ class CapTest(param.Parameterized):
 # Silence ruff F401: these are public API; re-imported by `capdata.py`.
 __all__ = [
     "CapTest",
+    "CapTestResults",
     "TEST_SETUPS",
     "highlight_pvals",
     "load_config",
     "perc_wrap",
-    "print_results",
     "resolve_test_setup",
     "scatter_bifi_power_tc",
     "scatter_default",

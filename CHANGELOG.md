@@ -6,6 +6,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Added
+- New `CapData.rerun_filters_from(index)` — partial pipeline re-run: truncates
+the chain to the retained prefix and re-runs the tail as live step objects with
+their current param values (introduced this cycle as `rerun_from`, renamed
+before release).
 - Added `CapData.filter_backtracking()` (and the underlying `Backtracking`
 filter step) to remove single-axis-tracker backtracking intervals from the
 data. Backtracking activity is determined per interval from solar position and
@@ -64,8 +68,82 @@ only the truthy rows). Added `CapData.filter_threshold(column, low, high)` — a
 one-sided or two-sided inclusive threshold on any column, backed by the
 `Irradiance` step. Added `CapData.filter_sensors_abs_diff(thresholds)` for the
 absolute-difference sensor comparison.
+- New `CapTest.inv_ac_nameplate` param — per-inverter AC nameplate rating (kW);
+plant metadata and a convenient starting point for per-inverter clipping
+thresholds, round-trips through to_yaml/from_yaml.
+- New `CapTest.to_mapping()` — public dict export of the config mapping to_yaml
+writes; symmetric with from_mapping.
+- RC-staleness warning: an RC-changing write now warns once, naming applied
+`ref_val='rep_irr'`/`'self_val'` filter steps that resolved against the previous
+reporting conditions (merged with the rc_source-change warning when both apply);
+loading a config with RepCond steps in both pipelines under a computed rc_source
+warns that the configuration is ambiguous.
+- `CapTest.setup(side=...)` — per-side setup that re-wires only the target
+CapData (sim-side setup may read meas but mutates only sim); `CapTest.reload(side)`
+— re-load one side from its stored path/loader and re-run per-side setup.
+`reload` accepts `path=` to point the side at a new data file (the new path
+replaces the stored one for later reloads and serialization) and preserves
+the outgoing side's applied filter chain as its pending config so
+`run_test(side=...)` re-applies it against the fresh data.
+- New `CapTest.run_test(side='both'|'meas'|'sim')` — one-call orchestrator
+(setup → pipeline replay, rc_source side first → fit → RC verification →
+`CapTestResults`); per-side runs re-run one chain and leave the other untouched.
+- New `run_setup` flag (default `True`) on `CapTest.from_params` / `from_yaml` /
+`from_mapping` — pass `False` for load-only construction: data is loaded but
+`setup()` is skipped (no scalar propagation, no regression-column processing,
+nothing seeded); a later `setup()` or `run_test()` proceeds normally. New public
+`CapTest.meas_filters_pending` / `sim_filters_pending` attributes hold the
+config's serialized filter pipelines until `run_test` replays and consumes them
+(retained, with recovery guidance attached to the error, when a replay fails).
 
 ### Changed
+- Modernized the docs toolchain for current Python: `sphinx>=8.1`,
+`sphinx_rtd_theme>=3.0`, `nbsphinx>=0.9.7`, and `myst-parser` replacing the
+archived `recommonmark` (dropped the stale `docutils` pin). The example
+notebooks (`captest_class`, `captest_class_bifi`, `concise_capacity_test`)
+now apply filter methods directly instead of the removed module-level
+`run_test` step lists, so they execute cleanly during the docs build.
+- **Breaking:** `CapTest.from_yaml` / `from_mapping` no longer apply the config's
+filter pipelines at load. Pipelines are stored on the instance as
+`meas_filters_pending` / `sim_filters_pending` and run by `run_test()` (or
+manually via `CapData.run_pipeline`), so a freshly loaded test holds unfiltered
+data for review and `from_yaml(path).run_test()` executes each pipeline exactly
+once. Consequently, after loading a config with a computed `rc_source`, `ct.rc`
+is `None` until the filters run; manual-RC configs are unchanged (values are
+validated and seeded during the construction-time `setup()`).
+- `CapData.run_pipeline` now resets the applied chain before rebuilding (replay
+is restore-then-re-run); appending a pipeline onto an existing chain is no
+longer supported.
+- Replay rollback is now a full state transaction for both
+`CapData.run_pipeline` and `CapData.rerun_filters_from`: a failing step
+restores the filter chain, each re-run step's runtime state, `rc`/`rc_tool`,
+and — when the CapData belongs to a CapTest — the test-level reporting
+conditions and their provenance (`rc`/`rc_source`) to their pre-call values,
+and attaches a note naming the failing step (Python 3.11+).
+- `CapTest.captest_results()` now returns a structured `CapTestResults` object
+(cap_ratio, pval-checked ratio, pass/fail + bounds, expected/actual/tested
+capacity, per-side points used, per-side regression tables, RC + provenance)
+instead of a bare float; the legacy printed report is `str(results)` and the
+p-value Styler is `results.styled_pvalues()`. On mismatched regression
+formulas the method still warns and now explicitly returns `None`. The
+module-level `print_results` helper is removed — its output lives on as
+`CapTestResults.summary()` — and `captest_results_check_pvalues` is now a thin
+display wrapper over a single `captest_results` call (same Styler return and
+printed cap-ratio lines).
+- `CapTest.captest_results(check_pvalues=True)` now reports the
+p-value-checked predictions consistently throughout the results:
+`cap_ratio`, `actual_capacity`, `expected_capacity`, `tested_capacity`, and
+the pass/fail decision all use the headline (checked) values, and the new
+`CapTestResults.pvalues_checked` flag records which variant is the headline
+(`cap_ratio_pval_check` still always carries the checked ratio). Also,
+`CapTest.run_test()` no longer overwrites a manual reporting-conditions value
+(`rc_source='manual'`) when a replayed pipeline contains a RepCond step — the
+manual RC stays authoritative and the step computes a side-local RC only,
+matching the `from_yaml`/`from_mapping` replay semantics.
+- `BaseSummaryStep.run` now rolls back steps appended by nested filter calls
+when `_execute` raises, and `CapData._calc_rep_cond` assigns `rc`/`rc_tool`
+only after computation succeeds (restoring the prior `rc` if CapTest
+propagation fails) — a failed step leaves the pipeline and RC state unchanged.
 - **Breaking:** `CapData.data_filtered` is now a derived, read-only property — the
 `data` rows kept by the last filter (a defensive copy), or `data` when no filters
 have run. It has no setter; clear filtering with `CapData.reset_filter()`. Code
@@ -112,6 +190,12 @@ that argument and let `CapTest` wrap the sim data on setup.
 `filter_sensors_abs_diff(...)` wrapper or `method='abs_diff'`. The
 `check_all_perc_diff_comb` helper is no longer re-exported from `captest.capdata`;
 import it from `captest.filters`.
+
+### Removed
+- Removed the legacy module-level `capdata.run_test(cd, steps)` (imperative
+method+args tuples); the name is reused by the new `CapTest.run_test()`
+orchestrator. Config-driven pipelines (`run_pipeline`, `from_yaml`) supersede
+it. (Historical references in the docs/example notebooks are out of scope.)
 
 ### Fixed
 - `CapTest._maybe_wrap_sim_year_end` now uses a fixed July 1 → June 30 wrap window

@@ -103,6 +103,10 @@ plot_colors_brewer = {
 
 met_keys = ["poa", "t_amb", "w_vel", "power"]
 
+# Sentinel distinguishing "attribute absent" from "attribute is None" in the
+# replay-rollback RC snapshots (``CapData._rc_state_snapshot``).
+_MISSING = object()
+
 
 columns = ["function_name", "pts_after_filter", "pts_removed", "filter_arguments"]
 
@@ -634,30 +638,6 @@ def predict_with_pvalue_check(cd, rc=None, pval_threshold=0.05):
     exog = dmatrix(design_info, rc)
     # Predict using model.predict with custom params
     return results.model.predict(modified_params, exog)[0]
-
-
-def run_test(cd, steps):
-    """
-    Apply a list of capacity test steps to a given CapData object.
-
-    A list of CapData methods is applied sequentially with the passed
-    parameters.  This method allows succintly defining a capacity test,
-    which facilitates parametric and automatic testing.
-
-    Parameters
-    ----------
-    cd : CapData
-        The CapData methods will be applied to this instance of the pvcaptest
-        CapData class.
-    steps : list of tuples
-        A list of the methods to be applied and the arguments to be used.
-        Each item in the list should be a tuple of the CapData method followed
-        by a tuple of arguments and a dictionary of keyword arguments. If
-        there are not args or kwargs an empty tuple or dict should be included.
-        Example: [(CapData.filter_irr, (400, 1500), {})]
-    """
-    for step in steps:
-        step[0](cd, *step[1], **step[2])
 
 
 def index_capdata(capdata, label, filtered=True):
@@ -2339,6 +2319,26 @@ class CapData(param.Parameterized):
         """
         return [step.to_config() for step in self.filters]
 
+    def _rc_state_snapshot(self):
+        """Capture rc/rc_tool and (when test-wired) the CapTest RC state."""
+        ct = self._captest
+        return (
+            self.rc,
+            self.__dict__.get("rc_tool", _MISSING),
+            None if ct is None else (ct._rc, ct.rc_source),
+        )
+
+    def _rc_state_restore(self, snapshot):
+        """Restore a :meth:`_rc_state_snapshot` after a failed replay."""
+        rc, rc_tool, ct_state = snapshot
+        self.rc = rc
+        if rc_tool is _MISSING:
+            self.__dict__.pop("rc_tool", None)
+        else:
+            self.rc_tool = rc_tool
+        if ct_state is not None and self._captest is not None:
+            self._captest._set_rc(ct_state[0], ct_state[1], warn=False)
+
     def run_pipeline(self, config):
         """Rebuild and run each filter step from a list of config dicts.
 
@@ -2347,9 +2347,107 @@ class CapData(param.Parameterized):
         via ``filters.step_from_config`` and run against this CapData in order.
         Requires ``data`` loaded and ``regression_cols`` resolved (run
         ``process_regression_columns`` first) for filters that need them.
+
+        Resets the applied chain first (``self.filters = []``) — replay is
+        restore-then-re-run, so re-run steps never coexist with their stale
+        predecessors. Appending a serialized pipeline onto an existing chain
+        is not a supported pattern; extend a chain with the ``filter_*``
+        wrappers instead.
+
+        The replay is a transaction: if any step raises, the pre-call state
+        is restored before the exception propagates — the ``filters`` chain,
+        ``rc``/``rc_tool``, and, when this CapData belongs to a CapTest, the
+        test-level ``rc``/``rc_source`` (a mid-pipeline ``RepCond`` write is
+        undone). A note naming the failing step is attached to the exception
+        (Python 3.11+). The transaction covers state pvcaptest owns or that
+        step execution replaces; external side effects — warnings already
+        emitted mid-replay, or mutations a user-supplied callable makes to
+        its own objects — are not undone.
         """
-        for step_config in config:
-            step_from_config(step_config).run(self)
+        prior_filters = self.filters
+        rc_snapshot = self._rc_state_snapshot()
+        if self.filters:
+            self.filters = []
+        step_label = "?"
+        try:
+            for i, step_config in enumerate(config):
+                step_label = f"{i} ({step_config.get('type', '?')})"
+                step_from_config(step_config).run(self)
+        except Exception as e:
+            self.filters = prior_filters
+            self._rc_state_restore(rc_snapshot)
+            if hasattr(e, "add_note"):
+                e.add_note(
+                    f"Pipeline step {step_label} failed; the pipeline was "
+                    "rolled back to its pre-call state."
+                )
+            raise
+
+    def rerun_filters_from(self, index):
+        """Re-execute steps ``index..end`` of the applied filter chain.
+
+        Restores the pipeline to the state after ``filters[index - 1]``
+        (the unfiltered data for ``index == 0``) by truncating ``filters``
+        to the retained prefix, then re-runs each retained tail step as a
+        live object with its current param values — edits made to a step's
+        params are picked up. Steps are appended per-step (one ``filters``
+        reassignment each, exactly like ``run_pipeline``), so watchers see
+        the truncation followed by one event per re-run step, and mid-replay
+        ``filters`` always equals the applied steps.
+
+        The re-run is a transaction: if any tail step raises, the pre-call
+        state is restored before the exception propagates — the ``filters``
+        chain, each tail step's complete instance state (runtime attributes
+        such as ``ix_after``/``pts_after`` and resolved fields; param edits
+        made before the call are pre-call state and are kept),
+        ``rc``/``rc_tool``, and, when this CapData belongs to a CapTest, the
+        test-level ``rc``/``rc_source``. A note naming the failing step is
+        attached to the exception (Python 3.11+). The transaction covers
+        state pvcaptest owns or that step execution replaces; external side
+        effects — warnings already emitted mid-replay, or mutations a
+        user-supplied callable makes to its own objects — are not undone.
+
+        Parameters
+        ----------
+        index : int
+            First chain position to re-run. ``0`` re-runs everything;
+            ``len(self.filters)`` is a no-op.
+
+        Raises
+        ------
+        IndexError
+            If ``index`` is negative or greater than ``len(self.filters)``.
+        """
+        n = len(self.filters)
+        if not 0 <= index <= n:
+            raise IndexError(
+                f"rerun_filters_from index {index} out of range for a chain of "
+                f"{n} steps (valid: 0..{n})."
+            )
+        if index == n:
+            return
+        tail = list(self.filters[index:])
+        prior_filters = self.filters
+        tail_state = [dict(step.__dict__) for step in tail]
+        rc_snapshot = self._rc_state_snapshot()
+        self.filters = self.filters[:index]
+        try:
+            for step in tail:
+                step.run(self)
+        except Exception as e:
+            failing_step = type(step).__name__
+            for tail_step, saved in zip(tail, tail_state):
+                tail_step.__dict__.clear()
+                tail_step.__dict__.update(saved)
+            self.filters = prior_filters
+            self._rc_state_restore(rc_snapshot)
+            if hasattr(e, "add_note"):
+                e.add_note(
+                    f"rerun_filters_from({index}) failed at step "
+                    f"'{failing_step}'; the chain and step state were "
+                    "restored to their pre-call values."
+                )
+            raise
 
     def _calc_rep_cond(
         self, func, w_vel, irr_bal, percent_filter, front_poa, rc_kwargs
@@ -2362,7 +2460,10 @@ class CapData(param.Parameterized):
         so ``filters.py`` needs no import of ``capdata`` or
         ``ReportingIrradiance``) and by the thin ``rep_cond`` wrapper. Sets
         ``self.rc`` (and ``self.rc_tool`` when ``irr_bal`` is True) as a side
-        effect; returns None.
+        effect; returns None. Computes fully before assigning: ``rc_tool`` and
+        ``rc`` are written only after the RC frame is built, and both are
+        restored to their prior values if the CapTest propagation callback
+        raises, so a failure leaves the RC side-state unchanged.
 
         Parameters
         ----------
@@ -2390,19 +2491,20 @@ class CapData(param.Parameterized):
 
         RCs_df = pd.DataFrame(df.agg(func)).T
 
+        rc_tool = None
         if irr_bal:
             if front_poa not in df.columns:
                 raise ValueError(
                     f"front_poa={front_poa!r} is not a right-hand-side variable "
                     f"of the regression formula."
                 )
-            self.rc_tool = ReportingIrradiance(
+            rc_tool = ReportingIrradiance(
                 df,
                 front_poa,
                 percent_band=percent_filter,
                 **rc_kwargs,
             )
-            results = self.rc_tool.get_rep_irr()
+            results = rc_tool.get_rep_irr()
             flt_df = results[1]
             RCs_df = pd.DataFrame(flt_df.agg(func)).T
             RCs_df.loc[RCs_df.index[0], front_poa] = results[0]
@@ -2412,13 +2514,32 @@ class CapData(param.Parameterized):
 
         print("Reporting conditions saved to rc attribute.")
         print(RCs_df)
+        # Compute-fully-assign-last: rc_tool/rc are written only after all
+        # computation above has succeeded, so a failure inside get_rep_irr or
+        # the aggregation leaves the prior RC side-state untouched.
+        prior_rc = self.rc
+        had_rc_tool = hasattr(self, "rc_tool")
+        prior_rc_tool = getattr(self, "rc_tool", None)
+        if irr_bal:
+            self.rc_tool = rc_tool
         self.rc = RCs_df
         # When this CapData belongs to a CapTest, propagate the freshly computed
         # rc to the single test rc (last-writer-wins). The CapTest decides warn
         # vs silent and config-seeded load behavior. Opaque call — capdata.py
         # never imports captest.
         if self._captest is not None:
-            self._captest._on_capdata_rep_cond(self)
+            try:
+                self._captest._on_capdata_rep_cond(self)
+            except Exception:
+                # Restore the prior RC side-state so a failed propagation
+                # leaves this CapData byte-identical to its pre-run state.
+                self.rc = prior_rc
+                if irr_bal:
+                    if had_rc_tool:
+                        self.rc_tool = prior_rc_tool
+                    else:
+                        del self.rc_tool
+                raise
 
     def rep_cond(
         self,

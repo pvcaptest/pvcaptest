@@ -121,3 +121,5 @@ src/captest/_version.py
 
 # windsurf
 .windsurf/
+# roborev snapshots
+/.roborev/
