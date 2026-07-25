@@ -1254,8 +1254,8 @@ class CapTest(param.Parameterized):
     named regression preset from ``TEST_SETUPS`` and holds all test-level
     configuration in one place. It is intentionally a config + state
     container rather than a runner: users still invoke
-    ``ct.meas.filter_*(...)``, ``ct.meas.rep_cond(...)``, and
-    ``ct.meas.fit_regression()`` by hand.
+    ``tst.meas.filter_*(...)``, ``tst.meas.rep_cond(...)``, and
+    ``tst.meas.fit_regression()`` by hand.
 
     Typical workflows
     -----------------
@@ -1278,8 +1278,8 @@ class CapTest(param.Parameterized):
     3. Bare + manual::
 
         ct = CapTest(test_setup="bifi_e2848_etotal_rear_shade_sim", bifaciality=0.15)
-        ct.meas = my_meas_cd
-        ct.sim = my_sim_cd
+        tst.meas = my_meas_cd
+        tst.sim = my_sim_cd
         ct.setup()
 
     Parameters
@@ -1417,7 +1417,7 @@ class CapTest(param.Parameterized):
         "computed from that dataset's rep_cond, or 'manual' when set directly. "
         "Seeds the default 'which' for rep_cond. This is a provenance label "
         "managed alongside CapTest.rc by the sanctioned mutation paths "
-        "(rep_cond / the ct.rc setter, both routed through _set_rc) and is "
+        "(rep_cond / the tst.rc setter, both routed through _set_rc) and is "
         "accepted as a construction-time config input; assigning it directly "
         "afterward relabels provenance without changing the stored rc and is "
         "not recommended.",
@@ -1741,7 +1741,7 @@ class CapTest(param.Parameterized):
             df = pd.DataFrame([value])
         else:
             raise TypeError(
-                "ct.rc must be a one-row DataFrame, a pandas Series, or a dict "
+                "tst.rc must be a one-row DataFrame, a pandas Series, or a dict "
                 f"mapping regression variable -> value; got "
                 f"{type(value).__name__}."
             )
@@ -1826,7 +1826,7 @@ class CapTest(param.Parameterized):
 
         Called by :meth:`CapData._calc_rep_cond` when the CapData belongs to
         this test. Behavior is last-writer-wins: the calling side's ``rc``
-        becomes ``ct.rc`` and ``rc_source`` (a source-change ``UserWarning``
+        becomes ``tst.rc`` and ``rc_source`` (a source-change ``UserWarning``
         is emitted by :meth:`_set_rc`). ``_loading`` exists solely for
         ``run_test``'s manual-RC replay: with ``rc_source='manual'`` the
         manual reporting conditions stay authoritative, so propagation from
@@ -1867,7 +1867,7 @@ class CapTest(param.Parameterized):
             Nothing setup produces is present: no scalar propagation, no
             derived-parameter calculation, no regression-column
             processing, no ``_captest`` back-references. A later
-            ``ct.setup()`` or ``ct.run_test()`` proceeds normally.
+            ``tst.setup()`` or ``tst.run_test()`` proceeds normally.
         **kwargs
             Any declared CapTest parameter, plus ``meas``, ``sim``,
             ``meas_path``, ``sim_path``.
@@ -2208,7 +2208,7 @@ class CapTest(param.Parameterized):
         -------
         CapTest
             ``self``, for fluent chaining
-            (``ct.reload('sim', path='new.CSV').run_test(side='sim')``).
+            (``tst.reload('sim', path='new.CSV').run_test(side='sim')``).
 
         Raises
         ------
@@ -2883,7 +2883,7 @@ class CapTest(param.Parameterized):
         if rc is None:
             raise ValueError(
                 "captest_results requires test reporting conditions. Call "
-                "ct.rep_cond(which) or assign ct.rc = df first."
+                "tst.rep_cond(which) or assign tst.rc = df first."
             )
 
         # predict_with_pvalue_check is a single-CapData helper that stays in
@@ -3083,10 +3083,10 @@ class CapTest(param.Parameterized):
                                 e.add_note(
                                     f"The {s} filter pipeline failed and was "
                                     "rolled back. Its definition is retained "
-                                    f"in ct.{s}_filters_pending — edit the "
+                                    f"in tst.{s}_filters_pending — edit the "
                                     "failing step's dict and re-run "
-                                    "ct.run_test() (or "
-                                    f"ct.{s}.run_pipeline(ct.{s}_filters_pending"
+                                    "tst.run_test() (or "
+                                    f"tst.{s}.run_pipeline(tst.{s}_filters_pending"
                                     ")), or edit the yaml config and reload."
                                 )
                             raise
@@ -3123,7 +3123,7 @@ class CapTest(param.Parameterized):
             elif self._rc is None:
                 raise RuntimeError(
                     "rc_source='manual' but no reporting conditions are "
-                    "set; assign ct.rc = df before run_test()."
+                    "set; assign tst.rc = df before run_test()."
                 )
 
             stage = "results"

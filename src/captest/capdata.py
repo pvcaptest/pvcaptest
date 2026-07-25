@@ -951,7 +951,7 @@ class CapData(param.Parameterized):
             if in_test:
                 raise ValueError(
                     "ref_val='rep_irr' requires test reporting conditions. Call "
-                    "ct.rep_cond(which) or assign ct.rc = df before filtering."
+                    "tst.rep_cond(which) or assign tst.rc = df before filtering."
                 )
             raise ValueError(
                 "ref_val='rep_irr' requires reporting conditions. Call "
@@ -1728,7 +1728,7 @@ class CapData(param.Parameterized):
             Pass ``'rep_irr'`` to use the reporting irradiance from
             :attr:`rep_irr` (set by calling :meth:`rep_cond` first). Within a
             :class:`~captest.captest.CapTest`, ``'rep_irr'`` resolves against the
-            single test reporting conditions ``ct.rc``, so a ``sim`` filter can
+            single test reporting conditions ``tst.rc``, so a ``sim`` filter can
             anchor on the test's reporting irradiance without passing the value
             manually.
         col_name : str, default None

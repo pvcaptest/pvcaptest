@@ -12,7 +12,7 @@ reporting conditions as one value owned by the test:
 
 This page explains how the single test RC is established, overridden, tracked,
 used in filtering and results, and persisted across a yaml round-trip. It
-assumes a :py:class:`~captest.captest.CapTest` instance ``ct`` has been created
+assumes a :py:class:`~captest.captest.CapTest` instance ``tst`` has been created
 and set up as described in :ref:`captest`.
 
 The single test reporting conditions
@@ -23,7 +23,7 @@ one value per regression variable:
 
 .. code-block:: Python
 
-    >>> ct.rc
+    >>> tst.rc
          poa  t_amb  w_vel
     0  805.1   24.7    2.1
 
@@ -37,26 +37,26 @@ or supplied directly.
     A standalone :py:class:`~captest.capdata.CapData` used without a
     ``CapTest`` keeps its own ``cd.rc`` and is unaffected by the test-level
     ownership described here. Inside a ``CapTest`` the test RC is authoritative
-    and ``ct.meas`` / ``ct.sim`` resolve reporting values from it.
+    and ``tst.meas`` / ``tst.sim`` resolve reporting values from it.
 
 Computing reporting conditions
 ------------------------------
 :py:meth:`~captest.captest.CapTest.rep_cond` computes the reporting conditions
 from one dataset using the selected test setup's default aggregations. For the
 standard E2848 setup, POA uses the 60th percentile of the filtered POA while
-ambient temperature and wind speed use the mean.
+ambient temperature and wind speed use the mean, per ASTM E2939.
 
 .. code-block:: Python
 
-    ct.rep_cond()              # compute from measured data (rc_source -> 'meas')
-    ct.rep_cond(which='sim')   # compute from modeled data  (rc_source -> 'sim')
+    tst.rep_cond()              # compute from measured data (rc_source -> 'meas')
+    tst.rep_cond(which='sim')   # compute from modeled data  (rc_source -> 'sim')
 
 Whichever side it is computed on becomes the single test RC: the call updates
 :py:attr:`~captest.captest.CapTest.rc` and sets
 :py:attr:`~captest.captest.CapTest.rc_source` accordingly. Calling
-``ct.meas.rep_cond()`` (or ``ct.sim.rep_cond()``) directly has the same effect —
-any reporting-conditions calculation on a test member flows up to ``ct.rc``
-(last writer wins). With no ``which`` argument, ``ct.rep_cond()`` defaults to the
+``tst.meas.rep_cond()`` (or ``tst.sim.rep_cond()``) directly has the same effect —
+any reporting-conditions calculation on a test member flows up to ``tst.rc``
+(last writer wins). With no ``which`` argument, ``tst.rep_cond()`` defaults to the
 current ``rc_source``, so re-running it does not silently switch sides.
 
 When a computation *changes* the source — for example computing from ``sim``
@@ -85,21 +85,21 @@ same window is applied consistently to the measured and modeled data:
 
 .. code-block:: Python
 
-    ct.meas.filter_irr(
-        ct.rep_irr_filter_low,
-        ct.rep_irr_filter_high,
+    tst.meas.filter_irr(
+        tst.rep_irr_filter_low,
+        tst.rep_irr_filter_high,
         ref_val='rep_irr',
     )
 
-    ct.sim.filter_irr(
-        ct.rep_irr_filter_low,
-        ct.rep_irr_filter_high,
+    tst.sim.filter_irr(
+        tst.rep_irr_filter_low,
+        tst.rep_irr_filter_high,
         ref_val='rep_irr',
     )
 
 Passing ``ref_val='rep_irr'`` resolves the reference irradiance from the single
-test RC: within a ``CapTest`` both ``ct.meas`` and ``ct.sim`` read
-:py:attr:`~captest.capdata.CapData.rep_irr` from ``ct.rc``. This means a modeled
+test RC: within a ``CapTest`` both ``tst.meas`` and ``tst.sim`` read
+:py:attr:`~captest.capdata.CapData.rep_irr` from ``tst.rc``. This means a modeled
 filter can anchor on the test's reporting irradiance even when the conditions
 were computed from the measured data — without passing the value by hand. If no
 test RC has been established, ``ref_val='rep_irr'`` raises a ``ValueError``
@@ -115,7 +115,7 @@ way to do this; it records ``rc_source='manual'``:
 .. code-block:: Python
 
     # a one-row DataFrame, a Series, or a dict of regression variable -> value
-    ct.rc = {'poa': 800.0, 't_amb': 25.0, 'w_vel': 2.0}
+    tst.rc = {'poa': 800.0, 't_amb': 25.0, 'w_vel': 2.0}
 
 The value must provide a number for every right-hand-side variable of the
 (shared measured/modeled) regression formula; interaction terms such as
@@ -139,12 +139,12 @@ Reporting conditions and results
 --------------------------------
 :py:meth:`~captest.captest.CapTest.captest_results` (and
 :py:meth:`~captest.captest.CapTest.captest_results_check_pvalues`) predict both
-the measured and modeled regressions at the single test RC ``ct.rc``. The
+the measured and modeled regressions at the single test RC ``tst.rc``. The
 returned :py:class:`~captest.captest.CapTestResults` object carries the
 reporting conditions the predictions were made at (``results.rc``) and their
 provenance (``results.rc_source``) alongside the capacity ratio. If no
 reporting conditions have been established, ``captest_results`` raises a
-``ValueError`` — call ``ct.rep_cond(...)`` or assign ``ct.rc`` first.
+``ValueError`` — call ``tst.rep_cond(...)`` or assign ``tst.rc`` first.
 
 Saving and restoring reporting conditions
 -----------------------------------------
@@ -155,21 +155,21 @@ The single test RC round-trips through
 - **Computed** reporting conditions are not value-serialized. The ``RepCond``
   step is saved in the ``rc_source`` side's filter pipeline, and the
   conditions are recomputed when that pipeline runs. Because ``from_yaml``
-  stores the pipelines as pending rather than applying them, ``ct.rc`` is
+  stores the pipelines as pending rather than applying them, ``tst.rc`` is
   ``None`` after the load; running the test
   (:py:meth:`~captest.captest.CapTest.run_test`, or a manual
   :py:meth:`~captest.capdata.CapData.run_pipeline`) replays the ``RepCond``
   step, so the restored RC reflects the same filtered data.
 - **Manual** reporting conditions carry their values in a
   ``reporting_conditions_values`` block. On load they are re-validated and
-  seeded during the construction-time ``setup()``, so ``ct.rc`` is available
+  seeded during the construction-time ``setup()``, so ``tst.rc`` is available
   immediately and a self-anchoring ``ref_val='rep_irr'`` filter resolves
   correctly when the pipelines later run.
 
 When ``run_test`` replays the pipelines, it runs the configured ``rc_source``
 side first, so a cross-side ``ref_val='rep_irr'`` filter (for example a
 measured filter anchored on a modeled reporting irradiance) resolves against
-an already-established ``ct.rc``.
+an already-established ``tst.rc``.
 
 .. note::
 
@@ -184,7 +184,7 @@ Adjusting the default aggregation
 ---------------------------------
 The reporting-condition *recipe* — how each regression variable is aggregated —
 comes from the selected test setup and can be customized per call (e.g.
-``ct.rep_cond(func={'poa': perc_wrap(55)})``) or in the config file. See
+``tst.rep_cond(func={'poa': perc_wrap(55)})``) or in the config file. See
 :ref:`captest` for the ``rep_conditions`` configuration and percentile helpers.
 
 See also

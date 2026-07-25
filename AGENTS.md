@@ -54,6 +54,9 @@ just docs                     # build HTML docs with sphinx-build
 - Line length: 88 characters (ruff default)
 - Docstrings: NumPy-style for all public functions/classes/methods
 - Naming: `snake_case` for functions/variables, `PascalCase` for classes, `UPPER_CASE` for constants
+- In docs, docstrings, example notebooks, and user-facing messages: `tst` is the
+  standard variable name for a `CapTest` instance; `ct` is reserved for the
+  package-import alias (`import captest as ct`). Never use `ct` for an instance.
 - Imports: standard library → third-party → local `captest`; no wildcard imports. Ruff
   handles import sorting; run `just lint` to auto-fix.
 - Use meaningful, descriptive variable and function names.

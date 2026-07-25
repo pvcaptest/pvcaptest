@@ -9,7 +9,7 @@ data — to a single yaml file, and reload that file to reproduce the test
 exactly. This makes a capacity test portable: it can be archived, shared,
 reviewed, and validated from one file.
 
-These sections assume a ``CapTest`` instance ``ct`` has been created and run as
+These sections assume a ``CapTest`` instance ``tst`` has been created and run as
 described in :ref:`captest`.
 
 Saving a test setup
@@ -20,7 +20,7 @@ wanting to save the settings for a future run.
 
 .. code-block:: Python
 
-    ct.to_yaml('./project.yaml')
+    tst.to_yaml('./project.yaml')
 
 By default, ``to_yaml`` updates the selected section of an existing yaml file
 and preserves other top-level sections, such as project metadata. It writes the
@@ -40,7 +40,7 @@ Reproducing a complete test from a config file
 ----------------------------------------------
 A :py:meth:`~captest.captest.CapTest.to_yaml` config file captures more than the
 test settings — it also records the **filter pipeline applied to each dataset**.
-Every filter step run on ``ct.meas`` and ``ct.sim``, including the reporting-
+Every filter step run on ``tst.meas`` and ``tst.sim``, including the reporting-
 conditions calculation, is serialized under the ``meas_filters`` and
 ``sim_filters`` keys. This makes the yaml file a complete, portable record of a
 capacity test: a colleague can reproduce, review, or validate the test from the
@@ -51,7 +51,7 @@ extra step is calling ``to_yaml`` once the test has been run:
 
 .. code-block:: Python
 
-    ct.to_yaml('./project.yaml')
+    tst.to_yaml('./project.yaml')
 
 The resulting file lists each step with its arguments. For example, the
 measured-side pipeline written by the bifacial example notebook:
@@ -113,8 +113,8 @@ test — filtering, reporting conditions, both regression fits, and the results
     results = CapTest.from_yaml('./project.yaml').run_test()
     results.cap_ratio
 
-Each pipeline executes exactly once: the load stores it pending, and
-``run_test`` replays it (the ``rc_source`` side first) and consumes it. After
+Each pipeline executes once: on load the pipelines are stored in the [meas/sim]_filter_pending
+attributes, and ``run_test`` replays the pipeline (the ``rc_source`` side first) and consumes it. After
 the run, ``tst.meas`` and ``tst.sim`` hold the same filtered data as the test
 that produced the file, so the filtering summaries, visualizations, reporting
 conditions, and capacity-ratio results match. The pipelines can also be run
