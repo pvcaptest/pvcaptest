@@ -144,6 +144,17 @@ matching the `from_yaml`/`from_mapping` replay semantics.
 when `_execute` raises, and `CapData._calc_rep_cond` assigns `rc`/`rc_tool`
 only after computation succeeds (restoring the prior `rc` if CapTest
 propagation fails) — a failed step leaves the pipeline and RC state unchanged.
+- **Breaking:** Filter steps now reject assignment to names that are neither a
+declared `param` parameter nor known runtime state, raising `AttributeError` with
+a close-match suggestion. `param.Parameterized` previously accepted any attribute,
+which made the edit-then-replay workflow (adjust a step's params, then
+`CapData.rerun_filters_from(index)`) silently a no-op on a typo — e.g.
+`cd.filters[i].contamination = 0.10` on an `Outliers` step, whose actual param is
+`envelope_kwargs`, set a dead attribute and the re-run reproduced the old result.
+Leading-underscore names still pass through, and each step class declares the
+non-param attributes it writes during `_execute` in `_runtime_attrs` (accumulated
+across the class hierarchy). Code that stashed arbitrary attributes on a step must
+use a leading underscore.
 - **Breaking:** `CapData.data_filtered` is now a derived, read-only property — the
 `data` rows kept by the last filter (a defensive copy), or `data` when no filters
 have run. It has no setter; clear filtering with `CapData.reset_filter()`. Code
@@ -167,6 +178,13 @@ raises `ValueError` when it is unset; `CapTest.rep_cond(which=None)` defaults to
 current `rc_source`; and `filter_irr(ref_val="rep_irr")` within a `CapTest` resolves
 against the single test RC, so a `sim` filter can anchor on the test's reporting
 irradiance without passing the value manually.
+- **Breaking:** Renamed the `CapTest.rep_cond_source` parameter to `CapTest.rc_source`,
+matching the new `CapTest.rc` attribute it describes. The name changed everywhere it
+appears: the constructor keyword of `from_params` / `from_mapping`, the attribute, and
+the `captest` key written by `to_yaml`. Configs written by v0.16.0 will not load —
+`from_yaml` / `from_mapping` raise `ValueError: Unknown key 'rep_cond_source' under the
+'captest' sub-mapping. Did you mean 'rc_source'?` — so rename the key in any saved
+config (and any script passing it) before loading.
 - Removed the internal `summary` / `summary_ix` / `removed` / `kept` mirror lists,
 the `filter_counts` dict, and the `update_summary` decorator. `get_summary()`,
 `describe_filters()`, and the visualization methods (`scatter_filters`,

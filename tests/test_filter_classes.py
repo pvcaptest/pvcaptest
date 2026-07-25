@@ -1,6 +1,8 @@
 """Tests for the filter-step class hierarchy (BaseSummaryStep / BaseFilter)."""
 
+import inspect
 import math
+import re
 import sys
 import unittest.mock
 import warnings
@@ -235,6 +237,51 @@ class TestBaseSummaryStep:
     def test_args_repr_includes_overridden_none_param(self):
         assert (
             _ConfiguredFilter(ref_val=5.0).args_repr == "ref_val=5.0, threshold=100.0"
+        )
+
+
+class TestStepAttributeGuard:
+    """Assignment to an undeclared name must raise, not create a dead attribute.
+
+    The edit-then-replay workflow (adjust a step's params, then
+    ``rerun_filters_from``) is silently a no-op when the param name is mistyped.
+    """
+
+    def test_setting_unknown_attribute_raises(self):
+        with pytest.raises(AttributeError, match="has no parameter or attribute"):
+            Outliers().contamination = 0.10
+
+    def test_error_suggests_the_closest_settable_name(self):
+        with pytest.raises(AttributeError, match="Did you mean 'envelope_kwargs'"):
+            Outliers().envelope_kwarg = {}
+
+    def test_error_lists_settable_names(self):
+        with pytest.raises(AttributeError, match="Settable names:.*'low'.*'ref_val'"):
+            Irradiance().totally_bogus = 1
+
+    def test_setting_a_declared_param_is_allowed(self):
+        step = Outliers()
+        step.envelope_kwargs = {"contamination": 0.10}
+        assert step.envelope_kwargs == {"contamination": 0.10}
+
+    def test_private_names_pass_through(self):
+        step = Irradiance()
+        step._scratch = 1
+        assert step._scratch == 1
+
+    def test_runtime_attrs_accumulate_across_the_mro(self):
+        assert {"ix_after", "pts_after"} <= Irradiance._runtime_attrs
+        assert "low_effective" in Irradiance._runtime_attrs
+        assert "low_effective" not in Power._runtime_attrs
+
+    @pytest.mark.parametrize("cls", sorted(FILTER_REGISTRY.values(), key=str))
+    def test_every_step_declares_the_attrs_it_writes(self, cls):
+        """Each plain ``self.x = ...`` in a step's body must be declared."""
+        settable = set(cls.param) | cls._runtime_attrs
+        source = inspect.getsource(cls)
+        written = set(re.findall(r"self\.([A-Za-z][A-Za-z0-9_]*) *=[^=]", source))
+        assert written <= settable, (
+            f"{cls.__name__} writes undeclared {written - settable}"
         )
 
 

@@ -388,6 +388,13 @@ class BaseSummaryStep(param.Parameterized):
     and is never serialized. A step's "before" index/count and points-removed
     are not stored — they are chain-derived on demand via
     `CapData._ix_before`/`_pts_before`.
+
+    Attribute assignment is restricted (see `__setattr__`): a step accepts its
+    declared `param` parameters, private (leading-underscore) names, and the
+    non-param runtime attributes named in `_runtime_attrs`. A subclass that
+    writes a plain attribute in `_execute` must list it in its own
+    `_runtime_attrs`; `__init_subclass__` unions those declarations down the
+    hierarchy, so subclasses declare only what they add.
     """
 
     custom_name = param.String(
@@ -399,6 +406,45 @@ class BaseSummaryStep(param.Parameterized):
     # Class-intrinsic human-readable template; set by concrete subclasses.
     # Plain class attribute (not a param) so it is never serialized.
     _explanation_template = None
+
+    # Non-param instance attributes this class is allowed to set. Accumulated
+    # across the MRO by __init_subclass__, so a subclass lists only its own.
+    _runtime_attrs = frozenset({"ix_after", "pts_after"})
+
+    def __init_subclass__(cls, **kwargs):
+        """Union each subclass's `_runtime_attrs` with those of its bases."""
+        super().__init_subclass__(**kwargs)
+        cls._runtime_attrs = frozenset().union(
+            *(base.__dict__.get("_runtime_attrs", frozenset()) for base in cls.__mro__)
+        )
+
+    def __setattr__(self, name, value):
+        """Reject assignment to names that are neither params nor runtime state.
+
+        `param.Parameterized` accepts arbitrary attribute assignment, which
+        makes the documented edit-then-replay workflow — adjust a step's params,
+        then `CapData.rerun_filters_from(index)` — silently do nothing when the
+        param name is mistyped (e.g. `Outliers.contamination`, whose real param
+        is `envelope_kwargs`). Raising here surfaces the typo at the assignment
+        instead of producing an unchanged re-run.
+
+        Leading-underscore names pass through unchecked; they cover `param`'s
+        own instance internals as well as steps' private state.
+        """
+        if (
+            name.startswith("_")
+            or name in self.param
+            or name in type(self)._runtime_attrs
+        ):
+            super().__setattr__(name, value)
+            return
+        settable = sorted(set(self.param) | type(self)._runtime_attrs)
+        suggestion = difflib.get_close_matches(name, settable, n=1)
+        hint = f" Did you mean {suggestion[0]!r}?" if suggestion else ""
+        raise AttributeError(
+            f"{type(self).__name__} has no parameter or attribute {name!r}. "
+            f"Settable names: {settable}.{hint}"
+        )
 
     def run(self, capdata):
         """Execute the step, record runtime state, and append self to filters.
@@ -540,6 +586,9 @@ class Irradiance(BaseFilter):
     _explanation_template = (
         "Intervals where {col_name} is below {low} or above {high}{units} were removed."
     )
+    _runtime_attrs = frozenset(
+        {"ref_val_resolved", "col_name_resolved", "low_effective", "high_effective"}
+    )
 
     low = param.Number(
         default=None,
@@ -658,6 +707,8 @@ class RollingStd(BaseFilter):
         "or above this are removed.",
     )
 
+    _runtime_attrs = frozenset({"column_resolved"})
+
     def _execute(self, capdata):
         if self.window is None or self.threshold is None:
             raise ValueError("RollingStd requires both window and threshold.")
@@ -700,6 +751,8 @@ class AbsDiffPrev(BaseFilter):
         doc="Maximum allowed absolute fractional change from the previous "
         "interval; intervals above this are removed.",
     )
+
+    _runtime_attrs = frozenset({"column_resolved"})
 
     def _execute(self, capdata):
         col = self.column if self.column is not None else capdata._get_poa_col()
@@ -765,6 +818,7 @@ class Sensors(BaseFilter):
         "Rows with inconsistent readings within sensor group(s) {groups} "
         "(compared using {method}) were removed."
     )
+    _runtime_attrs = frozenset({"thresholds_resolved"})
 
     # String name -> row-filter callable. A callable assigned to ``method``
     # directly bypasses this table (the custom third option).
@@ -1010,6 +1064,7 @@ class Custom(BaseFilter):
     """
 
     _explanation_template = "Custom filter {call} was applied."
+    _runtime_attrs = frozenset({"func", "args", "kwargs"})
 
     def __init__(self, func, *args, custom_name=None, **kwargs):
         super().__init__(custom_name=custom_name)
@@ -1076,6 +1131,7 @@ class Outliers(BaseFilter):
         "EllipticEnvelope({kwargs}), were removed."
     )
     _default_envelope_kwargs = {"support_fraction": 0.9, "contamination": 0.04}
+    _runtime_attrs = frozenset({"envelope_kwargs_resolved"})
 
     envelope_kwargs = param.Dict(
         default=None,
@@ -1151,6 +1207,7 @@ class Clearsky(BaseFilter):
         "detect_clearsky({kwargs})) were removed."
     )
     _default_detect_kwargs = {"infer_limits": True}
+    _runtime_attrs = frozenset({"detect_kwargs_resolved"})
 
     ghi_col = param.String(
         default=None,
@@ -1270,6 +1327,14 @@ class Backtracking(BaseFilter):
         "{kind} intervals (gcr={gcr}, axis_tilt={axis_tilt}, "
         "axis_azimuth={axis_azimuth}, cross_axis_tilt={cross_axis_tilt}) "
         "were removed."
+    )
+    _runtime_attrs = frozenset(
+        {
+            "axis_tilt_resolved",
+            "axis_azimuth_resolved",
+            "gcr_resolved",
+            "cross_axis_tilt_resolved",
+        }
     )
 
     axis_tilt = param.Number(
@@ -1543,6 +1608,7 @@ class Power(BaseFilter):
     """
 
     _explanation_template = "Intervals at or above {threshold} power were removed."
+    _runtime_attrs = frozenset({"power_threshold"})
 
     power = param.Number(
         default=None,
@@ -1667,6 +1733,7 @@ class Regression(BaseFilter):
         "Intervals with regression residuals beyond {n_std} standard "
         "deviations were removed."
     )
+    _runtime_attrs = frozenset({"regression_model"})
 
     n_std = param.Number(
         default=2,
