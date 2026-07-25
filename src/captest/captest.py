@@ -1261,7 +1261,7 @@ class CapTest(param.Parameterized):
     -----------------
     1. Programmatic::
 
-        ct = CapTest.from_params(
+        tst = CapTest.from_params(
             test_setup="e2848_default",
             meas=meas_cd,
             sim=sim_cd,
@@ -1273,14 +1273,14 @@ class CapTest(param.Parameterized):
 
     2. From a yaml file::
 
-        ct = CapTest.from_yaml("./config.yaml")
+        tst = CapTest.from_yaml("./config.yaml")
 
     3. Bare + manual::
 
-        ct = CapTest(test_setup="bifi_e2848_etotal_rear_shade_sim", bifaciality=0.15)
+        tst = CapTest(test_setup="bifi_e2848_etotal_rear_shade_sim", bifaciality=0.15)
         tst.meas = my_meas_cd
         tst.sim = my_sim_cd
-        ct.setup()
+        tst.setup()
 
     Parameters
     ----------

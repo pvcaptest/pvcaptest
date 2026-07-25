@@ -113,7 +113,7 @@ test — filtering, reporting conditions, both regression fits, and the results
     results = CapTest.from_yaml('./project.yaml').run_test()
     results.cap_ratio
 
-Each pipeline executes once: on load the pipelines are stored in the [meas/sim]_filter_pending
+Each pipeline executes once: on load the pipelines are stored in the [meas/sim]_filters_pending
 attributes, and ``run_test`` replays the pipeline (the ``rc_source`` side first) and consumes it. After
 the run, ``tst.meas`` and ``tst.sim`` hold the same filtered data as the test
 that produced the file, so the filtering summaries, visualizations, reporting
