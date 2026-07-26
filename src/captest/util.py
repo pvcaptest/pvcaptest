@@ -8,20 +8,48 @@ import numpy as np
 import pandas as pd
 import yaml
 from patsy import ModelDesc
+from upath import UPath
 
 
 def read_json(path):
-    with open(path) as f:
-        json_data = json.load(f)
-    return json_data
+    """Load a JSON file into a python object.
+
+    Works transparently for local filesystem paths and remote URIs
+    (e.g. ``s3://bucket/path/file.json``).
+
+    Parameters
+    ----------
+    path : str, Path, or UPath
+        Path to the JSON file.
+
+    Returns
+    -------
+    dict or list
+    """
+    return json.loads(UPath(path).read_text())
 
 
 def read_yaml(path):
-    with open(path, "r") as stream:
-        try:
-            data = yaml.safe_load(stream)
-        except yaml.YAMLError as exc:
-            print(exc)
+    """Load a YAML file into a python object.
+
+    Works transparently for local filesystem paths and remote URIs
+    (e.g. ``s3://bucket/path/file.yaml``).
+
+    Parameters
+    ----------
+    path : str, Path, or UPath
+        Path to the YAML file.
+
+    Returns
+    -------
+    dict or list or None
+        The parsed YAML content, or None if the file cannot be parsed.
+    """
+    data = None
+    try:
+        data = yaml.safe_load(UPath(path).read_text())
+    except yaml.YAMLError as exc:
+        print(exc)
     return data
 
 

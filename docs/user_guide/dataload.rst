@@ -29,7 +29,19 @@ Generally, the first step to conducting a capacity test is to load data from the
 
 .. note::
 
-    Loading data from S3 buckets is supported by passing an ``s3://`` URI as the ``path`` argument to :py:func:`~captest.io.load_data` or :py:class:`~captest.io.DataLoader`. The ``s3fs`` package must be installed for S3 support. For example: ``load_data(path="s3://my-bucket/data/")``.
+    Loading data from S3 buckets is supported by passing an ``s3://`` URI as the ``path`` argument to :py:func:`~captest.io.load_data` or :py:class:`~captest.io.DataLoader`. The ``s3fs`` package must be installed for S3 support; it is pulled in by the ``optional`` extra (``pip install captest[optional]``). For example: ``load_data(path="s3://my-bucket/data/")``.
+
+    The same applies to the other path arguments of the loaders. The ``group_columns`` and ``site`` arguments of :py:func:`~captest.io.load_data`, and the ``path`` argument of :py:func:`~captest.io.load_pvsyst`, all accept remote URIs as well as local paths:
+
+    .. code-block:: Python
+
+        das = load_data(
+            path="s3://my-bucket/data/",
+            group_columns="s3://my-bucket/config/column_groups.json",
+            site="s3://my-bucket/config/site.json",
+        )
+
+    Every path argument also accepts a :py:class:`pathlib.Path` or a ``upath.UPath`` instance in addition to a string.
 
 :py:func:`~captest.io.load_data` does a few things in addition to loading the data that are required for functionality of many of the CapData methods like :py:meth:`~captest.capdata.CapData.agg_sensors`, :py:attr:`~captest.capdata.CapData.loc` and :py:attr:`~captest.capdata.CapData.floc`, and the plotting methods and to clean up minor issues in the raw data:
 

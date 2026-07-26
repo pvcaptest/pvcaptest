@@ -41,15 +41,16 @@ def load_excel_column_groups(path):
 
     Parameters
     ----------
-    path : str
-        Path to file to import.
+    path : str, Path, or UPath
+        Path to file to import. May be a local path or a remote URI
+        (e.g. ``s3://bucket/path/groups.xlsx``).
 
     Returns
     -------
     dict
         Dictionary mapping column group names to lists of column names.
     """
-    df = pd.read_excel(path, header=None).ffill(axis="index")
+    df = pd.read_excel(str(path), header=None).ffill(axis="index")
     return df.groupby(0)[1].apply(list).to_dict()
 
 
@@ -68,8 +69,9 @@ def load_pvsyst(
 
     Parameters
     ----------
-    path : str
-        Path to file to import.
+    path : str, Path, or UPath
+        Path to file to import. May be a local path or a remote URI
+        (e.g. ``s3://bucket/path/model.csv``).
     name : str, default pvsyst
         Name to assign to returned CapData object.
     egrid_unit_adj_factor : numeric, default None
@@ -92,7 +94,9 @@ def load_pvsyst(
     or 'TAmb' to 'T_Amb' if found in the column names.
 
     """
-    dirName = Path(path)
+    # str() rather than pathlib.Path so remote URIs keep their scheme
+    # ('s3://...') and resolve through pandas/fsspec.
+    dirName = str(path)
 
     encodings = ["utf-8", "latin1", "iso-8859-1", "cp1252"]
     for encoding in encodings:
@@ -429,10 +433,14 @@ class DataLoader:
         report = kwargs.pop("report", False)
         if verbose:
             summary = True
+        # Pass the path to file_reader as a string, matching the directory
+        # loading branch below. str() preserves the scheme of remote URIs
+        # (e.g. 's3://...'), which readers like pandas resolve via fsspec,
+        # while a remote UPath instance would not be accepted directly.
         if self.path.is_file():
-            self.data = self.file_reader(self.path, **kwargs)
+            self.data = self.file_reader(str(self.path), **kwargs)
         elif self.path.is_dir() and skip_dir_load:
-            self.data = self.file_reader(self.path, **kwargs)
+            self.data = self.file_reader(str(self.path), **kwargs)
         elif self.path.is_dir() and not skip_dir_load:
             if self.files_to_load is None:
                 self.set_files_to_load(extension=extension)
@@ -534,7 +542,9 @@ def load_data(
         a DataFrame and return a dictionary with keys that are ids and values that are
         lists of column names. Will be set to the `group_columns` attribute of the
         CapData.DataLoader object.
-        Provide a string to load column grouping from a json, yaml, or excel file. The
+        Provide a string or path object to load column grouping from a json, yaml, or
+        excel file; local paths and remote URIs (e.g. ``s3://bucket/groups.json``) are
+        both supported. The
         json or yaml file should parse to a dictionary and the excel file should have
         two columns with the first column containing the group ids and the second column
         the column names. The first column may have missing values. See function
@@ -559,8 +569,9 @@ def load_data(
         By default will create a new index for the data using the earliest datetime,
         latest datetime, and the most frequent time interval ensuring there are no
         missing intervals.
-    site : dict or str, default None
-        Pass a dictionary or path to a json or yaml file containing site data, which
+    site : dict, str, or path object, default None
+        Pass a dictionary or path to a json or yaml file (local path or remote
+        URI) containing site data, which
         will be used to generate modeled clear sky ghi and poa values. The clear sky
         irradiance values are added to the data and the column_groups attribute is
         updated to include these two irradiance columns. The site data dictionary should
@@ -600,26 +611,28 @@ def load_data(
 
     cd.data_loader = dl
     # group columns
+    # UPath (not pathlib.Path) so remote URIs like 's3://bucket/groups.json'
+    # keep their scheme; Path collapses 's3://' to 's3:/'.
     if callable(group_columns):
         cd.column_groups = cg.ColumnGroups(group_columns(cd.data))
-    elif isinstance(group_columns, str):
-        p = Path(group_columns)
+    elif isinstance(group_columns, (str, Path, UPath)):
+        p = UPath(group_columns)
         if p.suffix == ".json":
-            cd.column_groups = cg.ColumnGroups(util.read_json(group_columns))
+            cd.column_groups = cg.ColumnGroups(util.read_json(p))
         elif (p.suffix == ".yml") or (p.suffix == ".yaml"):
-            cd.column_groups = cg.ColumnGroups(util.read_yaml(group_columns))
+            cd.column_groups = cg.ColumnGroups(util.read_yaml(p))
         elif (p.suffix == ".xlsx") or (p.suffix == ".xls"):
-            cd.column_groups = cg.ColumnGroups(load_excel_column_groups(group_columns))
+            cd.column_groups = cg.ColumnGroups(load_excel_column_groups(p))
     if cd.column_groups is not None:
         cd.create_column_group_attributes()
     if site is not None:
-        if isinstance(site, str):
-            path_to_site = Path(site)
+        if isinstance(site, (str, Path, UPath)):
+            path_to_site = UPath(site)
             if path_to_site.is_file():
                 if path_to_site.suffix == ".json":
-                    site = util.read_json(site)
+                    site = util.read_json(path_to_site)
                 if (path_to_site.suffix == ".yaml") or (path_to_site.suffix == ".yml"):
-                    site = util.read_yaml(site)
+                    site = util.read_yaml(path_to_site)
                 cd.site = copy.deepcopy(site)
         if isinstance(site, dict):
             cd.data = csky(cd.data, loc=site["loc"], sys=site["sys"])
