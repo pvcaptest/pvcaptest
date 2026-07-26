@@ -3,6 +3,7 @@ import json
 
 import numpy as np
 import pandas as pd
+import param
 import pytest
 from upath import UPath
 
@@ -517,3 +518,65 @@ class TestReadJsonYamlPathTypes:
         p.write_text("key: [unclosed")
         assert util.read_yaml(str(p)) is None
         assert capsys.readouterr().out != ""
+
+
+class TestStrictAttrs:
+    """util.StrictAttrs is the shared strict-__setattr__ guard."""
+
+    def _cls(self):
+        class Step(util.StrictAttrs, param.Parameterized):
+            _runtime_attrs = frozenset({"resolved"})
+            threshold = param.Number(default=1.0)
+
+        return Step
+
+    def test_param_assignment_allowed(self):
+        step = self._cls()(threshold=2.0)
+        step.threshold = 3.0
+        assert step.threshold == 3.0
+
+    def test_runtime_attr_assignment_allowed(self):
+        step = self._cls()()
+        step.resolved = ["a"]
+        assert step.resolved == ["a"]
+
+    def test_private_attribute_allowed(self):
+        step = self._cls()()
+        step._scratch = 1
+        assert step._scratch == 1
+
+    def test_unknown_attribute_raises_with_close_match(self):
+        step = self._cls()()
+        with pytest.raises(AttributeError, match="Did you mean 'threshold'"):
+            step.threshhold = 2.0
+
+    def test_runtime_attrs_union_down_the_mro(self):
+        base = self._cls()
+
+        class Child(base):
+            _runtime_attrs = frozenset({"extra"})
+
+        assert {"resolved", "extra"} <= Child._runtime_attrs
+
+
+class TestParamsToConfig:
+    """util.params_to_config serializes param values yaml-safely."""
+
+    def test_omits_name_and_coerces_numpy(self):
+        class Step(param.Parameterized):
+            factor = param.Number(default=1.0)
+
+        step = Step(factor=np.float64(0.001))
+        config = util.params_to_config(step)
+        assert "name" not in config
+        assert config == {"factor": 0.001}
+        assert isinstance(config["factor"], float)
+
+    def test_returns_independent_snapshot(self):
+        class Step(param.Parameterized):
+            columns = param.List(default=None, allow_None=True)
+
+        step = Step(columns=["a"])
+        config = util.params_to_config(step)
+        config["columns"].append("b")
+        assert step.columns == ["a"]
