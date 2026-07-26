@@ -264,7 +264,134 @@ class Scale(BasePrepStep):
         }
 
 
+UNIT_ALIASES = {
+    "degf": "F",
+    "fahrenheit": "F",
+    "f": "F",
+    "degc": "C",
+    "celsius": "C",
+    "c": "C",
+    "k": "K",
+    "kelvin": "K",
+    "mph": "mph",
+    "mi/h": "mph",
+    "m/s": "m/s",
+    "mps": "m/s",
+    "km/h": "km/h",
+    "kph": "km/h",
+    "kn": "kn",
+    "knots": "kn",
+    "ft/s": "ft/s",
+    "w": "W",
+    "kw": "kW",
+    "mw": "MW",
+    "mbar": "mbar",
+    "pa": "Pa",
+    "m": "m",
+    "cm": "cm",
+    "in": "in",
+    "inches": "in",
+}
+
+# out = value * factor + offset
+UNIT_CONVERSIONS = {
+    ("F", "C"): (5 / 9, -160 / 9),  # (F - 32) * 5/9
+    ("K", "C"): (1.0, -273.15),
+    ("mph", "m/s"): (0.44704, 0.0),
+    ("km/h", "m/s"): (1 / 3.6, 0.0),
+    ("kn", "m/s"): (0.514444, 0.0),
+    ("ft/s", "m/s"): (0.3048, 0.0),
+    ("W", "kW"): (0.001, 0.0),
+    ("MW", "kW"): (1000.0, 0.0),
+    ("mbar", "Pa"): (100.0, 0.0),
+    ("m", "cm"): (100.0, 0.0),
+    ("in", "cm"): (2.54, 0.0),
+}
+
+
+def _normalize_unit(units):
+    """Map a user-supplied unit string to its canonical spelling."""
+    return UNIT_ALIASES.get(str(units).strip().lower(), str(units).strip())
+
+
+def conversion_factors(from_units, to_units):
+    """Return the ``(factor, offset)`` converting ``from_units`` to ``to_units``.
+
+    Conversions are affine: ``out = value * factor + offset``. Only the forward
+    direction is tabulated in :data:`UNIT_CONVERSIONS`; the inverse is derived
+    as ``out = (value - offset) / factor``, so the table cannot drift out of
+    sync with itself. Aliases are normalized case-insensitively before lookup.
+
+    Parameters
+    ----------
+    from_units, to_units : str
+        Unit names or aliases, e.g. ``"degF"`` and ``"C"``.
+
+    Returns
+    -------
+    tuple of float
+        ``(factor, offset)``.
+
+    Raises
+    ------
+    ValueError
+        If the units are identical, or the pair is not supported in either
+        direction.
+    """
+    src = _normalize_unit(from_units)
+    dst = _normalize_unit(to_units)
+    if src == dst:
+        raise ValueError(
+            f"from_units and to_units are identical ({src!r}); a conversion "
+            "that does nothing is always a mistake."
+        )
+    if (src, dst) in UNIT_CONVERSIONS:
+        return UNIT_CONVERSIONS[(src, dst)]
+    if (dst, src) in UNIT_CONVERSIONS:
+        factor, offset = UNIT_CONVERSIONS[(dst, src)]
+        return 1 / factor, -offset / factor
+    supported = sorted(f"{a} -> {b}" for a, b in UNIT_CONVERSIONS)
+    known_units = {u for pair in UNIT_CONVERSIONS for u in pair}
+    suggestion = difflib.get_close_matches(src, known_units, n=1)
+    hint = f" Did you mean {suggestion[0]!r} for from_units?" if suggestion else ""
+    raise ValueError(
+        f"No conversion from {src!r} to {dst!r}. Inverses of the supported "
+        f"pairs are derived automatically; supported pairs: {supported}. Use "
+        f"Scale(factor=..., offset=...) for anything else.{hint}"
+    )
+
+
+class ConvertUnits(BasePrepStep):
+    """Convert the selected columns between units, in place.
+
+    The conversion is affine and applied to the same column names, so a site
+    with twelve thermocouples converts in one step. This is an asserted
+    transformation, not a checked one: nothing tracks or validates a column's
+    current units.
+    """
+
+    from_units = param.String(default=None, allow_None=True, doc="Source units.")
+    to_units = param.String(default=None, allow_None=True, doc="Target units.")
+
+    _explanation_template = (
+        "Columns {columns} were converted from {from_units} to {to_units}."
+    )
+
+    def _execute(self, capdata, columns):
+        self._require_numeric(capdata, columns, type(self).__name__)
+        factor, offset = conversion_factors(self.from_units, self.to_units)
+        capdata.data[columns] = capdata.data[columns] * factor + offset
+
+    def _explanation_values(self):
+        return {
+            "columns": ", ".join(self.columns_resolved),
+            "from_units": self.from_units,
+            "to_units": self.to_units,
+        }
+
+
 PREP_REGISTRY = {
+    "ConvertUnits": ConvertUnits,
     "Scale": Scale,
 }
 

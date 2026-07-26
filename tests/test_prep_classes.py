@@ -150,3 +150,68 @@ class TestRegistry:
     def test_unknown_type_raises_with_close_match(self):
         with pytest.raises(ValueError, match="Did you mean 'Scale'"):
             prep.prep_step_from_config({"type": "Scaled"})
+
+
+class TestConvertUnits:
+    def test_fahrenheit_to_celsius_is_affine(self, cd):
+        prep.ConvertUnits(columns=["temp_amb_1"], from_units="F", to_units="C").run(cd)
+        assert cd.data["temp_amb_1"].tolist() == pytest.approx([0.0, 5.0, 10.0, 100.0])
+
+    def test_scale_alone_cannot_express_it(self, cd):
+        """32 F is 0 C, not 17.8 — the case that disproves calcparams.scale."""
+        prep.Scale(columns=["temp_amb_1"], factor=5 / 9).run(cd)
+        assert cd.data["temp_amb_1"].iloc[0] == pytest.approx(17.78, abs=0.01)
+
+    def test_mph_to_meters_per_second(self, cd):
+        prep.ConvertUnits(group="wind", from_units="mph", to_units="m/s").run(cd)
+        assert cd.data["wind_1"].iloc[0] == pytest.approx(4.4704)
+
+    def test_group_regex_converts_every_temperature_group(self, cd):
+        prep.ConvertUnits(group_regex="^temp", from_units="F", to_units="C").run(cd)
+        assert cd.data["temp_amb_1"].iloc[0] == pytest.approx(0.0)
+        assert cd.data["temp_bom_1"].iloc[0] == pytest.approx(25.0)
+
+    def test_round_trip_within_tolerance(self, cd):
+        original = cd.data["temp_amb_1"].tolist()
+        prep.ConvertUnits(columns=["temp_amb_1"], from_units="F", to_units="C").run(cd)
+        cd.prep = []
+        prep.ConvertUnits(columns=["temp_amb_1"], from_units="C", to_units="F").run(cd)
+        assert cd.data["temp_amb_1"].tolist() == pytest.approx(original)
+
+    def test_aliases_are_case_insensitive(self, cd):
+        prep.ConvertUnits(
+            columns=["temp_amb_1"], from_units="degF", to_units="Celsius"
+        ).run(cd)
+        assert cd.data["temp_amb_1"].iloc[0] == pytest.approx(0.0)
+
+    def test_unknown_pair_raises_listing_supported(self, cd):
+        with pytest.raises(ValueError, match="supported"):
+            prep.ConvertUnits(
+                columns=["wind_1"], from_units="furlongs", to_units="m/s"
+            ).run(cd)
+
+    def test_identical_units_raise(self, cd):
+        with pytest.raises(ValueError, match="identical"):
+            prep.ConvertUnits(columns=["wind_1"], from_units="C", to_units="C").run(cd)
+
+    def test_config_round_trip(self):
+        step = prep.ConvertUnits(group_regex="^temp", from_units="F", to_units="C")
+        rebuilt = prep.prep_step_from_config(step.to_config())
+        assert isinstance(rebuilt, prep.ConvertUnits)
+        assert rebuilt.group_regex == "^temp"
+        assert rebuilt.from_units == "F"
+
+    def test_explanation_names_the_units(self, cd):
+        step = prep.ConvertUnits(group="wind", from_units="mph", to_units="m/s")
+        step.run(cd)
+        assert "mph" in step.explanation and "m/s" in step.explanation
+
+    def test_inverse_is_derived_not_tabulated(self):
+        forward = prep.conversion_factors("F", "C")
+        inverse = prep.conversion_factors("C", "F")
+        value = 68.0
+        celsius = value * forward[0] + forward[1]
+        assert celsius * inverse[0] + inverse[1] == pytest.approx(value)
+
+    def test_registered(self):
+        assert prep.PREP_REGISTRY["ConvertUnits"] is prep.ConvertUnits
