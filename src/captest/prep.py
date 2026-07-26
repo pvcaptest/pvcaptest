@@ -357,8 +357,17 @@ def conversion_factors(from_units, to_units):
         return 1 / factor, -offset / factor
     supported = sorted(f"{a} -> {b}" for a, b in UNIT_CONVERSIONS)
     known_units = {u for pair in UNIT_CONVERSIONS for u in pair}
-    suggestion = difflib.get_close_matches(src, known_units, n=1)
-    hint = f" Did you mean {suggestion[0]!r} for from_units?" if suggestion else ""
+    # Only suggest for the unit that is actually unknown; when both units are
+    # valid the pair is simply unsupported, so echoing a correct argument back
+    # would misdirect.
+    suggestions = []
+    for label, unit in (("from_units", src), ("to_units", dst)):
+        if unit in known_units:
+            continue
+        match = difflib.get_close_matches(unit, known_units, n=1)
+        if match:
+            suggestions.append(f"{match[0]!r} for {label}")
+    hint = f" Did you mean {' or '.join(suggestions)}?" if suggestions else ""
     raise ValueError(
         f"No conversion from {src!r} to {dst!r}. Inverses of the supported "
         f"pairs are derived automatically; supported pairs: {supported}. Use "

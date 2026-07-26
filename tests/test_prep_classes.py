@@ -191,6 +191,16 @@ class TestConvertUnits:
                 columns=["wind_1"], from_units="furlongs", to_units="m/s"
             ).run(cd)
 
+    def test_unsupported_pair_hint_targets_the_wrong_unit(self, cd):
+        """A valid from_units must not be echoed back; the typo'd to_units is."""
+        with pytest.raises(ValueError) as exc:
+            prep.ConvertUnits(columns=["wind_1"], from_units="mph", to_units="m/z").run(
+                cd
+            )
+        message = str(exc.value)
+        assert "for from_units" not in message
+        assert "'m/s' for to_units" in message
+
     def test_identical_units_raise(self, cd):
         with pytest.raises(ValueError, match="identical"):
             prep.ConvertUnits(columns=["wind_1"], from_units="C", to_units="C").run(cd)
