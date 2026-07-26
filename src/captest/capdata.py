@@ -2318,6 +2318,208 @@ class CapData(param.Parameterized):
         """
         return [step.to_config() for step in self.filters]
 
+    def prep_convert_units(
+        self,
+        columns=None,
+        group=None,
+        group_regex=None,
+        from_units=None,
+        to_units=None,
+        custom_name=None,
+    ):
+        """Convert the selected columns between units and record the step.
+
+        Parameters
+        ----------
+        columns : list of str, optional
+            Explicit column names. Mutually exclusive with the group selectors.
+        group : str or list of str, optional
+            ``column_groups`` id, or list of ids.
+        group_regex : str, optional
+            Regex matched against ``column_groups`` ids, e.g. ``"^temp"`` to
+            reach ``temp_amb``, ``temp_bom``, and ``temp_mod`` at once.
+        from_units, to_units : str
+            Source and target units; see :data:`captest.prep.UNIT_CONVERSIONS`.
+        custom_name : str, optional
+            Display label for the recorded step.
+        """
+        self._check_duplicate_prep(
+            prep.ConvertUnits(
+                columns=columns,
+                group=group,
+                group_regex=group_regex,
+                from_units=from_units,
+                to_units=to_units,
+                custom_name=custom_name,
+            )
+        ).run(self)
+
+    def prep_scale(
+        self,
+        columns=None,
+        group=None,
+        group_regex=None,
+        factor=1.0,
+        offset=0.0,
+        custom_name=None,
+    ):
+        """Apply ``value * factor + offset`` to the selected columns.
+
+        Parameters
+        ----------
+        columns, group, group_regex : optional
+            Column selector; exactly one is required. See
+            :meth:`prep_convert_units`.
+        factor : float, default 1.0
+            Multiplier.
+        offset : float, default 0.0
+            Added after multiplying.
+        custom_name : str, optional
+            Display label for the recorded step.
+        """
+        self._check_duplicate_prep(
+            prep.Scale(
+                columns=columns,
+                group=group,
+                group_regex=group_regex,
+                factor=factor,
+                offset=offset,
+                custom_name=custom_name,
+            )
+        ).run(self)
+
+    def prep_astype(
+        self,
+        columns=None,
+        group=None,
+        group_regex=None,
+        dtype="float64",
+        custom_name=None,
+    ):
+        """Cast the selected columns to ``dtype``.
+
+        Parameters
+        ----------
+        columns, group, group_regex : optional
+            Column selector; exactly one is required. See
+            :meth:`prep_convert_units`.
+        dtype : str, default "float64"
+            Target dtype name.
+        custom_name : str, optional
+            Display label for the recorded step.
+        """
+        self._check_duplicate_prep(
+            prep.AsType(
+                columns=columns,
+                group=group,
+                group_regex=group_regex,
+                dtype=dtype,
+                custom_name=custom_name,
+            )
+        ).run(self)
+
+    def prep_custom(self, func, *args, custom_name=None, **kwargs):
+        """Apply ``func(self, *args, **kwargs)`` as a recorded prep step.
+
+        Parameters
+        ----------
+        func : callable
+            Takes this CapData as its first argument and mutates ``data`` in
+            place. Must be importable by module-qualified name to serialize —
+            a lambda cannot be exported.
+        *args, **kwargs
+            Forwarded to ``func``.
+        custom_name : str, optional
+            Display label for the recorded step. Keyword-only so it cannot
+            collide with arguments destined for ``func``.
+        """
+        prep.Custom(func, *args, custom_name=custom_name, **kwargs).run(self)
+
+    def _check_duplicate_prep(self, step):
+        """Return ``step``, raising if an equal step is already applied.
+
+        Prep mutates ``data`` and is not idempotent — converting °F to °C
+        twice is silently wrong — so an identical step is refused. Equality is
+        on the serialized config, i.e. same type and same params.
+        """
+        config = step.to_config()
+        if any(applied.to_config() == config for applied in self.prep):
+            raise RuntimeError(
+                f"An equal {type(step).__name__} prep step is already applied. "
+                "Prep steps mutate `data` and are not idempotent; re-prep by "
+                "reloading this dataset."
+            )
+        return step
+
+    def prep_to_config(self):
+        """Serialize the applied prep chain to a list of config dicts.
+
+        Each entry is a step's ``to_config()``. Inverse of :meth:`run_prep`.
+        Used by ``CapTest.to_yaml`` to embed this CapData's prep in the single
+        config file.
+        """
+        return [step.to_config() for step in self.prep]
+
+    def run_prep(self, config):
+        """Rebuild and run each prep step from a list of config dicts.
+
+        ``config`` is a list of ``to_config()`` dicts (e.g. from
+        :meth:`prep_to_config` or a loaded YAML). Each step is constructed via
+        ``prep.prep_step_from_config`` and run against this CapData in order.
+
+        The replay is a transaction across the whole batch: ``data`` is
+        snapshotted before the first step and restored — with every step this
+        call appended discarded — if any step raises, with a note naming the
+        failing step attached to the exception (Python 3.11+). Per-step
+        atomicity alone would leave earlier steps applied, which is a
+        half-prepped frame the caller could neither safely retry nor measure.
+
+        Parameters
+        ----------
+        config : list of dict
+            Prep-step config dicts, in order.
+
+        Raises
+        ------
+        RuntimeError
+            If ``prep`` is already populated. Prep steps mutate ``data`` and
+            are not idempotent, so replay is a once-per-load operation; re-prep
+            by reloading (``CapTest.reload(side)``).
+        """
+        if self.prep:
+            raise RuntimeError(
+                "run_prep requires an un-prepped dataset, but "
+                f"{len(self.prep)} prep steps are already applied. Prep "
+                "mutates `data` and is not idempotent — reload this dataset "
+                "(CapTest.reload(side)) to re-prep from raw data."
+            )
+        snapshot = self.data.copy()
+        prior_prep = self.prep
+        step_label = "?"
+        try:
+            for i, step_config in enumerate(config):
+                step_label = f"{i} ({step_config.get('type', '?')})"
+                prep.prep_step_from_config(step_config).run(self)
+        except Exception as e:
+            self.data = snapshot
+            self.prep = prior_prep
+            if hasattr(e, "add_note"):
+                e.add_note(f"Raised while running prep step {step_label}.")
+            raise
+
+    def describe_prep(self):
+        """Return a written, human-readable summary of the prep applied.
+
+        Joins the ``explanation`` of each step in ``self.prep``, one per line.
+        This is the only summary surface that reports prep: ``get_summary``
+        and ``describe_filters`` stay filter-only, because their rows are
+        point counts and prep removes no points. The serialized
+        ``meas_prep``/``sim_prep`` block in the yaml config is the durable
+        record.
+        """
+        lines = [step.explanation for step in self.prep if step.explanation is not None]
+        return "\n".join(lines)
+
     def _rc_state_snapshot(self):
         """Capture rc/rc_tool and (when test-wired) the CapTest RC state."""
         ct = self._captest
