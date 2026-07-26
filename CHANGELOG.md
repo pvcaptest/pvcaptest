@@ -96,6 +96,15 @@ config's serialized filter pipelines until `run_test` replays and consumes them
 (retained, with recovery guidance attached to the error, when a replay fails).
 
 ### Changed
+- Development tooling: `uv.lock` is no longer committed, so CI resolves
+dependencies fresh and surfaces upstream breakage early. The ruff lint rule set
+is now pinned explicitly in `pyproject.toml` (`E4`, `E7`, `E9`, `F`, `I`, `UP`,
+`SIM`, `C4`) rather than inheriting ruff's default selection, which changes
+between releases. Design specs and implementation plans under `docs/specs/` and
+`docs/superpowers/` are excluded from ruff, which now formats python code blocks
+in markdown. The pre-commit ruff revision and the `ruff` floor both track 0.16.0
+so local hooks and CI run the same version. Source was updated for the newly
+enabled rules (f-strings, import sorting, comprehensions); no behavior changed.
 - Modernized the docs toolchain for current Python: `sphinx>=8.1`,
 `sphinx_rtd_theme>=3.0`, `nbsphinx>=0.9.7`, and `myst-parser` replacing the
 archived `recommonmark` (dropped the stale `docutils` pin). The example
