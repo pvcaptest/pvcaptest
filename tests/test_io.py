@@ -1050,9 +1050,7 @@ class TestLoadDataRemotePaths:
     def test_group_columns_accepts_path_object(self):
         cd = load_data(
             path="./tests/data/example_measured_data.csv",
-            group_columns=Path(
-                "./tests/data/example_measured_data_column_groups.json"
-            ),
+            group_columns=Path("./tests/data/example_measured_data_column_groups.json"),
         )
         expected = cg.ColumnGroups(
             util.read_json("./tests/data/example_measured_data_column_groups.json")

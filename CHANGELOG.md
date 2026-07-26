@@ -207,6 +207,16 @@ orchestrator. Config-driven pipelines (`run_pipeline`, `from_yaml`) supersede
 it.
 
 ### Fixed
+- Remote URIs (e.g. `s3://bucket/...`) and path objects now work consistently for
+every path argument to the loaders, not just the `path` argument of `load_data` /
+`DataLoader`. `util.read_json` and `util.read_yaml` read through `UPath` instead of
+the built-in `open`, so they resolve fsspec-backed URIs; `load_data` no longer wraps
+`group_columns` and `site` in `pathlib.Path`, which corrupted the scheme of a URI
+(`s3://bucket` → `s3:/bucket`) and caused a remote `site` file to be silently
+skipped. `load_data`, `load_pvsyst`, and `load_excel_column_groups` now also accept
+`pathlib.Path` and `UPath` instances in addition to strings, and `DataLoader.load`
+passes the path to `file_reader` as a string so fsspec-aware readers such as
+`pandas.read_csv` accept it.
 - `CapTest._maybe_wrap_sim_year_end` now uses a fixed July 1 → June 30 wrap window
 (derived from `sim_year`) instead of one centered on the measured test dates, so a
 measured test within 60 days of the year boundary produces a contiguous 8760-row
