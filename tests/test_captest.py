@@ -3921,3 +3921,80 @@ class TestCapTestPrep:
         sub = tst.to_mapping()
         assert "sim_prep" not in sub
         assert "meas_prep" not in sub
+
+    def test_prep_replays_on_both_sides_under_default_run_setup(
+        self, meas_cd_default, sim_cd_default
+    ):
+        """Default ``run_setup=True`` load path preps both sides exactly once."""
+        meas_raw_max = meas_cd_default.data["meter_power"].max()
+        sim_raw_max = sim_cd_default.data["E_Grid"].max()
+        tst = CapTest.from_params(
+            test_setup="e2848_default",
+            meas_path="meas.csv",
+            sim_path="sim.CSV",
+            meas_loader=lambda p, **k: meas_cd_default,
+            sim_loader=lambda p, **k: sim_cd_default,
+            meas_prep=[{"type": "Scale", "columns": ["meter_power"], "factor": 0.001}],
+            sim_prep=self.scale_config,
+            ac_nameplate=6_000_000,
+        )
+        assert tst._resolved_setup is not None  # setup() ran
+        assert len(tst.meas.prep) == 1 and len(tst.sim.prep) == 1
+        assert tst.meas.data["meter_power"].max() == pytest.approx(meas_raw_max * 0.001)
+        assert tst.sim.data["E_Grid"].max() == pytest.approx(sim_raw_max * 0.001)
+
+    def test_meas_prep_replays_on_meas_side(self, meas_cd_default):
+        """``meas_prep`` drives the meas side, and leaves ``sim_prep`` empty."""
+        raw_max = meas_cd_default.data["meter_power"].max()
+        tst = CapTest.from_params(
+            test_setup="e2848_default",
+            meas_path="meas.csv",
+            meas_loader=lambda p, **k: meas_cd_default,
+            meas_prep=[{"type": "Scale", "columns": ["meter_power"], "factor": 0.001}],
+            run_setup=False,
+        )
+        assert len(tst.meas.prep) == 1
+        assert tst.meas.data["meter_power"].max() == pytest.approx(raw_max * 0.001)
+        assert tst.sim_prep == []
+
+    def test_prebuilt_meas_warns_naming_the_meas_side(self, meas_cd_default):
+        """The pre-built warning names the side it was raised for."""
+        with pytest.warns(UserWarning, match="'meas_prep' steps were not applied"):
+            tst = CapTest.from_params(
+                test_setup="e2848_default",
+                meas=meas_cd_default,
+                meas_prep=[
+                    {"type": "Scale", "columns": ["meter_power"], "factor": 0.001}
+                ],
+                run_setup=False,
+            )
+        assert tst.meas.prep == []
+
+    def test_run_test_does_not_rerun_prep(self, meas_cd_default, sim_cd_default):
+        """A second ``run_test`` leaves prepped values untouched (no double-prep)."""
+        sim_raw_max = sim_cd_default.data["E_Grid"].max()
+        tst = CapTest.from_params(
+            test_setup="e2848_default",
+            meas_path="meas.csv",
+            sim_path="sim.CSV",
+            meas_loader=lambda p, **k: meas_cd_default,
+            sim_loader=lambda p, **k: sim_cd_default,
+            sim_prep=self.scale_config,
+            ac_nameplate=6_000_000,
+            test_tolerance="- 4",
+        )
+        tst.meas.filter_irr(tst.min_irr, tst.max_irr)
+        tst.sim.filter_irr(tst.min_irr, tst.max_irr)
+        tst.sim.filter_shade(fshdbm=tst.fshdbm)
+        tst.sim.filter_time(start=_SIM_WINDOW[0], end=_SIM_WINDOW[1])
+        tst.rep_cond()
+        tst.meas.fit_regression(summary=False)
+        tst.sim.fit_regression(summary=False)
+
+        tst.run_test()
+        after_first = tst.sim.data["E_Grid"].copy()
+        tst.run_test()
+
+        pd.testing.assert_series_equal(tst.sim.data["E_Grid"], after_first)
+        assert tst.sim.data["E_Grid"].max() == pytest.approx(sim_raw_max * 0.001)
+        assert len(tst.sim.prep) == 1

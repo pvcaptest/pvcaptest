@@ -2102,8 +2102,7 @@ class CapTest(param.Parameterized):
         ``sim_prep`` pipelines are the exception: they reach
         :meth:`from_params` as parameters and are applied to each
         path-loaded side at load, before any ``setup()``. Manual
-        reporting-conditions
-        values (``reporting_conditions_values`` with
+        reporting-conditions values (``reporting_conditions_values`` with
         ``rc_source='manual'``) are validated and seeded during the
         construction-time ``setup()``; with ``run_setup=False`` they are
         stashed and consumed by the next full ``setup()``.
@@ -2305,7 +2304,12 @@ class CapTest(param.Parameterized):
         into ``<side>_prep``, and — unlike the filters — is replayed
         immediately onto the freshly loaded data, before the per-side
         ``setup()``. A reload is the supported way to re-prep, since the
-        loader supplies a fresh un-prepped frame.
+        loader supplies a fresh un-prepped frame. Note that the stash
+        rewrites ``<side>_prep`` in place: a hand-written config of partial
+        step dicts is replaced by the fully-expanded ``to_config()`` form
+        (every step param, defaults included). The two are behaviorally
+        equivalent, but the expanded form is what a later ``to_yaml`` and
+        any read of ``tst.<side>_prep`` will show.
 
         Parameters
         ----------
