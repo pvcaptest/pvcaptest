@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import sys
 import warnings
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import numpy as np
@@ -49,6 +50,22 @@ _DEFAULT_FIXTURE_PRESETS = [
         "bifi_power_tc_etotal_rear_shade_meas",
     }
 ]
+
+# Maximum of the ``E_Grid`` column (W) in the shipped PVsyst example files,
+# used by the prep tests to prove a Scale step actually ran.
+_E_GRID_RAW_MAX = 5898420.0
+
+
+@pytest.fixture
+def pvsyst_file():
+    """Absolute path to the shipped PVsyst example CSV."""
+    return str(Path("./tests/data/pvsyst_example_HourlyRes_2.CSV").resolve())
+
+
+@pytest.fixture
+def other_pvsyst_file():
+    """Absolute path to a second PVsyst example CSV (excel-style dates)."""
+    return str(Path("./tests/data/pvsyst_example_HourlyRes_2_xls_dates.csv").resolve())
 
 
 class TestTestSetupsRegistry:
@@ -3801,3 +3818,106 @@ class TestManualRcStaging:
         ct2.setup()
         assert ct2.rc_source == "manual" and ct2.rc is not None
         assert ct2._pending_manual_rc is None
+
+
+class TestCapTestPrep:
+    """``meas_prep`` / ``sim_prep``: replay at load and config round-trip."""
+
+    scale_config = [{"type": "Scale", "columns": ["E_Grid"], "factor": 0.001}]
+
+    def test_prep_replays_after_load(self, pvsyst_file):
+        tst = CapTest.from_params(
+            test_setup="e2848_default",
+            sim_path=pvsyst_file,
+            sim_prep=self.scale_config,
+            run_setup=False,
+        )
+        assert len(tst.sim.prep) == 1
+        assert tst.sim.data["E_Grid"].max() == pytest.approx(_E_GRID_RAW_MAX / 1000)
+
+    def test_prep_not_rerun_by_setup(self, pvsyst_file):
+        tst = CapTest.from_params(
+            test_setup="e2848_default",
+            sim_path=pvsyst_file,
+            sim_prep=self.scale_config,
+            run_setup=False,
+        )
+        after_load = tst.sim.data["E_Grid"].copy()
+        tst.setup(side="sim", verbose=False)
+        pd.testing.assert_series_equal(tst.sim.data["E_Grid"], after_load)
+        assert len(tst.sim.prep) == 1
+
+    def test_reload_replays_prep(self, pvsyst_file, other_pvsyst_file):
+        tst = CapTest.from_params(
+            test_setup="e2848_default",
+            sim_path=pvsyst_file,
+            sim_prep=self.scale_config,
+            run_setup=False,
+        )
+        tst.reload("sim", path=other_pvsyst_file, verbose=False)
+        assert len(tst.sim.prep) == 1
+        assert tst.sim.data["E_Grid"].max() == pytest.approx(_E_GRID_RAW_MAX / 1000)
+
+    def test_reload_stashes_applied_prep_chain(self, pvsyst_file, other_pvsyst_file):
+        """Prep applied by hand survives a reload, mirroring the filter chain."""
+        tst = CapTest.from_params(
+            test_setup="e2848_default", sim_path=pvsyst_file, run_setup=False
+        )
+        tst.sim.prep_scale(columns=["E_Grid"], factor=0.001)
+        tst.reload("sim", path=other_pvsyst_file, verbose=False)
+        assert [d["type"] for d in tst.sim_prep] == ["Scale"]
+        assert len(tst.sim.prep) == 1
+        assert tst.sim.data["E_Grid"].max() == pytest.approx(_E_GRID_RAW_MAX / 1000)
+
+    def test_prebuilt_capdata_warns_and_does_not_apply(self, pvsyst):
+        with pytest.warns(UserWarning, match="not applied"):
+            tst = CapTest.from_params(
+                test_setup="e2848_default",
+                sim=pvsyst,
+                sim_prep=self.scale_config,
+                run_setup=False,
+            )
+        assert tst.sim.prep == []
+        assert tst.sim_prep  # config kept
+
+    def test_prebuilt_prep_config_still_round_trips(self, pvsyst):
+        with pytest.warns(UserWarning):
+            tst = CapTest.from_params(
+                test_setup="e2848_default",
+                sim=pvsyst,
+                sim_prep=self.scale_config,
+                run_setup=False,
+            )
+        assert tst.to_mapping()["sim_prep"][0]["type"] == "Scale"
+
+    def test_to_yaml_from_yaml_round_trip(self, tmp_path, pvsyst_file):
+        tst = CapTest.from_params(
+            test_setup="e2848_default",
+            sim_path=pvsyst_file,
+            sim_prep=self.scale_config,
+            run_setup=False,
+        )
+        path = tmp_path / "config.yaml"
+        tst.to_yaml(path)
+        reloaded = CapTest.from_yaml(path, run_setup=False)
+        assert reloaded.sim_prep == tst.to_mapping()["sim_prep"]
+        assert reloaded.sim.prep_to_config() == tst.sim.prep_to_config()
+        assert len(reloaded.sim.prep) == 1
+        assert reloaded.sim.data["E_Grid"].max() == pytest.approx(
+            _E_GRID_RAW_MAX / 1000
+        )
+
+    def test_applied_chain_wins_over_stored_config(self, pvsyst_file):
+        tst = CapTest.from_params(
+            test_setup="e2848_default", sim_path=pvsyst_file, run_setup=False
+        )
+        tst.sim.prep_scale(columns=["E_Grid"], factor=0.001)
+        assert tst.to_mapping()["sim_prep"][0]["factor"] == 0.001
+
+    def test_prep_key_omitted_when_empty(self, pvsyst_file):
+        tst = CapTest.from_params(
+            test_setup="e2848_default", sim_path=pvsyst_file, run_setup=False
+        )
+        sub = tst.to_mapping()
+        assert "sim_prep" not in sub
+        assert "meas_prep" not in sub

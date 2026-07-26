@@ -1207,6 +1207,8 @@ _CAPTEST_YAML_KEYS = frozenset(
         "overrides",
         "meas_filters",
         "sim_filters",
+        "meas_prep",
+        "sim_prep",
         "reporting_conditions_values",
     }
 )
@@ -1350,6 +1352,14 @@ class CapTest(param.Parameterized):
         respectively. Not serialized to yaml.
     meas_load_kwargs, sim_load_kwargs : dict or None
         Plain-dict kwargs splatted into the loaders.
+    meas_prep, sim_prep : list of dict
+        Serialized data-preparation pipelines (``CapData.prep_to_config``
+        dicts) replayed onto the corresponding ``CapData`` immediately after
+        every load — ``from_params``/``from_mapping``/``from_yaml`` when the
+        side is built from a path, and ``reload``. Prep mutates ``data`` and
+        is not idempotent, so ``setup()`` and ``run_test()`` never replay it,
+        and a side supplied as a pre-built ``CapData`` keeps its config but
+        does not apply it (a ``UserWarning`` names the skipped steps).
 
     Attributes
     ----------
@@ -1603,6 +1613,23 @@ class CapTest(param.Parameterized):
         doc="Extra kwargs splatted into sim_loader.",
     )
 
+    # Declared data-preparation pipelines. Serialized to yaml, replayed once
+    # per load (never by setup() or run_test(): prep is not idempotent).
+    meas_prep = param.List(
+        default=[],
+        doc=(
+            "Serialized prep-step configs replayed onto `meas` immediately "
+            "after every load, before setup()."
+        ),
+    )
+    sim_prep = param.List(
+        default=[],
+        doc=(
+            "Serialized prep-step configs replayed onto `sim` immediately "
+            "after every load, before setup()."
+        ),
+    )
+
     # Class-level tuple of param names to copy onto the CapData instances
     # during setup(). Names also listed in _downstream_attrs_meas_only are
     # copied onto meas only; all others are copied onto both meas and sim.
@@ -1843,6 +1870,66 @@ class CapTest(param.Parameterized):
         side = "meas" if cd is self.meas else "sim"
         self._set_rc(cd.rc.copy(), side, warn=True)
 
+    # --- data preparation -------------------------------------------------
+
+    def _replay_prep(self, side):
+        """Replay ``<side>_prep`` onto the freshly-loaded CapData for ``side``.
+
+        Called immediately after a load and before ``setup()``. Prep mutates
+        ``data`` and is not idempotent, so this is the only place a stored
+        prep config is applied — ``setup()`` and ``run_test()`` never run it.
+
+        Parameters
+        ----------
+        side : {'meas', 'sim'}
+            Which side's stored prep config to replay. A no-op when that
+            config is empty or the side's ``CapData`` is unset.
+
+        Returns
+        -------
+        None
+
+        Raises
+        ------
+        RuntimeError
+            Propagated from ``CapData.run_prep`` if the target ``CapData``
+            already has an applied prep chain.
+        """
+        config = self.meas_prep if side == "meas" else self.sim_prep
+        capdata = getattr(self, side)
+        if not config or capdata is None:
+            return
+        capdata.run_prep(config)
+
+    def _warn_prep_not_applied(self, side):
+        """Warn that a stored prep config was skipped for a pre-built CapData.
+
+        A pre-built ``CapData`` may already have been prepped by the caller,
+        and prep is not idempotent, so the config is kept (it still
+        round-trips through ``to_yaml``) but never applied.
+
+        Parameters
+        ----------
+        side : {'meas', 'sim'}
+            Which side was supplied pre-built. A no-op when that side's
+            stored prep config is empty.
+
+        Returns
+        -------
+        None
+        """
+        config = self.meas_prep if side == "meas" else self.sim_prep
+        if not config:
+            return
+        warnings.warn(
+            f"{len(config)} stored '{side}_prep' steps were not applied — "
+            f"'{side}' was supplied as a pre-built CapData, not loaded from a "
+            "path. Apply them explicitly with: "
+            f"tst.{side}.run_prep(tst.{side}_prep)",
+            # warn -> this helper -> from_params -> the user's call site.
+            stacklevel=3,
+        )
+
     # --- constructors ----------------------------------------------------
 
     @classmethod
@@ -1853,6 +1940,14 @@ class CapTest(param.Parameterized):
         ``sim_path`` in addition to every declared ``param.*``. If both
         ``meas`` and ``meas_path`` are supplied the pre-built instance
         wins and a warning is emitted (same for ``sim`` / ``sim_path``).
+
+        A side built from a path has its declared prep pipeline
+        (``meas_prep`` / ``sim_prep``) replayed onto the loaded ``CapData``
+        immediately, before any ``setup()`` — including when
+        ``run_setup=False``. A side supplied as a pre-built ``CapData``
+        keeps its prep config but does not apply it (prep is not idempotent
+        and the object may already be prepped); a ``UserWarning`` names the
+        skipped steps.
 
         When both ``meas`` and ``sim`` end up populated and ``run_setup``
         is True, ``setup()`` is called automatically. Otherwise the
@@ -1901,11 +1996,14 @@ class CapTest(param.Parameterized):
                 stacklevel=2,
             )
             inst.meas = meas
+            inst._warn_prep_not_applied("meas")
         elif meas is not None:
             inst.meas = meas
+            inst._warn_prep_not_applied("meas")
         elif meas_path is not None:
             load_kwargs = inst.meas_load_kwargs or {}
             inst.meas = _meas_loader()(meas_path, **load_kwargs)
+            inst._replay_prep("meas")
 
         # Wire up sim.
         if sim is not None and sim_path is not None:
@@ -1915,11 +2013,14 @@ class CapTest(param.Parameterized):
                 stacklevel=2,
             )
             inst.sim = sim
+            inst._warn_prep_not_applied("sim")
         elif sim is not None:
             inst.sim = sim
+            inst._warn_prep_not_applied("sim")
         elif sim_path is not None:
             load_kwargs = inst.sim_load_kwargs or {}
             inst.sim = _sim_loader()(sim_path, **load_kwargs)
+            inst._replay_prep("sim")
 
         if run_setup and inst.meas is not None and inst.sim is not None:
             inst.setup()
@@ -1939,6 +2040,8 @@ class CapTest(param.Parameterized):
         pipelines are stored as :attr:`meas_filters_pending` /
         :attr:`sim_filters_pending`, not applied; run them with
         :meth:`run_test` (or per side via ``CapData.run_pipeline``).
+        Serialized ``meas_prep`` / ``sim_prep`` pipelines, by contrast, are
+        applied at load — see :meth:`from_params`.
 
         Parameters
         ----------
@@ -1995,7 +2098,11 @@ class CapTest(param.Parameterized):
         Serialized ``meas_filters`` / ``sim_filters`` pipelines are stored
         as :attr:`meas_filters_pending` / :attr:`sim_filters_pending` —
         nothing is replayed at load. Run them with :meth:`run_test` (or per
-        side via ``CapData.run_pipeline``). Manual reporting-conditions
+        side via ``CapData.run_pipeline``). Serialized ``meas_prep`` /
+        ``sim_prep`` pipelines are the exception: they reach
+        :meth:`from_params` as parameters and are applied to each
+        path-loaded side at load, before any ``setup()``. Manual
+        reporting-conditions
         values (``reporting_conditions_values`` with
         ``rc_source='manual'``) are validated and seeded during the
         construction-time ``setup()``; with ``run_setup=False`` they are
@@ -2194,6 +2301,12 @@ class CapTest(param.Parameterized):
         filters against the fresh data. When the outgoing chain is empty, an
         existing pending config is left untouched.
 
+        The outgoing side's applied prep chain is preserved the same way,
+        into ``<side>_prep``, and — unlike the filters — is replayed
+        immediately onto the freshly loaded data, before the per-side
+        ``setup()``. A reload is the supported way to re-prep, since the
+        loader supplies a fresh un-prepped frame.
+
         Parameters
         ----------
         side : {'meas', 'sim'}
@@ -2234,12 +2347,15 @@ class CapTest(param.Parameterized):
         outgoing = getattr(self, side)
         if outgoing is not None and outgoing.filters:
             setattr(self, f"{side}_filters_pending", outgoing.filters_to_config())
+        if outgoing is not None and outgoing.prep:
+            setattr(self, f"{side}_prep", outgoing.prep_to_config())
         if side == "meas":
             loader = self.meas_loader or _default_meas_loader()
             self.meas = loader(stored_path, **(self.meas_load_kwargs or {}))
         else:
             loader = self.sim_loader or _default_sim_loader()
             self.sim = loader(stored_path, **(self.sim_load_kwargs or {}))
+        self._replay_prep(side)
         self.setup(verbose=verbose, side=side)
         return self
 
@@ -2258,7 +2374,9 @@ class CapTest(param.Parameterized):
         ``meas_filters`` / ``sim_filters`` (lists of filter-step config dicts
         from :meth:`CapData.filters_to_config`, or the side's pending config
         when its chain is empty), each only when non-empty; ``from_yaml``
-        stores them as pending pipelines that :meth:`run_test` replays. When a
+        stores them as pending pipelines that :meth:`run_test` replays. The
+        prep pipelines are written the same way as ``meas_prep`` /
+        ``sim_prep``; ``from_yaml`` applies those at load. When a
         ``RepCond`` step is present in either pipeline, ``overrides.rep_conditions``
         is omitted — the step is then the authoritative reporting-conditions
         source (avoids representing it in two places).
@@ -2358,7 +2476,10 @@ class CapTest(param.Parameterized):
         so the merge/write step stays short. Embeds each side's pipeline as
         ``meas_filters``/``sim_filters``: the applied filter chain when
         non-empty, else the side's pending config (so a load → save without
-        running is lossless), else the key is omitted. Omits
+        running is lossless), else the key is omitted. Embeds each side's
+        prep pipeline as ``meas_prep``/``sim_prep`` under the same three-way
+        rule (applied prep chain, else the stored ``meas_prep``/``sim_prep``
+        config, else the key is omitted). Omits
         ``overrides.rep_conditions`` when a ``RepCond`` step is present in
         either pipeline (the step is then the single source of reporting
         conditions).
@@ -2396,6 +2517,16 @@ class CapTest(param.Parameterized):
             self.sim.filters_to_config()
             if self.sim is not None and self.sim.filters
             else list(self.sim_filters_pending)
+        )
+        meas_prep = (
+            self.meas.prep_to_config()
+            if self.meas is not None and self.meas.prep
+            else copy.deepcopy(self.meas_prep)
+        )
+        sim_prep = (
+            self.sim.prep_to_config()
+            if self.sim is not None and self.sim.prep
+            else copy.deepcopy(self.sim_prep)
         )
         has_rep_cond_step = any(
             d["type"] == "RepCond" for d in (meas_filters + sim_filters)
@@ -2457,6 +2588,11 @@ class CapTest(param.Parameterized):
             sub["meas_filters"] = meas_filters
         if sim_filters:
             sub["sim_filters"] = sim_filters
+
+        if meas_prep:
+            sub["meas_prep"] = meas_prep
+        if sim_prep:
+            sub["sim_prep"] = sim_prep
 
         # Manual reporting conditions are data, not config: serialize their
         # values so from_yaml can restore them (computed RC is recomputed by
