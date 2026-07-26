@@ -8,8 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - New `CapData.rerun_filters_from(index)` — partial pipeline re-run: truncates
 the chain to the retained prefix and re-runs the tail as live step objects with
-their current param values (introduced this cycle as `rerun_from`, renamed
-before release).
+their current param values.
 - Added `CapData.filter_backtracking()` (and the underlying `Backtracking`
 filter step) to remove single-axis-tracker backtracking intervals from the
 data. Backtracking activity is determined per interval from solar position and
@@ -146,15 +145,7 @@ only after computation succeeds (restoring the prior `rc` if CapTest
 propagation fails) — a failed step leaves the pipeline and RC state unchanged.
 - **Breaking:** Filter steps now reject assignment to names that are neither a
 declared `param` parameter nor known runtime state, raising `AttributeError` with
-a close-match suggestion. `param.Parameterized` previously accepted any attribute,
-which made the edit-then-replay workflow (adjust a step's params, then
-`CapData.rerun_filters_from(index)`) silently a no-op on a typo — e.g.
-`cd.filters[i].contamination = 0.10` on an `Outliers` step, whose actual param is
-`envelope_kwargs`, set a dead attribute and the re-run reproduced the old result.
-Leading-underscore names still pass through, and each step class declares the
-non-param attributes it writes during `_execute` in `_runtime_attrs` (accumulated
-across the class hierarchy). Code that stashed arbitrary attributes on a step must
-use a leading underscore.
+a close-match suggestion. 
 - **Breaking:** `CapData.data_filtered` is now a derived, read-only property — the
 `data` rows kept by the last filter (a defensive copy), or `data` when no filters
 have run. It has no setter; clear filtering with `CapData.reset_filter()`. Code
@@ -213,7 +204,7 @@ import it from `captest.filters`.
 - Removed the legacy module-level `capdata.run_test(cd, steps)` (imperative
 method+args tuples); the name is reused by the new `CapTest.run_test()`
 orchestrator. Config-driven pipelines (`run_pipeline`, `from_yaml`) supersede
-it. (Historical references in the docs/example notebooks are out of scope.)
+it.
 
 ### Fixed
 - `CapTest._maybe_wrap_sim_year_end` now uses a fixed July 1 → June 30 wrap window
