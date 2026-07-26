@@ -23,7 +23,7 @@ import param
 from bokeh.models import HoverTool, NumeralTickFormatter
 from patsy import dmatrix
 
-from captest import plotting, util
+from captest import plotting, prep, util
 from captest.filters import (
     AbsDiffPrev,
     Backtracking,
@@ -960,7 +960,7 @@ class CapData(param.Parameterized):
             )
         return float(rc["poa"].iloc[0])
 
-    def drop_cols(self, columns):
+    def drop_cols(self, columns, record=True):
         """
         Drop columns from CapData `data` and `column_groups`.
 
@@ -971,9 +971,17 @@ class CapData(param.Parameterized):
         ----------
         columns : str or list
             Column name or list of column names to drop.
+        record : bool, default True
+            Append a ``DropColumns`` prep step so the drop is serialized to
+            the config and replayed after a reload. **Internal callers must
+            pass ``record=False``** so library-generated column changes do not
+            enter the user's prep chain; a source-scan test enforces this.
         """
         if isinstance(columns, str):
             columns = [columns]
+        if record:
+            prep.DropColumns(columns=list(columns)).run(self)
+            return
         for col in columns:
             print(f"Removing following column: {col}")
             for key, value in self.column_groups.items():
@@ -986,7 +994,7 @@ class CapData(param.Parameterized):
             self.data.drop(col, axis=1, inplace=True)
             print("    Dropped from data attribute")
 
-    def rename_cols(self, column_map):
+    def rename_cols(self, column_map, record=True):
         """
         Rename columns in `data` and `column_groups`.
 
@@ -997,7 +1005,14 @@ class CapData(param.Parameterized):
         ----------
         column_map : dict
             Dictionary mapping old column names to new column names.
+        record : bool, default True
+            Append a ``RenameColumns`` prep step so the rename is serialized
+            to the config and replayed after a reload. **Internal callers must
+            pass ``record=False``**; a source-scan test enforces this.
         """
+        if record:
+            prep.RenameColumns(column_map=dict(column_map)).run(self)
+            return
         self.data.rename(columns=column_map, inplace=True)
         for key, value in self.column_groups.items():
             self.column_groups[key] = [column_map.get(col, col) for col in value]
@@ -1657,7 +1672,7 @@ class CapData(param.Parameterized):
             self.data = pd.concat([agg_result, self.data], axis=1)
             agg_names[group_id] = col_name
         self.filters = []
-        self.rename_cols(rename_map)
+        self.rename_cols(rename_map, record=False)
         self.agg_name_mapper = agg_names
         self.create_column_group_attributes()
         self.create_agg_attributes()

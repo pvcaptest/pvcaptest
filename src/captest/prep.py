@@ -335,9 +335,14 @@ def conversion_factors(from_units, to_units):
     Raises
     ------
     ValueError
-        If the units are identical, or the pair is not supported in either
-        direction.
+        If either unit is omitted (``None``), the units are identical, or the
+        pair is not supported in either direction.
     """
+    if from_units is None or to_units is None:
+        raise ValueError(
+            "from_units and to_units are both required; got "
+            f"from_units={from_units!r}, to_units={to_units!r}."
+        )
     src = _normalize_unit(from_units)
     dst = _normalize_unit(to_units)
     if src == dst:
@@ -390,9 +395,152 @@ class ConvertUnits(BasePrepStep):
         }
 
 
+class AsType(BasePrepStep):
+    """Cast the selected columns to a dtype, in place.
+
+    Covers the PVsyst frames that load as ``object`` because of a stray index
+    column and need ``astype(float)`` before any numeric filtering.
+    """
+
+    dtype = param.String(default="float64", doc="Target numpy/pandas dtype name.")
+
+    _explanation_template = "Columns {columns} were cast to {dtype}."
+
+    def _execute(self, capdata, columns):
+        capdata.data[columns] = capdata.data[columns].astype(self.dtype)
+
+    def _explanation_values(self):
+        return {"columns": ", ".join(self.columns_resolved), "dtype": self.dtype}
+
+
+class DropColumns(BasePrepStep):
+    """Drop the selected columns from ``data`` and ``column_groups``.
+
+    Delegates to :meth:`CapData.drop_cols`; the step exists so the action is
+    recorded and replayed, not to reimplement it. Changes column identity
+    rather than values, so it stays legal after filters are applied.
+    """
+
+    _explanation_template = "Columns {columns} were dropped."
+    _mutates_values = False
+
+    def _execute(self, capdata, columns):
+        capdata.drop_cols(columns, record=False)
+
+
+class RenameColumns(BasePrepStep):
+    """Rename columns in ``data`` and ``column_groups``.
+
+    Takes its columns from ``column_map`` rather than the three-way selector;
+    passing a selector is an error. Delegates to :meth:`CapData.rename_cols`.
+    """
+
+    column_map = param.Dict(
+        default=None, allow_None=True, doc="Mapping of old column name to new."
+    )
+
+    _explanation_template = "Columns {columns} were renamed."
+    _mutates_values = False
+
+    def _resolve_columns(self, capdata):
+        """Return the map's keys; reject the inherited selectors."""
+        selectors = [
+            name
+            for name in ("columns", "group", "group_regex")
+            if getattr(self, name) is not None
+        ]
+        if selectors:
+            raise ValueError(
+                "RenameColumns takes its columns from 'column_map'; remove "
+                f"{selectors}."
+            )
+        if not self.column_map:
+            raise ValueError("RenameColumns requires a non-empty 'column_map'.")
+        cols = list(self.column_map)
+        missing = [c for c in cols if c not in capdata.data.columns]
+        if missing:
+            raise ValueError(f"RenameColumns keys are absent from data: {missing}.")
+        return cols
+
+    def _execute(self, capdata, columns):
+        capdata.rename_cols(self.column_map, record=False)
+
+
+class Custom(BasePrepStep):
+    """Apply an arbitrary callable to the ``CapData`` as a prep step.
+
+    ``func`` is called as ``func(capdata, *args, **kwargs)`` and mutates
+    ``capdata.data`` in place; its return value is ignored. This is the escape
+    hatch for adjustments the declarative vocabulary does not cover, such as
+    blanking east-facing POA columns before sunrise.
+
+    Like ``filters.Custom``, ``func``/``args``/``kwargs`` are plain instance
+    attributes rather than ``param`` parameters, and ``func`` serializes to a
+    module-qualified name — a lambda cannot be exported.
+
+    The three-way column selector is optional here; when omitted,
+    ``columns_resolved`` is an empty list and ``func`` decides what it touches.
+    """
+
+    _explanation_template = "Custom prep {call} was applied."
+    _runtime_attrs = frozenset({"func", "args", "kwargs"})
+
+    def __init__(self, func, *args, custom_name=None, **kwargs):
+        super().__init__(custom_name=custom_name)
+        self.func = func
+        self.args = args
+        self.kwargs = kwargs
+
+    def _resolve_columns(self, capdata):
+        """Resolve the selector when given; otherwise return no columns."""
+        given = [
+            name
+            for name in ("columns", "group", "group_regex")
+            if getattr(self, name) is not None
+        ]
+        if not given:
+            return []
+        return super()._resolve_columns(capdata)
+
+    def _execute(self, capdata, columns):
+        self.func(capdata, *self.args, **self.kwargs)
+
+    @property
+    def args_repr(self):
+        """Render ``func_name(arg, ..., k=v, ...)``."""
+        name = getattr(self.func, "__name__", repr(self.func))
+        arg_parts = [repr(a) for a in self.args]
+        kwarg_parts = [f"{k}={v!r}" for k, v in self.kwargs.items()]
+        return f"{name}({', '.join(arg_parts + kwarg_parts)})"
+
+    def _explanation_values(self):
+        return {"call": self.args_repr}
+
+    def to_config(self):
+        return {
+            "type": "Custom",
+            "func": util.callable_to_qualname(self.func),
+            "args": list(self.args),
+            "kwargs": dict(self.kwargs),
+            "custom_name": self.custom_name,
+        }
+
+    @classmethod
+    def from_config(cls, config):
+        config = dict(config)
+        func = util.callable_from_qualname(config["func"])
+        args = config.get("args") or []
+        kwargs = config.get("kwargs") or {}
+        return cls(func, *args, custom_name=config.get("custom_name"), **kwargs)
+
+
 PREP_REGISTRY = {
     "ConvertUnits": ConvertUnits,
     "Scale": Scale,
+    "AsType": AsType,
+    "DropColumns": DropColumns,
+    "RenameColumns": RenameColumns,
+    "Custom": Custom,
 }
 
 

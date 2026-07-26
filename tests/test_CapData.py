@@ -3747,5 +3747,77 @@ class TestPipelineConfig:
         assert irr_steps[-1]["ref_val"] == pytest.approx(float(ref_val))
 
 
+class TestPrepRecordingOnDropAndRename:
+    """drop_cols / rename_cols record by default; internal callers opt out."""
+
+    @pytest.fixture
+    def cd(self):
+        index = pd.date_range("1/1/2021 12:00", freq="5min", periods=4)
+        out = pvc.CapData("test")
+        out.data = pd.DataFrame(
+            {"a": [1.0, 2.0, 3.0, 4.0], "b": [5.0, 6.0, 7.0, 8.0]}, index=index
+        )
+        out.column_groups = cg.ColumnGroups({"grp": ["a", "b"]})
+        return out
+
+    def test_drop_cols_records_by_default(self, cd):
+        cd.drop_cols(["a"])
+        assert [type(s).__name__ for s in cd.prep] == ["DropColumns"]
+        assert cd.prep[0].columns == ["a"]
+
+    def test_drop_cols_record_false_records_nothing(self, cd):
+        cd.drop_cols(["a"], record=False)
+        assert cd.prep == []
+        assert "a" not in cd.data.columns
+
+    def test_rename_cols_records_by_default(self, cd):
+        cd.rename_cols({"a": "c"})
+        assert [type(s).__name__ for s in cd.prep] == ["RenameColumns"]
+
+    def test_rename_cols_record_false_records_nothing(self, cd):
+        cd.rename_cols({"a": "c"}, record=False)
+        assert cd.prep == []
+        assert "c" in cd.data.columns
+
+
+class TestNoInternalCallerRecordsPrep:
+    """Source scan: internal drop_cols/rename_cols calls must pass record=False."""
+
+    def test_agg_sensors_leaves_prep_empty(self, meas):
+        meas.agg_sensors()
+        assert meas.prep == []
+
+    def test_every_internal_call_site_opts_out(self):
+        import ast
+        import pathlib
+
+        import captest
+
+        src_dir = pathlib.Path(captest.__file__).parent
+        offenders = []
+        for path in sorted(src_dir.glob("*.py")):
+            tree = ast.parse(path.read_text())
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Call):
+                    continue
+                func = node.func
+                if not isinstance(func, ast.Attribute):
+                    continue
+                if func.attr not in ("drop_cols", "rename_cols"):
+                    continue
+                opts_out = any(
+                    kw.arg == "record"
+                    and isinstance(kw.value, ast.Constant)
+                    and kw.value.value is False
+                    for kw in node.keywords
+                )
+                if not opts_out:
+                    offenders.append(f"{path.name}:{node.lineno}")
+        assert offenders == [], (
+            "internal drop_cols/rename_cols calls must pass record=False so "
+            f"they do not record a prep step: {offenders}"
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

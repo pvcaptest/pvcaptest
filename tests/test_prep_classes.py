@@ -1,5 +1,6 @@
 """Tests for the prep step classes in captest.prep."""
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -194,6 +195,10 @@ class TestConvertUnits:
         with pytest.raises(ValueError, match="identical"):
             prep.ConvertUnits(columns=["wind_1"], from_units="C", to_units="C").run(cd)
 
+    def test_missing_units_raise_clear_message(self, cd):
+        with pytest.raises(ValueError, match="both required"):
+            prep.ConvertUnits(columns=["wind_1"], to_units="m/s").run(cd)
+
     def test_config_round_trip(self):
         step = prep.ConvertUnits(group_regex="^temp", from_units="F", to_units="C")
         rebuilt = prep.prep_step_from_config(step.to_config())
@@ -215,3 +220,108 @@ class TestConvertUnits:
 
     def test_registered(self):
         assert prep.PREP_REGISTRY["ConvertUnits"] is prep.ConvertUnits
+
+
+class TestAsType:
+    def test_casts_selected_columns(self, cd):
+        cd.data["power_1"] = ["1000", "2000", "3000", "4000"]
+        prep.AsType(columns=["power_1"], dtype="float64").run(cd)
+        assert cd.data["power_1"].dtype == np.dtype("float64")
+
+    def test_config_round_trip(self):
+        step = prep.AsType(columns=["a"], dtype="float64")
+        rebuilt = prep.prep_step_from_config(step.to_config())
+        assert rebuilt.dtype == "float64"
+
+    def test_uncastable_value_raises_and_restores(self, cd):
+        cd.data["power_1"] = ["1000", "not_a_number", "3000", "4000"]
+        before = cd.data.copy()
+        with pytest.raises(ValueError):
+            prep.AsType(columns=["power_1"], dtype="float64").run(cd)
+        pd.testing.assert_frame_equal(cd.data, before)
+        assert cd.prep == []
+
+
+class TestDropColumns:
+    def test_drops_from_data_and_column_groups(self, cd):
+        prep.DropColumns(columns=["wind_1"]).run(cd)
+        assert "wind_1" not in cd.data.columns
+        assert cd.column_groups["wind"] == []
+
+    def test_permitted_after_filtering(self, cd):
+        cd.data["poa"] = [500.0, 600.0, 700.0, 800.0]
+        cd.filter_custom(pd.DataFrame.head, 3)
+        prep.DropColumns(columns=["wind_1"]).run(cd)
+        assert "wind_1" not in cd.data.columns
+
+    def test_does_not_mutate_values(self):
+        assert prep.DropColumns._mutates_values is False
+
+
+class TestRenameColumns:
+    def test_renames_in_data_and_column_groups(self, cd):
+        prep.RenameColumns(column_map={"wind_1": "wind_speed"}).run(cd)
+        assert "wind_speed" in cd.data.columns
+        assert cd.column_groups["wind"] == ["wind_speed"]
+
+    def test_selector_is_rejected(self, cd):
+        with pytest.raises(ValueError, match="column_map"):
+            prep.RenameColumns(columns=["wind_1"], column_map={"wind_1": "x"}).run(cd)
+
+    def test_unknown_key_raises(self, cd):
+        with pytest.raises(ValueError, match="absent"):
+            prep.RenameColumns(column_map={"nope": "x"}).run(cd)
+
+    def test_config_round_trip(self):
+        step = prep.RenameColumns(column_map={"a": "b"})
+        rebuilt = prep.prep_step_from_config(step.to_config())
+        assert rebuilt.column_map == {"a": "b"}
+
+
+def blank_before(capdata, columns, hour):
+    """Module-level prep function used by the Custom tests."""
+    mask = capdata.data.index.hour < hour
+    capdata.data.loc[mask, columns] = np.nan
+
+
+class TestCustomPrep:
+    def test_calls_func_with_capdata(self, cd):
+        prep.Custom(blank_before, ["power_1"], 13).run(cd)
+        assert cd.data["power_1"].isna().all()
+
+    def test_no_selector_required(self, cd):
+        step = prep.Custom(blank_before, ["power_1"], 13)
+        step.run(cd)
+        assert step.columns_resolved == []
+
+    def test_config_round_trip(self, cd):
+        step = prep.Custom(blank_before, ["power_1"], 13)
+        config = step.to_config()
+        assert config["func"] == "tests.test_prep_classes:blank_before"
+        rebuilt = prep.prep_step_from_config(config)
+        assert rebuilt.func is blank_before
+        assert rebuilt.args == (["power_1"], 13)
+
+    def test_lambda_raises_at_serialization(self, cd):
+        step = prep.Custom(lambda capdata: None)
+        with pytest.raises(ValueError):
+            step.to_config()
+
+    def test_failure_restores_data(self, cd):
+        def boom(capdata):
+            capdata.data["power_1"] = 0.0
+            raise RuntimeError("boom")
+
+        before = cd.data.copy()
+        with pytest.raises(RuntimeError, match="boom"):
+            prep.Custom(boom).run(cd)
+        pd.testing.assert_frame_equal(cd.data, before)
+        assert cd.prep == []
+
+
+class TestRegistryCoverage:
+    @pytest.mark.parametrize("name", list(prep.PREP_REGISTRY))
+    def test_every_step_round_trips_its_defaults(self, name):
+        cls = prep.PREP_REGISTRY[name]
+        assert issubclass(cls, prep.BasePrepStep)
+        assert cls.__name__ == name
