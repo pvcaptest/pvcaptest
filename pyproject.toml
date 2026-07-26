@@ -61,7 +61,7 @@ test = [
     "pytest-cov",
     "pytest-mock",
     "pytest-timeout",
-    "ruff>=0.14.13",
+    "ruff>=0.16.0",
 ]
 docs = [
     "myst-parser>=4.0",
@@ -93,10 +93,39 @@ explicit = true
 [tool.ruff]
 # Set the maximum line length to 88, ruff default.
 line-length = 88
+# Apply `exclude` even when a path is passed explicitly, so pre-commit (which invokes
+# ruff with an explicit file list) honors the same exclusions as a bare `ruff .`.
+force-exclude = true
 exclude = [
     "docs/examples/**",
     "**/*.ipynb",
+    # Design specs and implementation plans are records of past work; ruff formats
+    # python code blocks in markdown, and rewriting them would churn the record.
+    "docs/specs/**",
+    "docs/superpowers/**",
+    # Local Claude Code state, not project source.
+    ".claude/**",
 ]
+
+[tool.ruff.lint]
+# Pin the rule set explicitly. Ruff's *default* selection changes between releases,
+# which silently breaks CI on an unrelated PR; listing the rules here means a ruff
+# upgrade only changes behavior we opted into.
+select = [
+    "E4",  # pycodestyle: imports
+    "E7",  # pycodestyle: statements
+    "E9",  # pycodestyle: runtime errors
+    "F",   # pyflakes
+    "I",   # isort
+    "UP",  # pyupgrade
+    "SIM", # flake8-simplify
+    "C4",  # flake8-comprehensions
+]
+
+[tool.ruff.lint.isort]
+# `__init__.py` re-exports with the explicit `X as X` form; without this isort splits
+# each alias into its own `from captest import (...)` statement.
+combine-as-imports = true
 
 [tool.ruff.lint.per-file-ignores]
 # Ignore line length in docs config, source files with unavoidable long docstrings,

@@ -1,12 +1,12 @@
-from pathlib import Path
-from typing import TYPE_CHECKING
 import copy
+import importlib
+import itertools
 import json
 import re
 import warnings
-import itertools
 from functools import partial
-import importlib
+from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
 import pandas as pd
@@ -15,7 +15,8 @@ from bokeh.models import NumeralTickFormatter
 
 from captest import util
 from captest.calcparams import cell_temp, power_temp_correct
-from .util import tags_by_regex, read_json
+
+from .util import read_json, tags_by_regex
 
 if TYPE_CHECKING:
     # Imported only for static type hints / IDE support. Doing the import at
@@ -319,10 +320,7 @@ def filter_list(text_input, ms_to_filter, names, event=None):
     -------
     None
     """
-    if text_input.value == "":
-        re_value = ".*"
-    else:
-        re_value = text_input.value
+    re_value = ".*" if text_input.value == "" else text_input.value
     names_ = copy.deepcopy(names)
     if isinstance(names_, dict):
         selected_groups = tags_by_regex(list(names_.keys()), re_value)
@@ -992,14 +990,14 @@ class ScatterPlot(param.Parameterized):
 
     def _build_scatter(self, df, x_col, y_col, label=None):
         """Return a single ``hv.Scatter`` (no AM/PM split)."""
-        scatter_kwargs = dict(
-            size=5,
-            tools=["hover", "lasso_select", "box_select"],
-            legend_position="right",
-            height=self.height,
-            width=self.width,
-            yformatter=NumeralTickFormatter(format="0,0"),
-        )
+        scatter_kwargs = {
+            "size": 5,
+            "tools": ["hover", "lasso_select", "box_select"],
+            "legend_position": "right",
+            "height": self.height,
+            "width": self.width,
+            "yformatter": NumeralTickFormatter(format="0,0"),
+        }
         if label is None:
             return hv.Scatter(df, x_col, [y_col, "index"]).opts(**scatter_kwargs)
         return hv.Scatter(df, x_col, [y_col, "index"], label=label).opts(

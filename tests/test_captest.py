@@ -17,11 +17,7 @@ import pandas as pd
 import pytest
 import yaml
 
-from captest import CapTest, captest as ct, load_pvsyst, util
-from captest import columngroups as cg
-from captest.captest import CapTestResults
-from captest.capdata import CapData
-from captest.filters import Irradiance
+from captest import CapTest, captest as ct, columngroups as cg, load_pvsyst, util
 from captest.calcparams import (
     apparent_zenith_pvsyst,
     cell_temp,
@@ -32,6 +28,9 @@ from captest.calcparams import (
     scale,
     spectral_factor_firstsolar,
 )
+from captest.capdata import CapData
+from captest.captest import CapTestResults
+from captest.filters import Irradiance
 
 # Presets that the shipped meas_cd_default / sim_cd_default fixtures cover
 # end-to-end through CapTest.setup(). Extend this list when you add a preset
@@ -39,7 +38,7 @@ from captest.calcparams import (
 # default fixtures; otherwise add a dedicated fixture and a targeted test.
 _DEFAULT_FIXTURE_PRESETS = [
     p
-    for p in ct.TEST_SETUPS.keys()
+    for p in ct.TEST_SETUPS
     if p
     not in {
         "e2848_spec_corrected_poa",
@@ -2117,7 +2116,7 @@ class TestToYamlAndRoundTrip:
     """Serialization of CapTest state to yaml and round-trip through yaml."""
 
     def _load(self, path):
-        with open(path, "r") as fh:
+        with open(path) as fh:
             return yaml.safe_load(fh)
 
     def test_to_yaml_writes_curated_scalar_set(self, tmp_path):

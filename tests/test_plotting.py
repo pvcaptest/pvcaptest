@@ -19,11 +19,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from captest import captest as ct
-from captest import columngroups as cg
-from captest import plotting
+from captest import captest as ct, columngroups as cg, plotting
 from captest.capdata import CapData
-
 
 # --- shared fixtures --------------------------------------------------------
 

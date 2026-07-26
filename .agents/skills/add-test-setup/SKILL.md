@@ -147,14 +147,20 @@ Add the entry to the dict, then verify before showing the user:
 ```python
 import warnings, captest.captest as ct
 from captest import CapTest
+
 name = "your_new_preset"
-ct.validate_test_setup(ct.TEST_SETUPS[name])   # raises on bad shape
-ct.resolve_test_setup(name)                      # raises on bad formula/cols
+ct.validate_test_setup(ct.TEST_SETUPS[name])  # raises on bad shape
+ct.resolve_test_setup(name)  # raises on bad formula/cols
 # end-to-end probe with fixtures that satisfy the preset's required inputs
 with warnings.catch_warnings():
     warnings.simplefilter("ignore")
-    capt = CapTest.from_params(test_setup=name, meas=meas_cd, sim=sim_cd,
-                               ac_nameplate=6_000_000, bifaciality=0.15)
+    capt = CapTest.from_params(
+        test_setup=name,
+        meas=meas_cd,
+        sim=sim_cd,
+        ac_nameplate=6_000_000,
+        bifaciality=0.15,
+    )
 ```
 
 Then **always run `just fmt`** — nested dict literals over-indent silently; this

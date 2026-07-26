@@ -18,7 +18,7 @@ def test_smoke():
     assert captest.__version__ != "unknown"
 
     # Test that main modules can be imported
-    from captest import capdata, util, prtest, columngroups, io, plotting  # noqa: F401
+    from captest import capdata, columngroups, io, plotting, prtest, util  # noqa: F401
 
     # Test that key classes/functions are available
     assert hasattr(capdata, "CapData")

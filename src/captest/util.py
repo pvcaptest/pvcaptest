@@ -2,7 +2,6 @@ import importlib
 import json
 import re
 import warnings
-from typing import List, Tuple
 
 import numpy as np
 import pandas as pd
@@ -127,7 +126,7 @@ def reindex_datetime(data, file_name=None, report=False):
 
     if report:
         print("Frequency determined to be " + freq_str + " minutes.")
-        print("{:,} intervals added to index.".format(missing_intervals))
+        print(f"{missing_intervals:,} intervals added to index.")
         print("")
 
     return df, missing_intervals, freq_str
@@ -686,7 +685,7 @@ def callable_from_qualname(ref):
     return obj
 
 
-def parse_regression_formula(formula: str) -> Tuple[List[str], List[str]]:
+def parse_regression_formula(formula: str) -> tuple[list[str], list[str]]:
     """
     Return (lhs_list, rhs_list) for `formula`.
 
@@ -711,7 +710,7 @@ def parse_regression_formula(formula: str) -> Tuple[List[str], List[str]]:
     # --- helpers ------------------------------------------------------
     _sym_re = re.compile(r"[A-Za-z_]\w*")
 
-    def _extract_raw_names(factor_str: str) -> List[str]:
+    def _extract_raw_names(factor_str: str) -> list[str]:
         """
         Turn 'I(poa * t_amb)'  ->  ['poa', 't_amb']
              'poa'             ->  ['poa']
@@ -730,8 +729,8 @@ def parse_regression_formula(formula: str) -> Tuple[List[str], List[str]]:
     # --- main logic ---------------------------------------------------
     md = ModelDesc.from_formula(formula)
 
-    lhs_list: List[str] = []
-    rhs_list: List[str] = []
+    lhs_list: list[str] = []
+    rhs_list: list[str] = []
 
     # left
     for term in md.lhs_termlist:

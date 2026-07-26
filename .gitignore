@@ -122,3 +122,6 @@ src/captest/_version.py
 .windsurf/
 # roborev snapshots
 /.roborev/
+
+# uv lock file - intentionally untracked so CI resolves latest deps and fails early
+uv.lock

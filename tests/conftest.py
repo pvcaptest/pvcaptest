@@ -1,12 +1,10 @@
 import warnings
 
-import pytest
 import numpy as np
 import pandas as pd
-from captest import capdata as pvc
-from captest import util
-from captest import columngroups as cg
-from captest import CapTest, load_pvsyst
+import pytest
+
+from captest import CapTest, capdata as pvc, columngroups as cg, load_pvsyst, util
 
 
 @pytest.fixture

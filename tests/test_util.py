@@ -1,9 +1,9 @@
+import copy
 import json
 
-import pytest
-import copy
 import numpy as np
 import pandas as pd
+import pytest
 from upath import UPath
 
 from captest import util
@@ -115,7 +115,7 @@ class TestReindexDatetime:
 def nested_calc_dict():
     """Create a nested dictionary for testing update_by_path."""
 
-    class DummyCapData(object):
+    class DummyCapData:
         def __init__(self):
             self.data = pd.DataFrame()
 

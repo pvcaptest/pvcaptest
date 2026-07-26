@@ -10,34 +10,24 @@ instance together and exposes the cross-CapData comparison methods
 """
 
 # standard library imports
-import difflib
 import copy
-
-import warnings
+import difflib
 import importlib
 import inspect
+import warnings
 
 # anaconda distribution defaults
 import numpy as np
 import pandas as pd
-
-# anaconda distribution defaults
-# statistics and machine learning imports
+import param
+from bokeh.models import HoverTool, NumeralTickFormatter
 from patsy import dmatrix
 
-
-# anaconda distribution defaults
-# visualization library imports
-from bokeh.models import HoverTool, NumeralTickFormatter
-
-import param
-
-from captest import util
-from captest import plotting
+from captest import plotting, util
 from captest.filters import (
     AbsDiffPrev,
-    BaseSummaryStep,
     Backtracking,
+    BaseSummaryStep,
     BooleanFlag,
     Clearsky,
     Custom,
@@ -45,15 +35,15 @@ from captest.filters import (
     Irradiance,
     Missing,
     Outliers,
-    PowerFactor,
     Power,
+    PowerFactor,
     Pvsyst,
     Regression,
+    RepCond,
     RollingStd,
     Sensors,
     Shade,
     Time,
-    RepCond,
     filter_grps,
     filter_irr,
     fit_model,
@@ -65,8 +55,8 @@ from captest.filters import (
 hv_spec = importlib.util.find_spec("holoviews")
 if hv_spec is not None:
     import holoviews as hv
-    from holoviews.plotting.links import DataLink
     from holoviews import opts
+    from holoviews.plotting.links import DataLink
 
     hv.extension("bokeh")
 else:
@@ -132,7 +122,7 @@ def round_kwarg_floats(kwarg_dict, decimals=3):
             rounded_vals.append(round(val, decimals))
         else:
             rounded_vals.append(val)
-    return {key: val for key, val in zip(kwarg_dict.keys(), rounded_vals)}
+    return dict(zip(kwarg_dict.keys(), rounded_vals))
 
 
 def tstamp_kwarg_to_strings(kwarg_dict):
@@ -153,7 +143,7 @@ def tstamp_kwarg_to_strings(kwarg_dict):
             output_vals.append(val.strftime("%Y-%m-%d %H:%M"))
         else:
             output_vals.append(val)
-    return {key: val for key, val in zip(kwarg_dict.keys(), output_vals)}
+    return dict(zip(kwarg_dict.keys(), output_vals))
 
 
 def wrap_seasons(df, freq):
@@ -341,11 +331,10 @@ class ReportingIrradiance(param.Parameterized):
             self.min_ref_irradiance = int(poa_flt.index[0] / low)
         if self.min_ref_irradiance > self.max_ref_irradiance:
             warnings.warn(
-                "The minimum reference irradiance ({:.2f}) is greater than the maximum "
-                "reference irradiance ({:.2f}). Setting the minimum to 400 and the "
-                "maximum to 1000.".format(
-                    self.min_ref_irradiance, self.max_ref_irradiance
-                )
+                f"The minimum reference irradiance ({self.min_ref_irradiance:.2f}) "
+                "is greater than the maximum reference irradiance "
+                f"({self.max_ref_irradiance:.2f}). Setting the minimum to 400 and "
+                "the maximum to 1000."
             )
             self.min_ref_irradiance = 400
             self.max_ref_irradiance = 1000
@@ -486,8 +475,9 @@ class ReportingIrradiance(param.Parameterized):
                     ),
                     opts.Overlay(width=700),
                     opts.Layout(
-                        title="Reporting Irradiance: {:0.2f}, Total Points {}".format(
-                            self.irr_rc, self.total_pts
+                        title=(
+                            f"Reporting Irradiance: {self.irr_rc:0.2f}, "
+                            f"Total Points {self.total_pts}"
                         )
                     ),
                 )
@@ -546,7 +536,7 @@ def predict(regs, rcs):
     -------
     Pandas series of predicted values.
     """
-    pred_cap = list()
+    pred_cap = []
     for i, mod in enumerate(regs):
         RC_df = pd.DataFrame(rcs.iloc[i, :]).T
         pred_cap.append(mod.predict(RC_df).values[0])
@@ -667,35 +657,31 @@ def index_capdata(capdata, label, filtered=True):
     --------
     DataFrame
     """
-    if filtered:
-        data = capdata.data_filtered
-    else:
-        data = capdata.data
+    data = capdata.data_filtered if filtered else capdata.data
     if label == "regcols":
         label = list(capdata.regression_cols.values())
     if isinstance(label, str):
-        if label in capdata.column_groups.keys():
+        if label in capdata.column_groups:
             selected_data = data[capdata.column_groups[label]]
-        elif label in capdata.regression_cols.keys():
+        elif label in capdata.regression_cols:
             col_or_grp = capdata.regression_cols[label]
-            if col_or_grp in capdata.column_groups.keys():
+            if col_or_grp in capdata.column_groups:
                 selected_data = data[capdata.column_groups[col_or_grp]]
             elif col_or_grp in data.columns:
                 selected_data = data[col_or_grp]
             else:
                 warnings.warn(
-                    'Group or column "{}" mapped to the "{}" key of regression_cols '
-                    "not found in column_groups keys or columns of CapData.data".format(
-                        col_or_grp, label
-                    )
+                    f'Group or column "{col_or_grp}" mapped to the "{label}" key '
+                    "of regression_cols not found in column_groups keys or "
+                    "columns of CapData.data"
                 )
                 return None
         elif label in data.columns:
             selected_data = data.loc[:, label]
         else:
             warnings.warn(
-                'Label "{}" not found in column_groups keys, regression_cols keys, '
-                "or columns of CapData.data".format(label)
+                f'Label "{label}" not found in column_groups keys, '
+                "regression_cols keys, or columns of CapData.data"
             )
             return None
         if isinstance(selected_data, pd.Series):
@@ -705,11 +691,11 @@ def index_capdata(capdata, label, filtered=True):
     elif isinstance(label, list):
         cols_to_return = []
         for label_item in label:
-            if label_item in capdata.column_groups.keys():
+            if label_item in capdata.column_groups:
                 cols_to_return.extend(capdata.column_groups[label_item])
-            elif label_item in capdata.regression_cols.keys():
+            elif label_item in capdata.regression_cols:
                 col_or_grp = capdata.regression_cols[label_item]
-                if col_or_grp in capdata.column_groups.keys():
+                if col_or_grp in capdata.column_groups:
                     cols_to_return.extend(capdata.column_groups[col_or_grp])
                 elif col_or_grp in data.columns:
                     cols_to_return.append(col_or_grp)
@@ -718,7 +704,7 @@ def index_capdata(capdata, label, filtered=True):
         return data[cols_to_return]
 
 
-class LocIndexer(object):
+class LocIndexer:
     """
     Class to implement __getitem__ for indexing the CapData.data dataframe.
 
@@ -733,7 +719,7 @@ class LocIndexer(object):
         return index_capdata(self._capdata, label, filtered=False)
 
 
-class FilteredLocIndexer(object):
+class FilteredLocIndexer:
     """
     Class to implement __getitem__ for indexing the CapData.data_filtered dataframe.
 
@@ -844,7 +830,7 @@ class CapData(param.Parameterized):
         that when called returns a view of the data for that column group using
         the loc indexer functionality.
         """
-        for grp_id in self.column_groups.keys():
+        for grp_id in self.column_groups:
 
             def make_getter(key):
                 def getter(self):
@@ -1024,10 +1010,7 @@ class CapData(param.Parameterized):
         """
         if reg_vars is None:
             reg_vars = list(self.regression_cols.keys())
-        if filtered_data:
-            df = self.floc[reg_vars].copy()
-        else:
-            df = self.loc[reg_vars].copy()
+        df = self.floc[reg_vars].copy() if filtered_data else self.loc[reg_vars].copy()
         rename = {df.columns[0]: reg_vars}
 
         if isinstance(reg_vars, list):
@@ -1042,7 +1025,7 @@ class CapData(param.Parameterized):
                             "dictionary group. Run agg_sensors "
                             "before this method."
                         )
-            rename = {old: new for old, new in zip(df.columns, reg_vars)}
+            rename = dict(zip(df.columns, reg_vars))
 
         df.rename(columns=rename, inplace=True)
         return df
@@ -1087,10 +1070,7 @@ class CapData(param.Parameterized):
         """
         lhs, rhs = util.parse_regression_formula(self.regression_formula)
         y_col, x_col = lhs[0], rhs[0]
-        if filtered:
-            df = self.floc[[y_col, x_col]]
-        else:
-            df = self.loc[[y_col, x_col]]
+        df = self.floc[[y_col, x_col]] if filtered else self.loc[[y_col, x_col]]
 
         if df.shape[1] != 2:
             return warnings.warn("Aggregate sensors before using this method.")
@@ -1386,9 +1366,9 @@ class CapData(param.Parameterized):
             poa_cols = self.column_groups[poa_trans_key]
         if len(poa_cols) > 1:
             return warnings.warn(
-                "{} columns of irradiance data. "
+                f"{len(poa_cols)} columns of irradiance data. "
                 "Use col_name to specify a single "
-                "column.".format(len(poa_cols))
+                "column."
             )
         else:
             return poa_cols[0]
@@ -1467,10 +1447,7 @@ class CapData(param.Parameterized):
         ``NaN`` rather than ``0.0`` (the pandas default). Rows with at least one
         value still skip ``NaN`` and sum the remaining values.
         """
-        if columns is None:
-            columns_to_aggregate = self._get_group(group_id)
-        else:
-            columns_to_aggregate = columns
+        columns_to_aggregate = self._get_group(group_id) if columns is None else columns
         # pandas sum() defaults to min_count=0, so a row where every column is
         # NaN sums to 0.0 instead of NaN. Pass min_count=1 for sum aggregations
         # so all-NaN rows remain NaN (missing) rather than being treated as real
@@ -1485,18 +1462,15 @@ class CapData(param.Parameterized):
         agg_result = agg_result.rename(col_name).to_frame()
         if verbose:
             col_name_to_print = copy.copy(col_name)
-            if rename_map is not None and col_name in rename_map.keys():
+            if rename_map is not None and col_name in rename_map:
                 col_name_to_print = rename_map[col_name]
             cols = list(columns_to_aggregate.columns)
             col_qty = len(cols)
-            if col_qty > cutoff:
-                truncated_warning = "OUTPUT TRUNCATED - "
-            else:
-                truncated_warning = ""
+            truncated_warning = "OUTPUT TRUNCATED - " if col_qty > cutoff else ""
             print(
-                "{}Aggregating the below {} columns of the {} group using the {} function. New column name: {}:".format(
-                    truncated_warning, col_qty, group_id, agg_func, col_name_to_print
-                )
+                f"{truncated_warning}Aggregating the below {col_qty} columns of "
+                f"the {group_id} group using the {agg_func} function. "
+                f"New column name: {col_name_to_print}:"
             )
             if col_qty <= cutoff:
                 for col in cols:
@@ -1654,9 +1628,8 @@ class CapData(param.Parameterized):
             if col_name in self.data.columns:
                 if verbose:
                     print(
-                        "Skipping aggregation of {} as column {} already exists".format(
-                            group_id, col_name
-                        )
+                        f"Skipping aggregation of {group_id} as column "
+                        f"{col_name} already exists"
                     )
                 continue
             columns = self._get_group(group_id)
@@ -2487,7 +2460,7 @@ class CapData(param.Parameterized):
         df = self.get_reg_cols(reg_vars=rhs, filtered_data=True)
 
         if func is None:
-            func = {var: "mean" for var in rhs}
+            func = dict.fromkeys(rhs, "mean")
 
         RCs_df = pd.DataFrame(df.agg(func)).T
 
@@ -2660,7 +2633,7 @@ class CapData(param.Parameterized):
         df = self.get_reg_cols(reg_vars=rhs)
 
         if func is None:
-            func = {var: "mean" for var in rhs}
+            func = dict.fromkeys(rhs, "mean")
 
         if freq is None:
             # Degenerate case: act like rep_cond.
@@ -2946,19 +2919,18 @@ class CapData(param.Parameterized):
         self.set_test_complete(self.pts_required)
         pts_collected = self.data_filtered.shape[0]
         avg_pts_per_day = pts_collected / self.length_test_period
-        print("length of test period to date: {} days".format(self.length_test_period))
+        print(f"length of test period to date: {self.length_test_period} days")
         if self.test_complete:
             print(
-                "sufficient points have been collected. {} points required; "
-                "{} points collected".format(self.pts_required, pts_collected)
+                f"sufficient points have been collected. {self.pts_required} "
+                f"points required; {pts_collected} points collected"
             )
         else:
             print(
-                "{} points of {} points needed, {} remaining to collect.".format(
-                    pts_collected, self.pts_required, self.pts_required - pts_collected
-                )
+                f"{pts_collected} points of {self.pts_required} points needed, "
+                f"{self.pts_required - pts_collected} remaining to collect."
             )
-            print("{:0.2f} points / day on average.".format(avg_pts_per_day))
+            print(f"{avg_pts_per_day:0.2f} points / day on average.")
             print(
                 "Approximate days remaining: {:0.0f}".format(
                     round(((self.pts_required - pts_collected) / avg_pts_per_day), 0)
@@ -3078,7 +3050,7 @@ class CapData(param.Parameterized):
             if key == "data":
                 continue
             if key not in kwargs or kwargs[key] is None:
-                if key in self.column_groups.data.keys():
+                if key in self.column_groups.data:
                     raise ValueError(
                         f"The kwarg {key} of the function {func.__name__} is also a "
                         f"column groups id. "
@@ -3092,6 +3064,7 @@ class CapData(param.Parameterized):
 
 if __name__ == "__main__":
     import doctest
+
     import pandas as pd  # noqa F811
 
     das = CapData("das")

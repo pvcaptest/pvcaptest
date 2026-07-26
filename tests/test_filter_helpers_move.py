@@ -5,12 +5,12 @@ import pandas as pd
 
 def test_helpers_importable_from_filters():
     from captest.filters import (
-        perc_difference,
-        check_all_perc_diff_comb,
         abs_diff_from_average,
-        sensor_filter,
-        filter_irr,
+        check_all_perc_diff_comb,
         filter_grps,
+        filter_irr,
+        perc_difference,
+        sensor_filter,
     )
 
     for fn in (

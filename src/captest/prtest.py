@@ -4,9 +4,7 @@ import numpy as np
 import pandas as pd
 import param
 
-from captest import capdata
-from captest import util
-from captest import calcparams
+from captest import calcparams, capdata, util
 
 """DIRECTLY BELOW DRAFT PR FUNCTION TO DO ALL VERSIONS OF CALC
 DECIDED TO BREAK INTO SMALLER FUNCTIONS, LEAVE TEMPORARILY"""
@@ -255,19 +253,13 @@ class PrResults(param.Parameterized):
         """Print summary of PR result - passing / failing and by how much"""
         if self.pr >= self.expected_pr:
             print(
-                "The test is PASSING with a measured PR of {:.2f}, "
-                "which is {:.2f} above the expected PR of {:.2f}".format(
-                    self.pr * 100,
-                    (self.pr - self.expected_pr) * 100,
-                    self.expected_pr * 100,
-                )
+                f"The test is PASSING with a measured PR of {self.pr * 100:.2f}, "
+                f"which is {(self.pr - self.expected_pr) * 100:.2f} above the "
+                f"expected PR of {self.expected_pr * 100:.2f}"
             )
         else:
             print(
-                "The test is FAILING with a measured PR of {:.2f}, "
-                "which is {:.2f} below the expected PR of {:.2f}".format(
-                    self.pr * 100,
-                    (self.expected_pr - self.pr) * 100,
-                    self.expected_pr * 100,
-                )
+                f"The test is FAILING with a measured PR of {self.pr * 100:.2f}, "
+                f"which is {(self.expected_pr - self.pr) * 100:.2f} below the "
+                f"expected PR of {self.expected_pr * 100:.2f}"
             )
