@@ -148,8 +148,8 @@ silent no-op, and the messages name what is available:
 The remaining steps select differently:
 :py:meth:`~captest.capdata.CapData.drop_cols` takes its column names directly,
 :py:meth:`~captest.capdata.CapData.rename_cols` takes them from the keys of
-its ``column_map``, and the selector is optional for
-:py:meth:`~captest.capdata.CapData.prep_custom` (see
+its ``column_map``, and :py:meth:`~captest.capdata.CapData.prep_custom` takes
+no selector at all — the callable decides what it touches (see
 `Custom prep steps`_).
 
 Converting units
@@ -279,8 +279,15 @@ Three consequences follow:
 
   ``reload`` snapshots the outgoing side's applied prep chain into
   ``sim_prep``, loads a fresh un-prepped frame from the stored path, replays
-  the prep, and then runs ``setup`` for that side. To change the prep, edit
-  ``tst.sim_prep`` before reloading.
+  that prep, and then runs ``setup`` for that side. It re-applies **the same
+  steps** — including after ``tst.reload('sim', path=...)`` points the side at
+  a different file, which is the case it exists for. Because the snapshot
+  overwrites ``sim_prep`` with the applied chain, editing ``tst.sim_prep``
+  and then reloading does not change anything. To run a *different* prep,
+  rebuild the test from its paths — with
+  :py:meth:`~captest.captest.CapTest.from_yaml` on an edited config, or
+  ``from_params(..., run_setup=False)`` followed by the ``prep_*`` calls you
+  want.
 
 :py:meth:`~captest.capdata.CapData.run_prep` is transactional across the whole
 batch, not just per step: if any step raises, ``data`` and the prep chain are
@@ -293,8 +300,8 @@ attached to the exception. A partially prepped frame is never left behind.
     :py:class:`~captest.capdata.CapData` rather than a path, a stored
     ``meas_prep`` / ``sim_prep`` config is kept but **not** applied — the
     object may already have been prepped, and prep is not idempotent. A
-    ``UserWarning`` names the skipped steps and the call that applies them:
-    ``tst.meas.run_prep(tst.meas_prep)``.
+    ``UserWarning`` reports how many steps were skipped and names the call
+    that applies them: ``tst.meas.run_prep(tst.meas_prep)``.
 
 Prep comes before filtering
 ---------------------------
@@ -408,10 +415,10 @@ and immediately replays that side's prep, before ``setup``:
     Columns E_Grid were scaled by 0.001 with an offset of 0.0.
 
 The same replay happens for :py:meth:`~captest.captest.CapTest.from_params`
-and :py:meth:`~captest.captest.CapTest.from_mapping` when a side is built from
-a path, and on every :py:meth:`~captest.captest.CapTest.reload` — including
-``run_setup=False`` construction. That is what makes a reload with a new file
-safe: the new data gets the same adjustments the old data had.
+and :py:meth:`~captest.captest.CapTest.from_mapping` whenever a side is built
+from a path, including under ``run_setup=False``, and on every
+:py:meth:`~captest.captest.CapTest.reload`. That is what makes a reload with a
+new file safe: the new data gets the same adjustments the old data had.
 
 A single :py:class:`~captest.capdata.CapData` can be round-tripped on its own
 with :py:meth:`~captest.capdata.CapData.prep_to_config` and
@@ -453,10 +460,15 @@ closure raises when the config is written, not when the step is run.
 
 ``custom_name`` is keyword-only on
 :py:meth:`~captest.capdata.CapData.prep_custom` so it cannot collide with an
-argument destined for ``func``; every other prep method accepts it too, as a
-display label in :py:meth:`~captest.capdata.CapData.describe_prep`.
+argument destined for ``func``. ``prep_convert_units``, ``prep_scale``, and
+``prep_astype`` accept it too, as a display label in
+:py:meth:`~captest.capdata.CapData.describe_prep`;
+:py:meth:`~captest.capdata.CapData.drop_cols` and
+:py:meth:`~captest.capdata.CapData.rename_cols` do not.
 
-The three-way column selector is optional for a custom step. When it is
-omitted, ``func`` decides which columns it touches; when it is given, it is
-resolved and validated exactly as for the other steps, which is a useful way
-to fail early if the columns are missing.
+A custom step takes no column selector. Every argument other than
+``custom_name`` is forwarded to ``func``, so
+``prep_custom(fn, columns=['a'])`` passes ``columns=['a']`` to ``fn`` rather
+than selecting columns, and the serialized step records it as one of ``func``'s
+keyword arguments. ``func`` decides for itself which columns it touches, and
+whatever validation of them matters is ``func``'s to do.

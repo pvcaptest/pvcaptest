@@ -11,7 +11,8 @@ configuration as typed ``param`` parameters and implements ``_execute``,
 rewriting ``CapData.data`` in place and recording itself on
 ``CapData.prep``. The ``prep_*`` methods on
 :py:class:`~captest.capdata.CapData` are thin wrappers that build the matching
-step and ``run()`` it. Steps may also be constructed and run directly:
+step and ``run()`` it. Steps may also be constructed and run directly against
+a :py:class:`~captest.capdata.CapData` instance ``cd``:
 
 .. code-block:: Python
 
