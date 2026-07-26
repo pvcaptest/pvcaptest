@@ -529,9 +529,17 @@ def precipitable_water_gueymard(data, temp_amb=None, rel_humidity=None, verbose=
 def scale(data, col=None, factor=1.0, verbose=True):
     """Multiply a single column by a scalar factor.
 
-    Generic unit-conversion / rescaling helper usable in
-    ``regression_cols`` calc trees. Primary use in this module is converting
-    PVsyst ``PrecWat`` from meters to centimeters with ``factor=100``.
+    Produces a **single new column named ``scale``** for use inside a
+    ``regression_cols`` calc tree; the primary use in this module is
+    converting PVsyst ``PrecWat`` from meters to centimeters with
+    ``factor=100``. A second ``custom_param`` call overwrites the first, and
+    the result never writes back to the source column.
+
+    This is not a bulk column-rewriting tool. To rescale existing columns in
+    place — a whole group of thermocouples, or ``E_Grid`` from W to kW — use
+    the prep stage: :py:meth:`~captest.capdata.CapData.prep_scale` /
+    :py:meth:`~captest.capdata.CapData.prep_convert_units`, which run before
+    ``setup()`` and serialize into the test config.
 
     Parameters
     ----------

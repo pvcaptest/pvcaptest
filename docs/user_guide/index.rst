@@ -9,5 +9,6 @@ User Guide
     reporting_conditions
     saving_reproducing
     dataload
+    data_prep
     custom_test_setups
     bifacial
