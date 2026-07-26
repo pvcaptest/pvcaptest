@@ -9,6 +9,7 @@ This module follows ``filters.py``'s import rule: it is imported one-way by
 only through the runtime ``capdata`` argument.
 """
 
+import copy
 import difflib
 import re
 
@@ -16,6 +17,46 @@ import pandas as pd
 import param
 
 from captest import util
+
+
+def snapshot_prep_state(capdata):
+    """Capture the CapData state prep steps mutate, for rollback.
+
+    Steps rewrite ``data``; ``DropColumns`` and ``RenameColumns`` rewrite
+    ``column_groups`` as well. Both have to be captured for a failed step or
+    batch to be a true no-op — restoring ``data`` alone leaves
+    ``column_groups`` naming a column that is not there, or omitting one that
+    is, which no later call errors on and every group selector then reads
+    wrongly.
+
+    ``column_groups`` values are lists that ``drop_cols`` mutates in place, so
+    the copy is deep; a shallow copy would share those lists with the live
+    object and snapshot nothing.
+
+    Parameters
+    ----------
+    capdata : CapData
+        Dataset to snapshot.
+
+    Returns
+    -------
+    tuple
+        Opaque snapshot; pass to :func:`restore_prep_state`.
+    """
+    return capdata.data.copy(), copy.deepcopy(capdata.column_groups)
+
+
+def restore_prep_state(capdata, snapshot):
+    """Restore a :func:`snapshot_prep_state` snapshot onto ``capdata``.
+
+    Parameters
+    ----------
+    capdata : CapData
+        Dataset to roll back, mutated in place.
+    snapshot : tuple
+        Return value of :func:`snapshot_prep_state`.
+    """
+    capdata.data, capdata.column_groups = snapshot
 
 
 class BasePrepStep(util.StrictAttrs, param.Parameterized):
@@ -26,9 +67,10 @@ class BasePrepStep(util.StrictAttrs, param.Parameterized):
     Subclasses implement ``_execute(capdata, columns)``, which mutates
     ``capdata.data`` in place and returns nothing.
 
-    Every step is atomic: ``run`` snapshots ``capdata.data`` and restores it
-    if ``_execute`` raises, and appends the step only on success. A failed
-    step is therefore a no-op in both ``data`` and ``prep``.
+    Every step is atomic: ``run`` snapshots ``capdata.data`` and
+    ``capdata.column_groups`` and restores both if ``_execute`` raises, and
+    appends the step only on success. A failed step is therefore a no-op in
+    ``data``, ``column_groups``, and ``prep``.
 
     Runtime state (``columns_resolved``) is set by ``run`` as a plain
     attribute and is never serialized. Attribute assignment is restricted by
@@ -72,7 +114,9 @@ class BasePrepStep(util.StrictAttrs, param.Parameterized):
         Parameters
         ----------
         capdata : CapData
-            Target dataset. ``data`` is mutated in place.
+            Target dataset. ``data`` — and, for the column-identity steps,
+            ``column_groups`` — is mutated in place. Both are snapshotted
+            first and restored if ``_execute`` raises.
 
         Returns
         -------
@@ -90,12 +134,13 @@ class BasePrepStep(util.StrictAttrs, param.Parameterized):
         self._check_not_filtered(capdata)
         cols = self._resolve_columns(capdata)
         self.columns_resolved = cols
-        snapshot = capdata.data.copy()
+        snapshot = snapshot_prep_state(capdata)
         try:
             self._execute(capdata, cols)
         except Exception:
-            # A failed step is a no-op: restore data, record nothing.
-            capdata.data = snapshot
+            # A failed step is a no-op: restore data and column_groups,
+            # record nothing.
+            restore_prep_state(capdata, snapshot)
             raise
         # Reassign rather than append so param watchers fire.
         capdata.prep = capdata.prep + [self]
@@ -487,8 +532,13 @@ class Custom(BasePrepStep):
     attributes rather than ``param`` parameters, and ``func`` serializes to a
     module-qualified name — a lambda cannot be exported.
 
-    The three-way column selector is optional here; when omitted,
-    ``columns_resolved`` is an empty list and ``func`` decides what it touches.
+    A custom step takes **no** column selector: ``columns_resolved`` is always
+    an empty list and ``func`` alone decides what it touches. The wrapper
+    :meth:`CapData.prep_custom` forwards a ``columns=`` keyword on to ``func``
+    rather than treating it as a selector, and :meth:`to_config` omits the
+    selector keys, so a selector set by attribute assignment would not
+    serialize and would silently be lost on replay. Pass the columns ``func``
+    should act on as one of its own arguments instead.
     """
 
     _explanation_template = "Custom prep {call} was applied."
@@ -501,7 +551,13 @@ class Custom(BasePrepStep):
         self.kwargs = kwargs
 
     def _resolve_columns(self, capdata):
-        """Resolve the selector when given; otherwise return no columns."""
+        """Return no columns, since a custom step has no selector.
+
+        The inherited selector parameters exist on the class but are not part
+        of Custom's contract and do not serialize; the resolve branch below
+        only keeps a selector set by direct attribute assignment from
+        crashing on the base class's "exactly one of" check.
+        """
         given = [
             name
             for name in ("columns", "group", "group_regex")

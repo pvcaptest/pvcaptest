@@ -98,8 +98,8 @@ what was applied:
     Columns met1_mod_temp1, met1_mod_temp2, met2_mod_temp1, met2_mod_temp2, met1_amb_temp, met2_amb_temp were converted from F to C.
     Columns met1_windspeed, met2_windspeed were converted from mph to m/s.
 
-Every step is atomic. If a step raises, ``data`` is restored to its
-pre-step state and nothing is appended to
+Every step is atomic. If a step raises, ``data`` and ``column_groups`` are
+restored to their pre-step state and nothing is appended to
 :py:attr:`~captest.capdata.CapData.prep`, so a failed step is a no-op rather
 than a half-applied change.
 
@@ -264,8 +264,10 @@ Three consequences follow:
 
 - ``prep_convert_units``, ``prep_scale``, and ``prep_astype`` raise a
   ``RuntimeError`` when a step equal to one already applied — same type, same
-  arguments — is run again. Two *different* conversions of the same columns
-  are allowed; it is the exact repeat that is refused.
+  arguments, ``custom_name`` aside — is run again. Two *different* conversions
+  of the same columns are allowed; it is the exact repeat that is refused.
+  The check compares the selector as written, so the same column reached two
+  ways (``columns=["poa_1"]`` and ``group="poa"``) is not caught.
 - :py:meth:`~captest.capdata.CapData.run_prep` refuses to replay a config onto
   a :py:class:`~captest.capdata.CapData` whose prep chain is already
   populated.
@@ -290,9 +292,10 @@ Three consequences follow:
   want.
 
 :py:meth:`~captest.capdata.CapData.run_prep` is transactional across the whole
-batch, not just per step: if any step raises, ``data`` and the prep chain are
-restored to their state before the call and a note naming the failing step is
-attached to the exception. A partially prepped frame is never left behind.
+batch, not just per step: if any step raises, ``data``, ``column_groups``, and
+the prep chain are restored to their state before the call and a note naming
+the failing step is attached to the exception. A partially prepped frame is
+never left behind.
 
 .. note::
 

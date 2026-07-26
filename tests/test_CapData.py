@@ -3793,6 +3793,13 @@ class TestPrepSurface:
         with pytest.raises(RuntimeError, match="already applied"):
             cd.prep_scale(columns=["power_1"], factor=0.001)
 
+    def test_custom_name_does_not_defeat_the_duplicate_guard(self, cd):
+        """The label is presentation; a relabelled repeat is still a repeat."""
+        cd.prep_scale(columns=["power_1"], factor=0.001, custom_name="first")
+        with pytest.raises(RuntimeError, match="already applied"):
+            cd.prep_scale(columns=["power_1"], factor=0.001, custom_name="second")
+        assert len(cd.prep) == 1
+
     def test_different_params_is_not_a_duplicate(self, cd):
         cd.prep_scale(columns=["power_1"], factor=0.001)
         cd.prep_scale(columns=["power_1"], factor=2.0)
@@ -3830,6 +3837,34 @@ class TestPrepSurface:
         pd.testing.assert_frame_equal(cd.data, before)
         assert cd.prep == []
 
+    def test_batch_rollback_restores_column_groups_after_drop(self, cd):
+        """DropColumns edits column_groups too, so rollback must undo both."""
+        before = cd.data.copy()
+        before_groups = {k: list(v) for k, v in cd.column_groups.items()}
+        config = [
+            {"type": "DropColumns", "columns": ["power_1"]},
+            {"type": "Scale", "columns": ["not_a_column"], "factor": 1.0},
+        ]
+        with pytest.raises(ValueError):
+            cd.run_prep(config)
+        pd.testing.assert_frame_equal(cd.data, before)
+        assert {k: list(v) for k, v in cd.column_groups.items()} == before_groups
+        assert cd.prep == []
+
+    def test_batch_rollback_restores_column_groups_after_rename(self, cd):
+        """A rolled-back rename must not leave groups naming absent columns."""
+        before = cd.data.copy()
+        before_groups = {k: list(v) for k, v in cd.column_groups.items()}
+        config = [
+            {"type": "RenameColumns", "column_map": {"power_1": "POWER"}},
+            {"type": "Scale", "columns": ["not_a_column"], "factor": 1.0},
+        ]
+        with pytest.raises(ValueError):
+            cd.run_prep(config)
+        pd.testing.assert_frame_equal(cd.data, before)
+        assert {k: list(v) for k, v in cd.column_groups.items()} == before_groups
+        assert cd.prep == []
+
     def test_run_prep_failure_note_names_the_step(self, cd):
         config = [{"type": "Scale", "columns": ["not_a_column"], "factor": 1.0}]
         with pytest.raises(ValueError) as excinfo:
@@ -3849,6 +3884,18 @@ class TestPrepSurface:
     def test_describe_filters_does_not_mention_prep(self, cd):
         cd.prep_scale(columns=["power_1"], factor=0.001)
         assert cd.describe_filters() == ""
+
+    def test_copy_carries_the_prep_chain(self, cd):
+        """`copy` takes prepped values, so it must take the chain with them."""
+        cd.prep_scale(columns=["power_1"], factor=0.001)
+        dupe = cd.copy()
+        assert dupe.prep_to_config() == cd.prep_to_config()
+        assert dupe.data["power_1"].tolist() == [1.0, 2.0, 3.0, 4.0]
+        # The chain is deep-copied, so the two objects do not share steps.
+        assert dupe.prep[0] is not cd.prep[0]
+        # And the copy is still guarded against a second, doubling prep.
+        with pytest.raises(RuntimeError, match="un-prepped"):
+            dupe.run_prep(cd.prep_to_config())
 
 
 class TestPrepRecordingOnDropAndRename:

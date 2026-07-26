@@ -3858,6 +3858,75 @@ class TestCapTestPrep:
         assert len(tst.sim.prep) == 1
         assert tst.sim.data["E_Grid"].max() == pytest.approx(_E_GRID_RAW_MAX / 1000)
 
+    def _reloaded_onto_other_file(self, pvsyst_file, other_pvsyst_file, sim_prep):
+        """Build the issue-2.2 scenario and reload it onto the second file.
+
+        The sim pipeline filters power against a kW nameplate, so it only
+        keeps rows if ``E_Grid`` has been scaled from W to kW by prep.
+
+        Parameters
+        ----------
+        pvsyst_file, other_pvsyst_file : str
+            Paths to the first and second PVsyst example CSVs.
+        sim_prep : list of dict
+            Prep config for the sim side; empty models the pre-feature
+            behavior where the adjustment was hand-written and lost.
+
+        Returns
+        -------
+        CapTest
+            Reloaded onto ``other_pvsyst_file``, filters pending.
+        """
+        tst = CapTest.from_params(
+            test_setup="e2848_default",
+            sim_path=pvsyst_file,
+            sim_prep=sim_prep,
+            ac_nameplate=6000.0,  # kW, matching the scaled E_Grid column
+            run_setup=False,
+        )
+        tst.sim.filter_irr(200, 800)
+        tst.sim.filter_power(tst.ac_nameplate, percent=0.05)
+        tst.reload("sim", path=other_pvsyst_file, verbose=False)
+        return tst
+
+    def test_reload_then_run_test_reaches_a_fitted_regression(
+        self, pvsyst_file, other_pvsyst_file
+    ):
+        """End-to-end regression test for the feature's motivating failure.
+
+        Integration issue 2.2: the W -> kW division of ``E_Grid`` was a
+        hand-written notebook statement, so ``reload`` discarded it, the
+        kW-scaled power filter emptied the frame, and the run died inside
+        ``fit_regression``. With prep declared, the same sequence has to run
+        all the way to a fitted regression on real reloaded data.
+        """
+        tst = self._reloaded_onto_other_file(
+            pvsyst_file, other_pvsyst_file, self.scale_config
+        )
+        assert len(tst.sim.prep) == 1  # replayed against the freshly loaded file
+        assert tst.sim.data["E_Grid"].max() == pytest.approx(_E_GRID_RAW_MAX / 1000)
+
+        tst.run_test(side="sim")
+
+        assert tst.sim.regression_results is not None
+        assert tst.sim.regression_results.nobs > 0
+        assert not tst.sim.data_filtered.empty
+        assert "poa" in tst.sim.regression_results.params.index
+
+    def test_without_prep_the_same_reload_still_dies_in_the_regression(
+        self, pvsyst_file, other_pvsyst_file
+    ):
+        """Pins the failure prep fixes, so the test above cannot go vacuous.
+
+        Same pipeline with no ``sim_prep``: ``E_Grid`` comes back in W, the
+        power filter removes every row, and ``fit_regression`` raises the
+        zero-size reduction error quoted in the design spec.
+        """
+        tst = self._reloaded_onto_other_file(pvsyst_file, other_pvsyst_file, [])
+        assert tst.sim.prep == []
+        with pytest.raises(ValueError, match="zero-size array"):
+            tst.run_test(side="sim")
+
     def test_reload_stashes_applied_prep_chain(self, pvsyst_file, other_pvsyst_file):
         """Prep applied by hand survives a reload, mirroring the filter chain."""
         tst = CapTest.from_params(

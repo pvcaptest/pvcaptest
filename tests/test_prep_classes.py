@@ -121,6 +121,21 @@ class TestAtomicFailure:
         assert cd.prep == []
         pd.testing.assert_frame_equal(cd.data, before_bad)
 
+    def test_failed_step_restores_column_groups_too(self, cd):
+        """A step that reaches column_groups before failing rolls both back."""
+
+        def drop_then_fail(capdata):
+            capdata.drop_cols(["power_1"], record=False)
+            raise RuntimeError("boom")
+
+        before = cd.data.copy()
+        before_groups = {k: list(v) for k, v in cd.column_groups.items()}
+        with pytest.raises(RuntimeError, match="boom"):
+            prep.Custom(drop_then_fail).run(cd)
+        assert cd.prep == []
+        pd.testing.assert_frame_equal(cd.data, before)
+        assert {k: list(v) for k, v in cd.column_groups.items()} == before_groups
+
 
 class TestOrderingGuard:
     def test_value_mutating_step_after_filtering_raises(self, cd):

@@ -910,6 +910,11 @@ class CapData(param.Parameterized):
         cd_c.column_groups = copy.deepcopy(self.column_groups)
         cd_c.regression_cols = copy.copy(self.regression_cols)
         cd_c.filters = copy.deepcopy(self.filters)
+        # `data` is copied post-prep, so the chain that produced those values
+        # has to come with it: dropping it would let the copy serialize to a
+        # config that reproduces different data, and would let `run_prep` pass
+        # its empty-chain guard and prep the same values twice.
+        cd_c.prep = copy.deepcopy(self.prep)
         cd_c.rc = copy.copy(self.rc)
         cd_c.regression_results = copy.deepcopy(self.regression_results)
         cd_c.regression_formula = copy.copy(self.regression_formula)
@@ -2440,10 +2445,43 @@ class CapData(param.Parameterized):
 
         Prep mutates ``data`` and is not idempotent — converting °F to °C
         twice is silently wrong — so an identical step is refused. Equality is
-        on the serialized config, i.e. same type and same params.
+        on the serialized config with ``custom_name`` excluded: the label is
+        presentation, so re-running the same scale under a second label is
+        still a double scale.
+
+        The check is deliberately shallow — it compares the selector *as
+        written*, not the columns it resolves to. Two steps that select the
+        same column by different routes (``columns=["poa_1"]`` and
+        ``group="poa"`` when the group holds only ``poa_1``) are therefore not
+        detected and will both apply. Resolution happens at ``run`` time
+        against data an earlier step may have reshaped, so a selector-level
+        comparison is the only one available before the step runs.
+
+        Parameters
+        ----------
+        step : BasePrepStep
+            Step about to be run.
+
+        Returns
+        -------
+        BasePrepStep
+            ``step``, unchanged, so callers can chain into ``run``.
+
+        Raises
+        ------
+        RuntimeError
+            If an equal step is already in ``self.prep``.
         """
-        config = step.to_config()
-        if any(applied.to_config() == config for applied in self.prep):
+
+        def comparable(prep_step):
+            return {
+                key: value
+                for key, value in prep_step.to_config().items()
+                if key != "custom_name"
+            }
+
+        config = comparable(step)
+        if any(comparable(applied) == config for applied in self.prep):
             raise RuntimeError(
                 f"An equal {type(step).__name__} prep step is already applied. "
                 "Prep steps mutate `data` and are not idempotent; re-prep by "
@@ -2467,12 +2505,16 @@ class CapData(param.Parameterized):
         :meth:`prep_to_config` or a loaded YAML). Each step is constructed via
         ``prep.prep_step_from_config`` and run against this CapData in order.
 
-        The replay is a transaction across the whole batch: ``data`` is
-        snapshotted before the first step and restored — with every step this
-        call appended discarded — if any step raises, with a note naming the
-        failing step attached to the exception (Python 3.11+). Per-step
-        atomicity alone would leave earlier steps applied, which is a
-        half-prepped frame the caller could neither safely retry nor measure.
+        The replay is a transaction across the whole batch: ``data`` and
+        ``column_groups`` are snapshotted before the first step and both are
+        restored — with every step this call appended discarded — if any step
+        raises, with a note naming the failing step attached to the exception
+        (Python 3.11+). Per-step atomicity alone would leave earlier steps
+        applied, which is a half-prepped frame the caller could neither safely
+        retry nor measure. ``column_groups`` is in the snapshot because
+        ``DropColumns`` and ``RenameColumns`` rewrite it alongside ``data``,
+        and a rollback that misses it leaves group ids pointing at columns
+        that no longer match ``data`` — wrong silently rather than loudly.
 
         Parameters
         ----------
@@ -2493,7 +2535,7 @@ class CapData(param.Parameterized):
                 "mutates `data` and is not idempotent — reload this dataset "
                 "(CapTest.reload(side)) to re-prep from raw data."
             )
-        snapshot = self.data.copy()
+        snapshot = prep.snapshot_prep_state(self)
         prior_prep = self.prep
         step_label = "?"
         try:
@@ -2501,7 +2543,7 @@ class CapData(param.Parameterized):
                 step_label = f"{i} ({step_config.get('type', '?')})"
                 prep.prep_step_from_config(step_config).run(self)
         except Exception as e:
-            self.data = snapshot
+            prep.restore_prep_state(self, snapshot)
             self.prep = prior_prep
             if hasattr(e, "add_note"):
                 e.add_note(f"Raised while running prep step {step_label}.")
