@@ -410,6 +410,10 @@ class ReportingIrradiance(param.Parameterized):
     )
     def plot(self):
         self.get_rep_irr()
+        # `irr_rc` is NaN when get_rep_irr found no valid reference irradiance; the
+        # ellipses marking it are omitted in that case. Use pd.isna rather than an
+        # identity test against np.nan, which only holds for that exact object.
+        has_rep_irr = not pd.isna(self.irr_rc)
         below_count_scatter = hv.Scatter(
             self.poa_flt["below_count"].reset_index(),
             ["poa"],
@@ -422,7 +426,7 @@ class ReportingIrradiance(param.Parameterized):
             ["above_count"],
             label="Count pts above",
         )
-        if self.irr_rc is not np.nan:
+        if has_rep_irr:
             count_ellipse = hv.Ellipse(
                 self.irr_rc, self.poa_flt.loc[self.irr_rc, "below_count"], (20, 50)
             )
@@ -435,14 +439,14 @@ class ReportingIrradiance(param.Parameterized):
             * hv.VLine(self.min_ref_irradiance)
             * hv.VLine(self.max_ref_irradiance)
         )
-        if self.irr_rc is not np.nan:
+        if has_rep_irr:
             perc_ellipse = hv.Ellipse(
                 self.irr_rc, self.poa_flt.loc[self.irr_rc, "perc_below"], (20, 10)
             )
         total_points_scatter = hv.Scatter(
             self.poa_flt["total_pts"].reset_index(), ["poa"], ["total_pts"]
         ) * hv.HLine(self.points_required)
-        if self.irr_rc is not np.nan:
+        if has_rep_irr:
             total_points_ellipse = hv.Ellipse(
                 self.irr_rc, self.poa_flt.loc[self.irr_rc, "total_pts"], (20, 50)
             )
@@ -453,7 +457,7 @@ class ReportingIrradiance(param.Parameterized):
         else:
             ylim_top = self.total_pts + 50
         vl = hv.VLine(self.rc_irr_60th_perc).opts(line_color="gray")
-        if self.irr_rc is not np.nan:
+        if has_rep_irr:
             rep_cond_plot = (
                 (
                     (

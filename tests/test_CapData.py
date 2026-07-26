@@ -1036,6 +1036,64 @@ class TestIrrRcBalanced:
         assert isinstance(rc_tool.poa_flt, pd.DataFrame)
         assert np.isnan(rc_tool.irr_rc)
 
+    @staticmethod
+    def _ellipse_count(plot):
+        """Count the Ellipse elements marking the reporting irradiance."""
+        return len(plot.traverse(lambda element: element, [hv.Ellipse]))
+
+    @staticmethod
+    def _june_poa(pvsyst):
+        """June irradiance data with the column named 'poa', as `plot` requires."""
+        jun = pvsyst.data.loc["06/1990"]
+        jun = jun.loc[jun["GlobInc"] > 400, :]
+        return jun.rename(columns={"GlobInc": "poa"})
+
+    @classmethod
+    def _rc_tool_with_rep_irr(cls, pvsyst):
+        """Build a ReportingIrradiance that resolves a valid reporting irradiance."""
+        rc_tool = pvc.ReportingIrradiance(cls._june_poa(pvsyst), "poa", percent_band=50)
+        rc_tool.min_ref_irradiance = 600
+        rc_tool.max_ref_irradiance = 800
+        return rc_tool
+
+    def test_plot_marks_rep_irr_when_found(self, pvsyst):
+        """One Ellipse marks the reporting irradiance on each of the three plots."""
+        rc_tool = self._rc_tool_with_rep_irr(pvsyst)
+        plot = rc_tool.plot()
+        assert not np.isnan(rc_tool.irr_rc)
+        assert self._ellipse_count(plot) == 3
+
+    def test_plot_omits_rep_irr_marks_when_not_found(self, pvsyst):
+        """With no valid reporting irradiance the Ellipses are omitted."""
+        jun = self._june_poa(pvsyst)
+        jun.loc[(jun["poa"] > 600) & (jun["poa"] < 700), "poa"] = np.nan
+        rc_tool = pvc.ReportingIrradiance(jun, "poa", percent_band=50)
+        rc_tool.min_ref_irradiance = 605
+        rc_tool.max_ref_irradiance = 695
+        with pytest.warns(UserWarning):
+            plot = rc_tool.plot()
+        assert np.isnan(rc_tool.irr_rc)
+        assert self._ellipse_count(plot) == 0
+
+    def test_plot_omits_rep_irr_marks_for_any_nan(self, pvsyst, monkeypatch):
+        """Any NaN `irr_rc` omits the Ellipses, not just the `np.nan` object.
+
+        The check was previously `self.irr_rc is not np.nan`, which holds only
+        for that exact object. A NaN reaching `irr_rc` as a `numpy.float64` --
+        the type produced by indexing a DataFrame -- passed that test and sent
+        `plot` down the branch that indexes `poa_flt` with NaN.
+        """
+        rc_tool = self._rc_tool_with_rep_irr(pvsyst)
+        rc_tool.get_rep_irr()  # populate poa_flt / total_pts
+
+        def set_non_singleton_nan():
+            rc_tool.irr_rc = np.float64("nan")
+
+        monkeypatch.setattr(rc_tool, "get_rep_irr", set_non_singleton_nan)
+        plot = rc_tool.plot()
+        assert rc_tool.irr_rc is not np.nan
+        assert self._ellipse_count(plot) == 0
+
 
 class TestCapDataCopy:
     def test_copy_of_pre_agg_attributes(self, meas):

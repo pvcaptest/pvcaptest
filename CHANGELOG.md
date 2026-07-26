@@ -96,6 +96,11 @@ config's serialized filter pipelines until `run_test` replays and consumes them
 (retained, with recovery guidance attached to the error, when a replay fails).
 
 ### Changed
+- `ReportingIrradiance.plot` now detects a missing reporting irradiance with
+`pd.isna` rather than an identity test against `np.nan`. The identity form only
+held for that exact object, so a NaN `irr_rc` arriving as a `numpy.float64`
+took the branch that indexes the filtered data with NaN and raised a
+`KeyError`. The reporting-irradiance markers are now omitted for any NaN.
 - Development tooling: `uv.lock` is no longer committed, so CI resolves
 dependencies fresh and surfaces upstream breakage early. The ruff lint rule set
 is now pinned explicitly in `pyproject.toml` (`E4`, `E7`, `E9`, `F`, `I`, `UP`,
