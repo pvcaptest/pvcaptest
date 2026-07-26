@@ -179,7 +179,7 @@ these scalars onto both ``CapData`` instances during
 
 .. code-block:: Python
 
-    ct = CapTest.from_params(
+    tst = CapTest.from_params(
         test_setup="custom",
         reg_cols_meas=my_meas_cols,
         reg_cols_sim=my_sim_cols,
@@ -209,7 +209,7 @@ required overrides. ``scatter_plots`` and ``rep_conditions`` default to
 
     from captest import CapTest
 
-    ct = CapTest.from_params(
+    tst = CapTest.from_params(
         test_setup="custom",
         reg_cols_meas=my_meas_cols,
         reg_cols_sim=my_sim_cols,
@@ -227,7 +227,7 @@ scatter plot, and reporting conditions are inherited:
 
 .. code-block:: Python
 
-    ct = CapTest.from_params(
+    tst = CapTest.from_params(
         test_setup="e2848_default",
         reg_cols_meas=my_meas_cols,
         reg_cols_sim=my_sim_cols,
@@ -241,11 +241,11 @@ calling :py:meth:`~captest.captest.CapTest.setup`:
 
 .. code-block:: Python
 
-    ct = CapTest(test_setup="custom", ac_nameplate=6_000_000)
-    ct.meas = meas
-    ct.sim = sim
-    ct.reg_cols_meas = my_meas_cols
-    ct.reg_cols_sim = my_sim_cols
-    ct.reg_fml = "power ~ poa + I(poa * poa) + I(poa * t_amb) + I(poa * w_vel) - 1"
-    ct.setup()
+    tst = CapTest(test_setup="custom", ac_nameplate=6_000_000)
+    tst.meas = meas
+    tst.sim = sim
+    tst.reg_cols_meas = my_meas_cols
+    tst.reg_cols_sim = my_sim_cols
+    tst.reg_fml = "power ~ poa + I(poa * poa) + I(poa * t_amb) + I(poa * w_vel) - 1"
+    tst.setup()
 

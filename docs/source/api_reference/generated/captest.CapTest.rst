@@ -22,10 +22,13 @@
       ~CapTest.from_yaml
       ~CapTest.get_summary
       ~CapTest.overlay_scatters
+      ~CapTest.reload
       ~CapTest.rep_cond
       ~CapTest.residual_plot
+      ~CapTest.run_test
       ~CapTest.scatter_plots
       ~CapTest.setup
+      ~CapTest.to_mapping
       ~CapTest.to_yaml
    
    
@@ -46,6 +49,7 @@
       ~CapTest.clipping_irr
       ~CapTest.fshdbm
       ~CapTest.hrs_req
+      ~CapTest.inv_ac_nameplate
       ~CapTest.irrad_stability
       ~CapTest.irrad_stability_threshold
       ~CapTest.max_irr

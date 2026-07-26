@@ -4,6 +4,7 @@ captest:
   sim_path: ./data/pvsyst_example_HourlyRes_2_bifi.CSV
   rc_source: meas
   ac_nameplate: 6000
+  inv_ac_nameplate: null
   test_tolerance: +/- 3
   sim_days: 30
   shade_filter_start: null

@@ -11,7 +11,7 @@ conditions, running the ASTM E2848 capacity test, and evaluating pass/fail.
 .. autosummary::
    :toctree: generated/
 
-   captest.CapTest
+   CapTest
 
 Constructors
 ------------
@@ -22,21 +22,25 @@ from parameters, YAML files, or mapping objects.
 .. autosummary::
    :toctree: generated/
 
-   captest.CapTest.from_params
-   captest.CapTest.from_yaml
-   captest.CapTest.from_mapping
+   CapTest.from_params
+   CapTest.from_yaml
+   CapTest.from_mapping
 
 Setup
 -----
 
-Methods for configuring the test and serializing configuration.
+Methods for configuring the test, re-loading data, and serializing
+configuration. ``setup`` and ``reload`` accept a ``side`` argument
+(``'meas'`` / ``'sim'`` / ``'both'``) to act on one side only.
 
 .. autosummary::
    :toctree: generated/
 
-   captest.CapTest.setup
-   captest.CapTest.to_yaml
-   captest.CapTest.resolved_setup
+   CapTest.setup
+   CapTest.reload
+   CapTest.to_yaml
+   CapTest.to_mapping
+   CapTest.resolved_setup
 
 Reporting Conditions
 --------------------
@@ -51,23 +55,31 @@ in the user guide for the full model.
 .. autosummary::
    :toctree: generated/
 
-   captest.CapTest.rc
-   captest.CapTest.rep_cond
-   captest.CapTest.rep_irr_filter_low
-   captest.CapTest.rep_irr_filter_high
+   CapTest.rc
+   CapTest.rep_cond
+   CapTest.rep_irr_filter_low
+   CapTest.rep_irr_filter_high
 
 Results
 -------
 
 Methods for running the capacity test and evaluating pass/fail.
+:py:meth:`~captest.captest.CapTest.run_test` runs the whole test — setup,
+filter-pipeline replay, regressions, and results — in one call.
+:py:meth:`~captest.captest.CapTest.captest_results` returns a
+:py:class:`~captest.captest.CapTestResults` object; ``str(results)``
+reproduces the printed report and ``results.styled_pvalues()`` the styled
+p-value table.
 
 .. autosummary::
    :toctree: generated/
 
-   captest.CapTest.captest_results
-   captest.CapTest.captest_results_check_pvalues
-   captest.CapTest.determine_pass_or_fail
-   captest.CapTest.get_summary
+   CapTest.run_test
+   CapTest.captest_results
+   CapTest.captest_results_check_pvalues
+   CapTest.determine_pass_or_fail
+   CapTest.get_summary
+   captest.captest.CapTestResults
 
 Visualization
 -------------
@@ -75,9 +87,9 @@ Visualization
 .. autosummary::
    :toctree: generated/
 
-   captest.CapTest.scatter_plots
-   captest.CapTest.overlay_scatters
-   captest.CapTest.residual_plot
+   CapTest.scatter_plots
+   CapTest.overlay_scatters
+   CapTest.residual_plot
 
 Module-level Functions
 ----------------------
@@ -87,7 +99,7 @@ Standalone functions used alongside :py:class:`~captest.captest.CapTest`.
 .. autosummary::
    :toctree: generated/
 
-   captest.load_config
+   load_config
    captest.captest.test_setups
    captest.captest.validate_test_setup
    captest.captest.resolve_test_setup

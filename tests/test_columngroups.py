@@ -1,6 +1,10 @@
+from collections.abc import Mapping
+
+import numpy as np
+import pandas as pd
 import pytest
 
-from captest import columngroups as cg
+from captest import capdata, columngroups as cg, util
 
 col_groups = {
     "irr_poa": [
@@ -87,3 +91,43 @@ class TestColumnGroups:
             "    pcs002_inv04_power_kw\n"
         )
         assert output_str == pretty_col_groups
+
+
+class TestExternalTaggingColumnGroupsCompat:
+    """Pin compatibility with externally produced column_groups.json files.
+
+    External tag-management tooling writes ``{group_id: [tag, ...]}``;
+    captest's io.load_data
+    reads a .json column-groups file via ``util.read_json`` into
+    ``ColumnGroups`` (io.py .json branch). This test exercises that exact
+    path plus attribute creation on a CapData whose columns are the tags.
+    The fixture is a real externally produced file trimmed to ten groups.
+    """
+
+    PATH = "./tests/data/external_tagging_column_groups.json"
+
+    def test_json_loads_into_column_groups(self):
+        groups = cg.ColumnGroups(util.read_json(self.PATH))
+        # ColumnGroups is a UserDict: dict-like, not a dict subclass.
+        assert isinstance(groups, Mapping)
+        assert groups["real_pwr_inv"] == [
+            "SMA SC4000 UP US: Active power (KwAC) Kilowatts"
+        ]
+        assert len(groups["current_cmb"]) == 20
+        # dict-key -> attribute mirroring (ColumnGroups.__setitem__)
+        assert groups.real_pwr_inv == groups["real_pwr_inv"]
+        assert groups.current_cmb == groups["current_cmb"]
+
+    def test_capdata_attributes_from_external_groups(self):
+        groups = cg.ColumnGroups(util.read_json(self.PATH))
+        all_tags = [t for tags in groups.values() for t in tags]
+        cd = capdata.CapData("test")
+        cd.data = pd.DataFrame(
+            np.ones((3, len(all_tags))),
+            columns=all_tags,
+            index=pd.date_range("2026-01-01", periods=3, freq="h"),
+        )
+        cd.column_groups = groups
+        cd.create_column_group_attributes()
+        assert list(cd.real_pwr_inv.columns) == groups["real_pwr_inv"]
+        assert list(cd.current_cmb.columns) == groups["current_cmb"]
