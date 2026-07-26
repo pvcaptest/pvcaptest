@@ -1,0 +1,295 @@
+"""Prep steps: declared, serializable adjustments applied between load and setup.
+
+Each step is a ``param``-configured class that rewrites ``CapData.data`` in
+place and records itself on ``CapData.prep``, so the adjustment round-trips
+through the yaml config and replays after every load.
+
+This module follows ``filters.py``'s import rule: it is imported one-way by
+``capdata.py`` and never imports ``capdata``. A step touches a ``CapData``
+only through the runtime ``capdata`` argument.
+"""
+
+import difflib
+import re
+
+import pandas as pd
+import param
+
+from captest import util
+
+
+class BasePrepStep(util.StrictAttrs, param.Parameterized):
+    """Common ancestor for data-preparation steps.
+
+    Holds the shared lifecycle (``run``), the three-way column selector, and
+    the ``args_repr`` / ``explanation`` rendering used by ``describe_prep``.
+    Subclasses implement ``_execute(capdata, columns)``, which mutates
+    ``capdata.data`` in place and returns nothing.
+
+    Every step is atomic: ``run`` snapshots ``capdata.data`` and restores it
+    if ``_execute`` raises, and appends the step only on success. A failed
+    step is therefore a no-op in both ``data`` and ``prep``.
+
+    Runtime state (``columns_resolved``) is set by ``run`` as a plain
+    attribute and is never serialized. Attribute assignment is restricted by
+    ``util.StrictAttrs``.
+    """
+
+    custom_name = param.String(
+        default=None,
+        allow_None=True,
+        doc="Optional display name in the prep description.",
+    )
+    columns = param.List(
+        default=None,
+        allow_None=True,
+        doc="Explicit column names. Mutually exclusive with group/group_regex.",
+    )
+    group = param.ClassSelector(
+        class_=(str, list),
+        default=None,
+        allow_None=True,
+        doc="column_groups id, or list of ids. Mutually exclusive with the others.",
+    )
+    group_regex = param.String(
+        default=None,
+        allow_None=True,
+        doc="Regex matched against column_groups ids. Mutually exclusive with others.",
+    )
+
+    # Class-intrinsic human-readable template; set by concrete subclasses.
+    _explanation_template = None
+
+    # Steps that rewrite values are refused once filters are applied; steps
+    # that only change column identity (drop, rename) are not.
+    _mutates_values = True
+
+    _runtime_attrs = frozenset({"columns_resolved"})
+
+    def run(self, capdata):
+        """Execute the step against ``capdata`` and record it on ``prep``.
+
+        Parameters
+        ----------
+        capdata : CapData
+            Target dataset. ``data`` is mutated in place.
+
+        Returns
+        -------
+        BasePrepStep
+            ``self``, so callers can keep a handle on the recorded step.
+
+        Raises
+        ------
+        RuntimeError
+            If this step rewrites values and ``capdata.filters`` is non-empty.
+        ValueError
+            If the column selector is not exactly one of ``columns`` /
+            ``group`` / ``group_regex``, or resolves to no columns.
+        """
+        self._check_not_filtered(capdata)
+        cols = self._resolve_columns(capdata)
+        self.columns_resolved = cols
+        snapshot = capdata.data.copy()
+        try:
+            self._execute(capdata, cols)
+        except Exception:
+            # A failed step is a no-op: restore data, record nothing.
+            capdata.data = snapshot
+            raise
+        # Reassign rather than append so param watchers fire.
+        capdata.prep = capdata.prep + [self]
+        return self
+
+    def _check_not_filtered(self, capdata):
+        """Raise when a value-rewriting step runs after filtering.
+
+        A filter applied earlier was evaluated against un-prepped values, so
+        letting prep run now produces wrong numbers rather than a crash.
+        """
+        if not self._mutates_values or not capdata.filters:
+            return
+        raise RuntimeError(
+            f"Cannot run {type(self).__name__} after filtering — "
+            f"{len(capdata.filters)} filters are already applied and were "
+            "evaluated against un-prepped values. Call cd.reset_filter() "
+            "first, or reload this side."
+        )
+
+    def _resolve_columns(self, capdata):
+        """Resolve the selector against ``capdata`` at run time.
+
+        Resolution is deliberately deferred to ``run`` rather than done at
+        construction: earlier steps in the same list may have dropped or
+        renamed columns.
+
+        Returns
+        -------
+        list of str
+            Column names this step acts on, in ``column_groups`` order for the
+            group selectors and in the given order for ``columns``.
+        """
+        chosen = [
+            name
+            for name in ("columns", "group", "group_regex")
+            if getattr(self, name) is not None
+        ]
+        if len(chosen) != 1:
+            raise ValueError(
+                f"{type(self).__name__} requires exactly one of 'columns', "
+                f"'group', or 'group_regex'; got {chosen or 'none'}."
+            )
+        if self.columns is not None:
+            cols = list(self.columns)
+        else:
+            cols = self._columns_from_groups(capdata)
+        missing = [c for c in cols if c not in capdata.data.columns]
+        if missing:
+            raise ValueError(
+                f"{type(self).__name__} selector resolved to columns absent "
+                f"from data: {missing}."
+            )
+        if not cols:
+            raise ValueError(
+                f"{type(self).__name__} selector resolved to zero columns; "
+                "a prep step that does nothing is always a mistake."
+            )
+        return cols
+
+    def _columns_from_groups(self, capdata):
+        """Expand the ``group`` / ``group_regex`` selector to column names."""
+        groups = capdata.column_groups
+        if self.group is not None:
+            ids = [self.group] if isinstance(self.group, str) else list(self.group)
+            for group_id in ids:
+                if group_id not in groups:
+                    suggestion = difflib.get_close_matches(group_id, list(groups), n=1)
+                    hint = f" Did you mean {suggestion[0]!r}?" if suggestion else ""
+                    raise ValueError(
+                        f"Column group {group_id!r} is not in column_groups. "
+                        f"Available ids: {sorted(groups)}.{hint}"
+                    )
+        else:
+            pattern = re.compile(self.group_regex)
+            ids = [group_id for group_id in groups if pattern.search(group_id)]
+            if not ids:
+                raise ValueError(
+                    f"group_regex {self.group_regex!r} matched no column group. "
+                    f"Available ids: {sorted(groups)}."
+                )
+        cols = []
+        for group_id in ids:
+            for col in groups[group_id]:
+                if col not in cols:
+                    cols.append(col)
+        return cols
+
+    def _execute(self, capdata, columns):
+        """Mutate ``capdata.data`` in place. Implemented by subclasses."""
+        raise NotImplementedError
+
+    @staticmethod
+    def _require_numeric(capdata, columns, step_name):
+        """Raise ``TypeError`` naming the first non-numeric column."""
+        for col in columns:
+            if not pd.api.types.is_numeric_dtype(capdata.data[col]):
+                raise TypeError(
+                    f"{step_name} requires numeric columns; {col!r} has dtype "
+                    f"{capdata.data[col].dtype}."
+                )
+
+    @property
+    def args_repr(self):
+        """Render the step's params for ``describe_prep``."""
+        skip = {"custom_name", "name"}
+        items = [
+            f"{k}={v}"
+            for k, v in util.params_to_config(self).items()
+            if k not in skip and v is not None
+        ]
+        return ", ".join(items) if items else "Default arguments"
+
+    @property
+    def explanation(self):
+        """Human-readable description of the step's effect (read after run)."""
+        if self._explanation_template is None:
+            return None
+        try:
+            values = self._explanation_values()
+        except AttributeError:
+            return None
+        return self._explanation_template.format(**values)
+
+    def _explanation_values(self):
+        """Substitution mapping for ``_explanation_template``."""
+        return {"columns": ", ".join(self.columns_resolved)}
+
+    def to_config(self):
+        """Serialize this step to a yaml-safe config dict."""
+        config = {"type": type(self).__name__}
+        config.update(util.params_to_config(self))
+        return config
+
+    @classmethod
+    def from_config(cls, config):
+        """Build an instance from a :meth:`to_config` dict."""
+        config = {k: v for k, v in config.items() if k != "type"}
+        return cls(**config)
+
+
+class Scale(BasePrepStep):
+    """Apply an affine transform ``value * factor + offset`` in place.
+
+    The raw-numbers escape hatch for rescaling that no unit pair covers.
+    Writes back to the same column names, which is the property
+    ``calcparams.custom_param`` structurally cannot provide.
+    """
+
+    factor = param.Number(default=1.0, doc="Multiplier applied to each value.")
+    offset = param.Number(default=0.0, doc="Added after multiplying.")
+
+    _explanation_template = (
+        "Columns {columns} were scaled by {factor} with an offset of {offset}."
+    )
+
+    def _execute(self, capdata, columns):
+        self._require_numeric(capdata, columns, type(self).__name__)
+        capdata.data[columns] = capdata.data[columns] * self.factor + self.offset
+
+    def _explanation_values(self):
+        return {
+            "columns": ", ".join(self.columns_resolved),
+            "factor": self.factor,
+            "offset": self.offset,
+        }
+
+
+PREP_REGISTRY = {
+    "Scale": Scale,
+}
+
+
+def prep_step_from_config(d):
+    """Build a prep step from a ``to_config()`` dict via ``PREP_REGISTRY``.
+
+    Parameters
+    ----------
+    d : dict
+        Config dict with a ``type`` key naming a registered step.
+
+    Returns
+    -------
+    BasePrepStep
+
+    Raises
+    ------
+    ValueError
+        If ``type`` is not a registered prep step.
+    """
+    d = dict(d)
+    cls_name = d.pop("type")
+    if cls_name not in PREP_REGISTRY:
+        suggestion = difflib.get_close_matches(cls_name, PREP_REGISTRY, n=1)
+        hint = f" Did you mean {suggestion[0]!r}?" if suggestion else ""
+        raise ValueError(f"Unknown prep type {cls_name!r} in prep config.{hint}")
+    return PREP_REGISTRY[cls_name].from_config(d)

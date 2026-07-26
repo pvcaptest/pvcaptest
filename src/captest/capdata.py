@@ -50,6 +50,7 @@ from captest.filters import (
     step_from_config,
     wrap_year_end,
 )
+from captest.prep import BasePrepStep
 
 # visualization library imports
 hv_spec = importlib.util.find_spec("holoviews")
@@ -788,6 +789,12 @@ class CapData(param.Parameterized):
         default=[],
         item_type=BaseSummaryStep,
         doc="Ordered pipeline of filter/summary steps applied to the data.",
+    )
+
+    prep = param.List(
+        default=[],
+        item_type=BasePrepStep,
+        doc="Ordered list of data-preparation steps applied to `data`.",
     )
 
     @property
