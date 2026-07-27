@@ -20,10 +20,10 @@ anything from this module at import time; the single-CapData helper
 import copy
 import difflib
 import importlib.util
+import textwrap
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
-import textwrap
 
 import numpy as np
 import pandas as pd
@@ -31,15 +31,6 @@ import param
 import yaml
 
 from captest import util
-from captest.util import (
-    _perc_wrap_to_string,
-    _resolve_func_strings,
-    perc_wrap,
-    to_native,
-)
-from captest.capdata import CapData
-from captest.filters import wrap_year_end
-from captest.plotting import ScatterBifiPowerTc, ScatterPlot
 from captest.calcparams import (
     absolute_airmass,
     apparent_zenith,
@@ -53,6 +44,15 @@ from captest.calcparams import (
     rpoa_pvsyst,
     scale,
     spectral_factor_firstsolar,
+)
+from captest.capdata import CapData
+from captest.filters import wrap_year_end
+from captest.plotting import ScatterBifiPowerTc, ScatterPlot
+from captest.util import (
+    _perc_wrap_to_string,
+    _resolve_func_strings,
+    perc_wrap,
+    to_native,
 )
 
 _hv_spec = importlib.util.find_spec("holoviews")
@@ -900,7 +900,7 @@ def test_setups(options=True, descriptions=False):
     if options:
         print("All options")
         print("=" * 60)
-        for name in TEST_SETUPS.keys():
+        for name in TEST_SETUPS:
             print(name)
 
     if descriptions:
@@ -3164,12 +3164,8 @@ class CapTest(param.Parameterized):
             np.round(res.cap_ratio_pval_check, decimals=4) * 100
         )
 
-        print("{:.3f}% - Cap Ratio".format(cap_ratio_rounded))
-        print(
-            "{:.3f}% - Cap Ratio after pval check".format(
-                cap_ratio_check_pvalues_rounded
-            )
-        )
+        print(f"{cap_ratio_rounded:.3f}% - Cap Ratio")
+        print(f"{cap_ratio_check_pvalues_rounded:.3f}% - Cap Ratio after pval check")
 
         return res.styled_pvalues()
 

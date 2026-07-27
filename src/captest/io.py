@@ -1,22 +1,19 @@
 # this file is formatted with black
 import copy
-import dateutil
 import datetime
-from pathlib import Path
-from dataclasses import dataclass, field
-from typing import Optional
 import warnings
+from dataclasses import dataclass, field
 from itertools import combinations
+from pathlib import Path
 
+import dateutil
 import numpy as np
 import pandas as pd
+from upath import UPath
 
+from captest import columngroups as cg, util
 from captest.capdata import CapData
 from captest.clearsky import csky
-from captest import columngroups as cg
-from captest import util
-
-from upath import UPath
 
 
 def flatten_multi_index(columns):
@@ -217,7 +214,7 @@ def file_reader(path, **kwargs):
         else:
             break
     if data_file.isna().all().all():
-        warnings.warn("There is no data in the file {}".format(path))
+        warnings.warn(f"There is no data in the file {path}")
     else:
         data_file.dropna(how="all", axis=0, inplace=True)
     if data_file.index.equals(pd.Index(np.arange(len(data_file.index)))):
@@ -258,30 +255,27 @@ class DataLoader:
     """
 
     path: str = "./data/"
-    loc: Optional[dict] = field(default=None)
-    sys: Optional[dict] = field(default=None)
+    loc: dict | None = field(default=None)
+    sys: dict | None = field(default=None)
     file_reader: object = file_reader
-    files_to_load: Optional[list] = field(default=None)
-    failed_to_load: Optional[list] = field(default=None)
+    files_to_load: list | None = field(default=None)
+    failed_to_load: list | None = field(default=None)
 
     def __setattr__(self, key, value):
-        if key == "path":
-            if not isinstance(value, UPath):
-                value = UPath(value)
+        if key == "path" and not isinstance(value, UPath):
+            value = UPath(value)
         super().__setattr__(key, value)
 
     def set_files_to_load(self, extension="csv"):
         """
         Set `files_to_load` attribute to a list of filepaths.
         """
-        self.files_to_load = [file for file in self.path.glob("*." + extension)]
+        self.files_to_load = list(self.path.glob("*." + extension))
         self.files_to_load.sort()
         if len(self.files_to_load) == 0:
             return warnings.warn(
-                "No files with .{} extension were found in the directory: {}".format(
-                    extension,
-                    self.path,
-                )
+                f"No files with .{extension} extension were found in the "
+                f"directory: {self.path}"
             )
 
     def reindex_loaded_files(self, verbose=False, report=False):
@@ -321,7 +315,7 @@ class DataLoader:
             file_frequencies.append(freq_str)
 
         unique_freq = np.unique(
-            np.array([freq for freq in file_frequencies]),
+            np.array(list(file_frequencies)),
             return_counts=True,
         )
         common_freq = unique_freq[0][np.argmax(unique_freq[1])]
@@ -346,11 +340,11 @@ class DataLoader:
         """
         all_columns = [df.columns for df in self.loaded_files.values()]
         columns_match = all(
-            [pair[0].equals(pair[1]) for pair in combinations(all_columns, 2)]
+            pair[0].equals(pair[1]) for pair in combinations(all_columns, 2)
         )
         all_indices = [df.index for df in self.loaded_files.values()]
         indices_match = all(
-            [pair[0].equals(pair[1]) for pair in combinations(all_indices, 2)]
+            pair[0].equals(pair[1]) for pair in combinations(all_indices, 2)
         )
         if columns_match and not indices_match:
             data = pd.concat(self.loaded_files.values(), axis="index", sort=True)
@@ -359,7 +353,7 @@ class DataLoader:
             data = pd.concat(self.loaded_files.values(), axis="index", sort=True)
         else:
             joined_columns = pd.Index(
-                set([item for cols in all_columns for item in cols])
+                {item for cols in all_columns for item in cols}
             ).sort_values()
             data = pd.DataFrame(
                 index=pd.date_range(
@@ -437,34 +431,30 @@ class DataLoader:
         # loading branch below. str() preserves the scheme of remote URIs
         # (e.g. 's3://...'), which readers like pandas resolve via fsspec,
         # while a remote UPath instance would not be accepted directly.
-        if self.path.is_file():
-            self.data = self.file_reader(str(self.path), **kwargs)
-        elif self.path.is_dir() and skip_dir_load:
+        if self.path.is_file() or (self.path.is_dir() and skip_dir_load):
             self.data = self.file_reader(str(self.path), **kwargs)
         elif self.path.is_dir() and not skip_dir_load:
             if self.files_to_load is None:
                 self.set_files_to_load(extension=extension)
-            self.loaded_files = dict()
+            self.loaded_files = {}
             failed_to_load_count = 0
             for file in self.files_to_load:
                 try:
                     if summary:
-                        print("trying to load {}".format(file))
+                        print(f"trying to load {file}")
                     self.loaded_files[file.stem] = self.file_reader(str(file), **kwargs)
                     if summary:
-                        print("    loaded      {}".format(file))
+                        print(f"    loaded      {file}")
                 except Exception as err:
                     if self.failed_to_load is None:
                         self.failed_to_load = []
                     self.failed_to_load.append(file)
                     str_kwargs = ", ".join(f"{k}={v}" for k, v in kwargs.items())
-                    print("  **FAILED to load {}".format(file))
+                    print(f"  **FAILED to load {file}")
                     print(
                         "  To review full stack traceback run \n"
                         "  meas.data_loader.file_reader(meas.data_loader"
-                        ".failed_to_load[{}], {})".format(
-                            failed_to_load_count, str_kwargs
-                        )
+                        f".failed_to_load[{failed_to_load_count}], {str_kwargs})"
                     )
                     if raise_errors:
                         raise err
@@ -494,7 +484,7 @@ class DataLoader:
                 warnings.warn("No files loaded. Data attribute set to None.")
                 self.data = None
         else:
-            warnings.warn("No directory or file found at {}".format(self.path))
+            warnings.warn(f"No directory or file found at {self.path}")
 
     def sort_data(self):
         self.data.sort_index(inplace=True)

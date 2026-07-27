@@ -8,10 +8,10 @@ runtime ``capdata`` argument to ``run``/``_execute``.
 import copy
 import difflib
 import importlib.util
-from itertools import combinations
 import math
 import numbers
 import warnings
+from itertools import combinations
 
 import pandas as pd
 import param
@@ -57,7 +57,7 @@ def check_all_perc_diff_comb(series, perc_diff):
     bool
     """
     c = combinations(series.__iter__(), 2)
-    return all([perc_difference(x, y) < perc_diff for x, y in c])
+    return all(perc_difference(x, y) < perc_diff for x, y in c)
 
 
 def abs_diff_from_average(series, threshold):
@@ -235,10 +235,7 @@ def spans_year(start_date, end_date):
     -------
     bool
     """
-    if start_date.year != end_date.year:
-        return True
-    else:
-        return False
+    return start_date.year != end_date.year
 
 
 def fit_model(
@@ -1235,7 +1232,7 @@ class Clearsky(BaseFilter):
 
         if self.ghi_col is None:
             ghi_keys = []
-            for key in capdata.column_groups.keys():
+            for key in capdata.column_groups:
                 defs = key.split("-")
                 if len(defs) == 1:
                     continue
@@ -1584,7 +1581,7 @@ class PowerFactor(BaseFilter):
 
     def _execute(self, capdata):
         selection = None
-        for key in capdata.column_groups.keys():
+        for key in capdata.column_groups:
             if key.find("pf") == 0:
                 selection = key
         if selection is None:
@@ -1637,7 +1634,7 @@ class Power(BaseFilter):
         if self.columns is None:
             power_data = capdata.get_reg_cols("power")
         elif isinstance(self.columns, str):
-            if self.columns in capdata.column_groups.keys():
+            if self.columns in capdata.column_groups:
                 power_data = capdata.floc[self.columns]
                 multiple_columns = True
             else:

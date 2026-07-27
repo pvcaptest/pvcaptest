@@ -1,8 +1,8 @@
 import warnings
 
 import numpy as np
-import pvlib
 import pandas as pd
+import pvlib
 import pytest
 
 from captest import calcparams

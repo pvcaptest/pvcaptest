@@ -13,9 +13,14 @@ import pandas as pd
 pvlib_spec = importlib.util.find_spec("pvlib")
 if pvlib_spec is not None:
     from pvlib.location import Location
-    from pvlib.pvsystem import PVSystem, Array, FixedMount, SingleAxisTrackerMount
-    from pvlib.pvsystem import retrieve_sam
     from pvlib.modelchain import ModelChain
+    from pvlib.pvsystem import (
+        Array,
+        FixedMount,
+        PVSystem,
+        SingleAxisTrackerMount,
+        retrieve_sam,
+    )
 else:
     warnings.warn("Clear sky functions will not work without the pvlib package.")
 
@@ -83,7 +88,7 @@ def pvlib_system(sys):
 
     albedo = sys.pop("albedo", None)
     trck_kwords = ["axis_tilt", "axis_azimuth", "max_angle", "backtrack", "gcr"]  # noqa: E501
-    if any(kword in sys.keys() for kword in trck_kwords):
+    if any(kword in sys for kword in trck_kwords):
         mount = SingleAxisTrackerMount(**sys)
     else:
         mount = FixedMount(**sys)
@@ -120,9 +125,7 @@ def get_tz_index(time_source, loc):
     -------
     DatetimeIndex with timezone
     """
-    if isinstance(time_source, pd.core.series.Series) or isinstance(
-        time_source, pd.core.frame.DataFrame
-    ):
+    if isinstance(time_source, (pd.core.series.Series, pd.core.frame.DataFrame)):
         time_source = time_source.index
     if isinstance(time_source, pd.core.indexes.datetimes.DatetimeIndex):
         if time_source.tz is None:

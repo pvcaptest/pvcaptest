@@ -1,26 +1,24 @@
 from captest import (
+    calcparams as calcparams,
     capdata as capdata,
-    util as util,
-    prtest as prtest,
+    captest as captest,
+    clearsky as clearsky,
     columngroups as columngroups,
     io as io,
     plotting as plotting,
-    calcparams as calcparams,
-    captest as captest,
-    clearsky as clearsky,
+    prtest as prtest,
+    util as util,
 )
-
-from captest.io import (
-    load_data as load_data,
-    load_pvsyst as load_pvsyst,
-    DataLoader as DataLoader,
-)
-
 from captest.captest import (
-    CapTest as CapTest,
     TEST_SETUPS as TEST_SETUPS,
+    CapTest as CapTest,
     load_config as load_config,
     test_setups as test_setups,
+)
+from captest.io import (
+    DataLoader as DataLoader,
+    load_data as load_data,
+    load_pvsyst as load_pvsyst,
 )
 
 try:

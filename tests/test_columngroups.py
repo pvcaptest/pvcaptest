@@ -50,7 +50,7 @@ class TestColumnGroups:
 
     def test_assign_column_groups(self, col_grp):
         """Check that the column group dictionary keys become attributes."""
-        for group in col_groups.keys():
+        for group in col_groups:
             assert hasattr(col_grp, group)
 
     def test_assign_column_groups_bad_chars_in_group_ids(self):
@@ -60,7 +60,7 @@ class TestColumnGroups:
             for grp_label, columns in col_groups.items()
         }
         col_grp = cg.ColumnGroups(col_groups_bad_ids)
-        for group in col_groups_bad_ids.keys():
+        for group in col_groups_bad_ids:
             assert hasattr(col_grp, group)
 
     def test_str(self, col_grp):

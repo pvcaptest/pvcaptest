@@ -15,10 +15,11 @@ import pytest
 from captest import capdata, util
 from captest.capdata import CapData
 from captest.filters import (
+    FILTER_REGISTRY,
     AbsDiffPrev,
-    BaseSummaryStep,
-    BaseFilter,
     Backtracking,
+    BaseFilter,
+    BaseSummaryStep,
     BooleanFlag,
     Clearsky,
     Custom,
@@ -26,20 +27,20 @@ from captest.filters import (
     Irradiance,
     Missing,
     Outliers,
-    PowerFactor,
     Power,
+    PowerFactor,
     Pvsyst,
     Regression,
+    RepCond,
     RollingStd,
     Sensors,
     Shade,
     Time,
-    RepCond,
     _backtracking_geometry_error,
     abs_diff_from_average,
     backtracking_active,
+    step_from_config,
 )
-from captest.filters import FILTER_REGISTRY, step_from_config
 
 
 @pytest.fixture
@@ -1249,11 +1250,13 @@ class TestFilterClearsky:
         # `not any(clear_per)` guard fires.
         n_before = nrel_clear_sky.data_filtered.shape[0]
         all_false = pd.Series(False, index=nrel_clear_sky.data_filtered.index)
-        with unittest.mock.patch(
-            "captest.filters.detect_clearsky", return_value=all_false
+        with (
+            unittest.mock.patch(
+                "captest.filters.detect_clearsky", return_value=all_false
+            ),
+            pytest.warns(UserWarning, match="No clear periods"),
         ):
-            with pytest.warns(UserWarning, match="No clear periods"):
-                kept = Clearsky()._execute(nrel_clear_sky)
+            kept = Clearsky()._execute(nrel_clear_sky)
         assert len(kept) == n_before
 
     def test_execute_specify_ghi_col(self, nrel_clear_sky):
@@ -1609,7 +1612,7 @@ class TestFilterDaysClass:
     def test_execute_keep_days(self):
         kept = Days(days=["10/1/1990", "10/2/1990"])._execute(self._cd())
         assert len(kept) == 48
-        assert set(ts.day for ts in kept) == {1, 2}
+        assert {ts.day for ts in kept} == {1, 2}
 
     def test_execute_drop_days(self):
         kept = Days(days=["10/1/1990"], drop=True)._execute(self._cd())
@@ -2009,13 +2012,15 @@ class TestFailedStepRollback:
         pvsyst.filter_irr(200, 900)
         prior_rc = pvsyst.rc
         prior_rc_tool = getattr(pvsyst, "rc_tool", None)
-        with unittest.mock.patch.object(
-            capdata.ReportingIrradiance,
-            "get_rep_irr",
-            side_effect=RuntimeError("irr fail"),
+        with (
+            unittest.mock.patch.object(
+                capdata.ReportingIrradiance,
+                "get_rep_irr",
+                side_effect=RuntimeError("irr fail"),
+            ),
+            pytest.raises(RuntimeError, match="irr fail"),
         ):
-            with pytest.raises(RuntimeError, match="irr fail"):
-                pvsyst.rep_cond(irr_bal=True)
+            pvsyst.rep_cond(irr_bal=True)
         assert pvsyst.rc is prior_rc
         assert getattr(pvsyst, "rc_tool", None) is prior_rc_tool
         assert all(type(s).__name__ != "RepCond" for s in pvsyst.filters)

@@ -1,30 +1,30 @@
+import collections
+import contextlib
+import copy
 import json
 import os
-import copy
-import collections
 import unittest
-import pytest
+
+import holoviews as hv
 import numpy as np
 import pandas as pd
+import panel as pn
+import pvlib
+import pytest
 import statsmodels.formula.api as smf
-import holoviews as hv
 import yaml
 from patsy import dmatrix
 
-import pvlib
-
-import panel as pn
-
-from captest import capdata as pvc
-from captest import captest as captest_module
-from captest import clearsky
-from captest import columngroups as cg
-from captest import filters
-from captest import io
 from captest import (
     CapTest,
-    load_pvsyst,
     calcparams,
+    capdata as pvc,
+    captest as captest_module,
+    clearsky,
+    columngroups as cg,
+    filters,
+    io,
+    load_pvsyst,
 )
 
 data = np.arange(0, 1300, 54.167)
@@ -127,10 +127,8 @@ class TestTopLevelFuncs(unittest.TestCase):
         df = pd.DataFrame({"x": x, "y": y})
         fml = "y ~ x - 1"
         passed_ind_vars = fml.split("~")[1].split()[::2]
-        try:
+        with contextlib.suppress(ValueError):
             passed_ind_vars.remove("1")
-        except ValueError:
-            pass
 
         reg = pvc.fit_model(df, fml=fml)
 
@@ -138,9 +136,7 @@ class TestTopLevelFuncs(unittest.TestCase):
             self.assertIn(
                 var,
                 reg.params.index,
-                "{} ind variable in formula argument not in modelparameters".format(
-                    var
-                ),
+                f"{var} ind variable in formula argument not in modelparameters",
             )
 
     def test_predict(self):
@@ -236,36 +232,34 @@ class TestTopLevelFuncs(unittest.TestCase):
             self.assertLess(
                 results.loc[mnth, "guaranteedCap"],
                 results.loc[mnth, "PredCap"],
-                "Gauranteed cap is greater than predicted in month {}".format(mnth),
+                f"Gauranteed cap is greater than predicted in month {mnth}",
             )
             self.assertGreater(
                 results.loc[mnth, "guaranteedCap"],
                 0,
-                "Gauranteed capacity is less than 0 in month {}".format(mnth),
+                f"Gauranteed capacity is less than 0 in month {mnth}",
             )
             self.assertAlmostEqual(
                 results.loc[mnth, "guaranteedCap"],
                 gaur_cap_exp[i],
                 7,
-                "Gauranted capacity not equal to expected value in {}".format(mnth),
+                f"Gauranted capacity not equal to expected value in {mnth}",
             )
             self.assertEqual(
                 results.loc[mnth, "pt_qty"],
                 pt_qty_exp[i],
-                "Point quantity not equal to expected values in {}".format(mnth),
+                f"Point quantity not equal to expected values in {mnth}",
             )
 
     def test_perc_bounds_perc(self):
         bounds = pvc.perc_bounds(20)
-        self.assertEqual(bounds[0], 0.8, "{} for 20 perc is not 0.8".format(bounds[0]))
-        self.assertEqual(bounds[1], 1.2, "{} for 20 perc is not 1.2".format(bounds[1]))
+        self.assertEqual(bounds[0], 0.8, f"{bounds[0]} for 20 perc is not 0.8")
+        self.assertEqual(bounds[1], 1.2, f"{bounds[1]} for 20 perc is not 1.2")
 
     def test_perc_bounds_tuple(self):
         bounds = pvc.perc_bounds((15, 40))
-        self.assertEqual(
-            bounds[0], 0.85, "{} for 15 perc is not 0.85".format(bounds[0])
-        )
-        self.assertEqual(bounds[1], 1.4, "{} for 40 perc is not 1.4".format(bounds[1]))
+        self.assertEqual(bounds[0], 0.85, f"{bounds[0]} for 15 perc is not 0.85")
+        self.assertEqual(bounds[1], 1.4, f"{bounds[1]} for 40 perc is not 1.4")
 
     def test_filter_grps(self):
         pvsyst = load_pvsyst(path="./tests/data/pvsyst_example_HourlyRes_2.CSV")
@@ -1042,6 +1036,64 @@ class TestIrrRcBalanced:
         assert isinstance(rc_tool.poa_flt, pd.DataFrame)
         assert np.isnan(rc_tool.irr_rc)
 
+    @staticmethod
+    def _ellipse_count(plot):
+        """Count the Ellipse elements marking the reporting irradiance."""
+        return len(plot.traverse(lambda element: element, [hv.Ellipse]))
+
+    @staticmethod
+    def _june_poa(pvsyst):
+        """June irradiance data with the column named 'poa', as `plot` requires."""
+        jun = pvsyst.data.loc["06/1990"]
+        jun = jun.loc[jun["GlobInc"] > 400, :]
+        return jun.rename(columns={"GlobInc": "poa"})
+
+    @classmethod
+    def _rc_tool_with_rep_irr(cls, pvsyst):
+        """Build a ReportingIrradiance that resolves a valid reporting irradiance."""
+        rc_tool = pvc.ReportingIrradiance(cls._june_poa(pvsyst), "poa", percent_band=50)
+        rc_tool.min_ref_irradiance = 600
+        rc_tool.max_ref_irradiance = 800
+        return rc_tool
+
+    def test_plot_marks_rep_irr_when_found(self, pvsyst):
+        """One Ellipse marks the reporting irradiance on each of the three plots."""
+        rc_tool = self._rc_tool_with_rep_irr(pvsyst)
+        plot = rc_tool.plot()
+        assert not np.isnan(rc_tool.irr_rc)
+        assert self._ellipse_count(plot) == 3
+
+    def test_plot_omits_rep_irr_marks_when_not_found(self, pvsyst):
+        """With no valid reporting irradiance the Ellipses are omitted."""
+        jun = self._june_poa(pvsyst)
+        jun.loc[(jun["poa"] > 600) & (jun["poa"] < 700), "poa"] = np.nan
+        rc_tool = pvc.ReportingIrradiance(jun, "poa", percent_band=50)
+        rc_tool.min_ref_irradiance = 605
+        rc_tool.max_ref_irradiance = 695
+        with pytest.warns(UserWarning):
+            plot = rc_tool.plot()
+        assert np.isnan(rc_tool.irr_rc)
+        assert self._ellipse_count(plot) == 0
+
+    def test_plot_omits_rep_irr_marks_for_any_nan(self, pvsyst, monkeypatch):
+        """Any NaN `irr_rc` omits the Ellipses, not just the `np.nan` object.
+
+        The check was previously `self.irr_rc is not np.nan`, which holds only
+        for that exact object. A NaN reaching `irr_rc` as a `numpy.float64` --
+        the type produced by indexing a DataFrame -- passed that test and sent
+        `plot` down the branch that indexes `poa_flt` with NaN.
+        """
+        rc_tool = self._rc_tool_with_rep_irr(pvsyst)
+        rc_tool.get_rep_irr()  # populate poa_flt / total_pts
+
+        def set_non_singleton_nan():
+            rc_tool.irr_rc = np.float64("nan")
+
+        monkeypatch.setattr(rc_tool, "get_rep_irr", set_non_singleton_nan)
+        plot = rc_tool.plot()
+        assert rc_tool.irr_rc is not np.nan
+        assert self._ellipse_count(plot) == 0
+
 
 class TestCapDataCopy:
     def test_copy_of_pre_agg_attributes(self, meas):
@@ -1629,7 +1681,7 @@ class TestAggSensors:
 
     def test_agg_group(self, meas):
         agg_result, col_name = meas.agg_group("irr_poa_pyran", "mean", inplace=False)
-        assert "irr_poa_pyran_mean_agg" == col_name
+        assert col_name == "irr_poa_pyran_mean_agg"
         assert isinstance(agg_result, pd.DataFrame)
         exp_mean = (
             meas.data[meas.column_groups["irr_poa_pyran"]]
@@ -1878,7 +1930,7 @@ class TestAggSensors:
         assert expected_mean.equals(cd.data["irr_poa_mean_agg"])
 
         # Check that column_groups were updated correctly
-        assert "agg" in cd.column_groups.keys()
+        assert "agg" in cd.column_groups
         assert cd.column_groups["agg"] == [
             "irr_poa_met1_mean_agg",
             "irr_poa_met2_mean_agg",
@@ -3544,7 +3596,7 @@ class TestCreateColumnGroupAttributes:
         meas.create_column_group_attributes()
 
         # Check that an attribute exists for each key in column_groups
-        for group_key in meas.column_groups.keys():
+        for group_key in meas.column_groups:
             assert hasattr(meas, group_key), f"Attribute {group_key} not created"
 
             # Get the data view using the attribute

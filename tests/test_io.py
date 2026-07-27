@@ -1,23 +1,23 @@
-import os
 import csv
+import os
 import re
-from io import StringIO
 import unittest
-import pytest
+from io import StringIO
 from pathlib import Path
+
 import numpy as np
 import pandas as pd
+import pytest
 from upath import UPath
 
-
-from captest import capdata as pvc
-from captest import util
-from captest import columngroups as cg
-from captest import io
 from captest import (
-    load_pvsyst,
-    load_data,
     DataLoader,
+    capdata as pvc,
+    columngroups as cg,
+    io,
+    load_data,
+    load_pvsyst,
+    util,
 )
 
 
@@ -247,7 +247,7 @@ class TestFileReader:
 
     def test_load_das(self):
         das = io.file_reader("./tests/data/example_measured_data.csv")
-        assert 1440 == das.shape[0]
+        assert das.shape[0] == 1440
         assert isinstance(das.index, pd.DatetimeIndex)
         assert isinstance(das.columns, pd.Index)
 
@@ -290,7 +290,7 @@ class TestLoadPVsyst:
         """Test loading pvsyst output with mm/dd/yy; Hour dates."""
         pvsyst = load_pvsyst("./tests/data/pvsyst_example_HourlyRes_2.CSV")
         assert isinstance(pvsyst, pvc.CapData)
-        assert 8760 == pvsyst.data.shape[0]
+        assert pvsyst.data.shape[0] == 8760
         assert isinstance(pvsyst.data.index, pd.DatetimeIndex)
         assert isinstance(pvsyst.data.columns, pd.Index)
         assert pvsyst.data.loc["1/1/90 12:00", "E_Grid"] == 5_469_083
@@ -307,7 +307,7 @@ class TestLoadPVsyst:
             "./tests/data/pvsyst_example_HourlyRes_2_semicolon.csv", sep=";"
         )
         assert isinstance(pvsyst, pvc.CapData)
-        assert 8760 == pvsyst.data.shape[0]
+        assert pvsyst.data.shape[0] == 8760
         assert isinstance(pvsyst.data.index, pd.DatetimeIndex)
         assert isinstance(pvsyst.data.columns, pd.Index)
         assert pvsyst.data.loc["1/1/90 12:00", "E_Grid"] == 5_469_083
@@ -320,8 +320,9 @@ class TestLoadPVsyst:
 
     def test_semicolon_sep_warning(self):
         """Test trying to load a semicolon csv file fails with a warning."""
-        with pytest.raises(KeyError):
-            with pytest.warns(
+        with (
+            pytest.raises(KeyError),
+            pytest.warns(
                 UserWarning,
                 match=(
                     "No 'date' column found in the PVsyst data. This may be due to "
@@ -329,8 +330,9 @@ class TestLoadPVsyst:
                     "If this is the case, try passing sep=';' when calling load_pvsyst. "
                     "Otherwise the date column may actually be missing. Exception:"
                 ),
-            ):
-                load_pvsyst("./tests/data/pvsyst_example_HourlyRes_2_semicolon.csv")
+            ),
+        ):
+            load_pvsyst("./tests/data/pvsyst_example_HourlyRes_2_semicolon.csv")
 
     def test_load_pvsyst_after_excel_open(self):
         """Test loading pvsyst output with m/d/yyyy h:mm dates.
@@ -339,7 +341,7 @@ class TestLoadPVsyst:
         """
         pvsyst = load_pvsyst("./tests/data/pvsyst_example_HourlyRes_2_xls_dates.csv")
         assert isinstance(pvsyst, pvc.CapData)
-        assert 8760 == pvsyst.data.shape[0]
+        assert pvsyst.data.shape[0] == 8760
         assert isinstance(pvsyst.data.index, pd.DatetimeIndex)
         assert isinstance(pvsyst.data.columns, pd.Index)
         assert pvsyst.data.loc["1/1/90 12:00", "E_Grid"] == 5_469_083
@@ -362,7 +364,7 @@ class TestLoadPVsyst:
         ):
             pvsyst = load_pvsyst("./tests/data/pvsyst_example_day_month_year.csv")
         assert isinstance(pvsyst, pvc.CapData)
-        assert 8760 == pvsyst.data.shape[0]
+        assert pvsyst.data.shape[0] == 8760
         assert isinstance(pvsyst.data.index, pd.DatetimeIndex)
         assert isinstance(pvsyst.data.columns, pd.Index)
         assert pvsyst.data.loc["1/1/90 12:00", "E_Grid"] == 5_469_083
@@ -385,7 +387,7 @@ class TestLoadPVsyst:
                 "./tests/data/pvsyst_example_day_month_year_xls_dates.csv"
             )
         assert isinstance(pvsyst, pvc.CapData)
-        assert 8760 == pvsyst.data.shape[0]
+        assert pvsyst.data.shape[0] == 8760
         assert isinstance(pvsyst.data.index, pd.DatetimeIndex)
         assert isinstance(pvsyst.data.columns, pd.Index)
         assert pvsyst.data.loc["1/1/90 12:00", "E_Grid"] == 5_469_083
@@ -904,7 +906,7 @@ class TestLoadDataFunction:
             group_columns="./tests/data/example_measured_data_column_groups.json",
         )
         assert isinstance(meas.column_groups, cg.ColumnGroups)
-        for group_key in meas.column_groups.keys():
+        for group_key in meas.column_groups:
             assert hasattr(meas, group_key), f"Attribute {group_key} not created"
 
     def test_kwargs_pass_to_read_csv(self, tmp_path):
