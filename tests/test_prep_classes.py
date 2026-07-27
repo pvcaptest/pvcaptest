@@ -4,8 +4,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from captest import capdata as pvc
-from captest import prep
+from captest import capdata as pvc, prep
 from captest.columngroups import ColumnGroups
 
 
