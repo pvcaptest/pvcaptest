@@ -56,6 +56,7 @@
       ~CapTest.meas
       ~CapTest.meas_load_kwargs
       ~CapTest.meas_loader
+      ~CapTest.meas_prep
       ~CapTest.min_irr
       ~CapTest.module_type
       ~CapTest.name
@@ -79,6 +80,7 @@
       ~CapTest.sim_days
       ~CapTest.sim_load_kwargs
       ~CapTest.sim_loader
+      ~CapTest.sim_prep
       ~CapTest.spectral_module_type
       ~CapTest.test_setup
       ~CapTest.test_tolerance

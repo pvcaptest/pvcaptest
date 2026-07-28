@@ -23,7 +23,7 @@ import param
 from bokeh.models import HoverTool, NumeralTickFormatter
 from patsy import dmatrix
 
-from captest import plotting, util
+from captest import plotting, prep, util
 from captest.filters import (
     AbsDiffPrev,
     Backtracking,
@@ -50,6 +50,7 @@ from captest.filters import (
     step_from_config,
     wrap_year_end,
 )
+from captest.prep import BasePrepStep
 
 # visualization library imports
 hv_spec = importlib.util.find_spec("holoviews")
@@ -790,6 +791,12 @@ class CapData(param.Parameterized):
         doc="Ordered pipeline of filter/summary steps applied to the data.",
     )
 
+    prep = param.List(
+        default=[],
+        item_type=BasePrepStep,
+        doc="Ordered list of data-preparation steps applied to `data`.",
+    )
+
     @property
     def data_filtered(self):
         """Working data after the applied filter chain (derived, read-only).
@@ -903,6 +910,11 @@ class CapData(param.Parameterized):
         cd_c.column_groups = copy.deepcopy(self.column_groups)
         cd_c.regression_cols = copy.copy(self.regression_cols)
         cd_c.filters = copy.deepcopy(self.filters)
+        # `data` is copied post-prep, so the chain that produced those values
+        # has to come with it: dropping it would let the copy serialize to a
+        # config that reproduces different data, and would let `run_prep` pass
+        # its empty-chain guard and prep the same values twice.
+        cd_c.prep = copy.deepcopy(self.prep)
         cd_c.rc = copy.copy(self.rc)
         cd_c.regression_results = copy.deepcopy(self.regression_results)
         cd_c.regression_formula = copy.copy(self.regression_formula)
@@ -953,7 +965,7 @@ class CapData(param.Parameterized):
             )
         return float(rc["poa"].iloc[0])
 
-    def drop_cols(self, columns):
+    def drop_cols(self, columns, record=True):
         """
         Drop columns from CapData `data` and `column_groups`.
 
@@ -964,9 +976,17 @@ class CapData(param.Parameterized):
         ----------
         columns : str or list
             Column name or list of column names to drop.
+        record : bool, default True
+            Append a ``DropColumns`` prep step so the drop is serialized to
+            the config and replayed after a reload. **Internal callers must
+            pass ``record=False``** so library-generated column changes do not
+            enter the user's prep chain; a source-scan test enforces this.
         """
         if isinstance(columns, str):
             columns = [columns]
+        if record:
+            prep.DropColumns(columns=list(columns)).run(self)
+            return
         for col in columns:
             print(f"Removing following column: {col}")
             for key, value in self.column_groups.items():
@@ -979,7 +999,7 @@ class CapData(param.Parameterized):
             self.data.drop(col, axis=1, inplace=True)
             print("    Dropped from data attribute")
 
-    def rename_cols(self, column_map):
+    def rename_cols(self, column_map, record=True):
         """
         Rename columns in `data` and `column_groups`.
 
@@ -990,7 +1010,14 @@ class CapData(param.Parameterized):
         ----------
         column_map : dict
             Dictionary mapping old column names to new column names.
+        record : bool, default True
+            Append a ``RenameColumns`` prep step so the rename is serialized
+            to the config and replayed after a reload. **Internal callers must
+            pass ``record=False``**; a source-scan test enforces this.
         """
+        if record:
+            prep.RenameColumns(column_map=dict(column_map)).run(self)
+            return
         self.data.rename(columns=column_map, inplace=True)
         for key, value in self.column_groups.items():
             self.column_groups[key] = [column_map.get(col, col) for col in value]
@@ -1650,7 +1677,7 @@ class CapData(param.Parameterized):
             self.data = pd.concat([agg_result, self.data], axis=1)
             agg_names[group_id] = col_name
         self.filters = []
-        self.rename_cols(rename_map)
+        self.rename_cols(rename_map, record=False)
         self.agg_name_mapper = agg_names
         self.create_column_group_attributes()
         self.create_agg_attributes()
@@ -2295,6 +2322,192 @@ class CapData(param.Parameterized):
         embed this CapData's pipeline in the single config file.
         """
         return [step.to_config() for step in self.filters]
+
+    def prep_convert_units(
+        self,
+        columns=None,
+        group=None,
+        group_regex=None,
+        from_units=None,
+        to_units=None,
+        custom_name=None,
+    ):
+        """Convert the selected columns between units and record the step.
+
+        Parameters
+        ----------
+        columns : list of str, optional
+            Explicit column names. Mutually exclusive with the group selectors.
+        group : str or list of str, optional
+            ``column_groups`` id, or list of ids.
+        group_regex : str, optional
+            Regex matched against ``column_groups`` ids, e.g.
+            ``"^temp_(amb|bom)$"`` to reach ``temp_amb`` and ``temp_bom`` at
+            once. Anchor the pattern: a loose ``"^temp"`` also matches
+            inverter-temperature groups such as ``temp_inv``.
+        from_units, to_units : str
+            Source and target units; see :data:`captest.prep.UNIT_CONVERSIONS`.
+        custom_name : str, optional
+            Display label for the recorded step.
+        """
+        prep.ConvertUnits(
+            columns=columns,
+            group=group,
+            group_regex=group_regex,
+            from_units=from_units,
+            to_units=to_units,
+            custom_name=custom_name,
+        ).run(self)
+
+    def prep_scale(
+        self,
+        columns=None,
+        group=None,
+        group_regex=None,
+        factor=1.0,
+        offset=0.0,
+        custom_name=None,
+    ):
+        """Apply ``value * factor + offset`` to the selected columns.
+
+        Parameters
+        ----------
+        columns, group, group_regex : optional
+            Column selector; exactly one is required. See
+            :meth:`prep_convert_units`.
+        factor : float, default 1.0
+            Multiplier.
+        offset : float, default 0.0
+            Added after multiplying.
+        custom_name : str, optional
+            Display label for the recorded step.
+        """
+        prep.Scale(
+            columns=columns,
+            group=group,
+            group_regex=group_regex,
+            factor=factor,
+            offset=offset,
+            custom_name=custom_name,
+        ).run(self)
+
+    def prep_astype(
+        self,
+        columns=None,
+        group=None,
+        group_regex=None,
+        dtype="float64",
+        custom_name=None,
+    ):
+        """Cast the selected columns to ``dtype``.
+
+        Parameters
+        ----------
+        columns, group, group_regex : optional
+            Column selector; exactly one is required. See
+            :meth:`prep_convert_units`.
+        dtype : str, default "float64"
+            Target dtype name.
+        custom_name : str, optional
+            Display label for the recorded step.
+        """
+        prep.AsType(
+            columns=columns,
+            group=group,
+            group_regex=group_regex,
+            dtype=dtype,
+            custom_name=custom_name,
+        ).run(self)
+
+    def prep_custom(self, func, *args, custom_name=None, **kwargs):
+        """Apply ``func(self, *args, **kwargs)`` as a recorded prep step.
+
+        Parameters
+        ----------
+        func : callable
+            Takes this CapData as its first argument and mutates ``data`` in
+            place. Must be importable by module-qualified name to serialize —
+            a lambda cannot be exported.
+        *args, **kwargs
+            Forwarded to ``func``.
+        custom_name : str, optional
+            Display label for the recorded step. Keyword-only so it cannot
+            collide with arguments destined for ``func``.
+        """
+        prep.Custom(func, *args, custom_name=custom_name, **kwargs).run(self)
+
+    def prep_to_config(self):
+        """Serialize the applied prep chain to a list of config dicts.
+
+        Each entry is a step's ``to_config()``. Inverse of :meth:`run_prep`.
+        Used by ``CapTest.to_yaml`` to embed this CapData's prep in the single
+        config file.
+        """
+        return [step.to_config() for step in self.prep]
+
+    def run_prep(self, config):
+        """Rebuild and run each prep step from a list of config dicts.
+
+        ``config`` is a list of ``to_config()`` dicts (e.g. from
+        :meth:`prep_to_config` or a loaded YAML). Each step is constructed via
+        ``prep.prep_step_from_config`` and run against this CapData in order.
+
+        The replay is a transaction across the whole batch: ``data`` and
+        ``column_groups`` are snapshotted before the first step and both are
+        restored — with every step this call appended discarded — if any step
+        raises, with a note naming the failing step attached to the exception
+        (Python 3.11+). Per-step atomicity alone would leave earlier steps
+        applied, which is a half-prepped frame the caller could neither safely
+        retry nor measure. ``column_groups`` is in the snapshot because
+        ``DropColumns`` and ``RenameColumns`` rewrite it alongside ``data``,
+        and a rollback that misses it leaves group ids pointing at columns
+        that no longer match ``data`` — wrong silently rather than loudly.
+
+        Parameters
+        ----------
+        config : list of dict
+            Prep-step config dicts, in order.
+
+        Raises
+        ------
+        RuntimeError
+            If ``prep`` is already populated. Prep steps mutate ``data`` and
+            are not idempotent, so replay is a once-per-load operation; re-prep
+            by reloading (``CapTest.reload(side)``).
+        """
+        if self.prep:
+            raise RuntimeError(
+                "run_prep requires an un-prepped dataset, but "
+                f"{len(self.prep)} prep steps are already applied. Prep "
+                "mutates `data` and is not idempotent — reload this dataset "
+                "(CapTest.reload(side)) to re-prep from raw data."
+            )
+        snapshot = prep.snapshot_prep_state(self)
+        prior_prep = self.prep
+        step_label = "?"
+        try:
+            for i, step_config in enumerate(config):
+                step_label = f"{i} ({step_config.get('type', '?')})"
+                prep.prep_step_from_config(step_config).run(self)
+        except Exception as e:
+            prep.restore_prep_state(self, snapshot)
+            self.prep = prior_prep
+            if hasattr(e, "add_note"):
+                e.add_note(f"Raised while running prep step {step_label}.")
+            raise
+
+    def describe_prep(self):
+        """Return a written, human-readable summary of the prep applied.
+
+        Joins the ``explanation`` of each step in ``self.prep``, one per line.
+        This is the only summary surface that reports prep: ``get_summary``
+        and ``describe_filters`` stay filter-only, because their rows are
+        point counts and prep removes no points. The serialized
+        ``meas_prep``/``sim_prep`` block in the yaml config is the durable
+        record.
+        """
+        lines = [step.explanation for step in self.prep if step.explanation is not None]
+        return "\n".join(lines)
 
     def _rc_state_snapshot(self):
         """Capture rc/rc_tool and (when test-wired) the CapTest RC state."""

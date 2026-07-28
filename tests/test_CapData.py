@@ -3,6 +3,7 @@ import contextlib
 import copy
 import json
 import os
+import sys
 import unittest
 
 import holoviews as hv
@@ -25,6 +26,7 @@ from captest import (
     filters,
     io,
     load_pvsyst,
+    prep,
 )
 
 data = np.arange(0, 1300, 54.167)
@@ -3745,6 +3747,230 @@ class TestPipelineConfig:
         reloaded = yaml.safe_load(dumped)
         irr_steps = [d for d in reloaded if d["type"] == "Irradiance"]
         assert irr_steps[-1]["ref_val"] == pytest.approx(float(ref_val))
+
+
+class TestPrepSurface:
+    """CapData's prep wrappers, replay, and description."""
+
+    @pytest.fixture
+    def cd(self):
+        index = pd.date_range("1/1/2021 12:00", freq="5min", periods=4)
+        out = pvc.CapData("test")
+        out.data = pd.DataFrame(
+            {
+                "temp_amb_1": [32.0, 41.0, 50.0, 212.0],
+                "power_1": [1000.0, 2000.0, 3000.0, 4000.0],
+            },
+            index=index,
+        )
+        out.column_groups = cg.ColumnGroups(
+            {"temp_amb": ["temp_amb_1"], "real_pwr": ["power_1"]}
+        )
+        return out
+
+    def test_prep_convert_units_wrapper(self, cd):
+        cd.prep_convert_units(group="temp_amb", from_units="F", to_units="C")
+        assert cd.data["temp_amb_1"].iloc[0] == pytest.approx(0.0)
+        assert isinstance(cd.prep[0], prep.ConvertUnits)
+
+    def test_prep_scale_wrapper(self, cd):
+        cd.prep_scale(columns=["power_1"], factor=0.001)
+        assert cd.data["power_1"].tolist() == [1.0, 2.0, 3.0, 4.0]
+
+    def test_prep_astype_wrapper(self, cd):
+        cd.data["power_1"] = ["1", "2", "3", "4"]
+        cd.prep_astype(columns=["power_1"], dtype="float64")
+        assert cd.data["power_1"].dtype == np.dtype("float64")
+
+    def test_prep_custom_wrapper(self, cd):
+        def zero_power(capdata):
+            capdata.data["power_1"] = 0.0
+
+        cd.prep_custom(zero_power)
+        assert (cd.data["power_1"] == 0.0).all()
+
+    def test_duplicate_step_raises(self, cd):
+        cd.prep_scale(columns=["power_1"], factor=0.001)
+        with pytest.raises(RuntimeError, match="already applied"):
+            cd.prep_scale(columns=["power_1"], factor=0.001)
+
+    def test_custom_name_does_not_defeat_the_duplicate_guard(self, cd):
+        """The label is presentation; a relabelled repeat is still a repeat."""
+        cd.prep_scale(columns=["power_1"], factor=0.001, custom_name="first")
+        with pytest.raises(RuntimeError, match="already applied"):
+            cd.prep_scale(columns=["power_1"], factor=0.001, custom_name="second")
+        assert len(cd.prep) == 1
+
+    def test_different_params_is_not_a_duplicate(self, cd):
+        cd.prep_scale(columns=["power_1"], factor=0.001)
+        cd.prep_scale(columns=["power_1"], factor=2.0)
+        assert len(cd.prep) == 2
+
+    def test_prep_to_config_round_trips(self, cd):
+        cd.prep_scale(columns=["power_1"], factor=0.001)
+        config = cd.prep_to_config()
+        assert config[0]["type"] == "Scale"
+        fresh = pvc.CapData("fresh")
+        fresh.data = cd.data * 1000
+        fresh.column_groups = cd.column_groups
+        fresh.run_prep(config)
+        assert fresh.data["power_1"].tolist() == [1.0, 2.0, 3.0, 4.0]
+
+    def test_run_prep_on_populated_chain_raises(self, cd):
+        cd.prep_scale(columns=["power_1"], factor=0.001)
+        with pytest.raises(RuntimeError, match="reload"):
+            cd.run_prep([{"type": "Scale", "columns": ["power_1"], "factor": 0.001}])
+
+    def test_run_prep_batch_is_transactional(self, cd):
+        before = cd.data.copy()
+        config = [
+            {"type": "Scale", "columns": ["power_1"], "factor": 0.001},
+            {
+                "type": "ConvertUnits",
+                "columns": ["temp_amb_1"],
+                "from_units": "F",
+                "to_units": "C",
+            },
+            {"type": "Scale", "columns": ["not_a_column"], "factor": 1.0},
+        ]
+        with pytest.raises(ValueError):
+            cd.run_prep(config)
+        pd.testing.assert_frame_equal(cd.data, before)
+        assert cd.prep == []
+
+    def test_batch_rollback_restores_column_groups_after_drop(self, cd):
+        """DropColumns edits column_groups too, so rollback must undo both."""
+        before = cd.data.copy()
+        before_groups = {k: list(v) for k, v in cd.column_groups.items()}
+        config = [
+            {"type": "DropColumns", "columns": ["power_1"]},
+            {"type": "Scale", "columns": ["not_a_column"], "factor": 1.0},
+        ]
+        with pytest.raises(ValueError):
+            cd.run_prep(config)
+        pd.testing.assert_frame_equal(cd.data, before)
+        assert {k: list(v) for k, v in cd.column_groups.items()} == before_groups
+        assert cd.prep == []
+
+    def test_batch_rollback_restores_column_groups_after_rename(self, cd):
+        """A rolled-back rename must not leave groups naming absent columns."""
+        before = cd.data.copy()
+        before_groups = {k: list(v) for k, v in cd.column_groups.items()}
+        config = [
+            {"type": "RenameColumns", "column_map": {"power_1": "POWER"}},
+            {"type": "Scale", "columns": ["not_a_column"], "factor": 1.0},
+        ]
+        with pytest.raises(ValueError):
+            cd.run_prep(config)
+        pd.testing.assert_frame_equal(cd.data, before)
+        assert {k: list(v) for k, v in cd.column_groups.items()} == before_groups
+        assert cd.prep == []
+
+    @pytest.mark.skipif(sys.version_info < (3, 11), reason="add_note")
+    def test_run_prep_failure_note_names_the_step(self, cd):
+        config = [{"type": "Scale", "columns": ["not_a_column"], "factor": 1.0}]
+        with pytest.raises(ValueError) as excinfo:
+            cd.run_prep(config)
+        notes = getattr(excinfo.value, "__notes__", [])
+        assert any("Scale" in note for note in notes)
+
+    def test_reset_filter_leaves_prep_intact(self, cd):
+        cd.prep_scale(columns=["power_1"], factor=0.001)
+        cd.reset_filter()
+        assert len(cd.prep) == 1
+
+    def test_describe_prep(self, cd):
+        cd.prep_convert_units(group="temp_amb", from_units="F", to_units="C")
+        assert "temp_amb_1" in cd.describe_prep()
+        assert "F" in cd.describe_prep()
+
+    def test_describe_filters_does_not_mention_prep(self, cd):
+        cd.prep_scale(columns=["power_1"], factor=0.001)
+        assert cd.describe_filters() == ""
+
+    def test_copy_carries_the_prep_chain(self, cd):
+        """`copy` takes prepped values, so it must take the chain with them."""
+        cd.prep_scale(columns=["power_1"], factor=0.001)
+        dupe = cd.copy()
+        assert dupe.prep_to_config() == cd.prep_to_config()
+        assert dupe.data["power_1"].tolist() == [1.0, 2.0, 3.0, 4.0]
+        # The chain is deep-copied, so the two objects do not share steps.
+        assert dupe.prep[0] is not cd.prep[0]
+        # And the copy is still guarded against a second, doubling prep.
+        with pytest.raises(RuntimeError, match="un-prepped"):
+            dupe.run_prep(cd.prep_to_config())
+
+
+class TestPrepRecordingOnDropAndRename:
+    """drop_cols / rename_cols record by default; internal callers opt out."""
+
+    @pytest.fixture
+    def cd(self):
+        index = pd.date_range("1/1/2021 12:00", freq="5min", periods=4)
+        out = pvc.CapData("test")
+        out.data = pd.DataFrame(
+            {"a": [1.0, 2.0, 3.0, 4.0], "b": [5.0, 6.0, 7.0, 8.0]}, index=index
+        )
+        out.column_groups = cg.ColumnGroups({"grp": ["a", "b"]})
+        return out
+
+    def test_drop_cols_records_by_default(self, cd):
+        cd.drop_cols(["a"])
+        assert [type(s).__name__ for s in cd.prep] == ["DropColumns"]
+        assert cd.prep[0].columns == ["a"]
+
+    def test_drop_cols_record_false_records_nothing(self, cd):
+        cd.drop_cols(["a"], record=False)
+        assert cd.prep == []
+        assert "a" not in cd.data.columns
+
+    def test_rename_cols_records_by_default(self, cd):
+        cd.rename_cols({"a": "c"})
+        assert [type(s).__name__ for s in cd.prep] == ["RenameColumns"]
+
+    def test_rename_cols_record_false_records_nothing(self, cd):
+        cd.rename_cols({"a": "c"}, record=False)
+        assert cd.prep == []
+        assert "c" in cd.data.columns
+
+
+class TestNoInternalCallerRecordsPrep:
+    """Source scan: internal drop_cols/rename_cols calls must pass record=False."""
+
+    def test_agg_sensors_leaves_prep_empty(self, meas):
+        meas.agg_sensors()
+        assert meas.prep == []
+
+    def test_every_internal_call_site_opts_out(self):
+        import ast
+        import pathlib
+
+        import captest
+
+        src_dir = pathlib.Path(captest.__file__).parent
+        offenders = []
+        for path in sorted(src_dir.glob("*.py")):
+            tree = ast.parse(path.read_text())
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Call):
+                    continue
+                func = node.func
+                if not isinstance(func, ast.Attribute):
+                    continue
+                if func.attr not in ("drop_cols", "rename_cols"):
+                    continue
+                opts_out = any(
+                    kw.arg == "record"
+                    and isinstance(kw.value, ast.Constant)
+                    and kw.value.value is False
+                    for kw in node.keywords
+                )
+                if not opts_out:
+                    offenders.append(f"{path.name}:{node.lineno}")
+        assert offenders == [], (
+            "internal drop_cols/rename_cols calls must pass record=False so "
+            f"they do not record a prep step: {offenders}"
+        )
 
 
 if __name__ == "__main__":

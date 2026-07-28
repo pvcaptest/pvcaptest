@@ -6,6 +6,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Added
+- New data prep stage: adjustments applied between load and `setup()` are now
+declared, serialized, and replayed. `CapData` gains `prep`, `prep_convert_units`,
+`prep_scale`, `prep_astype`, `prep_custom`, `prep_to_config`, `run_prep`, and
+`describe_prep`; `CapTest` gains `meas_prep`/`sim_prep`, replayed after every
+load (including `reload`) and written to the yaml config. See the new
+"Preparing Data" user guide page.
+- `CapData.drop_cols` and `CapData.rename_cols` now record a prep step by
+default and accept `record=False` for internal callers.
 - New `CapData.rerun_filters_from(index)` — partial pipeline re-run: truncates
 the chain to the retained prefix and re-runs the tail as live step objects with
 their current param values.
@@ -96,6 +104,8 @@ config's serialized filter pipelines until `run_test` replays and consumes them
 (retained, with recovery guidance attached to the error, when a replay fails).
 
 ### Changed
+- Value-rewriting prep steps raise if run after filters are applied; call
+`reset_filter()` first. Column drops and renames are unaffected.
 - `ReportingIrradiance.plot` now detects a missing reporting irradiance with
 `pd.isna` rather than an identity test against `np.nan`. The identity form only
 held for that exact object, so a NaN `irr_rc` arriving as a `numpy.float64`

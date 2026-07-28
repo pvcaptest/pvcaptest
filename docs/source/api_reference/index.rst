@@ -12,6 +12,7 @@ API Reference
    capdata
    captest
    filters
+   prep
    clearsky
    prtest
    calcparams

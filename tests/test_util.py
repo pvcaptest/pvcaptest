@@ -3,6 +3,7 @@ import json
 
 import numpy as np
 import pandas as pd
+import param
 import pytest
 from upath import UPath
 
@@ -517,3 +518,93 @@ class TestReadJsonYamlPathTypes:
         p.write_text("key: [unclosed")
         assert util.read_yaml(str(p)) is None
         assert capsys.readouterr().out != ""
+
+
+class TestStrictAttrs:
+    """util.StrictAttrs is the shared strict-__setattr__ guard."""
+
+    def _cls(self):
+        class Step(util.StrictAttrs, param.Parameterized):
+            _runtime_attrs = frozenset({"resolved"})
+            threshold = param.Number(default=1.0)
+
+        return Step
+
+    def test_param_assignment_allowed(self):
+        step = self._cls()(threshold=2.0)
+        step.threshold = 3.0
+        assert step.threshold == 3.0
+
+    def test_runtime_attr_assignment_allowed(self):
+        step = self._cls()()
+        step.resolved = ["a"]
+        assert step.resolved == ["a"]
+
+    def test_private_attribute_allowed(self):
+        step = self._cls()()
+        step._scratch = 1
+        assert step._scratch == 1
+
+    def test_unknown_attribute_raises_with_close_match(self):
+        step = self._cls()()
+        with pytest.raises(AttributeError, match="Did you mean 'threshold'"):
+            step.threshhold = 2.0
+
+    def test_runtime_attrs_union_down_the_mro(self):
+        base = self._cls()
+
+        class Child(base):
+            _runtime_attrs = frozenset({"extra"})
+
+        assert {"resolved", "extra"} <= Child._runtime_attrs
+
+
+class TestParamsToConfig:
+    """util.params_to_config serializes param values yaml-safely."""
+
+    def test_omits_name_and_coerces_numpy(self):
+        class Step(param.Parameterized):
+            factor = param.Number(default=1.0)
+
+        step = Step(factor=np.float64(0.001))
+        config = util.params_to_config(step)
+        assert "name" not in config
+        assert config == {"factor": 0.001}
+        assert isinstance(config["factor"], float)
+
+    def test_returns_independent_snapshot(self):
+        class Step(param.Parameterized):
+            columns = param.List(default=None, allow_None=True)
+
+        step = Step(columns=["a"])
+        config = util.params_to_config(step)
+        config["columns"].append("b")
+        assert step.columns == ["a"]
+
+
+class TestFormatNameList:
+    """util.format_name_list truncates long name sequences for display."""
+
+    def test_short_sequence_is_joined_unchanged(self):
+        assert util.format_name_list(["a", "b", "c"]) == "a, b, c"
+
+    def test_sequence_at_cutoff_is_not_truncated(self):
+        names = [f"col_{i}" for i in range(10)]
+        assert util.format_name_list(names) == ", ".join(names)
+        assert "total" not in util.format_name_list(names)
+
+    def test_sequence_above_cutoff_truncates_with_count(self):
+        names = [f"col_{i}" for i in range(25)]
+        result = util.format_name_list(names)
+        assert result == "col_0, col_1, col_2, ..., col_22, col_23, col_24 (25 total)"
+
+    def test_edge_and_cutoff_are_configurable(self):
+        names = [f"col_{i}" for i in range(6)]
+        result = util.format_name_list(names, cutoff=4, edge=1)
+        assert result == "col_0, ..., col_5 (6 total)"
+
+    def test_empty_sequence(self):
+        assert util.format_name_list([]) == ""
+
+    def test_non_string_names_are_coerced(self):
+        assert util.format_name_list([1, 2]) == "1, 2"

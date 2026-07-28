@@ -23,6 +23,7 @@
       ~CapData.custom_param
       ~CapData.data_columns_to_excel
       ~CapData.describe_filters
+      ~CapData.describe_prep
       ~CapData.drop_cols
       ~CapData.empty
       ~CapData.expand_agg_map
@@ -55,6 +56,11 @@
       ~CapData.get_summary
       ~CapData.plot
       ~CapData.predict_capacities
+      ~CapData.prep_astype
+      ~CapData.prep_convert_units
+      ~CapData.prep_custom
+      ~CapData.prep_scale
+      ~CapData.prep_to_config
       ~CapData.print_points_summary
       ~CapData.process_regression_columns
       ~CapData.reg_scatter_matrix
@@ -66,6 +72,7 @@
       ~CapData.reset_filter
       ~CapData.review_column_groups
       ~CapData.run_pipeline
+      ~CapData.run_prep
       ~CapData.scatter
       ~CapData.scatter_filters
       ~CapData.scatter_hv
@@ -87,6 +94,7 @@
       ~CapData.filters
       ~CapData.name
       ~CapData.param
+      ~CapData.prep
       ~CapData.rep_irr
    
    

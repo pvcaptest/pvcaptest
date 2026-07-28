@@ -35,6 +35,9 @@ Data Management
 ---------------
 
 Methods for inspecting, renaming, copying, and exporting data.
+:meth:`~captest.capdata.CapData.drop_cols` and
+:meth:`~captest.capdata.CapData.rename_cols` record a prep step by default;
+see :ref:`data_prep`.
 
 .. autosummary::
    :toctree: generated/
@@ -45,6 +48,29 @@ Methods for inspecting, renaming, copying, and exporting data.
    capdata.CapData.empty
    capdata.CapData.drop_cols
    capdata.CapData.rename_cols
+
+.. _capdata-api-prep:
+
+Data Preparation
+----------------
+
+Thin wrappers that build a step class from :py:mod:`captest.prep` and
+``run()`` it, appending it to the ``CapData.prep`` chain. Prep steps rewrite
+``data`` in place between loading and ``setup()``. ``describe_prep`` returns a
+written summary of what was applied, while ``prep_to_config`` / ``run_prep``
+serialize and replay the chain. See :doc:`prep` for the underlying step
+classes and :ref:`data_prep` for the workflow.
+
+.. autosummary::
+   :toctree: generated/
+
+   capdata.CapData.prep_convert_units
+   capdata.CapData.prep_scale
+   capdata.CapData.prep_astype
+   capdata.CapData.prep_custom
+   capdata.CapData.describe_prep
+   capdata.CapData.prep_to_config
+   capdata.CapData.run_prep
 
 Aggregation
 -----------

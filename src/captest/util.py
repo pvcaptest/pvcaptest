@@ -1,3 +1,5 @@
+import copy
+import difflib
 import importlib
 import json
 import re
@@ -750,3 +752,118 @@ def parse_regression_formula(formula: str) -> tuple[list[str], list[str]]:
     rhs_list = [n for n in rhs_list if n != "Intercept"]
 
     return lhs_list, rhs_list
+
+
+class StrictAttrs:
+    """Reject assignment to names that are neither params nor runtime state.
+
+    Mixin for ``param.Parameterized`` subclasses. ``param`` accepts arbitrary
+    attribute assignment, which makes an edit-then-replay workflow silently do
+    nothing when a param name is mistyped. Raising at the assignment surfaces
+    the typo instead of producing an unchanged re-run.
+
+    A subclass that writes a plain (non-param) attribute must name it in its
+    own ``_runtime_attrs``; ``__init_subclass__`` unions those declarations
+    down the hierarchy, so each subclass declares only what it adds.
+    Leading-underscore names pass through unchecked; they cover ``param``'s
+    own instance internals as well as subclasses' private state.
+
+    Notes
+    -----
+    Must be combined with ``param.Parameterized`` (``self.param`` is
+    required)::
+
+        class Step(StrictAttrs, param.Parameterized):
+            ...
+    """
+
+    _runtime_attrs = frozenset()
+
+    def __init_subclass__(cls, **kwargs):
+        """Union each subclass's ``_runtime_attrs`` with those of its bases."""
+        super().__init_subclass__(**kwargs)
+        cls._runtime_attrs = frozenset().union(
+            *(base.__dict__.get("_runtime_attrs", frozenset()) for base in cls.__mro__)
+        )
+
+    def __setattr__(self, name, value):
+        """Allow params, runtime attrs, and private names; reject the rest.
+
+        Raises
+        ------
+        AttributeError
+            If ``name`` is neither a declared param, a name in
+            ``_runtime_attrs``, nor leading-underscore. The message lists the
+            settable names and suggests the closest match.
+        """
+        if (
+            name.startswith("_")
+            or name in self.param
+            or name in type(self)._runtime_attrs
+        ):
+            super().__setattr__(name, value)
+            return
+        settable = sorted(set(self.param) | type(self)._runtime_attrs)
+        suggestion = difflib.get_close_matches(name, settable, n=1)
+        hint = f" Did you mean {suggestion[0]!r}?" if suggestion else ""
+        raise AttributeError(
+            f"{type(self).__name__} has no parameter or attribute {name!r}. "
+            f"Settable names: {settable}.{hint}"
+        )
+
+
+def params_to_config(obj):
+    """Serialize a ``param.Parameterized``'s values to a yaml-safe dict.
+
+    Every param value except the param-system ``name`` is deep-copied and
+    passed through :func:`to_native`, so the result is an independent snapshot
+    that survives ``yaml.safe_dump``.
+
+    Parameters
+    ----------
+    obj : param.Parameterized
+        Object whose param values are serialized.
+
+    Returns
+    -------
+    dict
+        Mapping of param name to native-python value.
+    """
+    return {
+        k: to_native(copy.deepcopy(v))
+        for k, v in obj.param.values().items()
+        if k != "name"
+    }
+
+
+def format_name_list(names, cutoff=10, edge=3):
+    """Render a sequence of names as a string, truncating long sequences.
+
+    Mirrors the truncation ``CapData.agg_group`` applies to its verbose
+    output: sequences longer than ``cutoff`` are shown as the first and last
+    ``edge`` names with an ellipsis between them, followed by the full count.
+    A site with dozens of thermocouples otherwise turns one prep explanation
+    or error message into an unreadable wall of column names.
+
+    Parameters
+    ----------
+    names : sequence of str
+        Column names or group ids to render.
+    cutoff : int, default 10
+        Maximum number of names to list in full. A sequence at or below this
+        length is joined unchanged.
+    edge : int, default 3
+        Number of names shown at each end when the sequence is truncated.
+
+    Returns
+    -------
+    str
+        Comma-separated names, e.g. ``"a, b, c"`` or
+        ``"a, b, c, ..., x, y, z (26 total)"``.
+    """
+    names = [str(name) for name in names]
+    if len(names) <= cutoff:
+        return ", ".join(names)
+    head = ", ".join(names[:edge])
+    tail = ", ".join(names[-edge:])
+    return f"{head}, ..., {tail} ({len(names)} total)"

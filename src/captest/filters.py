@@ -5,7 +5,6 @@ This module is imported one-way by ``capdata.py``; it never imports
 runtime ``capdata`` argument to ``run``/``_execute``.
 """
 
-import copy
 import difflib
 import importlib.util
 import math
@@ -373,7 +372,7 @@ def backtracking_active(
     )
 
 
-class BaseSummaryStep(param.Parameterized):
+class BaseSummaryStep(util.StrictAttrs, param.Parameterized):
     """Common ancestor for steps that appear in the filtering summary.
 
     Holds the shared lifecycle (`run`), the optional `custom_name` display
@@ -386,12 +385,16 @@ class BaseSummaryStep(param.Parameterized):
     are not stored — they are chain-derived on demand via
     `CapData._ix_before`/`_pts_before`.
 
-    Attribute assignment is restricted (see `__setattr__`): a step accepts its
-    declared `param` parameters, private (leading-underscore) names, and the
-    non-param runtime attributes named in `_runtime_attrs`. A subclass that
+    Attribute assignment is restricted by `util.StrictAttrs`: a step accepts
+    its declared `param` parameters, private (leading-underscore) names, and
+    the non-param runtime attributes named in `_runtime_attrs`. A subclass that
     writes a plain attribute in `_execute` must list it in its own
     `_runtime_attrs`; `__init_subclass__` unions those declarations down the
-    hierarchy, so subclasses declare only what they add.
+    hierarchy, so subclasses declare only what they add. Without the guard, the
+    documented edit-then-replay workflow — adjust a step's params, then
+    `CapData.rerun_filters_from(index)` — would silently do nothing when a
+    param name is mistyped (e.g. `Outliers.contamination`, whose real param is
+    `envelope_kwargs`).
     """
 
     custom_name = param.String(
@@ -407,41 +410,6 @@ class BaseSummaryStep(param.Parameterized):
     # Non-param instance attributes this class is allowed to set. Accumulated
     # across the MRO by __init_subclass__, so a subclass lists only its own.
     _runtime_attrs = frozenset({"ix_after", "pts_after"})
-
-    def __init_subclass__(cls, **kwargs):
-        """Union each subclass's `_runtime_attrs` with those of its bases."""
-        super().__init_subclass__(**kwargs)
-        cls._runtime_attrs = frozenset().union(
-            *(base.__dict__.get("_runtime_attrs", frozenset()) for base in cls.__mro__)
-        )
-
-    def __setattr__(self, name, value):
-        """Reject assignment to names that are neither params nor runtime state.
-
-        `param.Parameterized` accepts arbitrary attribute assignment, which
-        makes the documented edit-then-replay workflow — adjust a step's params,
-        then `CapData.rerun_filters_from(index)` — silently do nothing when the
-        param name is mistyped (e.g. `Outliers.contamination`, whose real param
-        is `envelope_kwargs`). Raising here surfaces the typo at the assignment
-        instead of producing an unchanged re-run.
-
-        Leading-underscore names pass through unchecked; they cover `param`'s
-        own instance internals as well as steps' private state.
-        """
-        if (
-            name.startswith("_")
-            or name in self.param
-            or name in type(self)._runtime_attrs
-        ):
-            super().__setattr__(name, value)
-            return
-        settable = sorted(set(self.param) | type(self)._runtime_attrs)
-        suggestion = difflib.get_close_matches(name, settable, n=1)
-        hint = f" Did you mean {suggestion[0]!r}?" if suggestion else ""
-        raise AttributeError(
-            f"{type(self).__name__} has no parameter or attribute {name!r}. "
-            f"Settable names: {settable}.{hint}"
-        )
 
     def run(self, capdata):
         """Execute the step, record runtime state, and append self to filters.
@@ -533,21 +501,15 @@ class BaseSummaryStep(param.Parameterized):
         """Serialize this step to a config dict (every param, defaults
         included; the param-system ``name`` is omitted).
 
-        Param values are deep-copied so the returned dict is an independent
-        snapshot — mutating it never reaches back into the step's params.
-        Numpy scalars (e.g. a ``ref_val`` taken from ``cd.rc['poa'].iloc[0]``)
-        are coerced to native Python types via ``util.to_native`` so the dict
-        survives ``yaml.safe_dump``; subclasses whose params hold callables
-        override to encode them.
+        Param values are deep-copied by ``util.params_to_config`` so the
+        returned dict is an independent snapshot — mutating it never reaches
+        back into the step's params. Numpy scalars (e.g. a ``ref_val`` taken
+        from ``cd.rc['poa'].iloc[0]``) are coerced to native Python types so
+        the dict survives ``yaml.safe_dump``; subclasses whose params hold
+        callables override to encode them.
         """
         config = {"type": type(self).__name__}
-        config.update(
-            {
-                k: util.to_native(copy.deepcopy(v))
-                for k, v in self.param.values().items()
-                if k != "name"
-            }
-        )
+        config.update(util.params_to_config(self))
         return config
 
     @classmethod
