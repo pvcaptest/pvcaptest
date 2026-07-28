@@ -270,12 +270,15 @@ equivalent reset, because ``data`` is the only copy.
 
 Three consequences follow:
 
-- ``prep_convert_units``, ``prep_scale``, and ``prep_astype`` raise a
-  ``RuntimeError`` when a step equal to one already applied — same type, same
-  arguments, ``custom_name`` aside — is run again. Two *different* conversions
-  of the same columns are allowed; it is the exact repeat that is refused.
-  The check compares the selector as written, so the same column reached two
-  ways (``columns=["poa_1"]`` and ``group="poa"``) is not caught.
+- A step raises a ``RuntimeError`` when an applied step of the same type, with
+  the same settings (``custom_name`` aside), already touched any of the
+  columns it resolves to. The comparison is on the **resolved columns**, not
+  on the selector as written, so the same column reached two ways
+  (``columns=["poa_1"]`` and then ``group="poa"``) is caught, as is a partial
+  re-selection (``columns=["a", "b"]`` and then ``columns=["b", "c"]``). Two
+  *different* conversions of the same column are allowed — an °F-to-°C step
+  followed by °C-to-°F is a deliberate round trip. ``prep_custom`` is exempt:
+  what the callable does is opaque, so a repeat may well be intended.
 - :py:meth:`~captest.capdata.CapData.run_prep` refuses to replay a config onto
   a :py:class:`~captest.capdata.CapData` whose prep chain is already
   populated.

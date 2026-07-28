@@ -63,7 +63,7 @@ class BasePrepStep(util.StrictAttrs, param.Parameterized):
     """Common ancestor for data-preparation steps.
 
     Holds the shared lifecycle (``run``), the three-way column selector, and
-    the ``args_repr`` / ``explanation`` rendering used by ``describe_prep``.
+    the ``explanation`` rendering that ``describe_prep`` prints.
     Subclasses implement ``_execute(capdata, columns)``, which mutates
     ``capdata.data`` in place and returns nothing.
 
@@ -106,6 +106,10 @@ class BasePrepStep(util.StrictAttrs, param.Parameterized):
     # that only change column identity (drop, rename) are not.
     _mutates_values = True
 
+    # Steps subject to the duplicate check. Custom opts out: its effect is
+    # opaque to this class, so re-applying one may well be intended.
+    _duplicate_guarded = True
+
     _runtime_attrs = frozenset({"columns_resolved"})
 
     def run(self, capdata):
@@ -133,6 +137,7 @@ class BasePrepStep(util.StrictAttrs, param.Parameterized):
         """
         self._check_not_filtered(capdata)
         cols = self._resolve_columns(capdata)
+        self._check_not_duplicate(capdata, cols)
         self.columns_resolved = cols
         snapshot = snapshot_prep_state(capdata)
         try:
@@ -145,6 +150,67 @@ class BasePrepStep(util.StrictAttrs, param.Parameterized):
         # Reassign rather than append so param watchers fire.
         capdata.prep = capdata.prep + [self]
         return self
+
+    def _check_not_duplicate(self, capdata, columns):
+        """Raise when this step would re-apply itself to an already-prepped column.
+
+        Prep mutates ``data`` and is not idempotent — converting °F to °C
+        twice is silently wrong — so a step is refused when an applied step of
+        the same type, with the same non-selector settings, already touched
+        any of the columns this one resolved to.
+
+        The comparison is on **resolved columns**, not on the selector as
+        written, so selecting the same column by different routes
+        (``columns=["poa_1"]`` and ``group="poa"``) is still caught. It is an
+        overlap test rather than an equality test, so a partial re-selection
+        (``columns=["a", "b"]`` then ``columns=["b", "c"]``) is caught too.
+
+        ``custom_name`` is excluded from the settings comparison: the label is
+        presentation, so re-running the same scale under a second label is
+        still a double scale. Differing settings are allowed — an ``F``-to-``C``
+        conversion followed by ``C``-to-``F`` on the same column is a
+        deliberate round trip, not a mistake.
+
+        Parameters
+        ----------
+        capdata : CapData
+            Target dataset, whose ``prep`` list holds the applied steps.
+        columns : list of str
+            Columns this step resolved to.
+
+        Raises
+        ------
+        RuntimeError
+            If an equivalent step already covers any of ``columns``.
+        """
+        if not self._duplicate_guarded:
+            return
+        mine = self._settings_for_duplicate_check()
+        for applied in capdata.prep:
+            if type(applied) is not type(self):
+                continue
+            if applied._settings_for_duplicate_check() != mine:
+                continue
+            overlap = [c for c in columns if c in applied.columns_resolved]
+            if overlap:
+                raise RuntimeError(
+                    f"An equal {type(self).__name__} prep step is already "
+                    f"applied to {util.format_name_list(overlap)}. Prep steps "
+                    "mutate `data` and are not idempotent, so applying the "
+                    "same transformation twice is silently wrong; re-prep by "
+                    "reloading this dataset."
+                )
+
+    def _settings_for_duplicate_check(self):
+        """Return the params that make two steps equivalent.
+
+        Excludes the three selectors (the duplicate check compares resolved
+        columns instead) and the presentation-only ``custom_name``.
+        """
+        ignored = {"columns", "group", "group_regex", "custom_name"}
+        return {
+            k: v for k, v in util.params_to_config(self).items() if k not in ignored
+        }
 
     def _check_not_filtered(self, capdata):
         """Raise when a value-rewriting step runs after filtering.
@@ -245,13 +311,32 @@ class BasePrepStep(util.StrictAttrs, param.Parameterized):
 
     @property
     def args_repr(self):
-        """Render the step's params for ``describe_prep``."""
+        """Render the step's configured params as a single line.
+
+        Shows the selector and settings **as written**, which is what
+        distinguishes this from ``explanation`` — that renders the columns the
+        selector resolved to, and is what ``describe_prep`` prints. This is a
+        display helper for inspecting a step directly; ``Custom`` overrides it
+        to render its call instead.
+
+        Sequence values are truncated by ``util.format_name_list`` so a
+        selector naming dozens of columns stays readable.
+
+        Returns
+        -------
+        str
+            e.g. ``"columns=a, b, factor=0.001, offset=0.0"``, or
+            ``"Default arguments"`` when every param is None.
+        """
         skip = {"custom_name", "name"}
-        items = [
-            f"{k}={v}"
-            for k, v in util.params_to_config(self).items()
-            if k not in skip and v is not None
-        ]
+        items = []
+        for key, value in util.params_to_config(self).items():
+            if key in skip or value is None:
+                continue
+            rendered = (
+                util.format_name_list(value) if isinstance(value, list) else value
+            )
+            items.append(f"{key}={rendered}")
         return ", ".join(items) if items else "Default arguments"
 
     @property
@@ -549,6 +634,8 @@ class Custom(BasePrepStep):
 
     _explanation_template = "Custom prep {call} was applied."
     _runtime_attrs = frozenset({"func", "args", "kwargs"})
+    # What the callable does is opaque here, so a repeat may be intended.
+    _duplicate_guarded = False
 
     def __init__(self, func, *args, custom_name=None, **kwargs):
         super().__init__(custom_name=custom_name)

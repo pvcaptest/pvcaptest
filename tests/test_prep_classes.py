@@ -421,3 +421,72 @@ class TestLongColumnListTruncation:
         step = prep.ConvertUnits(group="temp_amb", from_units="F", to_units="C")
         step.run(cd_many_columns)
         assert len(step.columns_resolved) == 25
+
+
+class TestDuplicateGuardOnResolvedColumns:
+    """The duplicate guard compares resolved columns, not the selector."""
+
+    def test_same_column_via_different_selectors_raises(self, cd):
+        """columns=[...] then group=... reaching the same column is a double scale."""
+        cd.prep_scale(columns=["wind_1"], factor=2.0)
+        with pytest.raises(RuntimeError, match="already applied"):
+            cd.prep_scale(group="wind", factor=2.0)
+        assert cd.data["wind_1"].tolist() == [20.0, 40.0, 60.0, 80.0]
+
+    def test_group_then_explicit_column_raises(self, cd):
+        cd.prep_scale(group="wind", factor=2.0)
+        with pytest.raises(RuntimeError, match="already applied"):
+            cd.prep_scale(columns=["wind_1"], factor=2.0)
+
+    def test_partial_overlap_raises(self, cd):
+        """A second step re-covering only one earlier column still double-scales it."""
+        cd.prep_scale(columns=["wind_1", "power_1"], factor=2.0)
+        with pytest.raises(RuntimeError, match="power_1"):
+            cd.prep_scale(columns=["power_1", "temp_amb_1"], factor=2.0)
+
+    def test_disjoint_columns_allowed(self, cd):
+        cd.prep_scale(columns=["wind_1"], factor=2.0)
+        cd.prep_scale(columns=["power_1"], factor=2.0)
+        assert len(cd.prep) == 2
+
+    def test_different_settings_on_same_column_allowed(self, cd):
+        """F->C then C->F on one column is a deliberate round trip."""
+        cd.prep_convert_units(columns=["temp_amb_1"], from_units="F", to_units="C")
+        cd.prep_convert_units(columns=["temp_amb_1"], from_units="C", to_units="F")
+        assert len(cd.prep) == 2
+        assert cd.data["temp_amb_1"].tolist() == pytest.approx(
+            [32.0, 41.0, 50.0, 212.0]
+        )
+
+    def test_custom_name_does_not_defeat_the_guard(self, cd):
+        cd.prep_scale(columns=["wind_1"], factor=2.0, custom_name="first")
+        with pytest.raises(RuntimeError, match="already applied"):
+            cd.prep_scale(columns=["wind_1"], factor=2.0, custom_name="second")
+
+    def test_different_step_types_allowed_on_same_column(self, cd):
+        """AsType over everything then ConvertUnits on one column is the real flow."""
+        cd.prep_astype(columns=["power_1"], dtype="float64")
+        cd.prep_scale(columns=["power_1"], factor=0.001)
+        assert len(cd.prep) == 2
+
+    def test_guard_applies_to_direct_step_run(self, cd):
+        """The check lives in run(), so it covers steps built directly."""
+        prep.Scale(columns=["wind_1"], factor=2.0).run(cd)
+        with pytest.raises(RuntimeError, match="already applied"):
+            prep.Scale(group="wind", factor=2.0).run(cd)
+
+    def test_custom_steps_are_exempt(self, cd):
+        def touch(capdata):
+            capdata.data["power_1"] = capdata.data["power_1"] + 1
+
+        cd.prep_custom(touch)
+        cd.prep_custom(touch)
+        assert len(cd.prep) == 2
+
+    def test_rejected_step_leaves_data_untouched(self, cd):
+        cd.prep_scale(columns=["wind_1"], factor=2.0)
+        before = cd.data.copy()
+        with pytest.raises(RuntimeError):
+            cd.prep_scale(group="wind", factor=2.0)
+        pd.testing.assert_frame_equal(cd.data, before)
+        assert len(cd.prep) == 1

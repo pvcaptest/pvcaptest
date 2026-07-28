@@ -2348,15 +2348,13 @@ class CapData(param.Parameterized):
         custom_name : str, optional
             Display label for the recorded step.
         """
-        self._check_duplicate_prep(
-            prep.ConvertUnits(
-                columns=columns,
-                group=group,
-                group_regex=group_regex,
-                from_units=from_units,
-                to_units=to_units,
-                custom_name=custom_name,
-            )
+        prep.ConvertUnits(
+            columns=columns,
+            group=group,
+            group_regex=group_regex,
+            from_units=from_units,
+            to_units=to_units,
+            custom_name=custom_name,
         ).run(self)
 
     def prep_scale(
@@ -2382,15 +2380,13 @@ class CapData(param.Parameterized):
         custom_name : str, optional
             Display label for the recorded step.
         """
-        self._check_duplicate_prep(
-            prep.Scale(
-                columns=columns,
-                group=group,
-                group_regex=group_regex,
-                factor=factor,
-                offset=offset,
-                custom_name=custom_name,
-            )
+        prep.Scale(
+            columns=columns,
+            group=group,
+            group_regex=group_regex,
+            factor=factor,
+            offset=offset,
+            custom_name=custom_name,
         ).run(self)
 
     def prep_astype(
@@ -2413,14 +2409,12 @@ class CapData(param.Parameterized):
         custom_name : str, optional
             Display label for the recorded step.
         """
-        self._check_duplicate_prep(
-            prep.AsType(
-                columns=columns,
-                group=group,
-                group_regex=group_regex,
-                dtype=dtype,
-                custom_name=custom_name,
-            )
+        prep.AsType(
+            columns=columns,
+            group=group,
+            group_regex=group_regex,
+            dtype=dtype,
+            custom_name=custom_name,
         ).run(self)
 
     def prep_custom(self, func, *args, custom_name=None, **kwargs):
@@ -2439,55 +2433,6 @@ class CapData(param.Parameterized):
             collide with arguments destined for ``func``.
         """
         prep.Custom(func, *args, custom_name=custom_name, **kwargs).run(self)
-
-    def _check_duplicate_prep(self, step):
-        """Return ``step``, raising if an equal step is already applied.
-
-        Prep mutates ``data`` and is not idempotent — converting °F to °C
-        twice is silently wrong — so an identical step is refused. Equality is
-        on the serialized config with ``custom_name`` excluded: the label is
-        presentation, so re-running the same scale under a second label is
-        still a double scale.
-
-        The check is deliberately shallow — it compares the selector *as
-        written*, not the columns it resolves to. Two steps that select the
-        same column by different routes (``columns=["poa_1"]`` and
-        ``group="poa"`` when the group holds only ``poa_1``) are therefore not
-        detected and will both apply. Resolution happens at ``run`` time
-        against data an earlier step may have reshaped, so a selector-level
-        comparison is the only one available before the step runs.
-
-        Parameters
-        ----------
-        step : BasePrepStep
-            Step about to be run.
-
-        Returns
-        -------
-        BasePrepStep
-            ``step``, unchanged, so callers can chain into ``run``.
-
-        Raises
-        ------
-        RuntimeError
-            If an equal step is already in ``self.prep``.
-        """
-
-        def comparable(prep_step):
-            return {
-                key: value
-                for key, value in prep_step.to_config().items()
-                if key != "custom_name"
-            }
-
-        config = comparable(step)
-        if any(comparable(applied) == config for applied in self.prep):
-            raise RuntimeError(
-                f"An equal {type(step).__name__} prep step is already applied. "
-                "Prep steps mutate `data` and are not idempotent; re-prep by "
-                "reloading this dataset."
-            )
-        return step
 
     def prep_to_config(self):
         """Serialize the applied prep chain to a list of config dicts.
