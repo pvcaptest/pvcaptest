@@ -2,11 +2,9 @@
 
 Preparing Data
 ==============
-Measured and modeled data almost never arrive in the units and dtypes a
-capacity test needs. Thermocouples report degrees Fahrenheit, anemometers
-report miles per hour, and a PVsyst ``E_Grid`` column is in watts where the
-metered power is in kilowatts. The **prep stage** is where those adjustments
-are made.
+Measured and modeled data are sometimes not in the units and dtypes a capacity test
+needs. Or, a sensor may be oriented incorrectly and its measurements should be dropped
+before aggregation. The **prep stage** is where these types of adjustments can be made.
 
 Prep steps are declared, serialized, and replayed, exactly like filters. The
 difference is what they do: a filter selects rows and leaves the values alone,
@@ -248,8 +246,7 @@ That option exists for **internal callers** inside the library — for example
 :py:meth:`~captest.capdata.CapData.agg_sensors`, which renames the aggregate
 columns it creates and must not put that rename into the user's prep chain,
 because replaying it on the next load would name columns that do not yet
-exist. A test scans the package source to make sure every internal call site
-passes ``record=False`` explicitly. As a user, leave ``record`` alone.
+exist. As a user, leave ``record`` alone.
 
 .. _prep-once-per-load:
 
@@ -438,8 +435,7 @@ with :py:meth:`~captest.capdata.CapData.prep_to_config` and
 Custom prep steps
 -----------------
 :py:meth:`~captest.capdata.CapData.prep_custom` is the escape hatch for
-adjustments the declarative vocabulary does not cover — blanking east-facing
-POA columns before sunrise, say, or any site-specific repair. The callable
+adjustments the declarative vocabulary does not cover. The callable
 receives the :py:class:`~captest.capdata.CapData` as its first argument and
 mutates ``data`` in place; its return value is ignored.
 

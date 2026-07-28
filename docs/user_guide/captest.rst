@@ -384,19 +384,26 @@ Step 1 — load the test
 
     tst = CapTest.from_yaml('./project.yaml')
 
-The measured and modeled data are loaded and
+The measured and modeled data are loaded, any prep steps saved in the file are
+replayed against the freshly loaded data, and
 :py:meth:`~captest.captest.CapTest.setup` runs: scalar settings are propagated
 to ``tst.meas`` / ``tst.sim``, calculated columns (e.g. ``e_total``) are
-created, and the regression columns are resolved and aggregated. The filter
-pipelines saved in the file are stored as pending — they have not touched the
-data.
+created, and the regression columns are resolved and aggregated. Prep runs
+before ``setup`` so the calculated columns are derived from prepped values
+(see :doc:`data_prep`). The filter pipelines saved in the file are stored as
+pending — they have not touched the data.
 
 .. note::
 
     **State after this step.**
 
-    - ``tst.meas.data`` / ``tst.sim.data`` hold the loaded (plus calculated)
-      columns, and ``data_filtered`` equals ``data`` — nothing is filtered.
+    - ``tst.meas.data`` / ``tst.sim.data`` hold the loaded (plus prepped and
+      calculated) columns, and ``data_filtered`` equals ``data`` — nothing is
+      filtered.
+    - ``tst.meas.prep`` / ``tst.sim.prep`` hold the prep steps replayed from
+      the config, and their values are already applied to ``data``. Unlike the
+      filter pipelines, prep is not staged as pending: it runs at load time,
+      and ``run_test`` never re-runs it.
     - The applied filter chains (``tst.meas.filters`` / ``tst.sim.filters``)
       are empty; the config's pipelines are held in
       ``tst.meas_filters_pending`` / ``tst.sim_filters_pending``.
@@ -406,6 +413,23 @@ data.
       ``setup()``, so ``tst.rc`` is set and ``tst.rc_source == 'manual'``.
     - No regressions are fitted (``regression_results`` is ``None`` on both
       sides).
+
+.. note::
+
+    ``setup()`` runs automatically here. Pass ``run_setup=False`` to load the
+    data and stop there instead:
+
+    .. code-block:: Python
+
+        tst = CapTest.from_yaml('./project.yaml', run_setup=False)
+
+    The config's prep steps are still replayed — prep is tied to the load, not
+    to ``setup`` — so this is the point to inspect the loaded data, or add a
+    prep step the config does not have, before the calculated columns are
+    derived from it. Run ``tst.setup()`` when ready, or call
+    :py:meth:`~captest.captest.CapTest.run_test`, whose first stage is the
+    per-side setup. See :ref:`load-only` for the full state after a load-only
+    call.
 
 Step 2 — review the raw data
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -421,7 +445,38 @@ Because nothing is filtered yet, the review tools show the full dataset:
     **State after this step.** Unchanged — reviewing does not modify the
     test.
 
-Step 3 — run the measured side
+Step 3 — prepare the data (optional)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+If the review turns up values in the wrong units or dtype, or a sensor whose
+measurements should be dropped, adjust them now with the prep methods:
+
+.. code-block:: Python
+
+    tst.meas.prep_convert_units(group_regex='^temp', from_units='F', to_units='C')
+    tst.sim.prep_scale(columns=['E_Grid'], factor=0.001)
+
+Prep steps rewrite values in ``data`` in place and are recorded on
+``tst.meas.prep`` / ``tst.sim.prep``, so they are written to the config by
+:py:meth:`~captest.captest.CapTest.to_yaml` and re-applied the next time the
+data is loaded. Any prep the config already declared was applied during
+step 1, between the load and ``setup()`` — there is nothing to repeat here.
+
+This step comes before step 4 because a prep step that rewrites values raises
+once filters have been applied: those filters were evaluated against
+un-prepped values. See :doc:`data_prep` for the selectors, the supported unit
+conversions, the once-per-load rules, and the config format.
+
+.. note::
+
+    **State after this step.**
+
+    - The prepped columns of ``tst.meas.data`` / ``tst.sim.data`` hold
+      converted values, and the applied steps are on ``tst.meas.prep`` /
+      ``tst.sim.prep``.
+    - Nothing is filtered and no regressions are fitted; the pending filter
+      pipelines are still pending.
+
+Step 4 — run the measured side
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. code-block:: Python
@@ -444,7 +499,7 @@ and fits the measured regression. The modeled side is untouched.
     - ``tst.sim`` still holds unfiltered data with its pipeline pending;
       nothing is fitted on the modeled side.
 
-Step 4 — summarize the measured filtering
+Step 5 — summarize the measured filtering
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. code-block:: Python
@@ -453,7 +508,7 @@ Step 4 — summarize the measured filtering
     print(tst.meas.describe_filters())
     tst.meas.scatter_filters() + tst.meas.timeseries_filters()
 
-Step 5 — adjust the filtering (optional)
+Step 6 — adjust the filtering (optional)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 To append a filter, call any ``filter_*`` method — it runs immediately at the
 tail of the applied chain:
@@ -478,7 +533,7 @@ they can be re-run (see :ref:`reporting_conditions`).
     is stale until it is re-fitted (step 7, or another
     ``run_test(side='meas')``).
 
-Step 6 — run and summarize the modeled side
+Step 7 — run and summarize the modeled side
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. code-block:: Python
@@ -495,7 +550,7 @@ Modeled filters that anchor on the reporting irradiance
     **State after this step.** Both chains are applied, both pending lists
     are consumed, both regressions are fitted, and ``tst.rc`` is set.
 
-Step 7 — results
+Step 8 — results
 ~~~~~~~~~~~~~~~~
 When both fits are current, compare them directly:
 
@@ -692,6 +747,12 @@ before the regression mapping is applied:
     aggregation. Pending pipelines (and, for a manual-RC config, the pending
     reporting-conditions values) are stored for later. A subsequent
     ``tst.setup()`` or ``tst.run_test()`` proceeds normally from this state.
+
+    Prep is the exception: it is tied to the load rather than to ``setup``,
+    so the config's ``meas_prep`` / ``sim_prep`` steps have already run and
+    are recorded on ``tst.meas.prep`` / ``tst.sim.prep``. Any prep you add
+    here is applied immediately too — and must be added before filtering,
+    since a prep step that rewrites values raises once filters are applied.
 
 .. _editing-filter-pipeline:
 
