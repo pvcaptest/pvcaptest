@@ -580,3 +580,31 @@ class TestParamsToConfig:
         config = util.params_to_config(step)
         config["columns"].append("b")
         assert step.columns == ["a"]
+
+
+class TestFormatNameList:
+    """util.format_name_list truncates long name sequences for display."""
+
+    def test_short_sequence_is_joined_unchanged(self):
+        assert util.format_name_list(["a", "b", "c"]) == "a, b, c"
+
+    def test_sequence_at_cutoff_is_not_truncated(self):
+        names = [f"col_{i}" for i in range(10)]
+        assert util.format_name_list(names) == ", ".join(names)
+        assert "total" not in util.format_name_list(names)
+
+    def test_sequence_above_cutoff_truncates_with_count(self):
+        names = [f"col_{i}" for i in range(25)]
+        result = util.format_name_list(names)
+        assert result == "col_0, col_1, col_2, ..., col_22, col_23, col_24 (25 total)"
+
+    def test_edge_and_cutoff_are_configurable(self):
+        names = [f"col_{i}" for i in range(6)]
+        result = util.format_name_list(names, cutoff=4, edge=1)
+        assert result == "col_0, ..., col_5 (6 total)"
+
+    def test_empty_sequence(self):
+        assert util.format_name_list([]) == ""
+
+    def test_non_string_names_are_coerced(self):
+        assert util.format_name_list([1, 2]) == "1, 2"

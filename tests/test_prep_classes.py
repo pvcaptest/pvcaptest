@@ -349,3 +349,75 @@ class TestRegistryCoverage:
         cls = prep.PREP_REGISTRY[name]
         assert issubclass(cls, prep.BasePrepStep)
         assert cls.__name__ == name
+
+
+@pytest.fixture
+def cd_many_columns():
+    """CapData with a 25-column temperature group and 25 column groups."""
+    index = pd.date_range("1/1/2021 12:00", freq="5min", periods=4)
+    data = pd.DataFrame(
+        {f"temp_{i}": [32.0, 41.0, 50.0, 212.0] for i in range(25)}, index=index
+    )
+    out = pvc.CapData("test")
+    out.data = data
+    groups = {"temp_amb": [f"temp_{i}" for i in range(25)]}
+    groups.update({f"spare_{i}": [] for i in range(25)})
+    out.column_groups = ColumnGroups(groups)
+    return out
+
+
+class TestLongColumnListTruncation:
+    """Explanations and errors truncate long column lists (cf. agg_group)."""
+
+    def test_explanation_truncates(self, cd_many_columns):
+        step = prep.ConvertUnits(group="temp_amb", from_units="F", to_units="C")
+        step.run(cd_many_columns)
+        explanation = step.explanation
+        assert "temp_0, temp_1, temp_2, ..., temp_22, temp_23, temp_24" in explanation
+        assert "(25 total)" in explanation
+        assert "temp_10" not in explanation
+
+    def test_describe_prep_truncates(self, cd_many_columns):
+        cd_many_columns.prep_convert_units(
+            group="temp_amb", from_units="F", to_units="C"
+        )
+        described = cd_many_columns.describe_prep()
+        assert "(25 total)" in described
+        assert "temp_10" not in described
+
+    def test_short_column_list_is_not_truncated(self, cd):
+        step = prep.ConvertUnits(group="temp_amb", from_units="F", to_units="C")
+        step.run(cd)
+        assert "temp_amb_1" in step.explanation
+        assert "total)" not in step.explanation
+
+    def test_missing_columns_error_truncates(self, cd_many_columns):
+        missing = [f"nope_{i}" for i in range(25)]
+        with pytest.raises(ValueError) as exc:
+            prep.Scale(columns=missing, factor=1.0).run(cd_many_columns)
+        message = str(exc.value)
+        assert "(25 total)" in message
+        assert "nope_10" not in message
+
+    def test_unknown_group_error_truncates_available_ids(self, cd_many_columns):
+        with pytest.raises(ValueError) as exc:
+            prep.Scale(group="not_a_group", factor=1.0).run(cd_many_columns)
+        message = str(exc.value)
+        assert "(26 total)" in message
+        # Ids are sorted lexicographically, so spare_5 falls in the elided
+        # middle while spare_10 sorts up next to spare_1 and is still shown.
+        assert "spare_5" not in message
+
+    def test_rename_missing_keys_error_truncates(self, cd_many_columns):
+        column_map = {f"nope_{i}": f"new_{i}" for i in range(25)}
+        with pytest.raises(ValueError) as exc:
+            prep.RenameColumns(column_map=column_map).run(cd_many_columns)
+        message = str(exc.value)
+        assert "(25 total)" in message
+        assert "nope_10" not in message
+
+    def test_columns_resolved_keeps_every_name(self, cd_many_columns):
+        """Truncation is display-only; the step still holds the full list."""
+        step = prep.ConvertUnits(group="temp_amb", from_units="F", to_units="C")
+        step.run(cd_many_columns)
+        assert len(step.columns_resolved) == 25

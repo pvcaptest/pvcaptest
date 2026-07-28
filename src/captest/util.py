@@ -834,3 +834,36 @@ def params_to_config(obj):
         for k, v in obj.param.values().items()
         if k != "name"
     }
+
+
+def format_name_list(names, cutoff=10, edge=3):
+    """Render a sequence of names as a string, truncating long sequences.
+
+    Mirrors the truncation ``CapData.agg_group`` applies to its verbose
+    output: sequences longer than ``cutoff`` are shown as the first and last
+    ``edge`` names with an ellipsis between them, followed by the full count.
+    A site with dozens of thermocouples otherwise turns one prep explanation
+    or error message into an unreadable wall of column names.
+
+    Parameters
+    ----------
+    names : sequence of str
+        Column names or group ids to render.
+    cutoff : int, default 10
+        Maximum number of names to list in full. A sequence at or below this
+        length is joined unchanged.
+    edge : int, default 3
+        Number of names shown at each end when the sequence is truncated.
+
+    Returns
+    -------
+    str
+        Comma-separated names, e.g. ``"a, b, c"`` or
+        ``"a, b, c, ..., x, y, z (26 total)"``.
+    """
+    names = [str(name) for name in names]
+    if len(names) <= cutoff:
+        return ", ".join(names)
+    head = ", ".join(names[:edge])
+    tail = ", ".join(names[-edge:])
+    return f"{head}, ..., {tail} ({len(names)} total)"

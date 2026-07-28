@@ -96,6 +96,17 @@ what was applied:
     Columns met1_mod_temp1, met1_mod_temp2, met2_mod_temp1, met2_mod_temp2, met1_amb_temp, met2_amb_temp were converted from F to C.
     Columns met1_windspeed, met2_windspeed were converted from mph to m/s.
 
+A step that touches more than ten columns lists the first and last three with
+the total count, the same way
+:py:meth:`~captest.capdata.CapData.agg_group` truncates its verbose output.
+Error messages that name columns or column groups truncate the same way. The
+truncation is display-only — the step's ``columns_resolved`` attribute always
+holds every resolved column name:
+
+.. code-block:: text
+
+    Columns temp_0, temp_1, temp_2, ..., temp_22, temp_23, temp_24 (25 total) were converted from F to C.
+
 Every step is atomic. If a step raises, ``data`` and ``column_groups`` are
 restored to their pre-step state and nothing is appended to
 :py:attr:`~captest.capdata.CapData.prep`, so a failed step is a no-op rather

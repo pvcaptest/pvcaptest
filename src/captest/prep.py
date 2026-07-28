@@ -192,7 +192,7 @@ class BasePrepStep(util.StrictAttrs, param.Parameterized):
         if missing:
             raise ValueError(
                 f"{type(self).__name__} selector resolved to columns absent "
-                f"from data: {missing}."
+                f"from data: {util.format_name_list(missing)}."
             )
         if not cols:
             raise ValueError(
@@ -212,7 +212,7 @@ class BasePrepStep(util.StrictAttrs, param.Parameterized):
                     hint = f" Did you mean {suggestion[0]!r}?" if suggestion else ""
                     raise ValueError(
                         f"Column group {group_id!r} is not in column_groups. "
-                        f"Available ids: {sorted(groups)}.{hint}"
+                        f"Available ids: {util.format_name_list(sorted(groups))}.{hint}"
                     )
         else:
             pattern = re.compile(self.group_regex)
@@ -220,7 +220,7 @@ class BasePrepStep(util.StrictAttrs, param.Parameterized):
             if not ids:
                 raise ValueError(
                     f"group_regex {self.group_regex!r} matched no column group. "
-                    f"Available ids: {sorted(groups)}."
+                    f"Available ids: {util.format_name_list(sorted(groups))}."
                 )
         cols = []
         for group_id in ids:
@@ -267,7 +267,7 @@ class BasePrepStep(util.StrictAttrs, param.Parameterized):
 
     def _explanation_values(self):
         """Substitution mapping for ``_explanation_template``."""
-        return {"columns": ", ".join(self.columns_resolved)}
+        return {"columns": util.format_name_list(self.columns_resolved)}
 
     def to_config(self):
         """Serialize this step to a yaml-safe config dict."""
@@ -303,7 +303,7 @@ class Scale(BasePrepStep):
 
     def _explanation_values(self):
         return {
-            "columns": ", ".join(self.columns_resolved),
+            "columns": util.format_name_list(self.columns_resolved),
             "factor": self.factor,
             "offset": self.offset,
         }
@@ -443,7 +443,7 @@ class ConvertUnits(BasePrepStep):
 
     def _explanation_values(self):
         return {
-            "columns": ", ".join(self.columns_resolved),
+            "columns": util.format_name_list(self.columns_resolved),
             "from_units": self.from_units,
             "to_units": self.to_units,
         }
@@ -464,7 +464,10 @@ class AsType(BasePrepStep):
         capdata.data[columns] = capdata.data[columns].astype(self.dtype)
 
     def _explanation_values(self):
-        return {"columns": ", ".join(self.columns_resolved), "dtype": self.dtype}
+        return {
+            "columns": util.format_name_list(self.columns_resolved),
+            "dtype": self.dtype,
+        }
 
 
 class DropColumns(BasePrepStep):
@@ -513,7 +516,10 @@ class RenameColumns(BasePrepStep):
         cols = list(self.column_map)
         missing = [c for c in cols if c not in capdata.data.columns]
         if missing:
-            raise ValueError(f"RenameColumns keys are absent from data: {missing}.")
+            raise ValueError(
+                f"RenameColumns keys are absent from data: "
+                f"{util.format_name_list(missing)}."
+            )
         return cols
 
     def _execute(self, capdata, columns):
