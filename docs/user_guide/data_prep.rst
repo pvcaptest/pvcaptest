@@ -61,7 +61,9 @@ and a PVsyst side needs its power column rescaled:
     import captest as ct
 
     das = ct.load_data('./data/')
-    das.prep_convert_units(group_regex='^temp', from_units='F', to_units='C')
+    das.prep_convert_units(
+        group_regex='^temp_(amb|bom)$', from_units='F', to_units='C'
+    )
     das.prep_convert_units(group='wind', from_units='mph', to_units='m/s')
 
     sim = ct.load_pvsyst('./pvsyst/VC1_HourlyRes_1.CSV')
@@ -79,7 +81,9 @@ Within a :py:class:`~captest.captest.CapTest`, load the data without running
         sim_path='./pvsyst/VC1_HourlyRes_1.CSV',
         run_setup=False,
     )
-    tst.meas.prep_convert_units(group_regex='^temp', from_units='F', to_units='C')
+    tst.meas.prep_convert_units(
+        group_regex='^temp_(amb|bom)$', from_units='F', to_units='C'
+    )
     tst.meas.prep_convert_units(group='wind', from_units='mph', to_units='m/s')
     tst.sim.prep_scale(columns=['E_Grid'], factor=0.001)
     tst.setup()
@@ -127,8 +131,22 @@ of three column selectors:
 
 ``group_regex``
     A regular expression matched against the ``column_groups`` ids. For
-    example ``'^temp'`` reaches ``temp_amb``, ``temp_bom``, and ``temp_mod``
-    in a single step.
+    example ``'^temp_(amb|bom)$'`` reaches ``temp_amb`` and ``temp_bom`` in a
+    single step.
+
+    Anchor the pattern at both ends and name the groups you mean. A loose
+    ``'^temp'`` also matches ``temp_inv`` and ``temp_inv_pcs`` — inverter
+    temperatures, which are not ambient or back-of-module readings and should
+    not be converted alongside them. It is worse than a wrong answer on a
+    project-level ``column_groups`` reused across loads: those inverter groups
+    routinely name columns that are not in the loaded frame, and the step
+    raises rather than silently converting the wrong thing. Check what a
+    pattern reaches before relying on it:
+
+    .. code-block:: Python
+
+        import re
+        [gid for gid in das.column_groups if re.search('^temp_(amb|bom)$', gid)]
 
 The group selectors expand to column names in ``column_groups`` order, with
 duplicates removed. Passing more than one selector, or none, is an error:
@@ -386,7 +404,7 @@ prep.
         custom_name: null
         from_units: F
         group: null
-        group_regex: ^temp
+        group_regex: ^temp_(amb|bom)$
         to_units: C
       - type: ConvertUnits
         columns: null

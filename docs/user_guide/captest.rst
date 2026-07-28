@@ -452,7 +452,9 @@ measurements should be dropped, adjust them now with the prep methods:
 
 .. code-block:: Python
 
-    tst.meas.prep_convert_units(group_regex='^temp', from_units='F', to_units='C')
+    tst.meas.prep_convert_units(
+        group_regex='^temp_(amb|bom)$', from_units='F', to_units='C'
+    )
     tst.sim.prep_scale(columns=['E_Grid'], factor=0.001)
 
 Prep steps rewrite values in ``data`` in place and are recorded on

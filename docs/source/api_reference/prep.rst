@@ -18,7 +18,9 @@ a :py:class:`~captest.capdata.CapData` instance ``cd``:
 
    from captest.prep import ConvertUnits, Scale
 
-   ConvertUnits(group_regex='^temp', from_units='F', to_units='C').run(cd)
+   ConvertUnits(
+       group_regex='^temp_(amb|bom)$', from_units='F', to_units='C'
+   ).run(cd)
    Scale(columns=['E_Grid'], factor=0.001).run(cd)
 
 See :ref:`data_prep` in the user guide for the workflow.

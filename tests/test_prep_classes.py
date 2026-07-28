@@ -102,6 +102,22 @@ class TestSelectors:
         with pytest.raises(ValueError, match="Did you mean 'wind'"):
             prep.Scale(group="wnd", factor=1.0).run(cd)
 
+    def test_anchored_group_regex_excludes_inverter_temps(self, cd):
+        """The documented '^temp_(amb|bom)$' must not reach temp_inv groups."""
+        cd.data["temp_inv_1"] = [1.0, 2.0, 3.0, 4.0]
+        cd.column_groups["temp_inv"] = ["temp_inv_1"]
+        step = prep.Scale(group_regex="^temp_(amb|bom)$", factor=1.0)
+        step.run(cd)
+        assert step.columns_resolved == ["temp_amb_1", "temp_bom_1"]
+
+    def test_unanchored_group_regex_over_matches(self, cd):
+        """Why the docs anchor it: '^temp' also picks up inverter temps."""
+        cd.data["temp_inv_1"] = [1.0, 2.0, 3.0, 4.0]
+        cd.column_groups["temp_inv"] = ["temp_inv_1"]
+        step = prep.Scale(group_regex="^temp", factor=1.0)
+        step.run(cd)
+        assert "temp_inv_1" in step.columns_resolved
+
     def test_group_regex_matching_nothing_raises(self, cd):
         with pytest.raises(ValueError, match="nomatch"):
             prep.Scale(group_regex="nomatch", factor=1.0).run(cd)

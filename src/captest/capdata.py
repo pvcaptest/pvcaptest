@@ -2341,8 +2341,10 @@ class CapData(param.Parameterized):
         group : str or list of str, optional
             ``column_groups`` id, or list of ids.
         group_regex : str, optional
-            Regex matched against ``column_groups`` ids, e.g. ``"^temp"`` to
-            reach ``temp_amb``, ``temp_bom``, and ``temp_mod`` at once.
+            Regex matched against ``column_groups`` ids, e.g.
+            ``"^temp_(amb|bom)$"`` to reach ``temp_amb`` and ``temp_bom`` at
+            once. Anchor the pattern: a loose ``"^temp"`` also matches
+            inverter-temperature groups such as ``temp_inv``.
         from_units, to_units : str
             Source and target units; see :data:`captest.prep.UNIT_CONVERSIONS`.
         custom_name : str, optional
