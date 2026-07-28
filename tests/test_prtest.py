@@ -251,7 +251,13 @@ class TestPerfRatioTempCorrNREL:
         assert isinstance(perf_ratio.results_data, pd.DataFrame)
 
     def test_pr_meas_bom_single_irr_weighted_temp(self):
-        """Test single_irr_weighted_temp=True uses irradiance-weighted cell temp."""
+        """Test single_irr_weighted_temp=True redistributes expected DC per interval.
+
+        The temperature correction is linear in cell temperature and each interval
+        is weighted by its POA irradiance, so collapsing the per-interval cell
+        temperatures to their irradiance-weighted mean is an algebraic identity for
+        the summed expected DC. Only the per-interval split changes.
+        """
         ac_energy = pd.Series([80_000, 90_000, 95_000], index=ix)
         poa = pd.Series([850, 900, 1000], index=ix)
         dc_nameplate = 120_000
@@ -273,9 +279,14 @@ class TestPerfRatioTempCorrNREL:
         )
         assert pr_weighted.pr <= 1
         assert pr_weighted.pr > 0
-        # Using a single weighted temp should produce a different result
-        assert pr_weighted.pr != pytest.approx(pr_default.pr, abs=1e-10)
         assert isinstance(pr_weighted.results_data, pd.DataFrame)
+        # The expected DC is redistributed across intervals ...
+        assert not np.allclose(
+            pr_weighted.results_data["expected_dc"].values,
+            pr_default.results_data["expected_dc"].values,
+        )
+        # ... but its total, and therefore the reported PR, is unchanged.
+        assert pr_weighted.pr == pytest.approx(pr_default.pr)
 
     def test_pr_meas_bom_and_amb(self):
         """Test a short series of data for a hypothetical system.
@@ -309,6 +320,82 @@ class TestPerfRatioTempCorrNREL:
         assert isinstance(perf_ratio.timestep[1], str)
         assert perf_ratio.dc_nameplate == dc_nameplate
         assert isinstance(perf_ratio.results_data, pd.DataFrame)
+
+    def test_expected_dc_derated_when_cells_above_base_temp(self):
+        """Verify hot cells reduce the temperature-corrected nameplate.
+
+        Constant 1000 W/m^2 POA and a 45 C BOM temp give a cell temp of
+        45 + (1000 / 1000) * 3 = 48 C for the default open rack, glass/cell/poly
+        module. With a -0.40 %/C coefficient the correction factor is
+        1 + (-0.0040 * (48 - 25)) = 0.908, so the 100 kW-DC nameplate corrects
+        down to 90.8 kW-DC and each hourly interval expects 90,800 Wh.
+        """
+        ac_energy = pd.Series([80_000, 82_000, 84_000], index=ix)
+        poa = pd.Series([1000, 1000, 1000], index=ix)
+        dc_nameplate = 100_000
+        temp_bom = pd.Series([45, 45, 45], index=ix)
+
+        perf_ratio = pr.perf_ratio_temp_corr_nrel(
+            ac_energy,
+            dc_nameplate,
+            poa,
+            power_temp_coeff=-0.40,
+            temp_bom=temp_bom,
+        )
+
+        np.testing.assert_allclose(
+            perf_ratio.results_data["expected_dc"].values, [90_800.0] * 3
+        )
+        assert perf_ratio.pr == pytest.approx(246_000 / 272_400)
+
+    def test_expected_dc_uprated_when_cells_below_base_temp(self):
+        """Verify cold cells increase the temperature-corrected nameplate.
+
+        Constant 500 W/m^2 POA and a 5 C BOM temp give a cell temp of
+        5 + (500 / 1000) * 3 = 6.5 C. With a -0.40 %/C coefficient the correction
+        factor is 1 + (-0.0040 * (6.5 - 25)) = 1.074, so the 100 kW-DC nameplate
+        corrects up to 107.4 kW-DC and each hourly interval expects 53,700 Wh.
+        """
+        ac_energy = pd.Series([40_000, 41_000, 42_000], index=ix)
+        poa = pd.Series([500, 500, 500], index=ix)
+        dc_nameplate = 100_000
+        temp_bom = pd.Series([5, 5, 5], index=ix)
+
+        perf_ratio = pr.perf_ratio_temp_corr_nrel(
+            ac_energy,
+            dc_nameplate,
+            poa,
+            power_temp_coeff=-0.40,
+            temp_bom=temp_bom,
+        )
+
+        np.testing.assert_allclose(
+            perf_ratio.results_data["expected_dc"].values, [53_700.0] * 3
+        )
+        assert perf_ratio.pr == pytest.approx(123_000 / 161_100)
+
+    def test_hot_cells_raise_pr_above_uncorrected_pr(self):
+        """Verify weather correcting removes the thermal penalty from the PR.
+
+        Cell temperatures above the base temperature lower the expected DC, so
+        the temperature-corrected PR must exceed the uncorrected PR for the same
+        measured energy.
+        """
+        ac_energy = pd.Series([80_000, 82_000, 84_000], index=ix)
+        poa = pd.Series([1000, 1000, 1000], index=ix)
+        dc_nameplate = 100_000
+        temp_bom = pd.Series([45, 45, 45], index=ix)
+
+        pr_corrected = pr.perf_ratio_temp_corr_nrel(
+            ac_energy,
+            dc_nameplate,
+            poa,
+            power_temp_coeff=-0.40,
+            temp_bom=temp_bom,
+        )
+        pr_uncorrected = pr.perf_ratio(ac_energy, dc_nameplate, poa)
+
+        assert pr_corrected.pr > pr_uncorrected.pr
 
 
 class TestPrResults:
