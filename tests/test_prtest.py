@@ -250,43 +250,55 @@ class TestPerfRatioTempCorrNREL:
         assert perf_ratio.dc_nameplate == dc_nameplate
         assert isinstance(perf_ratio.results_data, pd.DataFrame)
 
-    def test_pr_meas_bom_single_irr_weighted_temp(self):
-        """Test single_irr_weighted_temp=True redistributes expected DC per interval.
+    def test_irr_weighted_cell_temp_matches_per_interval_correction(self):
+        """Verify per-interval correction equals correcting at the weighted mean temp.
 
-        The temperature correction is linear in cell temperature and each interval
-        is weighted by its POA irradiance, so collapsing the per-interval cell
-        temperatures to their irradiance-weighted mean is an algebraic identity for
-        the summed expected DC. Only the per-interval split changes.
+        This is the property that made the removed `single_irr_weighted_temp` option
+        redundant: the correction is linear in cell temperature and each interval is
+        weighted by its POA irradiance, so collapsing the per-interval cell
+        temperatures to their irradiance-weighted mean leaves the summed expected DC,
+        and therefore the reported PR, unchanged.
         """
         ac_energy = pd.Series([80_000, 90_000, 95_000], index=ix)
         poa = pd.Series([850, 900, 1000], index=ix)
         dc_nameplate = 120_000
         temp_bom = pd.Series([30, 32, 34], index=ix)
-        pr_default = pr.perf_ratio_temp_corr_nrel(
+        power_temp_coeff = -0.37
+
+        perf_ratio = pr.perf_ratio_temp_corr_nrel(
             ac_energy,
             dc_nameplate,
             poa,
-            power_temp_coeff=-0.37,
+            power_temp_coeff=power_temp_coeff,
             temp_bom=temp_bom,
         )
-        pr_weighted = pr.perf_ratio_temp_corr_nrel(
-            ac_energy,
-            dc_nameplate,
-            poa,
-            power_temp_coeff=-0.37,
-            temp_bom=temp_bom,
-            single_irr_weighted_temp=True,
+
+        # Correct once at the irradiance-weighted mean cell temperature instead.
+        temp_cell = temp_bom + (poa / 1000) * 3  # del_tcnd of the default module
+        temp_cell_weighted = (poa * temp_cell).sum() / poa.sum()
+        nameplate_weighted = dc_nameplate * (
+            1 + (power_temp_coeff / 100) * (temp_cell_weighted - 25)
         )
-        assert pr_weighted.pr <= 1
-        assert pr_weighted.pr > 0
-        assert isinstance(pr_weighted.results_data, pd.DataFrame)
-        # The expected DC is redistributed across intervals ...
-        assert not np.allclose(
-            pr_weighted.results_data["expected_dc"].values,
-            pr_default.results_data["expected_dc"].values,
-        )
-        # ... but its total, and therefore the reported PR, is unchanged.
-        assert pr_weighted.pr == pytest.approx(pr_default.pr)
+        expected_dc_weighted = nameplate_weighted * poa / 1000
+        pr_weighted = ac_energy.sum() / expected_dc_weighted.sum()
+
+        assert perf_ratio.pr == pytest.approx(pr_weighted)
+
+    def test_single_irr_weighted_temp_argument_removed(self):
+        """Verify the removed `single_irr_weighted_temp` option is rejected."""
+        ac_energy = pd.Series([80_000, 90_000, 95_000], index=ix)
+        poa = pd.Series([850, 900, 1000], index=ix)
+        temp_bom = pd.Series([30, 32, 34], index=ix)
+
+        with pytest.raises(TypeError):
+            pr.perf_ratio_temp_corr_nrel(
+                ac_energy,
+                120_000,
+                poa,
+                power_temp_coeff=-0.37,
+                temp_bom=temp_bom,
+                single_irr_weighted_temp=True,
+            )
 
     def test_pr_meas_bom_and_amb(self):
         """Test a short series of data for a hypothetical system.

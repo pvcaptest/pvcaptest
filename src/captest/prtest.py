@@ -128,7 +128,6 @@ def perf_ratio_temp_corr_nrel(
     power_temp_coeff=None,
     temp_bom=None,
     temp_amb=None,
-    single_irr_weighted_temp=False,
     wind_speed=None,
     base_temp=25,
     module_type="glass_cell_poly",
@@ -156,13 +155,6 @@ def perf_ratio_temp_corr_nrel(
         Measured back of module temperature. The `temp_amb` and `wind_speed` arguments
         are not used if this argument is not None; skips calculating BOM temps from
         ambient temperature, wind speed, and POA irradiance.
-    single_irr_weighted_temp : bool, default False
-        Set to True to calculate a single irradiance weighted temperature to use
-        when temperature correcting the power. Some contract language calls for this
-        but it does not follow the calculation defined in the NREL paper. Note that
-        the temperature correction is linear in cell temperature and each interval is
-        weighted by its POA irradiance, so this option redistributes the expected DC
-        across intervals without changing the summed expected DC or the reported `pr`.
     temp_amb : Series
         Ambient temperature (degrees C) measurements.
     wind_speed : Series
@@ -193,6 +185,26 @@ def perf_ratio_temp_corr_nrel(
 
     Returns
     -------
+    PrResults
+        Instance of class PrResults.
+
+    Notes
+    -----
+    The cell temperature correction is applied per interval. A
+    `single_irr_weighted_temp` option, which collapsed the per-interval cell
+    temperatures to a single irradiance weighted mean before correcting, was removed
+    because it cannot change the reported `pr`. The correction factor is
+    linear in cell temperature and each interval's contribution to the expected DC is
+    weighted by its POA irradiance -- the same weight used to average the temperature
+    -- so the two are algebraically identical once summed::
+
+        sum_i G_i * (1 + g * (T_i - b)) == (1 + g * (T_w - b)) * sum_i G_i
+
+    where ``T_w = sum_i(G_i * T_i) / sum_i(G_i)``. The option appeared to change the
+    result only while the correction was applied as a division, which is not linear in
+    temperature; that was a bug, fixed in the same release. Contract language calling
+    for a single irradiance weighted cell temperature is therefore already satisfied by
+    the per-interval calculation.
     """
     timestep = util.get_common_timestep(poa, units="h", string_output=False)
     timestep_str = util.get_common_timestep(poa, units="h", string_output=True)
@@ -201,8 +213,6 @@ def perf_ratio_temp_corr_nrel(
     if temp_bom is None:
         temp_bom = poa * np.exp(coeffs["a"] + coeffs["b"] * wind_speed) + temp_amb
     temp_cell = temp_bom + (poa / 1000) * coeffs["del_tcnd"]
-    if single_irr_weighted_temp:
-        temp_cell = (poa * temp_cell).sum() / poa.sum()
     dc_nameplate_temp_corr = dc_nameplate * (
         1 + ((power_temp_coeff / 100) * (temp_cell - base_temp))
     )

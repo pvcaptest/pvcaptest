@@ -225,6 +225,18 @@ that argument and let `CapTest` wrap the sim data on setup.
 import it from `captest.filters`.
 
 ### Removed
+- **Breaking:** removed the `single_irr_weighted_temp` parameter of
+`prtest.perf_ratio_temp_corr_nrel`. Passing it now raises `TypeError`; remove the
+argument from calling code, which will produce the same PR it always should have. The
+option collapsed the per-interval cell temperatures to a single irradiance weighted
+mean before temperature correcting, but it cannot change the reported `pr`: the
+correction factor is linear in cell temperature and each interval's contribution to the
+expected DC is weighted by its POA irradiance — the same weight used to average the
+temperature — so `sum_i G_i * (1 + g * (T_i - b))` and `(1 + g * (T_w - b)) * sum_i G_i`
+are identical. The option appeared to change the result only while the correction was
+applied as a division (see the fix below), which is not linear in temperature.
+Contract language calling for a single irradiance weighted cell temperature is already
+satisfied by the per-interval calculation.
 - Removed the legacy module-level `capdata.run_test(cd, steps)` (imperative
 method+args tuples); the name is reused by the new `CapTest.run_test()`
 orchestrator. Config-driven pipelines (`run_pipeline`, `from_yaml`) supersede
@@ -237,11 +249,7 @@ instead of dividing by it, matching the weather-corrected performance ratio defi
 NREL/TP-5200-57991. The division inverted the correction: cell temperatures above
 `base_temp` raised the expected DC in the denominator rather than lowering it, so
 reported PR values were biased low for hot conditions and high for cold ones. **PR
-values computed with this function will change.** As a consequence of the corrected
-(linear) form, `single_irr_weighted_temp=True` now redistributes the expected DC across
-intervals without changing the summed expected DC or the reported `pr` — collapsing the
-per-interval cell temperatures to their irradiance-weighted mean is an algebraic
-identity when each interval is weighted by its POA irradiance.
+values computed with this function will change.**
 - Remote URIs (e.g. `s3://bucket/...`) and path objects now work consistently for
 every path argument to the loaders, not just the `path` argument of `load_data` /
 `DataLoader`. `util.read_json` and `util.read_yaml` read through `UPath` instead of
