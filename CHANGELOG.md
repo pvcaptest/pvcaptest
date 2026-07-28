@@ -231,6 +231,17 @@ orchestrator. Config-driven pipelines (`run_pipeline`, `from_yaml`) supersede
 it.
 
 ### Fixed
+- `prtest.perf_ratio_temp_corr_nrel` now *multiplies* the DC nameplate by the
+temperature correction factor `1 + (power_temp_coeff / 100) * (temp_cell - base_temp)`
+instead of dividing by it, matching the weather-corrected performance ratio defined in
+NREL/TP-5200-57991. The division inverted the correction: cell temperatures above
+`base_temp` raised the expected DC in the denominator rather than lowering it, so
+reported PR values were biased low for hot conditions and high for cold ones. **PR
+values computed with this function will change.** As a consequence of the corrected
+(linear) form, `single_irr_weighted_temp=True` now redistributes the expected DC across
+intervals without changing the summed expected DC or the reported `pr` — collapsing the
+per-interval cell temperatures to their irradiance-weighted mean is an algebraic
+identity when each interval is weighted by its POA irradiance.
 - Remote URIs (e.g. `s3://bucket/...`) and path objects now work consistently for
 every path argument to the loaders, not just the `path` argument of `load_data` /
 `DataLoader`. `util.read_json` and `util.read_yaml` read through `UPath` instead of
