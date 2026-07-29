@@ -247,6 +247,12 @@ orchestrator. Config-driven pipelines (`run_pipeline`, `from_yaml`) supersede
 it.
 
 ### Fixed
+- `import captest` no longer raises `AttributeError: module 'importlib' has no
+attribute 'util'` in a minimal install. `calcparams`, `plotting`, and `capdata`
+call `importlib.util.find_spec` to detect optional dependencies but only did
+`import importlib`, which does not bind the `util` submodule; the import
+happened to work only when another installed package had already imported
+`importlib.util`. All three now `import importlib.util` explicitly.
 - `prtest.perf_ratio_temp_corr_nrel` now *multiplies* the DC nameplate by the
 temperature correction factor `1 + (power_temp_coeff / 100) * (temp_cell - base_temp)`
 instead of dividing by it, matching the weather-corrected performance ratio defined in

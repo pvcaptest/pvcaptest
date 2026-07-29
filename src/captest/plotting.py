@@ -1,5 +1,5 @@
 import copy
-import importlib
+import importlib.util
 import itertools
 import json
 import re

@@ -6,7 +6,7 @@ Sandia module temperature model.
 """
 
 import copy
-import importlib
+import importlib.util
 import warnings
 
 import numpy as np

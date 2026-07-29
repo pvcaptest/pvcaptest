@@ -12,7 +12,7 @@ instance together and exposes the cross-CapData comparison methods
 # standard library imports
 import copy
 import difflib
-import importlib
+import importlib.util
 import inspect
 import warnings
 
