@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 
 [0.17.0]: https://github.com/pvcaptest/pvcaptest/compare/v0.16.0...v0.17.0
-## [0.17.0] - 2026-07-28
+## [0.17.0] - 2026-07-30
 ### Added
 - New data prep stage: adjustments applied between load and `setup()` are now
 declared, serialized, and replayed. `CapData` gains `prep`, `prep_convert_units`,
@@ -173,7 +173,7 @@ only after computation succeeds (restoring the prior `rc` if CapTest
 propagation fails) — a failed step leaves the pipeline and RC state unchanged.
 - **Breaking:** Filter steps now reject assignment to names that are neither a
 declared `param` parameter nor known runtime state, raising `AttributeError` with
-a close-match suggestion. 
+a close-match suggestion.
 - **Breaking:** `CapData.data_filtered` is now a derived, read-only property — the
 `data` rows kept by the last filter (a defensive copy), or `data` when no filters
 have run. It has no setter; clear filtering with `CapData.reset_filter()`. Code
