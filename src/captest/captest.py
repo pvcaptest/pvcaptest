@@ -1384,16 +1384,11 @@ class CapTest(param.Parameterized):
         The fully-resolved ``TEST_SETUPS`` entry after ``setup()`` has run.
         Plain instance attribute (not a ``param.*``) so ``setup()`` can be
         called multiple times.
-    rep_irr_filter_low : float
-        Read-only. Lower irradiance fraction bound derived from
-        ``rep_irr_filter``: ``1 - rep_irr_filter``. For example, when
-        ``rep_irr_filter=0.2`` this is ``0.8``. Pass as ``low`` to
-        ``CapData.filter_irr`` together with a ``ref_val``.
-    rep_irr_filter_high : float
-        Read-only. Upper irradiance fraction bound derived from
-        ``rep_irr_filter``: ``1 + rep_irr_filter``. For example, when
-        ``rep_irr_filter=0.2`` this is ``1.2``. Pass as ``high`` to
-        ``CapData.filter_irr`` together with a ``ref_val``.
+
+    See Also
+    --------
+    rep_irr_filter_low : Lower reporting-irradiance fraction bound.
+    rep_irr_filter_high : Upper reporting-irradiance fraction bound.
 
     Notes
     -----
@@ -3422,7 +3417,8 @@ class CapTest(param.Parameterized):
     def rep_irr_filter_low(self):
         """Lower irradiance fraction bound derived from ``rep_irr_filter``.
 
-        Equal to ``1 - rep_irr_filter``. Updates automatically whenever
+        Read-only. Equal to ``1 - rep_irr_filter``; for example, when
+        ``rep_irr_filter=0.2`` this is ``0.8``. Updates automatically whenever
         ``rep_irr_filter`` is reassigned. Pass as the ``low`` argument to
         ``CapData.filter_irr`` with a ``ref_val`` to filter within the
         reporting-irradiance band.
@@ -3433,7 +3429,8 @@ class CapTest(param.Parameterized):
     def rep_irr_filter_high(self):
         """Upper irradiance fraction bound derived from ``rep_irr_filter``.
 
-        Equal to ``1 + rep_irr_filter``. Updates automatically whenever
+        Read-only. Equal to ``1 + rep_irr_filter``; for example, when
+        ``rep_irr_filter=0.2`` this is ``1.2``. Updates automatically whenever
         ``rep_irr_filter`` is reassigned. Pass as the ``high`` argument to
         ``CapData.filter_irr`` with a ``ref_val`` to filter within the
         reporting-irradiance band.
