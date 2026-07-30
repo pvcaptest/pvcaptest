@@ -228,6 +228,7 @@ If you provide paths to your data, ``CapTest`` will load the data for you.
         test_tolerance='- 4',
         meas_load_kwargs={
             'group_columns': './path-to/column_groups.xlsx',
+            'summary': False,
         },
     )
 
@@ -237,8 +238,10 @@ passed with ``meas_load_kwargs`` and ``sim_load_kwargs``.
 
 .. note::
 
-   You will likely need / want to include meas_load_kwargs to load your
-   column grouping from a file. See the examples.
+   You will likely need / want to include ``meas_load_kwargs`` to load your
+   column grouping from a file. See :ref:`loader-kwargs` for that option, for
+   quieting the loader's progress output, and for how these keys are written
+   in a yaml config.
 
 From loaded data
 ~~~~~~~~~~~~~~~~
@@ -288,6 +291,10 @@ file and loaded with :py:meth:`~captest.captest.CapTest.from_yaml`.
       max_irr: 1400
       fshdbm: 1.0
       bifaciality: 0.15
+      meas_load_kwargs:
+        group_columns: ./data/column_groups.json
+        summary: False
+        verbose: False
 
 .. code-block:: Python
 
@@ -306,6 +313,48 @@ the data only (see :ref:`load-only`).
 Relative ``meas_path`` and ``sim_path`` values are interpreted relative to the
 yaml file location. This makes the yaml file portable with the project folder.
 
+.. _loader-kwargs:
+
+Loader options
+""""""""""""""
+``meas_load_kwargs`` and ``sim_load_kwargs`` are mappings splatted into the
+loader for that side — :py:func:`~captest.io.load_data` for the measured data
+and :py:func:`~captest.io.load_pvsyst` for the modeled data. They are the yaml
+equivalent of the arguments of the same name on
+:py:meth:`~captest.captest.CapTest.from_params`, and they are also used by
+:py:meth:`~captest.captest.CapTest.reload`, so a side re-loaded later is loaded
+the same way.
+
+Two measured-side options are worth setting on most projects:
+
+``group_columns``
+    Path to a saved column-grouping file — ``.json``, ``.yaml``, or ``.xlsx``
+    — used in place of inferring the groups from the column names. This is the
+    usual way to give a project a stable, reviewed set of column groups. See
+    :ref:`col-grouping` for the file formats.
+
+``summary`` and ``verbose``
+    Set both to ``False`` to silence the loader's progress output. ``summary``
+    (default ``True``) prints a ``trying to load`` / ``loaded`` line for each
+    file plus a completion banner, and applies when ``meas_path`` points at a
+    directory of files rather than at a single file. ``verbose`` (default
+    ``False``) adds the per-file reindexing detail and forces ``summary`` on.
+    ``summary`` is not a named argument of :py:func:`~captest.io.load_data`; it
+    passes through its ``**kwargs`` to :py:meth:`~captest.io.DataLoader.load`.
+
+Any other keyword the loader accepts can be set the same way — for example
+``site`` to add modeled clear-sky columns, or a ``sep`` / ``skiprows`` value
+forwarded to ``pandas.read_csv``.
+
+.. warning::
+
+    Unlike ``meas_path`` and ``sim_path``, values inside ``meas_load_kwargs``
+    and ``sim_load_kwargs`` are handed to the loader verbatim — they are
+    **not** resolved relative to the yaml file. A relative ``group_columns``
+    path is interpreted from the working directory of the process reading the
+    config, so use a path that is valid from where the notebook or script runs,
+    or an absolute path.
+
 One yaml file can also contain more than one capacity-test setup. For example,
 the same bifacial project may be reviewed with both the total-irradiance E2848
 setup and the temperature-corrected power setup.
@@ -318,6 +367,9 @@ setup and the temperature-corrected power setup.
       sim_path: ./data/pvsyst.csv
       ac_nameplate: 6_000_000
       bifaciality: 0.15
+      meas_load_kwargs:
+        group_columns: ./data/column_groups.json
+        summary: False
 
     captest_bifi_power_tc:
       test_setup: bifi_power_tc_calc_tbom
@@ -325,6 +377,9 @@ setup and the temperature-corrected power setup.
       sim_path: ./data/pvsyst.csv
       ac_nameplate: 6_000_000
       bifaciality: 0.15
+      meas_load_kwargs:
+        group_columns: ./data/column_groups.json
+        summary: False
 
 .. code-block:: Python
 
