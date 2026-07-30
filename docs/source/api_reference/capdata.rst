@@ -44,6 +44,7 @@ see :ref:`data_prep`.
 
    capdata.CapData.get_reg_cols
    capdata.CapData.review_column_groups
+   capdata.CapData.create_column_group_attributes
    capdata.CapData.copy
    capdata.CapData.empty
    capdata.CapData.drop_cols
@@ -131,7 +132,7 @@ Reporting Conditions
 
 Methods for computing ASTM E2848 reporting conditions. ``rep_irr`` is the
 reporting POA irradiance used to anchor ``filter_irr(ref_val='rep_irr')``; within
-a :py:class:`~captest.captest.CapTest` it resolves from the single test RC. See
+a :py:class:`~captest.CapTest` it resolves from the single test RC. See
 :ref:`reporting_conditions` in the user guide.
 
 .. autosummary::

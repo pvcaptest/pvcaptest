@@ -59,7 +59,7 @@ Except for the clear sky modelling, the above describes the default behavior of 
 
 If you are loading data from multiple files and the column headings to match across the files, then :py:func:`~captest.io.load_data` will create attempt to join the data by taking the union of the row and column indexes for all files.
 
-Internally, :py:func:`~captest.io.load_data` uses an instance of the :py:class:`~capdata.io.DataLoader` class, which is available in the :py:attr:`~captest.capdata.CapData.data_loader` attribute of the returned :py:class:`~captest.capdata.CapData` instance. 
+Internally, :py:func:`~captest.io.load_data` uses an instance of the :py:class:`~captest.io.DataLoader` class, which is available in the :py:attr:`~captest.capdata.CapData.data_loader` attribute of the returned :py:class:`~captest.capdata.CapData` instance. 
 
 .. note::
 
@@ -67,11 +67,11 @@ Internally, :py:func:`~captest.io.load_data` uses an instance of the :py:class:`
 
 .. note::
 
-    If it is necessary to modify the :py:attr:`data` DataFrame to add columns or convert units, it best to do that immediately after loading the data. Followed by calling :py:meth:`~captest.capdata.CapData.reset_filters`, which will overwrite the :py:attr:`data_filtered` DataFrame with the modified :py:attr:`data` DataFrame.
+    If it is necessary to modify the :py:attr:`data` DataFrame to add columns or convert units, it best to do that immediately after loading the data. Followed by calling :py:meth:`~captest.capdata.CapData.reset_filter`, which will overwrite the :py:attr:`data_filtered` DataFrame with the modified :py:attr:`data` DataFrame.
 
 .. note::
 
-    **Automatic year-end wrapping of simulated data.** PVsyst simulated data spans a single calendar year (Jan 1 – Dec 31), so a measured test that crosses a year boundary (e.g. mid-December to mid-January) would not include January. Versions before v0.17.0 handled this with a manual ``wrap_year`` argument on :py:meth:`~captest.capdata.CapData.filter_time`. That argument has been removed; the wrapping is now applied automatically. When a measured and a modeled :py:class:`~captest.capdata.CapData` are bound together in a :py:class:`~captest.captest.CapTest`, :py:meth:`~captest.captest.CapTest.setup` detects a measured test within 60 days of a calendar-year boundary and wraps the simulated data into a contiguous July 1 – June 30 year. This is controlled by the :py:attr:`~captest.captest.CapTest.auto_wrap_sim` parameter (default ``True``). Set ``auto_wrap_sim=False`` and re-run :py:meth:`~captest.captest.CapTest.setup` to load the simulated data without wrapping.
+    **Automatic year-end wrapping of simulated data.** PVsyst simulated data spans a single calendar year (Jan 1 – Dec 31), so a measured test that crosses a year boundary (e.g. mid-December to mid-January) would not include January. Versions before v0.17.0 handled this with a manual ``wrap_year`` argument on :py:meth:`~captest.capdata.CapData.filter_time`. That argument has been removed; the wrapping is now applied automatically. When a measured and a modeled :py:class:`~captest.capdata.CapData` are bound together in a :py:class:`~captest.CapTest`, :py:meth:`~captest.CapTest.setup` detects a measured test within 60 days of a calendar-year boundary and wraps the simulated data into a contiguous July 1 – June 30 year. This is controlled by the :py:attr:`~captest.CapTest.auto_wrap_sim` parameter (default ``True``). Set ``auto_wrap_sim=False`` and re-run :py:meth:`~captest.CapTest.setup` to load the simulated data without wrapping.
 
 .. _col-grouping:
 
@@ -176,10 +176,10 @@ The list of groups and tags can be filtered using regular expressions. The text 
 
 Residual Plots
 ~~~~~~~~~~~~~~
-:py:meth:`~captest.captest.CapTest.residual_plot` creates overlay scatter plots of
+:py:meth:`~captest.CapTest.residual_plot` creates overlay scatter plots of
 regression residuals versus each regression parameter for the measured and
 simulated :py:class:`~captest.capdata.CapData` instances bound to a
-:py:class:`~captest.captest.CapTest`. This makes it easy to visually compare how
+:py:class:`~captest.CapTest`. This makes it easy to visually compare how
 the two models differ across the range of each predictor variable. See
 :ref:`captest` for the full workflow.
 
@@ -281,7 +281,7 @@ Reporting conditions
 
 The ``func`` argument is a dict mapping each right-hand-side variable name to an aggregation function (a pandas agg name or a callable). Omitting ``func`` falls back to ``{var: 'mean' for var in rhs}``. For percentile aggregations use :py:func:`~captest.captest.perc_wrap`, e.g. ``func={'poa': perc_wrap(60), 't_amb': 'mean', 'w_vel': 'mean'}``.
 
-When the test is driven through a :py:class:`~captest.captest.CapTest`, each preset in :py:data:`~captest.captest.TEST_SETUPS` supplies its own default ``rep_conditions`` dict and :py:meth:`~captest.captest.CapTest.rep_cond` forwards it automatically. See :ref:`captest`.
+When the test is driven through a :py:class:`~captest.CapTest`, each preset in :py:data:`~captest.captest.TEST_SETUPS` supplies its own default ``rep_conditions`` dict and :py:meth:`~captest.CapTest.rep_cond` forwards it automatically. See :ref:`captest`.
 
 The "Reporting Conditions and Predicted Capacities" example demonstrates the reporting condition functionality in more detail.
 
@@ -296,7 +296,7 @@ By default a summary showing the results of the regression is printed, similar t
 
 Results
 -------
-After loading, filtering and regressing measured and simulated data in two separate instances of :py:class:`~captest.capdata.CapData`, the two instances are bound together in a :py:class:`~captest.captest.CapTest` and compared using :py:meth:`~captest.captest.CapTest.captest_results`, which returns a :py:class:`~captest.captest.CapTestResults` object holding the capacity ratio, pass/fail result, and the values behind them. :py:meth:`~captest.captest.CapTest.captest_results_check_pvalues` provides a styled summary of the predicted power using the regression coefficients of each :py:class:`~captest.capdata.CapData` instance and the reporting conditions. See :ref:`captest` for construction and the full workflow.
+After loading, filtering and regressing measured and simulated data in two separate instances of :py:class:`~captest.capdata.CapData`, the two instances are bound together in a :py:class:`~captest.CapTest` and compared using :py:meth:`~captest.CapTest.captest_results`, which returns a :py:class:`~captest.captest.CapTestResults` object holding the capacity ratio, pass/fail result, and the values behind them. :py:meth:`~captest.CapTest.captest_results_check_pvalues` provides a styled summary of the predicted power using the regression coefficients of each :py:class:`~captest.capdata.CapData` instance and the reporting conditions. See :ref:`captest` for construction and the full workflow.
 
 The results method will check and warn for potential issues:
 

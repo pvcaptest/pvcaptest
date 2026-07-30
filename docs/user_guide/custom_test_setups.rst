@@ -12,7 +12,7 @@ parameter calculation functions without modifying the package.
 
 This page explains the structure of those dicts, shows how the built-in
 :py:mod:`captest.calcparams` functions plug into them, and describes the three
-ways to wire a custom dict into a :py:class:`~captest.captest.CapTest`.
+ways to wire a custom dict into a :py:class:`~captest.CapTest`.
 
 The regression column dictionary grammar
 ------------------------------------
@@ -58,7 +58,7 @@ or nested calculated-column tuples:
     )
 
 Nesting is allowed to any depth. During
-:py:meth:`~captest.captest.CapTest.setup`, pvcaptest recursively walks the tree bottom-up:
+:py:meth:`~captest.CapTest.setup`, pvcaptest recursively walks the tree bottom-up:
 each ``(func, kwargs_dict)`` tuple creates a new column named
 ``func.__name__`` in ``CapData.data``, and that name is passed upward as input
 to any parent tuple. For the example above, ``e_total`` is a callable (a function from
@@ -172,10 +172,10 @@ Scalar parameters such as ``power_temp_coeff``, ``base_temp``,
 ``bifaciality``, and ``spectral_module_type`` do not need to appear in the
 dict. When a :py:mod:`captest.calcparams` function has a keyword argument
 whose name matches an attribute on the ``CapData`` instance, pvcaptest injects
-that value automatically. :py:class:`~captest.captest.CapTest` propagates
+that value automatically. :py:class:`~captest.CapTest` propagates
 these scalars onto both ``CapData`` instances during
-:py:meth:`~captest.captest.CapTest.setup`, so setting them on the
-:py:class:`~captest.captest.CapTest` instance is sufficient:
+:py:meth:`~captest.CapTest.setup`, so setting them on the
+:py:class:`~captest.CapTest` instance is sufficient:
 
 .. code-block:: Python
 
@@ -237,7 +237,7 @@ scatter plot, and reporting conditions are inherited:
     )
 
 **Route 3 — assign directly.** Attributes can be set on the instance before
-calling :py:meth:`~captest.captest.CapTest.setup`:
+calling :py:meth:`~captest.CapTest.setup`:
 
 .. code-block:: Python
 

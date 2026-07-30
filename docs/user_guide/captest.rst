@@ -2,7 +2,7 @@
 
 CapTest Workflow
 ================
-:py:class:`~captest.captest.CapTest` is a convenient way to keep the measured
+:py:class:`~captest.CapTest` is a convenient way to keep the measured
 data, modeled data, test settings, and comparison plots together for one
 capacity test.
 
@@ -49,9 +49,9 @@ directly. That workflow is mostly unchanged and may be helpful while learning pv
   tolerance, bifaciality, and filter settings.
 - You plan to save the test setup in a yaml file and re-run it later.
 - You want comparison methods such as
-  :py:meth:`~captest.captest.CapTest.captest_results`,
-  :py:meth:`~captest.captest.CapTest.overlay_scatters`, and
-  :py:meth:`~captest.captest.CapTest.residual_plot` to use the same measured
+  :py:meth:`~captest.CapTest.captest_results`,
+  :py:meth:`~captest.CapTest.overlay_scatters`, and
+  :py:meth:`~captest.CapTest.residual_plot` to use the same measured
   and modeled data automatically.
 
 .. _choosing-test-setup:
@@ -78,7 +78,7 @@ the regression for a capacity test. Each setup defines:
   compute reporting conditions (e.g. 60th-percentile POA, mean ambient temperature
   and wind speed).
 - **Scatter plot function** — the plotting callable matched to the regression
-  formula, used by :py:meth:`~captest.captest.CapTest.scatter_plots`.
+  formula, used by :py:meth:`~captest.CapTest.scatter_plots`.
 
 See :ref:`custom_test_setups` for additional details and example.
 
@@ -227,7 +227,7 @@ in the API reference for their descriptions.
 
 Creating a CapTest
 ------------------
-A :py:class:`~captest.captest.CapTest` can be created from from file paths, data
+A :py:class:`~captest.CapTest` can be created from from file paths, data
 that has already been loaded, or from a yaml file. Using ``from_params`` will create
 a CapTest object given file paths and is the option recommended for typical usage of
 pvcaptest to interactivley run a test in a Jupyter notebook.
@@ -265,7 +265,7 @@ passed with ``meas_load_kwargs`` and ``sim_load_kwargs``.
 From loaded data
 ~~~~~~~~~~~~~~~~
 If you have already loaded the measured and modeled data, pass the two
-``CapData`` objects to :py:meth:`~captest.captest.CapTest.from_params`.
+``CapData`` objects to :py:meth:`~captest.CapTest.from_params`.
 
 .. code-block:: Python
 
@@ -296,7 +296,7 @@ User Guide still apply.
 From yaml
 ~~~~~~~~~
 For repeatable project work, the capacity-test setup can be stored in a yaml
-file and loaded with :py:meth:`~captest.captest.CapTest.from_yaml`.
+file and loaded with :py:meth:`~captest.CapTest.from_yaml`.
 
 .. code-block:: yaml
 
@@ -320,11 +320,11 @@ file and loaded with :py:meth:`~captest.captest.CapTest.from_yaml`.
     tst = CapTest.from_yaml('./project.yaml')
 
 ``from_yaml`` loads the measured and modeled data and runs
-:py:meth:`~captest.captest.CapTest.setup`. Filter pipelines saved in the file
+:py:meth:`~captest.CapTest.setup`. Filter pipelines saved in the file
 (``meas_filters`` / ``sim_filters``) are **not** applied at load — they are
 stored on the instance as ``tst.meas_filters_pending`` and
 ``tst.sim_filters_pending`` and run later by
-:py:meth:`~captest.captest.CapTest.run_test`. The
+:py:meth:`~captest.CapTest.run_test`. The
 :ref:`captest-typical-workflow` section walks through the resulting states
 step by step. Pass ``run_setup=False`` to skip ``setup()`` as well and load
 the data only (see :ref:`load-only`).
@@ -340,8 +340,8 @@ Loader options
 loader for that side — :py:func:`~captest.io.load_data` for the measured data
 and :py:func:`~captest.io.load_pvsyst` for the modeled data. They are the yaml
 equivalent of the arguments of the same name on
-:py:meth:`~captest.captest.CapTest.from_params`, and they are also used by
-:py:meth:`~captest.captest.CapTest.reload`, so a side re-loaded later is loaded
+:py:meth:`~captest.CapTest.from_params`, and they are also used by
+:py:meth:`~captest.CapTest.reload`, so a side re-loaded later is loaded
 the same way.
 
 Two measured-side options are worth setting on most projects:
@@ -411,10 +411,10 @@ Test settings reference
 """""""""""""""""""""""
 The keys below may appear directly under a test's mapping in the yaml file, and
 each is also accepted as a keyword argument to
-:py:meth:`~captest.captest.CapTest.from_params`. An unrecognized key raises a
+:py:meth:`~captest.CapTest.from_params`. An unrecognized key raises a
 ``ValueError`` at load — naming the closest known key, when there is one — so a
 typo is reported rather than silently ignored.
-:py:meth:`~captest.captest.CapTest.to_yaml` writes every scalar setting on each
+:py:meth:`~captest.CapTest.to_yaml` writes every scalar setting on each
 save, so a saved config lists them all whether or not the project changed them
 from the defaults.
 
@@ -452,7 +452,7 @@ the data, and carry the serialized pipelines.
        load. See :doc:`data_prep`.
    * - ``meas_filters``, ``sim_filters``
      - Serialized filter pipelines. Stored pending at load and replayed by
-       :py:meth:`~captest.captest.CapTest.run_test`.
+       :py:meth:`~captest.CapTest.run_test`.
 
 **Results and pass/fail.** The only two settings that feed the reported
 result.
@@ -529,8 +529,8 @@ the filter pipeline — nothing in pvcaptest reads them on its own.
        Pass them yourself: ``tst.meas.filter_irr(tst.min_irr, tst.max_irr)``.
    * - ``rep_irr_filter``
      - Fractional reporting-irradiance band. Default ``0.2``. Read the derived
-       :py:attr:`~captest.captest.CapTest.rep_irr_filter_low` /
-       :py:attr:`~captest.captest.CapTest.rep_irr_filter_high` properties
+       :py:attr:`~captest.CapTest.rep_irr_filter_low` /
+       :py:attr:`~captest.CapTest.rep_irr_filter_high` properties
        (``0.8`` / ``1.2``) rather than this value directly.
    * - ``clipping_irr``
      - POA irradiance above which the plant is expected to clip, W/m^2.
@@ -568,7 +568,7 @@ the filter pipeline — nothing in pvcaptest reads them on its own.
     Two constructor arguments are deliberately absent from the yaml surface:
     ``meas_loader`` / ``sim_loader``, which are callables, and
     ``auto_wrap_sim``. Set them when calling
-    :py:meth:`~captest.captest.CapTest.from_params`.
+    :py:meth:`~captest.CapTest.from_params`.
 
 .. _what-setup-does:
 
@@ -576,8 +576,8 @@ What setup does
 ---------------
 When ``CapTest`` has both measured and modeled data, it prepares each
 ``CapData`` object for the selected test setup. This happens automatically when
-using :py:meth:`~captest.captest.CapTest.from_params` or
-:py:meth:`~captest.captest.CapTest.from_yaml` with both datasets present,
+using :py:meth:`~captest.CapTest.from_params` or
+:py:meth:`~captest.CapTest.from_yaml` with both datasets present,
 unless ``run_setup=False`` is passed (see :ref:`load-only`).
 
 The setup step:
@@ -593,7 +593,7 @@ The setup step:
   ``CapData`` objects so calculated columns use the intended assumptions.
 
 If you change a setup value after creating ``tst``, call
-:py:meth:`~captest.captest.CapTest.setup` again before continuing.
+:py:meth:`~captest.CapTest.setup` again before continuing.
 
 .. note::
 
@@ -625,7 +625,7 @@ Step 1 — load the test
 
 The measured and modeled data are loaded, any prep steps saved in the file are
 replayed against the freshly loaded data, and
-:py:meth:`~captest.captest.CapTest.setup` runs: scalar settings are propagated
+:py:meth:`~captest.CapTest.setup` runs: scalar settings are propagated
 to ``tst.meas`` / ``tst.sim``, calculated columns (e.g. ``e_total``) are
 created, and the regression columns are resolved and aggregated. Prep runs
 before ``setup`` so the calculated columns are derived from prepped values
@@ -666,7 +666,7 @@ pending — they have not touched the data.
     to ``setup`` — so this is the point to inspect the loaded data, or add a
     prep step the config does not have, before the calculated columns are
     derived from it. Run ``tst.setup()`` when ready, or call
-    :py:meth:`~captest.captest.CapTest.run_test`, whose first stage is the
+    :py:meth:`~captest.CapTest.run_test`, whose first stage is the
     per-side setup. See :ref:`load-only` for the full state after a load-only
     call.
 
@@ -698,7 +698,7 @@ measurements should be dropped, adjust them now with the prep methods:
 
 Prep steps rewrite values in ``data`` in place and are recorded on
 ``tst.meas.prep`` / ``tst.sim.prep``, so they are written to the config by
-:py:meth:`~captest.captest.CapTest.to_yaml` and re-applied the next time the
+:py:meth:`~captest.CapTest.to_yaml` and re-applied the next time the
 data is loaded. Any prep the config already declared was applied during
 step 1, between the load and ``setup()`` — there is nothing to repeat here.
 
@@ -841,7 +841,7 @@ the CapData API reference.
 
     results = tst.captest_results()
 
-:py:meth:`~captest.captest.CapTest.rep_cond` calculates reporting conditions
+:py:meth:`~captest.CapTest.rep_cond` calculates reporting conditions
 using the selected setup's defaults. For the standard E2848 setup, POA is
 calculated using the 60th percentile of filtered POA, while ambient temperature
 and wind speed use the mean.
@@ -880,15 +880,15 @@ filters anchor on the same value. See :ref:`reporting_conditions` for the full
 reporting-conditions model.
 
 Once the pipelines are in place, save the whole test — settings and both
-pipelines — with :py:meth:`~captest.captest.CapTest.to_yaml` so it can be
+pipelines — with :py:meth:`~captest.CapTest.to_yaml` so it can be
 reproduced later (see :ref:`saving_reproducing`).
 
 .. _running-with-run-test:
 
 Running the whole test with run_test
 ------------------------------------
-:py:meth:`~captest.captest.CapTest.run_test` runs the complete test in one
-call. It runs :py:meth:`~captest.captest.CapTest.setup`, replays each side's
+:py:meth:`~captest.CapTest.run_test` runs the complete test in one
+call. It runs :py:meth:`~captest.CapTest.setup`, replays each side's
 filter pipeline (the ``rc_source`` side first, so its reporting-conditions
 step establishes ``tst.rc`` before the other side's RC-dependent filters
 resolve), fits both regressions, verifies the reporting conditions were
@@ -899,7 +899,7 @@ computed during the run, and returns the results.
     results = tst.run_test()
     results.cap_ratio
 
-Combined with :py:meth:`~captest.captest.CapTest.from_yaml`, this reproduces a
+Combined with :py:meth:`~captest.CapTest.from_yaml`, this reproduces a
 whole capacity test — data loading, setup, filtering, reporting conditions,
 regressions, and results — from a single config file, with each pipeline
 executed exactly once (the load stores the pipelines pending; ``run_test``
@@ -933,9 +933,9 @@ Re-running one side
 Pass ``side='meas'`` or ``side='sim'`` to re-run only one side's setup,
 filter pipeline, and regression, leaving the other side untouched. Per-side
 runs return the ``CapTest`` instance itself rather than results, so a full
-comparison still ends with :py:meth:`~captest.captest.CapTest.captest_results`.
+comparison still ends with :py:meth:`~captest.CapTest.captest_results`.
 
-This pairs well with :py:meth:`~captest.captest.CapTest.reload`, which
+This pairs well with :py:meth:`~captest.CapTest.reload`, which
 re-loads one side's data with the stored loader and keyword arguments and
 re-runs the per-side setup. ``reload`` preserves the side's filter
 definitions: the outgoing applied chain is snapshot into
@@ -970,9 +970,9 @@ and ``to_yaml`` use it:
 
 Loading without running setup
 -----------------------------
-Pass ``run_setup=False`` to :py:meth:`~captest.captest.CapTest.from_params`,
-:py:meth:`~captest.captest.CapTest.from_yaml`, or
-:py:meth:`~captest.captest.CapTest.from_mapping` to load the data and stop
+Pass ``run_setup=False`` to :py:meth:`~captest.CapTest.from_params`,
+:py:meth:`~captest.CapTest.from_yaml`, or
+:py:meth:`~captest.CapTest.from_mapping` to load the data and stop
 there — for example to inspect the raw data or review the column groups
 before the regression mapping is applied:
 
@@ -1139,7 +1139,7 @@ See :ref:`reporting_conditions` for the full description of both warnings.
 Reviewing results
 -----------------
 The main comparison method is
-:py:meth:`~captest.captest.CapTest.captest_results`. It predicts the measured
+:py:meth:`~captest.CapTest.captest_results`. It predicts the measured
 and modeled capacities at the reporting conditions, calculates the capacity
 ratio, and prints a pass/fail summary using the AC nameplate and test
 tolerance stored on your instance of Captest, e.g. ``tst``. It returns a
@@ -1188,7 +1188,7 @@ run:
   (``True`` when the test ran with ``check_pvalues=True``).
 
 The same arguments are accepted by
-:py:meth:`~captest.captest.CapTest.run_test`, which forwards them to
+:py:meth:`~captest.CapTest.run_test`, which forwards them to
 ``captest_results``.
 
 .. note::
@@ -1199,21 +1199,21 @@ The same arguments are accepted by
 
 Additional review methods are available from the same ``CapTest`` object:
 
-- :py:meth:`~captest.captest.CapTest.captest_results_check_pvalues` compares
+- :py:meth:`~captest.CapTest.captest_results_check_pvalues` compares
   results with and without high-p-value coefficients and highlights
   coefficients with p-values above 0.05.
-- :py:meth:`~captest.captest.CapTest.overlay_scatters` overlays the measured
+- :py:meth:`~captest.CapTest.overlay_scatters` overlays the measured
   and modeled regression scatter plots.
-- :py:meth:`~captest.captest.CapTest.residual_plot` compares measured and
+- :py:meth:`~captest.CapTest.residual_plot` compares measured and
   modeled residuals against the regression variables.
-- :py:meth:`~captest.captest.CapTest.get_summary` combines the filter summaries
+- :py:meth:`~captest.CapTest.get_summary` combines the filter summaries
   for ``tst.meas`` and ``tst.sim`` into one table.
-- :py:meth:`~captest.captest.CapTest.determine_pass_or_fail` applies the stored
+- :py:meth:`~captest.CapTest.determine_pass_or_fail` applies the stored
   nameplate and tolerance to a capacity ratio.
 
 Scatter plots
 -------------
-:py:meth:`~captest.captest.CapTest.scatter_plots` creates the scatter plot that
+:py:meth:`~captest.CapTest.scatter_plots` creates the scatter plot that
 matches the selected ``test_setup``. By default it plots the measured data.
 
 .. code-block:: Python
