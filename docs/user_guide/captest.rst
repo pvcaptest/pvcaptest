@@ -116,7 +116,8 @@ The most commonly used options are described below:
     with total irradiance. Rear shading and IAM losses are handled in the
     modeled (PVsyst) data: the modeled rear irradiance is
     ``rpoa_pvsyst = GlobBak + BackShd``, while the measured rear sensor
-    (``irr_rpoa``) is used as-measured (``rear_shade = 0``).
+    (``irr_rpoa``) is used as-measured. Leave ``rear_shade`` at its default
+    ``0`` with this setup (see the warning below).
 
     .. math::
         E_{Total}^{model} = E_{POA} + \left(GlobBak + BackShd\right)\varphi
@@ -130,7 +131,8 @@ The most commonly used options are described below:
     Same regression form as ``bifi_e2848_etotal_rear_shade_sim``, but rear
     shading is applied on the measured side as a flat fraction :math:`s` (the
     ``rear_shade`` factor), while the modeled rear maps directly to PVsyst's
-    unshaded global rear (``GlobBak``).
+    unshaded global rear (``GlobBak``). This is the variant to select when
+    ``rear_shade`` is set to a non-zero value.
 
     .. math::
         E_{Total}^{model} = E_{POA} + GlobBak \cdot \varphi
@@ -170,6 +172,23 @@ total-irradiance setups
 (``bifi_e2848_etotal_rear_shade_sim_spec_corrected``,
 ``bifi_e2848_etotal_rear_shade_meas_spec_corrected``). See :ref:`test-setups`
 in the API reference for their descriptions.
+
+.. warning::
+
+    The ``_sim`` / ``_meas`` suffix on the total-irradiance presets says which
+    side accounts for rear shading, and ``rear_shade`` belongs only with the
+    ``_meas`` variants.
+
+    The two variants share the same measured column mapping, and no preset
+    overrides ``rear_shade``, so a non-zero value reaches the measured
+    ``e_total`` whichever preset is selected — pvcaptest does not reset it for
+    you. Setting ``rear_shade`` alongside a ``_sim`` preset therefore shades
+    the measured rear *in addition to* the shading already carried by
+    ``rpoa_pvsyst`` on the modeled side, double-counting the loss and biasing
+    the capacity ratio.
+
+    Pick the variant that matches where the shading is accounted for, and
+    leave ``rear_shade`` at ``0`` for the ``_sim`` variants.
 
 .. note::
 
@@ -471,7 +490,9 @@ only, because the modeled side handles rear shading through its
      - Fraction of array nameplate power that is bifacial. Default ``1.0``.
    * - ``rear_shade``
      - Fraction of rear irradiance lost to shading, applied on the measured
-       side by ``calcparams.e_total``. Default ``0.0``.
+       side by ``calcparams.e_total``. Default ``0.0``. Set a non-zero value
+       only with a ``*_rear_shade_meas`` preset — see the warning in
+       :ref:`choosing-test-setup`.
    * - ``power_temp_coeff``
      - Power temperature coefficient, percent per °C. Default ``-0.32``.
    * - ``base_temp``

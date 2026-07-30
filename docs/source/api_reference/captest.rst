@@ -138,7 +138,8 @@ The built-in presets are:
    Standard ASTM E2848 regression form with total effective irradiance replacing
    front-side POA as the independent variable. Rear shading and IAM losses are
    handled in the modeled (PVsyst) data (``rpoa_pvsyst = GlobBak + BackShd``)
-   while the measured rear sensor is used as-measured (``rear_shade = 0``).
+   while the measured rear sensor is used as-measured, so ``rear_shade`` should
+   be left at its default ``0``.
    :math:`E_{Total} = E_{POA} + E_{Rear} \cdot \varphi`, following the NREL
    modified bifacial approach. See :ref:`choosing-test-setup` in the CapTest
    user guide for the per-side formulas.
@@ -167,7 +168,7 @@ The built-in presets are:
    calculate cell temperature via the Sandia PV Array Performance Model. Rear
    shading and IAM losses are handled in the modeled (PVsyst) data
    (``rpoa_pvsyst = GlobBak + BackShd``) while the measured rear sensor is used
-   as-measured (``rear_shade = 0``).
+   as-measured, so ``rear_shade`` should be left at its default ``0``.
    :math:`E_{Total} = E_{POA} + E_{Rear} \cdot \varphi`, following the NREL
    modified bifacial approach.
 
@@ -191,7 +192,8 @@ The built-in presets are:
    humidity and atmospheric pressure on the measured side and precipitable
    water from the PVsyst output. Rear shading and IAM losses are handled in
    the modeled (PVsyst) data (``rpoa_pvsyst = GlobBak + BackShd``) while the
-   measured rear sensor is used as-measured (``rear_shade = 0``).
+   measured rear sensor is used as-measured, so ``rear_shade`` should be left
+   at its default ``0``.
    :math:`E_{Total} = E_{POA} + E_{Rear} \cdot \varphi` with the spectral
    correction applied to :math:`E_{POA}`.
 
@@ -202,3 +204,13 @@ The built-in presets are:
    unshaded ``GlobBak``.
    :math:`E_{Total} = E_{POA} + E_{Rear} \cdot \varphi \cdot (1 - s)` on the
    measured side, where :math:`s` is the ``rear_shade`` fraction.
+
+.. warning::
+
+   :py:attr:`~captest.captest.CapTest.rear_shade` belongs with the
+   ``*_rear_shade_meas`` presets. The measured ``reg_cols_meas`` mapping is the
+   same in both variants, and no preset overrides the value, so a non-zero
+   ``rear_shade`` is applied to the measured ``e_total`` whichever preset is
+   selected. Paired with a ``*_rear_shade_sim`` preset — where the shading is
+   already carried by ``rpoa_pvsyst`` on the modeled side — that
+   double-counts the loss.
