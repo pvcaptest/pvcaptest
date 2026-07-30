@@ -383,8 +383,171 @@ setup and the temperature-corrected power setup.
 
 .. code-block:: Python
 
-    ct_etotal = CapTest.from_yaml('./project.yaml', key='captest_bifi_etotal')
-    ct_power_tc = CapTest.from_yaml('./project.yaml', key='captest_bifi_power_tc')
+    tst_etotal = CapTest.from_yaml('./project.yaml', key='captest_bifi_etotal')
+    tst_power_tc = CapTest.from_yaml('./project.yaml', key='captest_bifi_power_tc')
+
+.. _captest-settings-reference:
+
+Test settings reference
+"""""""""""""""""""""""
+The keys below may appear directly under a test's mapping in the yaml file, and
+each is also accepted as a keyword argument to
+:py:meth:`~captest.captest.CapTest.from_params`. An unrecognized key raises a
+``ValueError`` at load — naming the closest known key, when there is one — so a
+typo is reported rather than silently ignored.
+:py:meth:`~captest.captest.CapTest.to_yaml` writes every scalar setting on each
+save, so a saved config lists them all whether or not the project changed them
+from the defaults.
+
+**Regression setup and data.** These select the regression equation, point at
+the data, and carry the serialized pipelines.
+
+.. list-table::
+   :widths: 26 74
+   :header-rows: 1
+
+   * - Key
+     - Description
+   * - ``test_setup``
+     - Named preset from :data:`~captest.captest.TEST_SETUPS`, or ``custom``.
+       Default ``e2848_default``. See :ref:`choosing-test-setup`.
+   * - ``meas_path``, ``sim_path``
+     - Paths to the measured and modeled data, resolved relative to the yaml
+       file location.
+   * - ``meas_load_kwargs``, ``sim_load_kwargs``
+     - Keyword arguments splatted into each side's loader. See
+       :ref:`loader-kwargs`.
+   * - ``reg_fml``, ``reg_cols_meas``, ``reg_cols_sim``, ``rep_conditions``
+     - Replace the preset's regression formula, column mappings, and
+       reporting-condition aggregations. Accepted at this level or nested under
+       ``overrides``; required at ``test_setup: custom``. See
+       :ref:`custom_test_setups`.
+   * - ``rc_source``
+     - Which side owns the test reporting conditions — ``meas`` (default),
+       ``sim``, or ``manual``. See :doc:`reporting_conditions`.
+   * - ``reporting_conditions_values``
+     - Explicit reporting-condition values. Written and re-validated on load
+       when ``rc_source: manual``.
+   * - ``meas_prep``, ``sim_prep``
+     - Serialized data-preparation pipelines, replayed immediately after every
+       load. See :doc:`data_prep`.
+   * - ``meas_filters``, ``sim_filters``
+     - Serialized filter pipelines. Stored pending at load and replayed by
+       :py:meth:`~captest.captest.CapTest.run_test`.
+
+**Results and pass/fail.** The only two settings that feed the reported
+result.
+
+.. list-table::
+   :widths: 26 74
+   :header-rows: 1
+
+   * - Key
+     - Description
+   * - ``ac_nameplate``
+     - Nameplate AC power in W. Default ``null``; required for the pass/fail
+       calculation.
+   * - ``test_tolerance``
+     - Tolerance string such as ``"- 4"`` or ``"+/- 3"``. Default ``"- 4"``.
+       Also copied onto both ``CapData`` objects as ``tolerance`` during
+       ``setup()``.
+
+**Calculation scalars.** ``setup()`` copies each of these onto ``tst.meas``
+and ``tst.sim`` so the calculated columns (``e_total``,
+``power_temp_correct``, ``poa_spec_corrected``, ...) pick them up
+automatically. ``rear_shade`` is the exception: it goes to the measured side
+only, because the modeled side handles rear shading through its
+``reg_cols_sim`` definition.
+
+.. list-table::
+   :widths: 26 74
+   :header-rows: 1
+
+   * - Key
+     - Description
+   * - ``bifaciality``
+     - Bifaciality factor :math:`\varphi`. Default ``0.0``.
+   * - ``bifacial_frac``
+     - Fraction of array nameplate power that is bifacial. Default ``1.0``.
+   * - ``rear_shade``
+     - Fraction of rear irradiance lost to shading, applied on the measured
+       side by ``calcparams.e_total``. Default ``0.0``.
+   * - ``power_temp_coeff``
+     - Power temperature coefficient, percent per °C. Default ``-0.32``.
+   * - ``base_temp``
+     - Base temperature for the temperature correction, °C. Default ``25``.
+   * - ``module_type``
+     - Module construction for the Sandia temperature model:
+       ``glass_cell_poly`` (default), ``glass_cell_glass``, or
+       ``poly_tf_steel``.
+   * - ``racking``
+     - Mounting for the Sandia temperature model: ``open_rack`` (default),
+       ``close_roof_mount``, or ``insulated_back``.
+   * - ``spectral_module_type``
+     - Module type for the First Solar spectral correction. Default ``cdte``.
+       Distinct from ``module_type``; see :ref:`spec_corrected_poa`.
+   * - ``airmass_model``
+     - Relative airmass model. Default ``kastenyoung1989``.
+   * - ``altitude_override``
+     - Altitude in m used when building the pvlib ``Location``. Default ``0``
+       (sea level, per the First Solar reference); set to ``null`` to use the
+       site's own altitude.
+
+**Test-requirement values.** These record what the test procedure or contract
+requires. They are stored on the instance for you to reference when building
+the filter pipeline — nothing in pvcaptest reads them on its own.
+
+.. list-table::
+   :widths: 26 74
+   :header-rows: 1
+
+   * - Key
+     - Description
+   * - ``min_irr``, ``max_irr``
+     - POA irradiance filter bounds in W/m^2. Defaults ``400`` and ``1400``.
+       Pass them yourself: ``tst.meas.filter_irr(tst.min_irr, tst.max_irr)``.
+   * - ``rep_irr_filter``
+     - Fractional reporting-irradiance band. Default ``0.2``. Read the derived
+       :py:attr:`~captest.captest.CapTest.rep_irr_filter_low` /
+       :py:attr:`~captest.captest.CapTest.rep_irr_filter_high` properties
+       (``0.8`` / ``1.2``) rather than this value directly.
+   * - ``clipping_irr``
+     - POA irradiance above which the plant is expected to clip, W/m^2.
+       Default ``1000``.
+   * - ``fshdbm``
+     - Shade-filter threshold as a fraction. Default ``1.0``. Note that
+       :py:meth:`~captest.capdata.CapData.filter_shade` takes its own
+       ``fshdbm`` argument — this key does not feed it.
+   * - ``shade_filter_start``, ``shade_filter_end``
+     - ``"HH:MM"`` bounds for between-time shade filtering. Default ``null``.
+   * - ``sim_days``
+     - Days of simulated data used for the test. Default ``30``.
+   * - ``hrs_req``
+     - Hours of data required for a complete test. Default ``12.5``.
+   * - ``irrad_stability``, ``irrad_stability_threshold``
+     - Irradiance stability strategy — ``std`` (default),
+       ``filter_clearsky``, or ``contract`` — and its threshold (``30``).
+   * - ``inv_ac_nameplate``
+     - Per-inverter AC nameplate rating in kW. Plant metadata and a prefill
+       source for per-inverter clipping filters; never a hidden input to
+       results, since serialized filter steps record their resolved
+       thresholds.
+
+.. note::
+
+    Because the values in the last table are carriers rather than inputs, a
+    config that lists ``min_irr: 400`` has not filtered anything — the
+    ``meas_filters`` / ``sim_filters`` pipelines are the record of what was
+    actually applied, and each step stores the resolved values it ran with.
+    Reading the settings and the pipelines together is what makes a config
+    reviewable.
+
+.. note::
+
+    Two constructor arguments are deliberately absent from the yaml surface:
+    ``meas_loader`` / ``sim_loader``, which are callables, and
+    ``auto_wrap_sim``. Set them when calling
+    :py:meth:`~captest.captest.CapTest.from_params`.
 
 .. _what-setup-does:
 
