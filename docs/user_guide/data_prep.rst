@@ -11,7 +11,7 @@ difference is what they do: a filter selects rows and leaves the values alone,
 while a prep step rewrites values (or column identity) in
 :py:attr:`~captest.capdata.CapData.data` in place. Each step that runs is
 appended to the :py:attr:`~captest.capdata.CapData.prep` list, is written to
-the test config by :py:meth:`~captest.captest.CapTest.to_yaml`, and is
+the test config by :py:meth:`~captest.CapTest.to_yaml`, and is
 re-applied automatically the next time the data is loaded.
 
 Where prep sits in the lifecycle
@@ -21,7 +21,7 @@ The lifecycle of a test is:
 **load → prep → setup → filter**
 
 Prep runs after the data is loaded and before
-:py:meth:`~captest.captest.CapTest.setup`. That ordering is deliberate:
+:py:meth:`~captest.CapTest.setup`. That ordering is deliberate:
 ``setup`` resolves regression columns and calculates derived parameters (cell
 temperature, spectral corrections) from the values in ``data``, so the values
 must already be in the units those calculations assume. Filtering comes last,
@@ -30,7 +30,7 @@ because every filter threshold is evaluated against prepped values.
 The prep stage is the only place a data adjustment is *recorded*. Editing
 ``cd.data`` directly in a notebook still works and always has, but nothing
 captures that it happened: the exported yaml does not show it, and
-:py:meth:`~captest.captest.CapTest.reload` re-invokes the loader and silently
+:py:meth:`~captest.CapTest.reload` re-invokes the loader and silently
 discards it. A reviewer reading an exported config can see a recorded prep
 step; they cannot see a hand-edit.
 
@@ -43,7 +43,7 @@ counts, and prep removes no points. Use
 The prep methods
 ----------------
 :py:class:`~captest.capdata.CapData` provides four prep wrappers, each of
-which builds a step from :py:mod:`captest.prep`, runs it against ``data``, and
+which builds a step from :doc:`/source/api_reference/prep`, runs it against ``data``, and
 appends it to :py:attr:`~captest.capdata.CapData.prep`:
 
 - :py:meth:`~captest.capdata.CapData.prep_convert_units` — convert between
@@ -69,9 +69,9 @@ and a PVsyst side needs its power column rescaled:
     sim = ct.load_pvsyst('./pvsyst/VC1_HourlyRes_1.CSV')
     sim.prep_scale(columns=['E_Grid'], factor=0.001)
 
-Within a :py:class:`~captest.captest.CapTest`, load the data without running
+Within a :py:class:`~captest.CapTest`, load the data without running
 ``setup``, prep each side, then call
-:py:meth:`~captest.captest.CapTest.setup`:
+:py:meth:`~captest.CapTest.setup`:
 
 .. code-block:: Python
 
@@ -302,7 +302,7 @@ Three consequences follow:
   populated.
 - There is no ``reset_prep()``. Nothing can undo a mutation, so re-prepping
   means going back to raw data with
-  :py:meth:`~captest.captest.CapTest.reload`:
+  :py:meth:`~captest.CapTest.reload`:
 
   .. code-block:: Python
 
@@ -316,7 +316,7 @@ Three consequences follow:
   overwrites ``sim_prep`` with the applied chain, editing ``tst.sim_prep``
   and then reloading does not change anything. To run a *different* prep,
   rebuild the test from its paths — with
-  :py:meth:`~captest.captest.CapTest.from_yaml` on an edited config, or
+  :py:meth:`~captest.CapTest.from_yaml` on an edited config, or
   ``from_params(..., run_setup=False)`` followed by the ``prep_*`` calls you
   want.
 
@@ -328,7 +328,7 @@ never left behind.
 
 .. note::
 
-    When a :py:class:`~captest.captest.CapTest` is built from a *pre-built*
+    When a :py:class:`~captest.CapTest` is built from a *pre-built*
     :py:class:`~captest.capdata.CapData` rather than a path, a stored
     ``meas_prep`` / ``sim_prep`` config is kept but **not** applied — the
     object may already have been prepped, and prep is not idempotent. A
@@ -385,7 +385,7 @@ groups are aggregated together.
 
 Prep in the config file
 -----------------------
-:py:meth:`~captest.captest.CapTest.to_yaml` writes the applied prep chain for
+:py:meth:`~captest.CapTest.to_yaml` writes the applied prep chain for
 each side under the ``meas_prep`` and ``sim_prep`` keys, alongside the
 ``meas_filters`` / ``sim_filters`` pipelines described in
 :ref:`reproducing-a-test`. The keys are omitted entirely when a side has no
@@ -432,8 +432,8 @@ prep.
       # ...
 
 Unlike the filter pipelines, which are stored as *pending* and replayed by
-:py:meth:`~captest.captest.CapTest.run_test`, prep is applied **at load**.
-:py:meth:`~captest.captest.CapTest.from_yaml` loads each side from its path
+:py:meth:`~captest.CapTest.run_test`, prep is applied **at load**.
+:py:meth:`~captest.CapTest.from_yaml` loads each side from its path
 and immediately replays that side's prep, before ``setup``:
 
 .. code-block:: Python
@@ -446,10 +446,10 @@ and immediately replays that side's prep, before ``setup``:
     Columns index were dropped.
     Columns E_Grid were scaled by 0.001 with an offset of 0.0.
 
-The same replay happens for :py:meth:`~captest.captest.CapTest.from_params`
-and :py:meth:`~captest.captest.CapTest.from_mapping` whenever a side is built
+The same replay happens for :py:meth:`~captest.CapTest.from_params`
+and :py:meth:`~captest.CapTest.from_mapping` whenever a side is built
 from a path, including under ``run_setup=False``, and on every
-:py:meth:`~captest.captest.CapTest.reload`. That is what makes a reload with a
+:py:meth:`~captest.CapTest.reload`. That is what makes a reload with a
 new file safe: the new data gets the same adjustments the old data had.
 
 A single :py:class:`~captest.capdata.CapData` can be round-tripped on its own

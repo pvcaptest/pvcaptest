@@ -14,6 +14,8 @@ Dashboards and Multi-panel Plots
 
    plotting.plot
    plotting.scatter_dboard
+   plotting.find_default_groups
+   plotting.parse_combine
 
 Scatter Plots
 -------------

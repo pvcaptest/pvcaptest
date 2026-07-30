@@ -264,9 +264,12 @@ TEST_SETUPS = {
             "Rear shading and IAM losses are handled in the modeled (PVsyst) "
             "data: the modeled rear irradiance is rpoa_pvsyst = GlobBak + "
             "BackShd, while the measured rear sensor (irr_rpoa) is used "
-            "as-measured (no rear_shade factor, i.e. rear_shade = 0). For the "
-            "variant that instead applies rear shading on the measured side, "
-            "see 'bifi_e2848_etotal_rear_shade_meas'. Total irradiance is "
+            "as-measured. Leave CapTest's 'rear_shade' at its default of 0 "
+            "with this setup: the rear shading is already carried by the "
+            "modeled rear irradiance, and a non-zero 'rear_shade' is still "
+            "applied to the measured e_total, double-counting the loss. To "
+            "apply rear shading on the measured side instead, use "
+            "'bifi_e2848_etotal_rear_shade_meas'. Total irradiance is "
             "E_Total = E_POA + E_Rear * bifaciality, following the NREL "
             "modified bifacial approach."
         ),
@@ -316,9 +319,10 @@ TEST_SETUPS = {
             "irradiance maps directly to PVsyst's unshaded global rear "
             "('GlobBak') instead of rpoa_pvsyst, and rear shading is applied "
             "to the measured side through the e_total 'rear_shade' factor "
-            "(propagated by CapTest to the measured CapData only). Total "
-            "irradiance is E_Total = E_POA + E_Rear * bifaciality * "
-            "(1 - rear_shade)."
+            "(propagated by CapTest to the measured CapData only). This is "
+            "the variant to select when 'rear_shade' is set to a non-zero "
+            "value. Total irradiance is E_Total = E_POA + E_Rear * "
+            "bifaciality * (1 - rear_shade)."
         ),
         "reg_cols_meas": {
             "power": ("real_pwr_mtr", "sum"),
@@ -467,9 +471,12 @@ TEST_SETUPS = {
             "Rear shading and IAM losses are handled in the modeled (PVsyst) "
             "data: the modeled rear irradiance is rpoa_pvsyst = GlobBak + "
             "BackShd, while the measured rear sensor (irr_rpoa) is used "
-            "as-measured (no rear_shade factor, i.e. rear_shade = 0). For the "
-            "variant that instead applies rear shading on the measured side, "
-            "see 'bifi_power_tc_etotal_rear_shade_meas'. Total irradiance is "
+            "as-measured. Leave CapTest's 'rear_shade' at its default of 0 "
+            "with this setup: the rear shading is already carried by the "
+            "modeled rear irradiance, and a non-zero 'rear_shade' is still "
+            "applied to the measured e_total, double-counting the loss. To "
+            "apply rear shading on the measured side instead, use "
+            "'bifi_power_tc_etotal_rear_shade_meas'. Total irradiance is "
             "E_Total = E_POA + E_Rear * bifaciality, following the NREL "
             "modified bifacial approach."
         ),
@@ -536,9 +543,10 @@ TEST_SETUPS = {
             "irradiance maps directly to PVsyst's unshaded global rear "
             "('GlobBak') instead of rpoa_pvsyst, and rear shading is applied "
             "to the measured side through the e_total 'rear_shade' factor "
-            "(propagated by CapTest to the measured CapData only). Total "
-            "irradiance is E_Total = E_POA + E_Rear * bifaciality * "
-            "(1 - rear_shade)."
+            "(propagated by CapTest to the measured CapData only). This is "
+            "the variant to select when 'rear_shade' is set to a non-zero "
+            "value. Total irradiance is E_Total = E_POA + E_Rear * "
+            "bifaciality * (1 - rear_shade)."
         ),
         "reg_cols_meas": {
             "power": (
@@ -678,9 +686,12 @@ TEST_SETUPS = {
             "Rear shading and IAM losses are handled in the modeled (PVsyst) "
             "data: the modeled rear irradiance is rpoa_pvsyst = GlobBak + "
             "BackShd, while the measured rear sensor (irr_rpoa) is used "
-            "as-measured (no rear_shade factor, i.e. rear_shade = 0). For the "
-            "variant that instead applies rear shading on the measured side, "
-            "see 'bifi_e2848_etotal_rear_shade_meas_spec_corrected'. Total irradiance is "
+            "as-measured. Leave CapTest's 'rear_shade' at its default of 0 "
+            "with this setup: the rear shading is already carried by the "
+            "modeled rear irradiance, and a non-zero 'rear_shade' is still "
+            "applied to the measured e_total, double-counting the loss. To "
+            "apply rear shading on the measured side instead, use "
+            "'bifi_e2848_etotal_rear_shade_meas_spec_corrected'. Total irradiance is "
             "E_Total = E_POA + E_Rear * bifaciality with the spectral correction "
             "applied to E_POA. "
         ),
@@ -781,7 +792,8 @@ TEST_SETUPS = {
             "The modeled rear irradiance maps directly to PVsyst's unshaded global rear "
             "('GlobBak') instead of rpoa_pvsyst, and rear shading is applied "
             "to the measured side through the e_total 'rear_shade' factor "
-            "(propagated by CapTest to the measured CapData only). Total "
+            "(propagated by CapTest to the measured CapData only). This is the "
+            "variant to select when 'rear_shade' is set to a non-zero value. Total "
             "irradiance is E_Total = E_POA + E_Rear * bifaciality * (1 - rear_shade)."
         ),
         "reg_cols_meas": {
@@ -1346,6 +1358,11 @@ class CapTest(param.Parameterized):
         measured CapData instance only (see ``_downstream_attrs_meas_only``).
         Applied by ``calcparams.e_total`` on the measured side; the modeled
         side handles rear shading through its own ``reg_cols_sim`` definition.
+        Belongs with the ``*_rear_shade_meas`` presets. The
+        ``*_rear_shade_sim`` presets already carry rear shading in the modeled
+        rear irradiance (``rpoa_pvsyst``) and expect the default ``0``; since
+        no preset overrides the value, a non-zero ``rear_shade`` shades the
+        measured side there too and double-counts the loss.
     meas_loader, sim_loader : callable or None
         Programmatic-only data-loader callables. Default resolution when
         ``None``: ``captest.io.load_data`` and ``captest.io.load_pvsyst``
@@ -1367,16 +1384,11 @@ class CapTest(param.Parameterized):
         The fully-resolved ``TEST_SETUPS`` entry after ``setup()`` has run.
         Plain instance attribute (not a ``param.*``) so ``setup()`` can be
         called multiple times.
-    rep_irr_filter_low : float
-        Read-only. Lower irradiance fraction bound derived from
-        ``rep_irr_filter``: ``1 - rep_irr_filter``. For example, when
-        ``rep_irr_filter=0.2`` this is ``0.8``. Pass as ``low`` to
-        ``CapData.filter_irr`` together with a ``ref_val``.
-    rep_irr_filter_high : float
-        Read-only. Upper irradiance fraction bound derived from
-        ``rep_irr_filter``: ``1 + rep_irr_filter``. For example, when
-        ``rep_irr_filter=0.2`` this is ``1.2``. Pass as ``high`` to
-        ``CapData.filter_irr`` together with a ``ref_val``.
+
+    See Also
+    --------
+    rep_irr_filter_low : Lower reporting-irradiance fraction bound.
+    rep_irr_filter_high : Upper reporting-irradiance fraction bound.
 
     Notes
     -----
@@ -1529,7 +1541,12 @@ class CapTest(param.Parameterized):
         doc=(
             "Fraction of rear irradiance lost due to shading, passed to "
             "calcparams.e_total. Propagated onto the measured CapData "
-            "instance only (see _downstream_attrs_meas_only)."
+            "instance only (see _downstream_attrs_meas_only). Set a non-zero "
+            "value only with the '*_rear_shade_meas' presets; the "
+            "'*_rear_shade_sim' presets carry rear shading in the modeled rear "
+            "irradiance and expect the default 0. No preset overrides this "
+            "value, so a non-zero setting reaches the measured e_total "
+            "whichever preset is selected."
         ),
     )
     power_temp_coeff = param.Number(
@@ -3400,7 +3417,8 @@ class CapTest(param.Parameterized):
     def rep_irr_filter_low(self):
         """Lower irradiance fraction bound derived from ``rep_irr_filter``.
 
-        Equal to ``1 - rep_irr_filter``. Updates automatically whenever
+        Read-only. Equal to ``1 - rep_irr_filter``; for example, when
+        ``rep_irr_filter=0.2`` this is ``0.8``. Updates automatically whenever
         ``rep_irr_filter`` is reassigned. Pass as the ``low`` argument to
         ``CapData.filter_irr`` with a ``ref_val`` to filter within the
         reporting-irradiance band.
@@ -3411,7 +3429,8 @@ class CapTest(param.Parameterized):
     def rep_irr_filter_high(self):
         """Upper irradiance fraction bound derived from ``rep_irr_filter``.
 
-        Equal to ``1 + rep_irr_filter``. Updates automatically whenever
+        Read-only. Equal to ``1 + rep_irr_filter``; for example, when
+        ``rep_irr_filter=0.2`` this is ``1.2``. Updates automatically whenever
         ``rep_irr_filter`` is reassigned. Pass as the ``high`` argument to
         ``CapData.filter_irr`` with a ``ref_val`` to filter within the
         reporting-irradiance band.

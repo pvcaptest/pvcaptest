@@ -755,11 +755,12 @@ class CapData(param.Parameterized):
     ----------
     name : str
         Name for the CapData object.
-    data : pandas dataframe
-        Used to store measured or simulated data imported from csv.
-    data_filtered : pandas dataframe
-        Holds filtered data.  Filtering methods act on and write to this
-        attribute.
+
+    Attributes
+    ----------
+    data : pandas.DataFrame
+        The loaded measured or simulated data. This is the only frame that is
+        stored; filtering never modifies it.
     column_groups : dictionary
         Assigned by the `group_columns` method, which attempts to infer the
         type of measurement recorded in each column of the dataframe stored in
@@ -783,6 +784,21 @@ class CapData(param.Parameterized):
         String representing error band.  Ex. '+ 3', '+/- 3', '- 5'
         There must be space between the sign and number. Number is
         interpreted as a percent.  For example, 5 percent is 5 not 0.05.
+    loc : LocIndexer
+        Indexer returning columns of `data` by column heading, `column_groups`
+        group id, or `regression_cols` regression term. Used with ``[]``, e.g.
+        ``cd.loc['poa']``.
+    floc : FilteredLocIndexer
+        The same indexer over `data_filtered` rather than `data`.
+    data_loader : DataLoader
+        The `io.DataLoader` instance used to load the data, when the object was
+        built by `io.load_data` or `io.load_pvsyst`.
+
+    See Also
+    --------
+    data_filtered : Derived, read-only view of `data` after the applied filters.
+    filters : The applied filter chain that `data_filtered` is derived from.
+    prep : The applied data-preparation steps.
     """
 
     filters = param.List(
@@ -1360,12 +1376,15 @@ class CapData(param.Parameterized):
 
     def reset_filter(self):
         """
-        Set `data_filtered` to `data` and reset filtering summary.
+        Clear the applied filter chain.
 
-        Parameters
-        ----------
-        data : str
-            'sim' or 'das' determines if filter is on sim or das data.
+        Empties the `filters` list, so `data_filtered` returns all rows of
+        `data` again and the filtering summaries report no steps. `data` is
+        untouched.
+
+        Returns
+        -------
+        None
         """
         self.filters = []
 
@@ -1624,14 +1643,17 @@ class CapData(param.Parameterized):
         Returns
         -------
         None
-            Acts in place on the data, data_filtered, and regression_cols attributes.
+            Acts in place on the `data` and `regression_cols` attributes.
 
         Notes
         -----
         This method is intended to be used before any filtering methods are applied.
-        Filtering steps applied when this method is used will be lost.
+        It clears the `filters` list, so any filtering steps already applied are
+        lost.
 
-        This method modifies the `data`, `data_filtered`, and `regression_cols` attributes.
+        This method modifies the `data` and `regression_cols` attributes. The
+        aggregated columns appear in `data_filtered` automatically, since that is
+        derived from `data`.
         """
         if self.filters:
             warnings.warn(

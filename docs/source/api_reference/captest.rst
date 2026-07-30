@@ -3,7 +3,7 @@
 CapTest
 =======
 
-:py:class:`~captest.captest.CapTest` organizes a pair of
+:py:class:`~captest.CapTest` organizes a pair of
 :py:class:`~captest.capdata.CapData` objects (measured and simulated) along
 with test configuration, and provides methods for computing reporting
 conditions, running the ASTM E2848 capacity test, and evaluating pass/fail.
@@ -16,7 +16,7 @@ conditions, running the ASTM E2848 capacity test, and evaluating pass/fail.
 Constructors
 ------------
 
-Alternative constructors for building a :py:class:`~captest.captest.CapTest`
+Alternative constructors for building a :py:class:`~captest.CapTest`
 from parameters, YAML files, or mapping objects.
 
 .. autosummary::
@@ -46,9 +46,9 @@ Reporting Conditions
 --------------------
 
 A capacity test has a single set of reporting conditions, owned by the test as
-:py:attr:`~captest.captest.CapTest.rc` and tracked by
-:py:attr:`~captest.captest.CapTest.rc_source` (``'meas'`` / ``'sim'`` /
-``'manual'``). Compute them with :py:meth:`~captest.captest.CapTest.rep_cond`
+:py:attr:`~captest.CapTest.rc` and tracked by
+:py:attr:`~captest.CapTest.rc_source` (``'meas'`` / ``'sim'`` /
+``'manual'``). Compute them with :py:meth:`~captest.CapTest.rep_cond`
 or assign them directly via the ``rc`` setter. See :ref:`reporting_conditions`
 in the user guide for the full model.
 
@@ -56,17 +56,32 @@ in the user guide for the full model.
    :toctree: generated/
 
    CapTest.rc
+   CapTest.rc_source
    CapTest.rep_cond
    CapTest.rep_irr_filter_low
    CapTest.rep_irr_filter_high
+
+Test Settings
+-------------
+
+Parameters referenced from the prose elsewhere in the documentation. The full
+list, with defaults, is in the :py:class:`~captest.CapTest` parameter table
+above; see :ref:`captest-settings-reference` in the user guide for what each one
+is used for.
+
+.. autosummary::
+   :toctree: generated/
+
+   CapTest.rear_shade
+   CapTest.auto_wrap_sim
 
 Results
 -------
 
 Methods for running the capacity test and evaluating pass/fail.
-:py:meth:`~captest.captest.CapTest.run_test` runs the whole test — setup,
+:py:meth:`~captest.CapTest.run_test` runs the whole test — setup,
 filter-pipeline replay, regressions, and results — in one call.
-:py:meth:`~captest.captest.CapTest.captest_results` returns a
+:py:meth:`~captest.CapTest.captest_results` returns a
 :py:class:`~captest.captest.CapTestResults` object; ``str(results)``
 reproduces the printed report and ``results.styled_pvalues()`` the styled
 p-value table.
@@ -94,7 +109,7 @@ Visualization
 Module-level Functions
 ----------------------
 
-Standalone functions used alongside :py:class:`~captest.captest.CapTest`.
+Standalone functions used alongside :py:class:`~captest.CapTest`.
 
 .. autosummary::
    :toctree: generated/
@@ -114,7 +129,7 @@ Predefined Test Setups
 fully-validated test-setup entries. Each entry bundles a regression formula,
 column mappings for measured and modeled data, default reporting conditions,
 and a scatter-plot callable. Pass the preset name as ``test_setup`` when
-constructing a :py:class:`~captest.captest.CapTest`.
+constructing a :py:class:`~captest.CapTest`.
 
 .. data:: captest.TEST_SETUPS
 
@@ -138,7 +153,8 @@ The built-in presets are:
    Standard ASTM E2848 regression form with total effective irradiance replacing
    front-side POA as the independent variable. Rear shading and IAM losses are
    handled in the modeled (PVsyst) data (``rpoa_pvsyst = GlobBak + BackShd``)
-   while the measured rear sensor is used as-measured (``rear_shade = 0``).
+   while the measured rear sensor is used as-measured, so ``rear_shade`` should
+   be left at its default ``0``.
    :math:`E_{Total} = E_{POA} + E_{Rear} \cdot \varphi`, following the NREL
    modified bifacial approach. See :ref:`choosing-test-setup` in the CapTest
    user guide for the per-side formulas.
@@ -167,7 +183,7 @@ The built-in presets are:
    calculate cell temperature via the Sandia PV Array Performance Model. Rear
    shading and IAM losses are handled in the modeled (PVsyst) data
    (``rpoa_pvsyst = GlobBak + BackShd``) while the measured rear sensor is used
-   as-measured (``rear_shade = 0``).
+   as-measured, so ``rear_shade`` should be left at its default ``0``.
    :math:`E_{Total} = E_{POA} + E_{Rear} \cdot \varphi`, following the NREL
    modified bifacial approach.
 
@@ -191,7 +207,8 @@ The built-in presets are:
    humidity and atmospheric pressure on the measured side and precipitable
    water from the PVsyst output. Rear shading and IAM losses are handled in
    the modeled (PVsyst) data (``rpoa_pvsyst = GlobBak + BackShd``) while the
-   measured rear sensor is used as-measured (``rear_shade = 0``).
+   measured rear sensor is used as-measured, so ``rear_shade`` should be left
+   at its default ``0``.
    :math:`E_{Total} = E_{POA} + E_{Rear} \cdot \varphi` with the spectral
    correction applied to :math:`E_{POA}`.
 
@@ -202,3 +219,13 @@ The built-in presets are:
    unshaded ``GlobBak``.
    :math:`E_{Total} = E_{POA} + E_{Rear} \cdot \varphi \cdot (1 - s)` on the
    measured side, where :math:`s` is the ``rear_shade`` fraction.
+
+.. warning::
+
+   :py:attr:`~captest.CapTest.rear_shade` belongs with the
+   ``*_rear_shade_meas`` presets. The measured ``reg_cols_meas`` mapping is the
+   same in both variants, and no preset overrides the value, so a non-zero
+   ``rear_shade`` is applied to the measured ``e_total`` whichever preset is
+   selected. Paired with a ``*_rear_shade_sim`` preset — where the shading is
+   already carried by ``rpoa_pvsyst`` on the modeled side — that
+   double-counts the loss.

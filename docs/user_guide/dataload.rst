@@ -2,7 +2,7 @@
 
 CapData Workflow
 ================
-The core functionality of pvcaptest is provided by the :py:class:`~captest.capdata.CapData` class, which is a wrapper around two pandas DataFrames, :py:attr:`data` and :py:attr:`data_filtered`. The :py:attr:`data` DataFrame holds the unfiltered data and the :py:attr:`data_filtered` DataFrame is a copy of the data that the :py:class:`~captest.capdata.CapData` filtering methods modify. :py:meth:`~captest.capdata.CapData.reset_filter` can be used to reset the :py:attr:`data_filtered` DataFrame to the unfiltered data. The :py:meth:`~captest.capdata.CapData.fit_regression` method is used to fit the regression equation stored in :py:attr:`regression_formula` to the filtered data. 
+The core functionality of pvcaptest is provided by the :py:class:`~captest.capdata.CapData` class, which holds the loaded data in the :py:attr:`~captest.capdata.CapData.data` DataFrame together with the chain of filters applied to it. :py:attr:`~captest.capdata.CapData.data` always holds the full, unfiltered data — filtering never modifies it. Each filtering method instead appends a step to the :py:attr:`~captest.capdata.CapData.filters` list recording which rows it kept, and :py:attr:`~captest.capdata.CapData.data_filtered` is a derived, read-only property returning a copy of :py:attr:`~captest.capdata.CapData.data` restricted to the rows kept by the last step. :py:meth:`~captest.capdata.CapData.reset_filter` clears that list, so :py:attr:`~captest.capdata.CapData.data_filtered` returns the unfiltered data again. The :py:meth:`~captest.capdata.CapData.fit_regression` method is used to fit the regression equation stored in :py:attr:`~captest.capdata.CapData.regression_formula` to the filtered data.
 
 Conducting a capacity tests with pvcaptest involves the following steps:
 
@@ -47,19 +47,19 @@ Generally, the first step to conducting a capacity test is to load data from the
 
 .. note::
 
-    :py:attr:`loc` and :py:attr:`floc` can be used to access data, see `Accessing Filtered and Unfiltered Data`_.
+    :py:attr:`~captest.capdata.CapData.loc` and :py:attr:`~captest.capdata.CapData.floc` can be used to access data, see `Accessing Filtered and Unfiltered Data`_.
 
 - Sorts the data by the datetime index.
 - Drops any rows where all values in the row are duplicates of the any other row.
 - Reindexes the data so there are no missing time intervals.
-- Attempts to group the columns by measurement type based on the column names and store the resulting groupings in the :py:attr:`column_groups` attribute.
-- If you provide information about the project site (latitude, longitude, elevation, timezone, racking type, racking orientation) it will add modeled clear sky POA and GHI irradiance to the :py:attr:`data` DataFrame.
+- Attempts to group the columns by measurement type based on the column names and store the resulting groupings in the :py:attr:`~captest.capdata.CapData.column_groups` attribute.
+- If you provide information about the project site (latitude, longitude, elevation, timezone, racking type, racking orientation) it will add modeled clear sky POA and GHI irradiance to the :py:attr:`~captest.capdata.CapData.data` DataFrame.
 
 Except for the clear sky modelling, the above describes the default behavior of :py:func:`~captest.io.load_data`, which can be adjusted as needed.
 
 If you are loading data from multiple files and the column headings to match across the files, then :py:func:`~captest.io.load_data` will create attempt to join the data by taking the union of the row and column indexes for all files.
 
-Internally, :py:func:`~captest.io.load_data` uses an instance of the :py:class:`~capdata.io.DataLoader` class, which is available in the :py:attr:`~captest.capdata.CapData.data_loader` attribute of the returned :py:class:`~captest.capdata.CapData` instance. 
+Internally, :py:func:`~captest.io.load_data` uses an instance of the :py:class:`~captest.io.DataLoader` class, which is available in the :py:attr:`~captest.capdata.CapData.data_loader` attribute of the returned :py:class:`~captest.capdata.CapData` instance. 
 
 .. note::
 
@@ -67,17 +67,17 @@ Internally, :py:func:`~captest.io.load_data` uses an instance of the :py:class:`
 
 .. note::
 
-    If it is necessary to modify the :py:attr:`data` DataFrame to add columns or convert units, it best to do that immediately after loading the data. Followed by calling :py:meth:`~captest.capdata.CapData.reset_filters`, which will overwrite the :py:attr:`data_filtered` DataFrame with the modified :py:attr:`data` DataFrame.
+    If it is necessary to modify the :py:attr:`~captest.capdata.CapData.data` DataFrame to add columns or convert units, it is best to do that immediately after loading the data, before any filters are applied. Because :py:attr:`~captest.capdata.CapData.data_filtered` is derived from :py:attr:`~captest.capdata.CapData.data`, the change is picked up automatically — there is nothing to reset. For unit and dtype changes prefer the prep methods (e.g. :py:meth:`~captest.capdata.CapData.prep_convert_units`, :py:meth:`~captest.capdata.CapData.prep_scale`), which record what they did so it can be replayed the next time the data is loaded; see :doc:`data_prep`.
 
 .. note::
 
-    **Automatic year-end wrapping of simulated data.** PVsyst simulated data spans a single calendar year (Jan 1 – Dec 31), so a measured test that crosses a year boundary (e.g. mid-December to mid-January) would not include January. Versions before v0.17.0 handled this with a manual ``wrap_year`` argument on :py:meth:`~captest.capdata.CapData.filter_time`. That argument has been removed; the wrapping is now applied automatically. When a measured and a modeled :py:class:`~captest.capdata.CapData` are bound together in a :py:class:`~captest.captest.CapTest`, :py:meth:`~captest.captest.CapTest.setup` detects a measured test within 60 days of a calendar-year boundary and wraps the simulated data into a contiguous July 1 – June 30 year. This is controlled by the :py:attr:`~captest.captest.CapTest.auto_wrap_sim` parameter (default ``True``). Set ``auto_wrap_sim=False`` and re-run :py:meth:`~captest.captest.CapTest.setup` to load the simulated data without wrapping.
+    **Automatic year-end wrapping of simulated data.** PVsyst simulated data spans a single calendar year (Jan 1 – Dec 31), so a measured test that crosses a year boundary (e.g. mid-December to mid-January) would not include January. Versions before v0.17.0 handled this with a manual ``wrap_year`` argument on :py:meth:`~captest.capdata.CapData.filter_time`. That argument has been removed; the wrapping is now applied automatically. When a measured and a modeled :py:class:`~captest.capdata.CapData` are bound together in a :py:class:`~captest.CapTest`, :py:meth:`~captest.CapTest.setup` detects a measured test within 60 days of a calendar-year boundary and wraps the simulated data into a contiguous July 1 – June 30 year. This is controlled by the :py:attr:`~captest.CapTest.auto_wrap_sim` parameter (default ``True``). Set ``auto_wrap_sim=False`` and re-run :py:meth:`~captest.CapTest.setup` to load the simulated data without wrapping.
 
 .. _col-grouping:
 
 Column grouping
 ---------------
-As mentioned above, much of the functionality of pvcaptest relies on the groupings of the columns of data by measurement type that is stored in :py:attr:`column_groups`, which is an instance of the :py:class:`~captest.columngroups.ColumnGroups` class, but can also be set to a standard python dictionary. :py:attr:`column_groups` maps a label for each group to a list of the column headings that are in each group. 
+As mentioned above, much of the functionality of pvcaptest relies on the groupings of the columns of data by measurement type that is stored in :py:attr:`~captest.capdata.CapData.column_groups`, which is an instance of the :py:class:`~captest.columngroups.ColumnGroups` class, but can also be set to a standard python dictionary. :py:attr:`~captest.capdata.CapData.column_groups` maps a label for each group to a list of the column headings that are in each group. 
 
 For example, the first two groups from the Complete Capacity Test example are shown below:
 
@@ -95,10 +95,10 @@ For example, the first two groups from the Complete Capacity Test example are sh
     }
 
 The :py:class:`~captest.columngroups.ColumnGroups` class provides some convenient features: nice display of the groupings for review and groups as attributes. Having group id as attributes allows groups of columns to be easily accessed using tab completion in Jupyter notebook.
-In addition, when data is loaded with :py:func:`~captest.io.load_data`, each column group is also accessible as an attribute directly on the :py:class:`~captest.capdata.CapData` instance. For example, if there is a group with the key ``poa``, it can be accessed as ``cd.poa``, which returns the corresponding columns of :py:attr:`data` as a DataFrame. This enables tab-completion in Jupyter notebooks for quick exploration of the data. The same behaviour can be enabled on a manually constructed :py:class:`~captest.capdata.CapData` instance by calling :py:meth:`~captest.capdata.CapData.create_column_group_attributes`.
+In addition, when data is loaded with :py:func:`~captest.io.load_data`, each column group is also accessible as an attribute directly on the :py:class:`~captest.capdata.CapData` instance. For example, if there is a group with the key ``poa``, it can be accessed as ``cd.poa``, which returns the corresponding columns of :py:attr:`~captest.capdata.CapData.data` as a DataFrame. This enables tab-completion in Jupyter notebooks for quick exploration of the data. The same behaviour can be enabled on a manually constructed :py:class:`~captest.capdata.CapData` instance by calling :py:meth:`~captest.capdata.CapData.create_column_group_attributes`.
 
-To rename columns consistently across :py:attr:`data`, :py:attr:`data_filtered`, and
-:py:attr:`column_groups`, use :py:meth:`~captest.capdata.CapData.rename_cols`.
+To rename columns consistently across :py:attr:`~captest.capdata.CapData.data`, :py:attr:`~captest.capdata.CapData.data_filtered`, and
+:py:attr:`~captest.capdata.CapData.column_groups`, use :py:meth:`~captest.capdata.CapData.rename_cols`.
 
 Due to the very wide range of conventions for naming in DAS / SCADA systems, the default approach to grouping columns often fails to return a satisfactory grouping of the columns. This can be addressed by providing an explicit mapping of column group ids to column names in an external file. To do this the path to the file should be passed to ``group_columns``. Excel, JSON, and YAML files are all options. JSON and Yaml must parse to a python dictionary with keys that are string ids of the groups and values that are lists of column names.
 
@@ -176,10 +176,10 @@ The list of groups and tags can be filtered using regular expressions. The text 
 
 Residual Plots
 ~~~~~~~~~~~~~~
-:py:meth:`~captest.captest.CapTest.residual_plot` creates overlay scatter plots of
+:py:meth:`~captest.CapTest.residual_plot` creates overlay scatter plots of
 regression residuals versus each regression parameter for the measured and
 simulated :py:class:`~captest.capdata.CapData` instances bound to a
-:py:class:`~captest.captest.CapTest`. This makes it easy to visually compare how
+:py:class:`~captest.CapTest`. This makes it easy to visually compare how
 the two models differ across the range of each predictor variable. See
 :ref:`captest` for the full workflow.
 
@@ -189,21 +189,28 @@ Identifying Regression Data
 ---------------------------
 To perform the regression pvcaptest uses `statsmodels <https://www.statsmodels.org/stable/index.html>`_, which in turn `relies on patsy <https://www.statsmodels.org/stable/examples/notebooks/generated/formulas.html>`_ to simplify specifying regression equations.
 
-By default the ASTM E2848 regression equation is defined in the :py:attr:`regression_formula` attribute:
+By default the ASTM E2848 regression equation is defined in the :py:attr:`~captest.capdata.CapData.regression_formula` attribute:
 
 .. code-block:: Python
 
         'power ~ poa + I(poa * poa) + I(poa * t_amb) + I(poa * w_vel) - 1'
 
-Patsy and Statsmodels expect to find columns with the `power`, `poa`, `t_amb`, and `w_vel` headings in the DataFrame passed to fit the regression. Rather than requiring those headings to be in the :py:attr:`data` DataFrame, pvcaptest requires the user to specify which columns or *group of columns* are to be used in the regression in :py:attr:`regression_cols`. The :py:meth:`~captest.capdata.CapData.set_regression_cols` method can used to identify column headings or column group ids (:py:attr:`column_groups` keys). Or :py:attr:`regression_cols` can be set to a dictionary mapping the regression terms defined in the :py:attr:`regression_formula` to the column headings or :py:attr:`column_groups` id.
+Patsy and Statsmodels expect to find columns with the `power`, `poa`, `t_amb`, and `w_vel` headings in the DataFrame passed to fit the regression. Rather than requiring those headings to be in the :py:attr:`~captest.capdata.CapData.data` DataFrame, pvcaptest requires the user to specify which columns or *group of columns* are to be used in the regression in :py:attr:`~captest.capdata.CapData.regression_cols`. The :py:meth:`~captest.capdata.CapData.set_regression_cols` method can used to identify column headings or column group ids (:py:attr:`~captest.capdata.CapData.column_groups` keys). Or :py:attr:`~captest.capdata.CapData.regression_cols` can be set to a dictionary mapping the regression terms defined in the :py:attr:`~captest.capdata.CapData.regression_formula` to the column headings or :py:attr:`~captest.capdata.CapData.column_groups` id.
 
 The ability to map a regression term to a group of columns is useful when there are multiple sensors for a given measurement, as described in the next section.
 
 Aggregating Sensors
 -------------------
-:py:meth:`~captest.capdata.CapData.agg_sensors` can be used to aggregate data from multiple sensors into a single column. This is useful when there are multiple sensors for a given measurement. Any combination of groups of columns and aggregation functions can be passed. By default the groups of columns assigned to the ``power``, ``poa``, ``t_amb``, and ``w_vel`` keys in the :py:attr:`regression_cols` attribute are aggregated by summing the power and averaging the POA irradiance, ambient temperature, and wind speed columns.
+:py:meth:`~captest.capdata.CapData.agg_sensors` can be used to aggregate data from multiple sensors into a single column. This is useful when there are multiple sensors for a given measurement. Any combination of groups of columns and aggregation functions can be passed. By default the groups of columns assigned to the ``power``, ``poa``, ``t_amb``, and ``w_vel`` keys in the :py:attr:`~captest.capdata.CapData.regression_cols` attribute are aggregated by summing the power and averaging the POA irradiance, ambient temperature, and wind speed columns.
 
-:py:meth:`~captest.capdata.CapData.agg_sensors` adds the resulting aggregated columns to the :py:attr:`data` and :py:attr:`data_filtered` dataframes. If :py:attr:`regression_cols` included a group of columns that was aggregated, :py:attr:`regression_cols` is updated to map the regression term to the aggregated column. After aggregation, all aggregated columns are also stored under the ``"agg"`` key in :py:attr:`column_groups` and are accessible as :py:class:`~captest.capdata.CapData` attributes prefixed with ``aggs_`` (e.g., ``cd.aggs_irr_poa_mean_agg``).
+:py:meth:`~captest.capdata.CapData.agg_sensors` adds the resulting aggregated columns to :py:attr:`~captest.capdata.CapData.data`; they appear in :py:attr:`~captest.capdata.CapData.data_filtered` automatically, since that is derived from :py:attr:`~captest.capdata.CapData.data`. If :py:attr:`~captest.capdata.CapData.regression_cols` included a group of columns that was aggregated, :py:attr:`~captest.capdata.CapData.regression_cols` is updated to map the regression term to the aggregated column. After aggregation, all aggregated columns are also stored under the ``"agg"`` key in :py:attr:`~captest.capdata.CapData.column_groups` and are accessible as :py:class:`~captest.capdata.CapData` attributes prefixed with ``aggs_`` (e.g., ``cd.aggs_irr_poa_mean_agg``).
+
+.. warning::
+
+    :py:meth:`~captest.capdata.CapData.agg_sensors` clears the
+    :py:attr:`~captest.capdata.CapData.filters` list, so any filters already
+    applied are lost (a ``UserWarning`` says so). Aggregate sensors before
+    filtering.
 
 :py:meth:`~captest.capdata.CapData.agg_sensors` also supports nested subgroup aggregation. If a value in ``agg_map`` is itself a dictionary, its keys are treated as subgroups to aggregate first, and the results are then aggregated together. This is useful when sensors are grouped by met station before being combined into a single representative value. For example:
 
@@ -220,7 +227,7 @@ Aggregating Sensors
 
 This first averages the sensors in ``irr_poa_met1`` and ``irr_poa_met2`` separately, then averages those two results to produce ``irr_poa_mean_agg``.
 
-For example, if the :py:attr:`regression_cols` attribute was set to the following:
+For example, if the :py:attr:`~captest.capdata.CapData.regression_cols` attribute was set to the following:
 
 .. code-block:: Python
 
@@ -231,9 +238,9 @@ For example, if the :py:attr:`regression_cols` attribute was set to the followin
         'w_vel': 'wind',
     }
 
-Where ``irr_poa``, ``temp_amb``, and ``wind`` are the ids of groups of columns in :py:attr:`column_groups`.
+Where ``irr_poa``, ``temp_amb``, and ``wind`` are the ids of groups of columns in :py:attr:`~captest.capdata.CapData.column_groups`.
 
-When agg_sensors is called with the default arguments, :py:attr:`regression_cols` is updated to the following:
+When agg_sensors is called with the default arguments, :py:attr:`~captest.capdata.CapData.regression_cols` is updated to the following:
 
 .. code-block:: Python
 
@@ -244,13 +251,13 @@ When agg_sensors is called with the default arguments, :py:attr:`regression_cols
         'w_vel': 'wind_amb_mean_agg',
     }
 
-where ``irr_poa_mean_agg``, ``temp_amb_mean_agg``, and ``wind_amb_mean_agg`` are the ids of the aggregated columns in :py:attr:`data` and :py:attr:`data_filtered` and these columns will be used when fitting the regression.
+where ``irr_poa_mean_agg``, ``temp_amb_mean_agg``, and ``wind_amb_mean_agg`` are the ids of the aggregated columns in :py:attr:`~captest.capdata.CapData.data` and :py:attr:`~captest.capdata.CapData.data_filtered` and these columns will be used when fitting the regression.
 
 Accessing Filtered and Unfiltered Data
 --------------------------------------
-The methods :py:attr:`loc` and :py:attr:`floc` can be used to access columns of data from the :py:attr:`data` and :py:attr:`data_filtered` DataFrames, respectively.
+The indexers :py:attr:`~captest.capdata.CapData.loc` and :py:attr:`~captest.capdata.CapData.floc` can be used to access columns of data from the :py:attr:`~captest.capdata.CapData.data` and :py:attr:`~captest.capdata.CapData.data_filtered` DataFrames, respectively. Like ``DataFrame.loc``, they are used with square brackets rather than called, e.g. ``cd.loc['poa']``.
 
-Any column heading of the :py:attr:`data` DataFrame, group id from :py:attr:`column_groups`, or regression term from :py:attr:`regression_cols` can be passed to :py:attr:`loc` or :py:attr:`floc`. Or, a list with any combination of these identifiers can be passed. 
+Any column heading of the :py:attr:`~captest.capdata.CapData.data` DataFrame, group id from :py:attr:`~captest.capdata.CapData.column_groups`, or regression term from :py:attr:`~captest.capdata.CapData.regression_cols` can be passed to :py:attr:`~captest.capdata.CapData.loc` or :py:attr:`~captest.capdata.CapData.floc`. Or, a list with any combination of these identifiers can be passed.
 
 
 Filtering
@@ -267,27 +274,27 @@ Filtering
 
 The :py:class:`~captest.capdata.CapData` class provides a variety of methods for filtering as described in ASTM E2848. These methods are all begin with "filter\_" and are well described in the docstrings of each method. For the complete list of filtering methods, see the :ref:`Filtering section <capdata-api-filtering>` of the CapData API reference.
 
-Running filters removes data from :py:attr:`data_filtered`. Each subsequent filtering method called will be applied to :py:attr:`data_filtered`, so the overall filtering is cumulative.
+Running a filter does not remove anything from :py:attr:`~captest.capdata.CapData.data`. Each filtering method appends a step to the :py:attr:`~captest.capdata.CapData.filters` list recording the rows it kept, and each subsequent filter is applied to the rows kept by the step before it, so the overall filtering is cumulative. :py:attr:`~captest.capdata.CapData.data_filtered` returns the rows kept by the last step.
 
-:py:meth:`~captest.capdata.CapData.reset_filter` method can be used to reset the :py:attr:`data_filtered` DataFrame to the unfiltered data.
+:py:meth:`~captest.capdata.CapData.reset_filter` clears the :py:attr:`~captest.capdata.CapData.filters` list, so :py:attr:`~captest.capdata.CapData.data_filtered` returns the unfiltered data again.
 
-Each filter that is run is recorded as a step in the :py:attr:`filters` list. :py:meth:`~captest.capdata.CapData.rerun_filters_from` re-executes part of the applied filter chain without starting over: it restores the data to the state after the step before the given index and then re-runs the remaining steps with their current settings. This is useful for adjusting one filter in the middle of a chain — edit the step's parameters (e.g. ``cd.filters[2].low = 300``) and call ``cd.rerun_filters_from(2)`` to re-apply that step and everything after it. Passing ``0`` re-runs the whole chain.
+:py:meth:`~captest.capdata.CapData.rerun_filters_from` re-executes part of the applied chain without starting over: it restores the state as of the step before the given index and then re-runs the remaining steps with their current settings. This is useful for adjusting one filter in the middle of a chain — edit the step's parameters (e.g. ``cd.filters[2].low = 300``) and call ``cd.rerun_filters_from(2)`` to re-apply that step and everything after it. Passing ``0`` re-runs the whole chain.
 
-The :py:meth:`~captest.capdata.CapData.get_summary` method will return a summary dataframe showing the number of rows in the :py:attr:`data_filtered` DataFrame before and after each filter was applied, the name of the each filter, and the arguments passed when calling each filter.
+The :py:meth:`~captest.capdata.CapData.get_summary` method returns a summary dataframe built from :py:attr:`~captest.capdata.CapData.filters`: one row per step, giving the name of the filter, the rows remaining after it, the rows it removed, and the arguments it was called with.
 
 Reporting conditions
 --------------------
-:py:meth:`~captest.capdata.CapData.rep_cond` can be used to calculate the reporting conditions. ``rep_cond`` is formula-agnostic: its right-hand-side variables are derived from :py:attr:`regression_formula` via :py:func:`~captest.util.parse_regression_formula`, so it supports any regression equation (not just the default ASTM E2848 formula). Results are stored in the :py:attr:`rc` attribute.
+:py:meth:`~captest.capdata.CapData.rep_cond` can be used to calculate the reporting conditions. ``rep_cond`` is formula-agnostic: its right-hand-side variables are derived from :py:attr:`~captest.capdata.CapData.regression_formula` via :py:func:`~captest.util.parse_regression_formula`, so it supports any regression equation (not just the default ASTM E2848 formula). Results are stored in the :py:attr:`~captest.capdata.CapData.rc` attribute.
 
 The ``func`` argument is a dict mapping each right-hand-side variable name to an aggregation function (a pandas agg name or a callable). Omitting ``func`` falls back to ``{var: 'mean' for var in rhs}``. For percentile aggregations use :py:func:`~captest.captest.perc_wrap`, e.g. ``func={'poa': perc_wrap(60), 't_amb': 'mean', 'w_vel': 'mean'}``.
 
-When the test is driven through a :py:class:`~captest.captest.CapTest`, each preset in :py:data:`~captest.captest.TEST_SETUPS` supplies its own default ``rep_conditions`` dict and :py:meth:`~captest.captest.CapTest.rep_cond` forwards it automatically. See :ref:`captest`.
+When the test is driven through a :py:class:`~captest.CapTest`, each preset in :py:data:`~captest.captest.TEST_SETUPS` supplies its own default ``rep_conditions`` dict and :py:meth:`~captest.CapTest.rep_cond` forwards it automatically. See :ref:`captest`.
 
 The "Reporting Conditions and Predicted Capacities" example demonstrates the reporting condition functionality in more detail.
 
 Fitting Regressions
 -------------------
-:py:meth:`~captest.capdata.CapData.fit_regression` is used to fit the regression equation stored in :py:attr:`regression_formula` to the filtered data. The statsmodels `regression results <https://www.statsmodels.org/stable/generated/statsmodels.regression.linear_model.RegressionResults.html#statsmodels.regression.linear_model.RegressionResults>`_ are stored in the :py:attr:`regression_results` attribute.
+:py:meth:`~captest.capdata.CapData.fit_regression` is used to fit the regression equation stored in :py:attr:`~captest.capdata.CapData.regression_formula` to the filtered data. The statsmodels `regression results <https://www.statsmodels.org/stable/generated/statsmodels.regression.linear_model.RegressionResults.html#statsmodels.regression.linear_model.RegressionResults>`_ are stored in the :py:attr:`~captest.capdata.CapData.regression_results` attribute.
 
 By default a summary showing the results of the regression is printed, similar to below:
 
@@ -296,7 +303,7 @@ By default a summary showing the results of the regression is printed, similar t
 
 Results
 -------
-After loading, filtering and regressing measured and simulated data in two separate instances of :py:class:`~captest.capdata.CapData`, the two instances are bound together in a :py:class:`~captest.captest.CapTest` and compared using :py:meth:`~captest.captest.CapTest.captest_results`, which returns a :py:class:`~captest.captest.CapTestResults` object holding the capacity ratio, pass/fail result, and the values behind them. :py:meth:`~captest.captest.CapTest.captest_results_check_pvalues` provides a styled summary of the predicted power using the regression coefficients of each :py:class:`~captest.capdata.CapData` instance and the reporting conditions. See :ref:`captest` for construction and the full workflow.
+After loading, filtering and regressing measured and simulated data in two separate instances of :py:class:`~captest.capdata.CapData`, the two instances are bound together in a :py:class:`~captest.CapTest` and compared using :py:meth:`~captest.CapTest.captest_results`, which returns a :py:class:`~captest.captest.CapTestResults` object holding the capacity ratio, pass/fail result, and the values behind them. :py:meth:`~captest.CapTest.captest_results_check_pvalues` provides a styled summary of the predicted power using the regression coefficients of each :py:class:`~captest.capdata.CapData` instance and the reporting conditions. See :ref:`captest` for construction and the full workflow.
 
 The results method will check and warn for potential issues:
 

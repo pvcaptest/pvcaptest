@@ -3,9 +3,9 @@
 Prep
 ====
 
-The :py:mod:`captest.prep` module holds the data-preparation steps: declared,
+The ``captest.prep`` module holds the data-preparation steps: declared,
 serializable adjustments applied between loading data and
-:py:meth:`~captest.captest.CapTest.setup`. Each step is a
+:py:meth:`~captest.CapTest.setup`. Each step is a
 :py:class:`~captest.prep.BasePrepStep` subclass that declares its
 configuration as typed ``param`` parameters and implements ``_execute``,
 rewriting ``CapData.data`` in place and recording itself on

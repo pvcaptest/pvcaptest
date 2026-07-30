@@ -3,7 +3,7 @@
 ============================
 Saving and Reproducing Tests
 ============================
-A :py:class:`~captest.captest.CapTest` can write its full configuration — the
+A :py:class:`~captest.CapTest` can write its full configuration — the
 test settings and the filter pipelines applied to the measured and modeled
 data — to a single yaml file, and reload that file to reproduce the test
 exactly. This makes a capacity test portable: it can be archived, shared,
@@ -14,7 +14,7 @@ described in :ref:`captest`.
 
 Saving a test setup
 -------------------
-:py:meth:`~captest.captest.CapTest.to_yaml` writes the main test settings back
+:py:meth:`~captest.CapTest.to_yaml` writes the main test settings back
 to a yaml file. This can be useful after adjusting a setup in a notebook and
 wanting to save the settings for a future run.
 
@@ -28,9 +28,9 @@ test settings, data paths, and the filter pipelines applied to the measured and
 modeled data (see :ref:`reproducing-a-test` below). It does not write the
 measured data, modeled data, fitted regression results, or plots.
 
-:py:meth:`~captest.captest.CapTest.to_mapping` returns the same configuration
+:py:meth:`~captest.CapTest.to_mapping` returns the same configuration
 as a plain dictionary instead of writing a file. It is the symmetric inverse
-of :py:meth:`~captest.captest.CapTest.from_mapping` and is useful when the
+of :py:meth:`~captest.CapTest.from_mapping` and is useful when the
 configuration should be inspected, stored, or transformed programmatically
 rather than written straight to yaml.
 
@@ -38,7 +38,7 @@ rather than written straight to yaml.
 
 Reproducing a complete test from a config file
 ----------------------------------------------
-A :py:meth:`~captest.captest.CapTest.to_yaml` config file captures more than the
+A :py:meth:`~captest.CapTest.to_yaml` config file captures more than the
 test settings — it also records the **filter pipeline applied to each dataset**.
 Every filter step run on ``tst.meas`` and ``tst.sim``, including the reporting-
 conditions calculation, is serialized under the ``meas_filters`` and
@@ -92,9 +92,9 @@ measured-side pipeline written by the bifacial example notebook:
         col_name: null
         custom_name: null
 
-Loading the file with :py:meth:`~captest.captest.CapTest.from_yaml` loads the
+Loading the file with :py:meth:`~captest.CapTest.from_yaml` loads the
 measured and modeled data and runs
-:py:meth:`~captest.captest.CapTest.setup` to assign the regression and
+:py:meth:`~captest.CapTest.setup` to assign the regression and
 calculated columns. The recorded filter pipelines are **not** applied at load
 — they are stored on the instance as ``tst.meas_filters_pending`` and
 ``tst.sim_filters_pending``, so a freshly loaded test holds unfiltered data,
@@ -125,7 +125,7 @@ one side at a time (``tst.run_test(side='meas')``) or manually with
 See :ref:`running-with-run-test` for the full description of ``run_test`` —
 including how it chooses between an applied chain and a pending pipeline, and
 re-running a single side after re-loading its data with
-:py:meth:`~captest.captest.CapTest.reload` — and :ref:`captest-typical-workflow`
+:py:meth:`~captest.CapTest.reload` — and :ref:`captest-typical-workflow`
 for the step-by-step states of a loaded test.
 
 .. note::

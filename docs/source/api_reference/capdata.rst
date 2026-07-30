@@ -12,6 +12,30 @@ history, and regression results.
 
    capdata.CapData
 
+.. _capdata-api-attributes:
+
+Attributes
+----------
+
+The state a :py:class:`~captest.capdata.CapData` carries.
+:py:attr:`~captest.capdata.CapData.data` is the only frame that is stored:
+:py:attr:`~captest.capdata.CapData.data_filtered` is read-only, derived from
+``data`` and the applied :py:attr:`~captest.capdata.CapData.filters` chain.
+
+.. autosummary::
+   :toctree: generated/
+
+   capdata.CapData.data_filtered
+   capdata.CapData.filters
+   capdata.CapData.prep
+   capdata.CapData.name
+
+The instance attributes — :py:attr:`~captest.capdata.CapData.data`,
+``column_groups``, ``regression_cols``, ``regression_formula``,
+``regression_results``, ``rc``, ``loc``, ``floc``, ``data_loader``, and
+``tolerance`` — are documented in the
+:py:class:`~captest.capdata.CapData` class reference above.
+
 Setup
 -----
 
@@ -44,6 +68,7 @@ see :ref:`data_prep`.
 
    capdata.CapData.get_reg_cols
    capdata.CapData.review_column_groups
+   capdata.CapData.create_column_group_attributes
    capdata.CapData.copy
    capdata.CapData.empty
    capdata.CapData.drop_cols
@@ -54,7 +79,7 @@ see :ref:`data_prep`.
 Data Preparation
 ----------------
 
-Thin wrappers that build a step class from :py:mod:`captest.prep` and
+Thin wrappers that build a step class from :doc:`prep` and
 ``run()`` it, appending it to the ``CapData.prep`` chain. Prep steps rewrite
 ``data`` in place between loading and ``setup()``. ``describe_prep`` returns a
 written summary of what was applied, while ``prep_to_config`` / ``run_prep``
@@ -90,7 +115,7 @@ Methods for aggregating sensor readings into single representative columns.
 Filtering
 ---------
 
-Thin wrappers that build a step class from :py:mod:`captest.filters` and
+Thin wrappers that build a step class from :doc:`filters` and
 ``run()`` it, appending it to the ``CapData.filters`` chain (the single source
 of truth from which ``data_filtered`` is derived). Each accepts an optional
 ``custom_name`` label. ``describe_filters`` returns a written summary of the
@@ -131,7 +156,7 @@ Reporting Conditions
 
 Methods for computing ASTM E2848 reporting conditions. ``rep_irr`` is the
 reporting POA irradiance used to anchor ``filter_irr(ref_val='rep_irr')``; within
-a :py:class:`~captest.captest.CapTest` it resolves from the single test RC. See
+a :py:class:`~captest.CapTest` it resolves from the single test RC. See
 :ref:`reporting_conditions` in the user guide.
 
 .. autosummary::
