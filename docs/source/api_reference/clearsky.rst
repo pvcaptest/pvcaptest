@@ -3,7 +3,7 @@
 Clear-sky Modeling
 ==================
 
-The :py:mod:`captest.clearsky` module provides the pvlib-based clear-sky GHI/POA
+The ``captest.clearsky`` module provides the pvlib-based clear-sky GHI/POA
 modeling used by :py:func:`~captest.io.load_data` when site metadata is supplied.
 This is distinct from clear-sky *filtering*, which is the
 :py:class:`~captest.filters.Clearsky` step (it calls

@@ -43,7 +43,7 @@ counts, and prep removes no points. Use
 The prep methods
 ----------------
 :py:class:`~captest.capdata.CapData` provides four prep wrappers, each of
-which builds a step from :py:mod:`captest.prep`, runs it against ``data``, and
+which builds a step from :doc:`/source/api_reference/prep`, runs it against ``data``, and
 appends it to :py:attr:`~captest.capdata.CapData.prep`:
 
 - :py:meth:`~captest.capdata.CapData.prep_convert_units` — convert between

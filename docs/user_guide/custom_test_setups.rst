@@ -11,7 +11,7 @@ you supply your own ``reg_cols_meas`` and ``reg_cols_sim`` dicts and user-define
 parameter calculation functions without modifying the package.
 
 This page explains the structure of those dicts, shows how the built-in
-:py:mod:`captest.calcparams` functions plug into them, and describes the three
+:doc:`/source/api_reference/calcparams` functions plug into them, and describes the three
 ways to wire a custom dict into a :py:class:`~captest.CapTest`.
 
 The regression column dictionary grammar
@@ -68,7 +68,7 @@ so that ``poa`` now points to ``e_total``.
 
 Using calcparams functions
 --------------------------
-The functions in :py:mod:`captest.calcparams` are the public building blocks
+The functions in :doc:`/source/api_reference/calcparams` are the public building blocks
 for calculated columns. Import the ones you need:
 
 .. code-block:: Python
@@ -88,7 +88,7 @@ If you need to calculate a parameter which does not have a function in the ``cal
 module, you can write your own.
 
 The dictionary accepts plain Python functions that are not part of
-:py:mod:`captest.calcparams`, as long as they follow the same signature
+:doc:`/source/api_reference/calcparams`, as long as they follow the same signature
 convention:
 
 - First positional argument must be ``data``, the source DataFrame.
@@ -170,7 +170,7 @@ Scalar auto-injection
 ---------------------
 Scalar parameters such as ``power_temp_coeff``, ``base_temp``,
 ``bifaciality``, and ``spectral_module_type`` do not need to appear in the
-dict. When a :py:mod:`captest.calcparams` function has a keyword argument
+dict. When a :doc:`/source/api_reference/calcparams` function has a keyword argument
 whose name matches an attribute on the ``CapData`` instance, pvcaptest injects
 that value automatically. :py:class:`~captest.CapTest` propagates
 these scalars onto both ``CapData`` instances during

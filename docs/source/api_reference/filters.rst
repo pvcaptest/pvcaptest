@@ -3,7 +3,7 @@
 Filters
 =======
 
-The :py:mod:`captest.filters` module holds all the filters. Each
+The ``captest.filters`` module holds all the filters. Each
 filter is a first-class object: a :py:class:`~captest.filters.BaseSummaryStep`
 subclass that declares its configuration as typed ``param`` parameters and
 implements ``_execute``. The filter methods on :py:class:`~captest.capdata.CapData` 
