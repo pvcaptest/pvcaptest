@@ -793,6 +793,11 @@ class CapData(param.Parameterized):
     data_loader : DataLoader
         The `io.DataLoader` instance used to load the data, when the object was
         built by `io.load_data` or `io.load_pvsyst`.
+    site : dict or None
+        Site location (`'loc'`) and system (`'sys'`) definition, set by
+        `io.load_data` when its `site` argument is given. Used by the
+        clear-sky modeling, `filter_backtracking`, and the solar-position
+        `calcparams` helpers. `None` when no site information was supplied.
 
     See Also
     --------
@@ -934,6 +939,12 @@ class CapData(param.Parameterized):
         cd_c.rc = copy.copy(self.rc)
         cd_c.regression_results = copy.deepcopy(self.regression_results)
         cd_c.regression_formula = copy.copy(self.regression_formula)
+        cd_c.tolerance = copy.copy(self.tolerance)
+        # `site` is set by `io.load_data`, not `__init__`, so it may be absent;
+        # the copy always carries the attribute (None when unset) so consumers
+        # get one shape. Deep-copied because the `loc`/`sys` sub-dicts are
+        # mutated in place by `CapTest._propagate_sim_site`.
+        cd_c.site = copy.deepcopy(getattr(self, "site", None))
         cd_c.pre_agg_cols = copy.copy(self.pre_agg_cols)
         cd_c.pre_agg_trans = copy.deepcopy(self.pre_agg_trans)
         cd_c.pre_agg_reg_trans = copy.deepcopy(self.pre_agg_reg_trans)

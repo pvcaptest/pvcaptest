@@ -5,7 +5,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
-
+### Fixed
+- `CapData.copy()` now carries over the `site` and `tolerance` attributes,
+which it previously dropped. Copies are the basis of the load-once,
+copy-per-run pattern, and a dropped `site` made `filter_backtracking` (and the
+solar-position `calcparams` helpers) silently degrade to a no-op on the copy,
+while a dropped `tolerance` broke `predict_capacities`. A copy now always
+exposes `site`, set to `None` when the source has none.
 
 [0.17.0]: https://github.com/pvcaptest/pvcaptest/compare/v0.16.0...v0.17.0
 ## [0.17.0] - 2026-07-30

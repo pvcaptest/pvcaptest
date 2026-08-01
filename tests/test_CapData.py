@@ -1133,6 +1133,146 @@ class TestCapDataCopy:
         assert col_to_drop not in pvsyst_copy.column_groups["pvsyt_losses--"]
         assert pvsyst.column_groups["pvsyt_losses--"] == original_group
 
+    def test_copy_carries_site(self, meas_cd_spec_corrected):
+        """`site` survives `copy()` and is deep-copied.
+
+        Consumers that copy a CapData before filtering (e.g. a sweep runner
+        loading once and copying per parameter combination) previously lost
+        `site`, which makes `filter_backtracking` and the solar-position
+        `calcparams` helpers silently degrade.
+        """
+        cd = meas_cd_spec_corrected
+        cd_copy = cd.copy()
+        assert cd_copy.site == cd.site
+        assert cd_copy.site is not cd.site
+        assert cd_copy.site["loc"] is not cd.site["loc"]
+        cd_copy.site["loc"]["tz"] = "Etc/GMT+6"
+        cd_copy.site["sys"]["surface_tilt"] = 35
+        assert cd.site["loc"]["tz"] == "America/Chicago"
+        assert cd.site["sys"]["surface_tilt"] == 20
+
+    def test_copy_site_is_none_when_source_has_no_site(self, pvsyst):
+        """A copy always exposes `site`, as None when the source had none."""
+        assert not hasattr(pvsyst, "site")
+        assert pvsyst.copy().site is None
+
+    def test_copy_carries_tolerance(self, pvsyst):
+        pvsyst.tolerance = "+/- 4"
+        assert pvsyst.copy().tolerance == "+/- 4"
+
+
+def _values_equal(copied, expected):
+    """Compare two attribute values, handling pandas objects."""
+    if isinstance(expected, (pd.DataFrame, pd.Series, pd.Index)):
+        return type(copied) is type(expected) and copied.equals(expected)
+    return copied == expected
+
+
+def _steps_equal(copied, expected):
+    """Compare two step chains structurally; step objects have no `__eq__`."""
+    return [step.to_config() for step in copied] == [
+        step.to_config() for step in expected
+    ]
+
+
+class TestCapDataCopyCompleteness:
+    """`copy()` must carry over every attribute a CapData holds.
+
+    The covered set is derived from the live object (`vars()` plus the
+    class-level params) rather than hard-coded, so adding an attribute to
+    `CapData` fails this test until it is either given a sentinel here and
+    copied, or listed in `NOT_COPIED` with a reason.
+    """
+
+    # Attributes that `copy()` deliberately does not carry over.
+    NOT_COPIED = {
+        "_captest": "back-reference to the owning CapTest; a copy is standalone",
+        "_param__private": "param internals; the copy builds its own",
+        "loc": "indexer bound to the instance; __init__ rebinds it to the copy",
+        "floc": "indexer bound to the instance; __init__ rebinds it to the copy",
+        "name": "carried through the `CapData(self.name)` constructor call",
+        "data_loader": (
+            "holds every source DataFrame in `loaded_files`; deep-copying it "
+            "would multiply the memory cost of each copy"
+        ),
+    }
+
+    # `site` is set by `io.load_data`, not `__init__`, so it never shows up in
+    # `vars()` of a bare CapData; it is a copyable attribute all the same.
+    NOT_IN_VARS = {"site"}
+
+    @staticmethod
+    def sentinels():
+        """Non-default value and comparator for every copyable attribute."""
+        return {
+            "data": (
+                pd.DataFrame(
+                    {"poa": [500.0, 750.0]},
+                    index=pd.date_range("1/1/2021", freq="h", periods=2),
+                ),
+                _values_equal,
+            ),
+            "column_groups": ({"irr_poa_": ["poa"]}, _values_equal),
+            "regression_cols": ({"poa": "irr_poa_"}, _values_equal),
+            "rc": (pd.DataFrame({"poa": [800.0]}), _values_equal),
+            "regression_results": ("fitted-model-sentinel", _values_equal),
+            "regression_formula": ("power ~ poa - 1", _values_equal),
+            "tolerance": ("+/- 4", _values_equal),
+            "site": (
+                {"loc": {"latitude": 35.0, "tz": "Etc/GMT+7"}, "sys": {"gcr": 0.4}},
+                _values_equal,
+            ),
+            "pre_agg_cols": (pd.Index(["poa"]), _values_equal),
+            "pre_agg_trans": ({"irr_poa_": ["poa"]}, _values_equal),
+            "pre_agg_reg_trans": ({"poa": "irr_poa_"}, _values_equal),
+            "filters": ([filters.Irradiance(low=200, high=800)], _steps_equal),
+            "prep": ([prep.Scale(columns=["poa"], factor=2.0)], _steps_equal),
+        }
+
+    def test_every_attribute_is_covered_by_this_test(self):
+        """Guard the guard: the sentinel set must match the live attributes."""
+        source = pvc.CapData("source")
+        tracked = (
+            set(vars(source)) | set(source.param) | self.NOT_IN_VARS
+        ) - self.NOT_COPIED.keys()
+        sentinels = set(self.sentinels())
+        assert tracked == sentinels, (
+            "CapData's attributes and this test's sentinels have diverged: "
+            f"uncovered={sorted(tracked - sentinels)}, "
+            f"stale={sorted(sentinels - tracked)}. Add a sentinel value here "
+            "and make sure CapData.copy() carries the attribute, or list it in "
+            "NOT_COPIED with the reason it is dropped."
+        )
+
+    def test_copy_carries_every_attribute(self):
+        source = pvc.CapData("source")
+        sentinels = self.sentinels()
+        for attr, (value, _) in sentinels.items():
+            setattr(source, attr, value)
+
+        cd_copy = source.copy()
+
+        default = pvc.CapData("default")
+        for attr, (value, equal) in sentinels.items():
+            copied = getattr(cd_copy, attr)
+            assert equal(copied, value), (
+                f"CapData.copy() did not carry over `{attr}`; the copy holds "
+                f"{copied!r} rather than {value!r}."
+            )
+            # The sentinel has to differ from the default, or the assert above
+            # would pass on an attribute copy() never touched.
+            assert not equal(getattr(default, attr, None), value), (
+                f"The sentinel for `{attr}` equals a fresh CapData's default, "
+                "so this test cannot detect a dropped copy."
+            )
+        assert cd_copy.name == source.name
+
+    def test_copy_leaves_captest_back_reference_unset(self):
+        """`_captest` is intentionally dropped: a copy is a standalone CapData."""
+        source = pvc.CapData("source")
+        source._captest = object()
+        assert source.copy()._captest is None
+
 
 class TestCapDataMethodsSim:
     """Test for top level irr_rc_balanced function."""
