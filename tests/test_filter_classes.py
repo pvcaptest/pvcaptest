@@ -1389,6 +1389,20 @@ class TestFilterBacktracking:
         f._execute(cd_backtrack)
         assert f.cross_axis_tilt_resolved == 0
 
+    def test_filters_a_copy_of_the_capdata(self, cd_backtrack):
+        """A copied CapData keeps the site the filter needs.
+
+        `copy()` used to drop `site`, so filtering a copy — the load-once,
+        copy-per-run pattern — warned and removed nothing instead of raising.
+        """
+        expected = Backtracking()._execute(cd_backtrack)
+        cd_copy = cd_backtrack.copy()
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", UserWarning)
+            kept = Backtracking()._execute(cd_copy)
+        assert kept.equals(expected)
+        assert len(kept) < cd_copy.data_filtered.shape[0]
+
     def test_no_site_warns_and_keeps_all(self, cd_backtrack):
         cd_backtrack.site = None
         n_before = cd_backtrack.data_filtered.shape[0]
