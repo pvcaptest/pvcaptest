@@ -5,6 +5,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Added
+- New `TimeOfDay` filter step (and `CapData.filter_time_of_day()` wrapper) —
+keep or drop a daily clock-time window via `DataFrame.between_time`. The
+first-class, serializable replacement for
+`filter_custom(pd.DataFrame.between_time, start, end)`: built from `param`
+parameters, with an `explanation` and full config round-trip through
+`FILTER_REGISTRY`.
+- Prep steps gain a fourth mutually exclusive column selector, `column_regex`,
+matching column *names* with a case-insensitive regex search (the same
+semantics as the Overlay plot's columns filter), where `group_regex` matches
+`column_groups` ids. Accepted by `prep_convert_units`, `prep_scale`, and
+`prep_astype`; `RenameColumns` continues to reject all selectors in favor of
+`column_map`.
+
 ### Fixed
 - `CapData.copy()` now carries over the `site` and `tolerance` attributes,
 which it previously dropped. Copies are the basis of the load-once,

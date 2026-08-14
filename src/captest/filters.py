@@ -1008,6 +1008,57 @@ class Time(BaseFilter):
         return None
 
 
+class TimeOfDay(BaseFilter):
+    """Keep (or drop) the intervals inside a daily clock-time window.
+
+    Applies ``DataFrame.between_time(start_time, end_time)`` — the first-class
+    equivalent of ``Custom(pd.DataFrame.between_time, start, end)``, which is
+    how notebooks have expressed a fixed daily shading window. Both bounds are
+    inclusive clock times (``"HH:MM"``). A window that wraps midnight
+    (``start_time`` later than ``end_time``) selects the wrapped span, matching
+    ``between_time``. By default the window is kept; set ``drop=True`` to
+    remove it and keep everything else.
+    """
+
+    start_time = param.String(
+        default=None,
+        allow_None=True,
+        doc="Window start clock time, e.g. '08:30'. Inclusive.",
+    )
+    end_time = param.String(
+        default=None,
+        allow_None=True,
+        doc="Window end clock time, e.g. '18:40'. Inclusive.",
+    )
+    drop = param.Boolean(
+        default=False,
+        doc="Remove the daily window from the data instead of keeping it.",
+    )
+
+    def _execute(self, capdata):
+        if self.start_time is None or self.end_time is None:
+            raise ValueError("TimeOfDay requires both start_time and end_time.")
+        df = capdata.data_filtered
+        window_ix = df.between_time(self.start_time, self.end_time).index
+        if self.drop:
+            return df.index.difference(window_ix)
+        return window_ix
+
+    @property
+    def explanation(self):
+        if not hasattr(self, "ix_after"):
+            return None
+        if self.drop:
+            return (
+                f"Intervals between {self.start_time} and {self.end_time} "
+                "each day were removed."
+            )
+        return (
+            f"Intervals outside {self.start_time} to {self.end_time} "
+            "each day were removed."
+        )
+
+
 class Custom(BaseFilter):
     """Apply an arbitrary callable to ``capdata.data_filtered`` as a row filter.
 
@@ -1824,6 +1875,7 @@ FILTER_REGISTRY = {
     "Pvsyst": Pvsyst,
     "Shade": Shade,
     "Time": Time,
+    "TimeOfDay": TimeOfDay,
     "Days": Days,
     "Outliers": Outliers,
     "PowerFactor": PowerFactor,
