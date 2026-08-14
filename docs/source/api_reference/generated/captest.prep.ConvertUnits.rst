@@ -27,6 +27,7 @@
    .. autosummary::
    
       ~ConvertUnits.args_repr
+      ~ConvertUnits.column_regex
       ~ConvertUnits.columns
       ~ConvertUnits.custom_name
       ~ConvertUnits.explanation

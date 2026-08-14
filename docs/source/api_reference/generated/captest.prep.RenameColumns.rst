@@ -28,6 +28,7 @@
    
       ~RenameColumns.args_repr
       ~RenameColumns.column_map
+      ~RenameColumns.column_regex
       ~RenameColumns.columns
       ~RenameColumns.custom_name
       ~RenameColumns.explanation

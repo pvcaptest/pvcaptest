@@ -130,6 +130,7 @@ current parameter values. See :doc:`filters` for the underlying step classes.
    capdata.CapData.filter_pvsyst
    capdata.CapData.filter_shade
    capdata.CapData.filter_time
+   capdata.CapData.filter_time_of_day
    capdata.CapData.filter_days
    capdata.CapData.filter_outliers
    capdata.CapData.filter_pf
