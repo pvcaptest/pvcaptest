@@ -47,6 +47,7 @@
       ~CapData.filter_shade
       ~CapData.filter_threshold
       ~CapData.filter_time
+      ~CapData.filter_time_of_day
       ~CapData.filters_to_config
       ~CapData.fit_regression
       ~CapData.get_filtering_table

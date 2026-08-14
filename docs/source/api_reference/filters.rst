@@ -44,6 +44,7 @@ Each step removes rows from ``CapData.data_filtered``. The corresponding
    filters.Pvsyst
    filters.Shade
    filters.Time
+   filters.TimeOfDay
    filters.Days
    filters.Outliers
    filters.PowerFactor

@@ -27,6 +27,7 @@
    .. autosummary::
    
       ~Scale.args_repr
+      ~Scale.column_regex
       ~Scale.columns
       ~Scale.custom_name
       ~Scale.explanation

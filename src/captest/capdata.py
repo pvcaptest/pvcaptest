@@ -44,6 +44,7 @@ from captest.filters import (
     Sensors,
     Shade,
     Time,
+    TimeOfDay,
     filter_grps,
     filter_irr,
     fit_model,
@@ -1950,6 +1951,32 @@ class CapData(param.Parameterized):
         )
         flt.run(self)
 
+    def filter_time_of_day(self, start_time, end_time, drop=False, custom_name=None):
+        """Keep (or drop) the intervals inside a daily clock-time window.
+
+        Backed by ``DataFrame.between_time`` — the first-class replacement for
+        ``filter_custom(pd.DataFrame.between_time, start, end)``.
+
+        Parameters
+        ----------
+        start_time : str
+            Window start clock time, e.g. ``'08:30'``. Inclusive.
+        end_time : str
+            Window end clock time, e.g. ``'18:40'``. Inclusive. A window that
+            wraps midnight (start later than end) selects the wrapped span.
+        drop : bool, default False
+            Remove the daily window instead of keeping it.
+        custom_name : str, default None
+            Optional display label for the recorded filter step.
+        """
+        flt = TimeOfDay(
+            start_time=start_time,
+            end_time=end_time,
+            drop=drop,
+            custom_name=custom_name,
+        )
+        flt.run(self)
+
     def filter_days(self, days, drop=False, custom_name=None):
         """Keep or drop the timestamps belonging to a list of days.
 
@@ -2361,6 +2388,7 @@ class CapData(param.Parameterized):
         columns=None,
         group=None,
         group_regex=None,
+        column_regex=None,
         from_units=None,
         to_units=None,
         custom_name=None,
@@ -2370,7 +2398,7 @@ class CapData(param.Parameterized):
         Parameters
         ----------
         columns : list of str, optional
-            Explicit column names. Mutually exclusive with the group selectors.
+            Explicit column names. Mutually exclusive with the other selectors.
         group : str or list of str, optional
             ``column_groups`` id, or list of ids.
         group_regex : str, optional
@@ -2378,6 +2406,9 @@ class CapData(param.Parameterized):
             ``"^temp_(amb|bom)$"`` to reach ``temp_amb`` and ``temp_bom`` at
             once. Anchor the pattern: a loose ``"^temp"`` also matches
             inverter-temperature groups such as ``temp_inv``.
+        column_regex : str, optional
+            Regex matched (case-insensitive search) against column *names*
+            rather than group ids.
         from_units, to_units : str
             Source and target units; see :data:`captest.prep.UNIT_CONVERSIONS`.
         custom_name : str, optional
@@ -2387,6 +2418,7 @@ class CapData(param.Parameterized):
             columns=columns,
             group=group,
             group_regex=group_regex,
+            column_regex=column_regex,
             from_units=from_units,
             to_units=to_units,
             custom_name=custom_name,
@@ -2397,6 +2429,7 @@ class CapData(param.Parameterized):
         columns=None,
         group=None,
         group_regex=None,
+        column_regex=None,
         factor=1.0,
         offset=0.0,
         custom_name=None,
@@ -2405,7 +2438,7 @@ class CapData(param.Parameterized):
 
         Parameters
         ----------
-        columns, group, group_regex : optional
+        columns, group, group_regex, column_regex : optional
             Column selector; exactly one is required. See
             :meth:`prep_convert_units`.
         factor : float, default 1.0
@@ -2419,6 +2452,7 @@ class CapData(param.Parameterized):
             columns=columns,
             group=group,
             group_regex=group_regex,
+            column_regex=column_regex,
             factor=factor,
             offset=offset,
             custom_name=custom_name,
@@ -2429,6 +2463,7 @@ class CapData(param.Parameterized):
         columns=None,
         group=None,
         group_regex=None,
+        column_regex=None,
         dtype="float64",
         custom_name=None,
     ):
@@ -2436,7 +2471,7 @@ class CapData(param.Parameterized):
 
         Parameters
         ----------
-        columns, group, group_regex : optional
+        columns, group, group_regex, column_regex : optional
             Column selector; exactly one is required. See
             :meth:`prep_convert_units`.
         dtype : str, default "float64"
@@ -2448,6 +2483,7 @@ class CapData(param.Parameterized):
             columns=columns,
             group=group,
             group_regex=group_regex,
+            column_regex=column_regex,
             dtype=dtype,
             custom_name=custom_name,
         ).run(self)

@@ -27,6 +27,7 @@
    .. autosummary::
    
       ~BasePrepStep.args_repr
+      ~BasePrepStep.column_regex
       ~BasePrepStep.columns
       ~BasePrepStep.custom_name
       ~BasePrepStep.explanation

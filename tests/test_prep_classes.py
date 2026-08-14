@@ -126,6 +126,49 @@ class TestSelectors:
         with pytest.raises(ValueError, match="absent"):
             prep.Scale(columns=["not_a_column"], factor=1.0).run(cd)
 
+    def test_column_regex_matches_column_names(self, cd):
+        step = prep.Scale(column_regex="^temp", factor=1.0)
+        step.run(cd)
+        assert step.columns_resolved == ["temp_amb_1", "temp_bom_1"]
+
+    def test_column_regex_is_case_insensitive_search(self, cd):
+        """Overlay-tab semantics (util.tags_by_regex): IGNORECASE + search."""
+        step = prep.Scale(column_regex="TEMP_AMB", factor=1.0)
+        step.run(cd)
+        assert step.columns_resolved == ["temp_amb_1"]
+
+    def test_column_regex_matches_names_not_group_ids(self, cd):
+        # 'real_pwr' is a group id; the column is 'power_1'.
+        with pytest.raises(ValueError, match="matched no column"):
+            prep.Scale(column_regex="^real_pwr", factor=1.0).run(cd)
+        step = prep.Scale(column_regex="^power", factor=1.0)
+        step.run(cd)
+        assert step.columns_resolved == ["power_1"]
+
+    def test_column_regex_matching_nothing_raises(self, cd):
+        with pytest.raises(ValueError, match="matched no column"):
+            prep.Scale(column_regex="nomatch", factor=1.0).run(cd)
+
+    def test_column_regex_plus_group_raises(self, cd):
+        with pytest.raises(ValueError, match="exactly one"):
+            prep.Scale(column_regex="^temp", group="wind", factor=1.0).run(cd)
+
+    def test_column_regex_config_round_trip(self, cd):
+        step = prep.Scale(column_regex="^temp", factor=2.0)
+        rebuilt = prep.prep_step_from_config(step.to_config())
+        assert isinstance(rebuilt, prep.Scale)
+        assert rebuilt.column_regex == "^temp"
+        assert rebuilt.factor == 2.0
+
+    def test_rename_columns_rejects_column_regex(self, cd):
+        with pytest.raises(ValueError, match="column_map"):
+            prep.RenameColumns(column_regex="^temp", column_map={"a": "b"}).run(cd)
+
+    def test_wrappers_forward_column_regex(self, cd):
+        cd.prep_scale(column_regex="^wind", factor=2.0)
+        assert cd.data["wind_1"].tolist() == [20.0, 40.0, 60.0, 80.0]
+        assert cd.prep[-1].column_regex == "^wind"
+
 
 class TestAtomicFailure:
     def test_failed_step_restores_data_and_records_nothing(self, cd):

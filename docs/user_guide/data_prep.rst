@@ -121,7 +121,7 @@ than a half-applied change.
 Selecting columns
 -----------------
 ``prep_convert_units``, ``prep_scale``, and ``prep_astype`` take exactly one
-of three column selectors:
+of four column selectors:
 
 ``columns``
     An explicit list of column names, acted on in the order given.
@@ -148,14 +148,22 @@ of three column selectors:
         import re
         [gid for gid in das.column_groups if re.search('^temp_(amb|bom)$', gid)]
 
-The group selectors expand to column names in ``column_groups`` order, with
-duplicates removed. Passing more than one selector, or none, is an error:
+``column_regex``
+    A regular expression matched against the column *names* themselves rather
+    than the ``column_groups`` ids, with a case-insensitive search — the same
+    semantics as the interactive plot's columns filter. Use it when the
+    columns you mean share a naming convention that no group captures, e.g.
+    ``'VAL_BP$'`` for every barometric-pressure column.
+
+The group selectors expand to column names in ``column_groups`` order, and
+``column_regex`` in ``data.columns`` order, with duplicates removed. Passing
+more than one selector, or none, is an error:
 
 .. code-block:: Python
 
     das.prep_scale(factor=0.001)
-    # ValueError: Scale requires exactly one of 'columns', 'group', or
-    # 'group_regex'; got none.
+    # ValueError: Scale requires exactly one of 'columns', 'group',
+    # 'group_regex', or 'column_regex'; got none.
 
 Selectors are resolved **at run time**, not when the step is constructed. A
 step that runs after an earlier drop or rename sees the current columns, which

@@ -27,6 +27,7 @@
    .. autosummary::
    
       ~Custom.args_repr
+      ~Custom.column_regex
       ~Custom.columns
       ~Custom.custom_name
       ~Custom.explanation

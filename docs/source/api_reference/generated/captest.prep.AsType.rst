@@ -27,6 +27,7 @@
    .. autosummary::
    
       ~AsType.args_repr
+      ~AsType.column_regex
       ~AsType.columns
       ~AsType.custom_name
       ~AsType.dtype

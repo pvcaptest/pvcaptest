@@ -29,7 +29,8 @@ Base Class
 ----------
 
 :py:class:`~captest.prep.BasePrepStep` owns the ``run()`` lifecycle, the
-three-way column selector (``columns`` / ``group`` / ``group_regex``), the
+four-way column selector (``columns`` / ``group`` / ``group_regex`` /
+``column_regex``), the
 ``custom_name`` label, and the guard that refuses a value-rewriting step once
 filters have been applied.
 

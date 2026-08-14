@@ -59,10 +59,15 @@ def restore_prep_state(capdata, snapshot):
     capdata.data, capdata.column_groups = snapshot
 
 
+#: The mutually exclusive column-selector parameter names on
+#: :class:`BasePrepStep`; exactly one must be set on any selector-taking step.
+SELECTOR_PARAMS = ("columns", "group", "group_regex", "column_regex")
+
+
 class BasePrepStep(util.StrictAttrs, param.Parameterized):
     """Common ancestor for data-preparation steps.
 
-    Holds the shared lifecycle (``run``), the three-way column selector, and
+    Holds the shared lifecycle (``run``), the four-way column selector, and
     the ``explanation`` rendering that ``describe_prep`` prints.
     Subclasses implement ``_execute(capdata, columns)``, which mutates
     ``capdata.data`` in place and returns nothing.
@@ -97,6 +102,12 @@ class BasePrepStep(util.StrictAttrs, param.Parameterized):
         default=None,
         allow_None=True,
         doc="Regex matched against column_groups ids. Mutually exclusive with others.",
+    )
+    column_regex = param.String(
+        default=None,
+        allow_None=True,
+        doc="Regex matched (case-insensitive search) against column *names*, "
+        "not group ids. Mutually exclusive with the other selectors.",
     )
 
     # Class-intrinsic human-readable template; set by concrete subclasses.
@@ -133,7 +144,8 @@ class BasePrepStep(util.StrictAttrs, param.Parameterized):
             If this step rewrites values and ``capdata.filters`` is non-empty.
         ValueError
             If the column selector is not exactly one of ``columns`` /
-            ``group`` / ``group_regex``, or resolves to no columns.
+            ``group`` / ``group_regex`` / ``column_regex``, or resolves to no
+            columns.
         """
         self._check_not_filtered(capdata)
         cols = self._resolve_columns(capdata)
@@ -204,10 +216,10 @@ class BasePrepStep(util.StrictAttrs, param.Parameterized):
     def _settings_for_duplicate_check(self):
         """Return the params that make two steps equivalent.
 
-        Excludes the three selectors (the duplicate check compares resolved
+        Excludes the selectors (the duplicate check compares resolved
         columns instead) and the presentation-only ``custom_name``.
         """
-        ignored = {"columns", "group", "group_regex", "custom_name"}
+        ignored = {*SELECTOR_PARAMS, "custom_name"}
         return {
             k: v for k, v in util.params_to_config(self).items() if k not in ignored
         }
@@ -238,20 +250,20 @@ class BasePrepStep(util.StrictAttrs, param.Parameterized):
         -------
         list of str
             Column names this step acts on, in ``column_groups`` order for the
-            group selectors and in the given order for ``columns``.
+            group selectors, in ``data.columns`` order for ``column_regex``,
+            and in the given order for ``columns``.
         """
-        chosen = [
-            name
-            for name in ("columns", "group", "group_regex")
-            if getattr(self, name) is not None
-        ]
+        chosen = [name for name in SELECTOR_PARAMS if getattr(self, name) is not None]
         if len(chosen) != 1:
             raise ValueError(
                 f"{type(self).__name__} requires exactly one of 'columns', "
-                f"'group', or 'group_regex'; got {chosen or 'none'}."
+                f"'group', 'group_regex', or 'column_regex'; got "
+                f"{chosen or 'none'}."
             )
         if self.columns is not None:
             cols = list(self.columns)
+        elif self.column_regex is not None:
+            cols = self._columns_from_column_regex(capdata)
         else:
             cols = self._columns_from_groups(capdata)
         missing = [c for c in cols if c not in capdata.data.columns]
@@ -293,6 +305,21 @@ class BasePrepStep(util.StrictAttrs, param.Parameterized):
             for col in groups[group_id]:
                 if col not in cols:
                     cols.append(col)
+        return cols
+
+    def _columns_from_column_regex(self, capdata):
+        """Expand the ``column_regex`` selector to the column names it matches.
+
+        Matches column *names* with a case-insensitive search
+        (``util.tags_by_regex`` — the same semantics as the Overlay plot's
+        columns filter), where ``group_regex`` matches ``column_groups`` ids.
+        """
+        cols = util.tags_by_regex(list(capdata.data.columns), self.column_regex)
+        if not cols:
+            raise ValueError(
+                f"column_regex {self.column_regex!r} matched no column. "
+                f"Columns: {util.format_name_list(sorted(capdata.data.columns))}."
+            )
         return cols
 
     def _execute(self, capdata, columns):
@@ -573,7 +600,7 @@ class DropColumns(BasePrepStep):
 class RenameColumns(BasePrepStep):
     """Rename columns in ``data`` and ``column_groups``.
 
-    Takes its columns from ``column_map`` rather than the three-way selector;
+    Takes its columns from ``column_map`` rather than the column selector;
     passing a selector is an error. Delegates to :meth:`CapData.rename_cols`.
     """
 
@@ -587,9 +614,7 @@ class RenameColumns(BasePrepStep):
     def _resolve_columns(self, capdata):
         """Return the map's keys; reject the inherited selectors."""
         selectors = [
-            name
-            for name in ("columns", "group", "group_regex")
-            if getattr(self, name) is not None
+            name for name in SELECTOR_PARAMS if getattr(self, name) is not None
         ]
         if selectors:
             raise ValueError(
@@ -651,11 +676,7 @@ class Custom(BasePrepStep):
         only keeps a selector set by direct attribute assignment from
         crashing on the base class's "exactly one of" check.
         """
-        given = [
-            name
-            for name in ("columns", "group", "group_regex")
-            if getattr(self, name) is not None
-        ]
+        given = [name for name in SELECTOR_PARAMS if getattr(self, name) is not None]
         if not given:
             return []
         return super()._resolve_columns(capdata)

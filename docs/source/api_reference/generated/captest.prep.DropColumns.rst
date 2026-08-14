@@ -27,6 +27,7 @@
    .. autosummary::
    
       ~DropColumns.args_repr
+      ~DropColumns.column_regex
       ~DropColumns.columns
       ~DropColumns.custom_name
       ~DropColumns.explanation

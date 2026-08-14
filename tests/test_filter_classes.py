@@ -36,6 +36,7 @@ from captest.filters import (
     Sensors,
     Shade,
     Time,
+    TimeOfDay,
     _backtracking_geometry_error,
     abs_diff_from_average,
     backtracking_active,
@@ -736,6 +737,84 @@ class TestFilterTimeWrapper:
         cd_time.filter_time(start="2023-02-01", end="2023-02-15")
         assert len(cd_time.filters) == 1
         assert isinstance(cd_time.filters[0], Time)
+
+
+@pytest.fixture
+def cd_tod():
+    """A CapData with two days of hourly data for time-of-day tests."""
+    cd = CapData("tod")
+    idx = pd.date_range("2023-06-01", periods=48, freq="h")
+    cd.data = pd.DataFrame({"power": range(48)}, index=idx)
+    return cd
+
+
+class TestTimeOfDay:
+    def test_execute_keeps_daily_window_inclusive(self, cd_tod):
+        kept = TimeOfDay(start_time="08:00", end_time="10:00")._execute(cd_tod)
+        assert len(kept) == 6  # 08/09/10 on each of the two days
+        assert all(8 <= ts.hour <= 10 for ts in kept)
+
+    def test_execute_drop_removes_daily_window(self, cd_tod):
+        kept = TimeOfDay(start_time="08:00", end_time="10:00", drop=True)._execute(
+            cd_tod
+        )
+        assert len(kept) == 42
+        assert not any(8 <= ts.hour <= 10 for ts in kept)
+
+    def test_execute_window_wrapping_midnight(self, cd_tod):
+        kept = TimeOfDay(start_time="22:00", end_time="02:00")._execute(cd_tod)
+        assert all(ts.hour >= 22 or ts.hour <= 2 for ts in kept)
+        assert len(kept) == 10  # 00/01/02 + 22/23 on each of the two days
+
+    def test_matches_the_custom_between_time_it_replaces(self, cd_tod):
+        first_class = TimeOfDay(start_time="08:31", end_time="18:40")._execute(cd_tod)
+        custom = Custom(pd.DataFrame.between_time, "08:31", "18:40")._execute(cd_tod)
+        assert first_class.equals(custom)
+
+    def test_missing_bound_raises(self, cd_tod):
+        with pytest.raises(ValueError, match="start_time and end_time"):
+            TimeOfDay(start_time="08:00")._execute(cd_tod)
+        with pytest.raises(ValueError, match="start_time and end_time"):
+            TimeOfDay(end_time="10:00")._execute(cd_tod)
+
+    def test_config_round_trip(self):
+        step = TimeOfDay(
+            start_time="08:31", end_time="18:40", drop=True, custom_name="shading"
+        )
+        config = step.to_config()
+        assert config["type"] == "TimeOfDay"
+        rebuilt = step_from_config(config)
+        assert isinstance(rebuilt, TimeOfDay)
+        assert rebuilt.start_time == "08:31"
+        assert rebuilt.end_time == "18:40"
+        assert rebuilt.drop is True
+        assert rebuilt.custom_name == "shading"
+
+    def test_explanation_keep_and_drop(self, cd_tod):
+        keep = TimeOfDay(start_time="08:00", end_time="10:00")
+        assert keep.explanation is None  # not run yet
+        keep.run(cd_tod)
+        assert keep.explanation == (
+            "Intervals outside 08:00 to 10:00 each day were removed."
+        )
+        drop = TimeOfDay(start_time="08:00", end_time="10:00", drop=True)
+        drop.run(cd_tod)
+        assert drop.explanation == (
+            "Intervals between 08:00 and 10:00 each day were removed."
+        )
+
+    def test_registered(self):
+        assert FILTER_REGISTRY["TimeOfDay"] is TimeOfDay
+
+
+class TestFilterTimeOfDayWrapper:
+    def test_wrapper_records_step_with_custom_name(self, cd_tod):
+        cd_tod.filter_time_of_day("08:00", "10:00", custom_name="daylight")
+        assert len(cd_tod.filters) == 1
+        step = cd_tod.filters[0]
+        assert isinstance(step, TimeOfDay)
+        assert step.custom_name == "daylight"
+        assert len(cd_tod.data_filtered) == 6
 
 
 class TestFilterCustom:
