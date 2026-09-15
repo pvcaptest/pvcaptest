@@ -687,6 +687,58 @@ def callable_from_qualname(ref):
     return obj
 
 
+def encode_reg_cols(node):
+    """Make a ``regression_cols`` tree yaml/json-safe.
+
+    The tree grammar (see :func:`process_reg_cols`) nests ``(group_id, agg)``
+    aggregation tuples and ``(callable, {kwarg: subtree})`` calculation tuples
+    under a dict. Callables cannot be represented in yaml or json, so each one
+    is written as its ``"module:qualname"`` import string (the same encoding
+    ``RepCond.func`` uses); tuples are kept and become lists in the file.
+    :func:`decode_reg_cols` is the inverse.
+
+    Raises ``ValueError`` for a callable that could not be imported back —
+    a lambda, a closure, or a function defined in ``__main__`` (a notebook
+    cell or a script body), since no other process can resolve those.
+    """
+    if isinstance(node, dict):
+        return {key: encode_reg_cols(value) for key, value in node.items()}
+    if isinstance(node, (tuple, list)):
+        return tuple(encode_reg_cols(value) for value in node)
+    if callable(node):
+        if getattr(node, "__module__", None) == "__main__":
+            raise ValueError(
+                f"Cannot serialize callable {node!r}: it is defined in __main__ "
+                "(a notebook or script body) and cannot be imported elsewhere. "
+                "Move it into an importable module."
+            )
+        return callable_to_qualname(node)
+    return node
+
+
+def decode_reg_cols(node):
+    """Inverse of :func:`encode_reg_cols`: a yaml/json-loaded tree back to the
+    tuple-and-callable form :func:`process_reg_cols` dispatches on.
+
+    Two-element lists become tuples (yaml and json have no tuple), and a
+    ``"module:qualname"`` string in the callable position of a calculation
+    pair is imported. Aggregation pairs and bare column-group strings pass
+    through unchanged, so a tree that is already in native form is a no-op.
+    """
+    if isinstance(node, dict):
+        return {key: decode_reg_cols(value) for key, value in node.items()}
+    if isinstance(node, (tuple, list)) and len(node) == 2:
+        head, tail = node
+        if isinstance(tail, dict):
+            if isinstance(head, str) and ":" in head:
+                head = callable_from_qualname(head)
+            return (head, decode_reg_cols(tail))
+        return (head, tail)
+    if isinstance(node, list):
+        return [decode_reg_cols(value) for value in node]
+    return node
+
+
 def parse_regression_formula(formula: str) -> tuple[list[str], list[str]]:
     """
     Return (lhs_list, rhs_list) for `formula`.

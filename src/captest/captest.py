@@ -1055,6 +1055,15 @@ def resolve_test_setup(name, overrides=None):
 # --- yaml loading ---------------------------------------------------------
 
 
+def _encode_override(name, value):
+    """Deep-copy an override for ``to_mapping``; regression-columns trees are
+    encoded so callables become importable strings (see
+    :func:`captest.util.encode_reg_cols`)."""
+    if name in ("reg_cols_meas", "reg_cols_sim"):
+        return util.encode_reg_cols(value)
+    return copy.deepcopy(value)
+
+
 def _serialize_rep_conditions(rc):
     """Return a yaml-safe copy of a ``rep_conditions`` dict.
 
@@ -2205,6 +2214,15 @@ class CapTest(param.Parameterized):
             if overrides.get(k) is not None:
                 kwargs[k] = overrides[k]
 
+        # A regression-columns tree read from yaml/json holds lists where
+        # ``process_reg_cols`` dispatches on tuples, and ``"module:qualname"``
+        # strings where it needs callables (``to_mapping`` wrote them that
+        # way). Decode here so a file round-trips; a tree passed in native
+        # form is untouched.
+        for k in ("reg_cols_meas", "reg_cols_sim"):
+            if kwargs.get(k) is not None:
+                kwargs[k] = util.decode_reg_cols(kwargs[k])
+
         # 'custom' setup requires the three regression overrides.
         if kwargs.get("test_setup") == "custom":
             for req in ("reg_cols_meas", "reg_cols_sim", "reg_fml"):
@@ -2523,12 +2541,12 @@ class CapTest(param.Parameterized):
             for name in ("reg_cols_meas", "reg_cols_sim", "reg_fml"):
                 val = getattr(self, name)
                 if val is not None:
-                    overrides[name] = copy.deepcopy(val)
+                    overrides[name] = _encode_override(name, val)
         else:
             for name in ("reg_cols_meas", "reg_cols_sim", "reg_fml"):
                 val = getattr(self, name)
                 if val is not None and val != preset.get(name):
-                    overrides[name] = copy.deepcopy(val)
+                    overrides[name] = _encode_override(name, val)
         meas_filters = (
             self.meas.filters_to_config()
             if self.meas is not None and self.meas.filters

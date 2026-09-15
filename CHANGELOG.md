@@ -20,6 +20,17 @@ semantics as the Overlay plot's columns filter), where `group_regex` matches
 `column_map`.
 
 ### Fixed
+- `to_yaml` / `to_mapping` can now serialize a `reg_cols_meas` / `reg_cols_sim`
+override that contains calculation callables (every spec-corrected and
+bifacial preset's tree does, and overriding one key replaces the whole
+dict): each callable is written as its `module:qualname` import string, the
+encoding `RepCond.func` already used, and `from_yaml` / `from_mapping` import
+it back. Previously `to_yaml` failed with a yaml `RepresenterError`.
+- `from_yaml` / `from_mapping` now turn the two-element lists a yaml or json
+file holds for `(group_id, agg)` and `(callable, kwargs)` pairs back into
+tuples. Previously a regression-columns override read from a file was left as
+lists, which `process_reg_cols` does not recognise, and `run_test` failed with
+`TypeError: unhashable type: 'list'`.
 - `CapData.copy()` now carries over the `site` and `tolerance` attributes,
 which it previously dropped. Copies are the basis of the load-once,
 copy-per-run pattern, and a dropped `site` made `filter_backtracking` (and the

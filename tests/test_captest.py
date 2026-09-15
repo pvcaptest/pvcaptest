@@ -2212,6 +2212,71 @@ class TestToYamlAndRoundTrip:
         sub = self._load(p)["captest"]
         assert "overrides" not in sub
 
+    def test_to_yaml_encodes_callable_reg_cols_and_from_yaml_decodes_them(
+        self, tmp_path
+    ):
+        """A preset's calc tree with one changed key is a whole-dict override
+        (overrides replace, not merge), so it carries the preset's callables:
+        they are written as ``module:qualname`` and imported back."""
+        import copy
+
+        p = tmp_path / "cfg.yaml"
+        reg_cols = copy.deepcopy(
+            ct.TEST_SETUPS["e2848_spec_corrected_poa"]["reg_cols_meas"]
+        )
+        reg_cols["power"] = ("real_pwr_inv", "sum")
+        capt = CapTest(test_setup="e2848_spec_corrected_poa", reg_cols_meas=reg_cols)
+        capt.to_yaml(p, merge_into_existing=False)
+
+        sub = self._load(p)["captest"]
+        written = sub["overrides"]["reg_cols_meas"]
+        assert written["power"] == ["real_pwr_inv", "sum"]
+        assert written["poa"][0] == "captest.calcparams:poa_spec_corrected"
+        assert (
+            written["poa"][1]["spectral_correction"][0]
+            == "captest.calcparams:spectral_factor_firstsolar"
+        )
+
+        capt2 = CapTest.from_yaml(p)
+        assert capt2.reg_cols_meas == reg_cols
+        assert capt2.reg_cols_meas["poa"][0] is poa_spec_corrected
+
+    def test_from_mapping_decodes_list_form_aggregation_pairs_to_tuples(self):
+        """yaml/json have no tuples; a ``[group, agg]`` pair must dispatch as
+        an aggregation, not fall through as a list ``process_reg_cols`` ignores."""
+        sub = {
+            "test_setup": "e2848_default",
+            "overrides": {
+                "reg_cols_meas": {
+                    "power": ["real_pwr_mtr", "max"],
+                    "poa": ["irr_poa", "mean"],
+                    "t_amb": ["temp_amb", "mean"],
+                    "w_vel": ["wind_speed", "mean"],
+                }
+            },
+        }
+        capt = CapTest.from_mapping(sub)
+        assert capt.reg_cols_meas["power"] == ("real_pwr_mtr", "max")
+        assert all(isinstance(v, tuple) for v in capt.reg_cols_meas.values())
+        # And it is a no-op on a mapping already in native form.
+        assert CapTest.from_mapping(sub).to_mapping()["overrides"]["reg_cols_meas"] == {
+            k: tuple(v) for k, v in sub["overrides"]["reg_cols_meas"].items()
+        }
+
+    def test_to_yaml_refuses_a_reg_cols_callable_it_cannot_import_back(self, tmp_path):
+        def local_calc(data, poa=None, verbose=True):
+            return data[poa]
+
+        capt = CapTest(
+            test_setup="e2848_default",
+            reg_cols_meas={
+                "power": "real_pwr_mtr",
+                "poa": (local_calc, {"poa": "irr_poa"}),
+            },
+        )
+        with pytest.raises(ValueError, match="lambdas and closures"):
+            capt.to_yaml(tmp_path / "cfg.yaml", merge_into_existing=False)
+
     def test_to_yaml_writes_load_kwargs_only_when_non_empty(self, tmp_path):
         p_empty = tmp_path / "empty.yaml"
         capt_empty = CapTest(test_setup="e2848_default")

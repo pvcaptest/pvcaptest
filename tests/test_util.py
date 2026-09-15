@@ -608,3 +608,44 @@ class TestFormatNameList:
 
     def test_non_string_names_are_coerced(self):
         assert util.format_name_list([1, 2]) == "1, 2"
+
+
+class TestRegColsEncodeDecode:
+    """``encode_reg_cols`` / ``decode_reg_cols`` round-trip a calc tree."""
+
+    def test_round_trips_every_preset_through_json(self):
+        import copy
+        import json
+
+        from captest.captest import TEST_SETUPS
+
+        for name, preset in TEST_SETUPS.items():
+            for side in ("reg_cols_meas", "reg_cols_sim"):
+                tree = copy.deepcopy(preset[side])
+                encoded = util.encode_reg_cols(tree)
+                wire = json.loads(json.dumps(encoded))
+                assert util.decode_reg_cols(wire) == tree, (name, side)
+
+    def test_encode_writes_qualnames_and_keeps_pairs(self):
+        from captest.calcparams import multiply
+
+        tree = {"a": ("g", "mean"), "b": (multiply, {"a": ("g", "sum"), "b": "h"})}
+        assert util.encode_reg_cols(tree) == {
+            "a": ("g", "mean"),
+            "b": ("captest.calcparams:multiply", {"a": ("g", "sum"), "b": "h"}),
+        }
+
+    def test_decode_is_a_no_op_on_native_form(self):
+        from captest.calcparams import multiply
+
+        tree = {"a": ("g", "mean"), "b": (multiply, {"a": ("g", "sum")}), "c": "h"}
+        assert util.decode_reg_cols(tree) == tree
+
+    def test_encode_refuses_main_module_callables(self):
+        def f(data, verbose=True):
+            return data
+
+        f.__module__ = "__main__"
+        f.__qualname__ = "f"
+        with pytest.raises(ValueError, match="__main__"):
+            util.encode_reg_cols({"x": (f, {})})
