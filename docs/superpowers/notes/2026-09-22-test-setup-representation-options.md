@@ -88,11 +88,13 @@ There is no shorthand: a bare string is always a literal.
 | `{calc: cell_temp, args: {...}}` | a registered calculation; `args` are keyword-only, each value a node |
 | `"cdte"`, `3.5`, `true`, `[1, 2]` | a literal argument, passed through unchanged |
 
-Callable-valued arguments are not supported in the document form. If a
-calculation needs one, it takes a registry name (`{calc: ...}`) or a string
-that the calculation resolves itself. This is the rule that makes the
-motivating defects impossible: reference vs literal is decided by the tag,
-never by shape or position.
+Callable-valued arguments are not supported in the document form. `calc`
+always means *execute and supply the output column*; it is never a way to
+pass a function object. A calculation that needs to choose a function
+takes a plain string it resolves itself (`reducer: "mean"`), the way
+`agg` already does. This is the rule that makes the motivating defects
+impossible: reference vs literal is decided by the tag, never by shape or
+position.
 
 `args` are keyword-only and bind by name to the registered function's
 parameters after `data` is injected. Positional binding is not offered: the
@@ -119,7 +121,7 @@ but scale PVsyst's `PrecWat` by 100.
 name: bifi_power_tc_etotal_rear_shade_sim
 derived_from: e2848_default            # provenance only; never used to fill fields
 description: Bifacial, temperature-corrected power, E_total, rear shade in the model.
-reg_fml: power ~ poa + I(poa * poa) + I(poa * t_amb) + I(poa * w_vel) - 1
+reg_fml: power ~ poa                    # the preset's own formula, intercept included
 reg_cols:
   meas:
     power:
@@ -147,14 +149,19 @@ reg_cols:
       args:
         poa:  {column: GlobInc}
         rpoa: {calc: rpoa_pvsyst, args: {globbak: {column: GlobBak}, backshd: {column: BackShd}}}
-    t_amb: {column: T_Amb}
-    w_vel: {column: WindVel}
 params:
-  rear_shade: 0            # constraints on test-level params this setup requires
+  rear_shade: 0            # required value; see "Parameter constraints" below
 rep_conditions:
-  func: {poa: perc_60, t_amb: mean, w_vel: mean}
+  irr_bal: false
+  percent_filter: 20
+  func: {poa: perc_60}
 scatter_plots: default
 ```
+
+The `t_amb` / `w_vel` entries of the E2848 presets are absent here because
+this preset's formula does not use them; the example matches
+`TEST_SETUPS["bifi_power_tc_etotal_rear_shade_sim"]` key for key so it can
+serve as the equivalence oracle in the spike.
 
 Repeated sub-expressions (`{group: irr_poa, agg: mean}` appears under both
 `power` and `poa`) are evaluated once: `Group` nodes are frozen and
@@ -210,13 +217,33 @@ The registry entry is therefore more than a name-to-function map:
 register_calc(
     "cell_temp", cell_temp,
     requires_params=("module_type", "racking"),
+)
+register_calc(
+    "spectral_factor_firstsolar", spectral_factor_firstsolar,
+    requires_params=("spectral_module_type",),
     requires_import=("pvlib",),
 )
 ```
 
 Signature matching alone is not enough: `power_temp_correct` accepts
 `power_temp_coeff=None` and then fails, so the requirement has to be
-declared, not inferred.
+declared, not inferred. The declarations must come from the implementation,
+not from memory: `cell_temp` uses only numpy and pandas (`calcparams.py`
+imports pvlib only for the solar-position and spectral functions), and an
+over-declared `requires_import` would wrongly reject temperature-corrected
+setups on installations without pvlib. Each registry entry's declaration is
+therefore tested against its function: an import guard is required exactly
+when the function fails without the package.
+
+### Parameter constraints
+
+`params` in a document is a mapping of test-level parameter name to the
+value this setup *requires*. It is neither a default nor an override: at
+tier 2 the effective value — after `CapTest` defaults, the project's
+config, and any per-side injection — must equal the declared value, or
+validation fails with the path (`params.rear_shade: setup requires 0, test
+has 0.2`). This is how the rear-shade `_sim` variant refuses to double-count
+a non-zero measured `rear_shade`. Absent keys are unconstrained.
 
 ### Custom calculations
 
@@ -242,14 +269,31 @@ setup's identity, and yaml versus json is only a choice of encoding for the
 same validated document (always load through the model; never rely on a yaml
 parser's own type guessing for dates or `yes`/`no`).
 
+Identity is assigned to the *normalised* document — the model's `to_dict()`
+of the loaded document, with defaults materialised (`{group: temp_amb}`
+becomes `{group: temp_amb, agg: mean}`) — never to the bytes the author
+wrote. Normalisation must be idempotent (`to_dict(load(to_dict(load(d))))
+== to_dict(load(d))`), and that, not byte equality with the input, is the
+round-trip criterion.
+
 Proposed store change: a setup is today nested inside a test config (setup +
 paths + filters + window). Give setups their own table keyed by content
-hash — `test_setups(setup_hash, name, derived_from, setup_json)` — with
-`runs` referencing `setup_hash`. Setups then dedupe automatically, "every
-run of this recipe across projects" is an index lookup, and `derived_from`
-becomes a foreign key. The JSON Schema exported from the model validates a
-document at insert time, before any run, and is versioned alongside
-`id_algo`.
+digest — `test_setups(setup_hash, name, derived_from_hash, setup_json)` —
+with `runs` referencing `setup_hash`. Setups then dedupe automatically and
+"every run of this recipe across projects" is an index lookup. `name` is a
+display label; ancestry is `derived_from_hash`, a nullable reference to
+another row, so revisions that share a name stay distinguishable. In a
+document, `derived_from` may be a name (for a preset) or a digest; the
+store resolves a name to the digest of the preset shipped with the captest
+version recorded on the run, and records `NULL` when the ancestor is not
+present.
+
+Insert-time validation runs the model and registry checks, not just the
+exported JSON Schema: the schema is a *shape* contract (`calc` is an
+unrestricted string in it; the registry, formula ⊆ keys and collision
+checks are validators) and is what an authoring agent is handed, while the
+store's guarantee is "loads through the model". The schema is versioned
+alongside `id_algo`.
 
 An exported run must stay reproducible after the project or registry
 changes. The run envelope should therefore carry the setup document itself
@@ -319,7 +363,9 @@ class TestSetup(_Frozen):
     reg_fml: str
     reg_cols: dict[Literal["meas", "sim"], dict[str, Node]]
     def to_dict(self):  return self.model_dump(mode="json", exclude_none=True)
-    def __hash__(self): return hash(canonical_json(self.to_dict()))
+    def content_digest(self): return sha256(canonical_json(self.to_dict()))
+    # deliberately NOT __hash__: nested dicts/lists stay mutable under
+    # frozen=True and 1 == 1.0 would hash differently. Only Group is hashable.
 
 TestSetup.model_json_schema()               # agent contract / DB insert check
 TestSetup.model_validate(d).to_dict() == d  # verified True
@@ -333,8 +379,11 @@ runtime state. Filter steps are not migrated.
 Risks and mitigations:
 
 - **Hashability**: frozen models with `dict` fields raise on `hash()`
-  (verified). Define `__hash__` over the canonical dump so it agrees with
-  ctsweep's `config_hash`.
+  (verified), and defining `__hash__` over the dump would break the hash
+  contract (nested containers stay mutable; `1 == 1.0` but they dump
+  differently). Leave `TestSetup` unhashable; expose `content_digest()`
+  (sha256 of the canonical dump) as the identity ctsweep uses. Only the
+  leaf `Group` node is hashable, for the aggregation cache.
 - **Hash stability across dump options**: `exclude_none` / `exclude_defaults`
   change the bytes. Fix one `to_dict()` policy (`exclude_none=True`, keep
   defaults) and test that a reloaded document dumps byte-identically.
@@ -453,19 +502,26 @@ setup. A project-level `variables` map can be added later as a *source* for
   spike named a non-existent preset (`bifi_power_tc_etotal`) and had no
   numerical acceptance criteria; missing: migration, prep-stage
   interaction, callable trust, serialization scope beyond derivations.
+- roborev job 427 (design, astra, on the chosen-direction revision): the
+  example used the E2848 formula where the named preset uses `power ~ poa`;
+  `params` constraints had no enforcement rule; `calc` doubled as a
+  function reference; `__hash__` over the dump broke the hash contract;
+  JSON Schema overstated as the insert-time contract; `derived_from` a
+  name where the store needs a digest; round-trip criterion contradicted
+  default materialisation; spike had no rejection cases or oracles;
+  `cell_temp` wrongly shown requiring pvlib; literal domain (non-finite
+  floats, `null`) undefined; generated-column ownership across reruns and
+  the patsy/filter-codec trust boundary unaddressed.
 
-Both sets of findings are folded into the chosen direction above.
+All findings are folded into the chosen direction above except the last
+two, which the spec must define.
 
-## Proposed next step
+## Next step: the spec
 
-Rewrite `bifi_power_tc_etotal_rear_shade_sim`,
-`bifi_power_tc_etotal_rear_shade_meas`, and
-`bifi_e2848_etotal_rear_shade_sim_spec_corrected` as documents in the form
-above, plus three small documents exercising a literal-list argument, a
-literal-string argument (`spectral_module_type`), and a three-deep `calc`
-nesting with a repeated `{group, agg}` leaf. Accept
-the spike when: each document validates at tiers 1 and 2 against a fixture
-project; loading each through the new model and running it reproduces the
-existing preset's measured and modeled regression results to numerical
-equality on the fixture data; and `canonical_json(dump(load(doc)))` equals
-`canonical_json(doc)` for all six.
+Three review rounds have moved this from "direction unclear" to "direction
+agreed, rules missing". The remaining items are spec content, not survey
+content: the literal domain, generated-column ownership, the trust boundary
+for patsy formulas and filter codecs, and a spike with rejection cases
+(callable object, mixed tags, output collision, violated `params`
+constraint) and oracles for every document, comparing the three real
+presets to their existing regression outputs at a stated tolerance.
