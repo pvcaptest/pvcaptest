@@ -134,15 +134,41 @@ variant is made by copying and editing, or by `TestSetup.derive(base,
 `derived_from = base.name`. Diffs against a base are computed, never stored.
 
 `params` maps a test-level parameter name to the value this setup
-*requires*. It is neither a default nor an override: at tier 2 the effective
-value on the `CapData` must equal it. The rear-shade `_sim` presets declare
-`params: {rear_shade: 0}` so they refuse to double-count a non-zero measured
-`rear_shade`. Absent keys are unconstrained.
+*requires*. It is neither a default nor an override: at tier 2, on each side
+and for each `Calc` on that side whose registry entry lists the parameter
+in `requires_params`, the **effective value that calculation would
+receive** must equal the declared value. The effective value is resolved
+with the same precedence evaluation uses (below): the document's explicit
+`args` entry, else the `CapData` attribute when present, else the
+function's default. A side with no calculation that uses the parameter is
+not checked — `CapTest.setup()` propagates `rear_shade` onto `meas` only,
+so on `sim` the `e_total` node resolves `rear_shade` to its default `0` and
+passes. The rear-shade `_sim` presets declare `params: {rear_shade: 0}` so
+they refuse to double-count a non-zero measured `rear_shade`. Absent keys
+are unconstrained.
 
 `rep_conditions.func` values are the strings `mean`, `median` or `perc_N`,
 resolved at setup time by `util._resolve_perc_string` (the current
 `perc_wrap` encoding, now the only form). `scatter_plots` is a name in
-`plotting.SCATTER_REGISTRY` (`default`, `etotal`, `bifi_power_tc`).
+`captest.SCATTER_REGISTRY` (`default`, `etotal`, `bifi_power_tc`).
+
+### Output column names
+
+Every `Group` and `Calc` node *produces* a column of `data`:
+
+| Node | Column it writes |
+|---|---|
+| `{group: g, agg: a}` | `<g>_<a>_agg` (the existing `agg_group` naming) |
+| `{calc: c}` | `c` |
+| `{calc: c, as: n}` | `n` |
+
+Two producers on one side may write the same column only if they are the
+**same node** — equal kind, and for `Calc` equal registry name and equal
+`args`. Anything else that would write a column another node writes is a
+tier-1 error naming both paths, including a `Calc` aliased to an
+aggregation's name (`as: irr_poa_mean_agg` next to `{group: irr_poa}`) and
+two different calculations sharing an `as`. The check needs no project: the
+names are determined by the document alone.
 
 ## Architecture
 
@@ -209,7 +235,7 @@ class RepConditions(_Frozen):
     func: dict[str, str] = Field(default_factory=dict)   # "mean" | "median" | "perc_N"
     w_vel: float | None = None
     irr_bal: bool = False
-    percent_filter: int | float | None = 20
+    percent_filter: float | tuple[float, float] = 20   # a two-item list in yaml
     front_poa: str = "poa"
     rc_kwargs: dict[str, Scalar] | None = None
 
@@ -236,12 +262,17 @@ mutable under `frozen=True` and `1 == 1.0` would dump differently.
 
 Identity and serialization:
 
-- `to_dict()` = `model_dump(mode="json", by_alias=True, exclude_none=True)`.
-  Defaults are materialised (`{group: temp_amb}` dumps as `{group:
-  temp_amb, agg: mean}`), so identity belongs to the *normalised* document.
+- `to_dict()` = `model_dump(mode="json", by_alias=True)`. Every field is
+  written, including those whose value is `null`, and defaults are
+  materialised (`{group: temp_amb}` dumps as `{group: temp_amb, agg:
+  mean}`), so identity belongs to the *normalised* document and a `null`
+  never changes meaning by being dropped. The one exception is `Calc.as`,
+  omitted when unset through a `model_serializer`, since an absent `as`
+  and `as: null` mean the same thing (write the registry name).
   Normalisation is idempotent: `load(to_dict(load(d))).to_dict() ==
   load(d).to_dict()` — that, not byte equality with the author's input, is
-  the round-trip property.
+  the round-trip property. Preset yaml files may omit defaults; the
+  normalised form is what is compared and digested.
 - `content_digest()` = sha256 of `canonical_json(to_dict())`, using the same
   canonical form ctsweep's `identity.canonical_json` defines (sorted keys, no
   whitespace, `ensure_ascii=False`, `allow_nan=False`). `util` gains
@@ -287,9 +318,20 @@ def spectral_factor_firstsolar(...):
 ```
 
 `requires_params` names the parameters `CapTest.setup()` propagates through
-`_downstream_attrs` and `custom_param` fills by `getattr(cd, key)` when the
-document does not supply them. `verbose` is supplied by the evaluator and is
-neither an argument nor a requirement. `data` is injected.
+`DOWNSTREAM_PARAMS` and `custom_param` fills by `getattr(cd, key)` when the
+document does not supply them. A document **may** supply one explicitly
+(`args: {base_temp: 20}`), which is how a single calculation overrides the
+test-wide value today. Precedence, for every parameter of a calculation:
+
+1. the document's `args` entry, if the key is present — including an
+   explicit `null`, which reaches the function as `None`
+   (`absolute_airmass(pressure=None)` means "use the default pressure");
+2. else the `CapData` attribute of that name, if the attribute exists and
+   is not `None`;
+3. else the function's own default.
+
+`verbose` is supplied by the evaluator and is neither an argument nor a
+requirement. `data` is injected.
 
 A test in `tests/test_calcparams.py` checks every entry against its
 function: `requires_params ⊆ signature.parameters`; each name in
@@ -336,23 +378,24 @@ def transform_calc_params(node, cd, agg_cache=None, verbose=True):
 
 `CapData.custom_param(func, *, output=None, verbose=True, **kwargs)` gains
 the `output` keyword (the column it writes; `func.__name__` when omitted,
-so direct callers are unaffected), drops its unused `*args`, and keeps its
-by-name injection of `CapData` attributes for kwargs that are absent or
-`None`. `process_reg_cols` still
-flattens `regression_cols` to `{variable: column}` in place;
+so direct callers are unaffected), drops its unused `*args`, and injects a
+`CapData` attribute **only for parameters absent from `kwargs`** — an
+explicit `None` is passed through, implementing precedence rule 1 above.
+(Today it also injects on `None`; the change is deliberate and tested.)
+The existing guard that refuses to inject a parameter whose name is also a
+column group id applies to absent parameters only. `process_reg_cols`
+still flattens `regression_cols` to `{variable: column}` in place;
 `regression_cols_preprocess` keeps the `Side` for `to_mapping`.
 
 Generated-column ownership: a `Calc` overwrites its output column on every
 `process_regression_columns`, so a re-run with a different setup never
 reuses a stale column of the same name. Aggregations keep today's reuse of
 an existing `<group>_<agg>_agg` column — the same group and function give
-the same numbers regardless of setup.
-
-Two `Calc` nodes on one side with the same output name and *equal* `args`
-are permitted; the second evaluation overwrites the column with identical
-values, which is harmless (caching them is a possible later optimisation,
-not part of this design). Same name, different `args`, no `as` is a tier-1
-error.
+the same numbers regardless of setup. The output-name rule under "Output
+column names" guarantees, before anything runs, that no two different
+nodes on a side write the same column; two *identical* nodes may, and the
+second evaluation overwrites with identical values (caching is a possible
+later optimisation, not part of this design).
 
 ### `captest.py` — presets and `CapTest`
 
@@ -410,13 +453,15 @@ for tier 1 and by an explicit path argument for tier 2.
   several discriminating keys, non-finite float, `agg` outside the allowed
   set.
 - `Calc`: `calc` in `CALC_REGISTRY` (did-you-mean hint); `args` keys ⊆ the
-  function's parameters minus `data`, `verbose` and `requires_params`;
-  every such parameter without a default is present in `args`.
+  function's parameters minus `data` and `verbose` (a `requires_params`
+  name may appear explicitly); every parameter that has no default and is
+  not in `requires_params` is present in `args`.
 - `TestSetup`: `reg_fml` parses (`util.parse_regression_formula`); lhs ∪
   rhs ⊆ keys of `meas.reg_cols` and of `sim.reg_cols`; `rep_conditions.func`
-  keys ⊆ rhs and values match `mean|median|perc_\d+`; per side, no two
-  `Calc` nodes with the same output name and different `args`; `params`
-  keys are names in `setup.DOWNSTREAM_PARAMS`.
+  keys ⊆ rhs and values match `mean|median|perc_\d+`; per side, the
+  output-column rule — every column written by a `Group` or `Calc` node is
+  written only by nodes equal to it; `params` keys are names in
+  `setup.DOWNSTREAM_PARAMS`.
 - `captest.py`, on loading `TEST_SETUPS` and in `resolve_test_setup`:
   `scatter_plots` in `SCATTER_REGISTRY`.
 
@@ -432,12 +477,17 @@ Runs in `CapTest.setup()` after prep and before evaluation, against the
 
 - every `Group.group` is a key of `cd.column_groups`;
 - every `Column.column` is in `cd.data.columns`;
-- for every `Calc` reached, every name in `requires_params` is an attribute
-  of `cd` whose value is not `None`, and every package in `requires_import`
-  is importable (`importlib.util.find_spec`);
-- a `Calc` output name does not shadow a column group id or an existing raw
-  column on that side;
-- for every key in `setup.params`, `getattr(cd, key) == value`.
+- for every `Calc` reached, every name in `requires_params` that is not
+  supplied in `args` resolves to a value (a `cd` attribute that is not
+  `None`, or a function default) — a parameter with no default, no `args`
+  entry and a `None` attribute is the `power_temp_coeff` failure; and every
+  package in `requires_import` is importable (`importlib.util.find_spec`);
+- no column written by a `Group` or `Calc` node is a column group id or an
+  existing raw column on that side;
+- for every key in `setup.params` and every `Calc` on this side whose
+  `requires_params` contains it, the effective value under the precedence
+  rules equals `setup.params[key]`. A side where no calculation uses the
+  key is not checked.
 
 The checks are collected and raised together as one `SetupFitError`
 listing every path, so an agent fixes a document in one pass. `CapTest`
@@ -498,10 +548,21 @@ presets are migrated.
    - unknown `calc`, unknown `args` key, missing required arg;
    - `reg_fml` variable absent from one side; `rep_conditions.func` key not
      in rhs;
-   - same output name, different `args`, no `as`;
+   - output-column collisions: same `calc`, different `args`, no `as`; two
+     different calculations sharing an `as`; a `Calc` with
+     `as: irr_poa_mean_agg` beside `{group: irr_poa}`; and the accepted
+     case — two identical `Calc` nodes — evaluated to one column;
    - non-finite float; dict literal;
    - `params: {rear_shade: 0}` against a `CapData` with `rear_shade=0.2`
-     (tier 2);
+     (tier 2), and the accepted case — the `_rear_shade_sim` preset on a
+     `sim` that has no `rear_shade` attribute, where `e_total` resolves it
+     to its default `0`;
+   - precedence: `args: {base_temp: 20}` reaches `power_temp_correct` while
+     the `CapData` has `base_temp=25`; `args: {pressure: null}` reaches
+     `absolute_airmass` as `None` even when a `pressure` column group
+     exists; a `requires_params` name absent from `args` is injected;
+   - normalisation with explicit `null` fields (`w_vel: null`) is
+     idempotent and digests equal the field-omitted form;
    - `Group` naming a group the project lacks; `Column` absent from the
      sim header; `requires_params` value `None` (`power_temp_coeff`);
      `requires_import` package missing (monkeypatched `find_spec`).
