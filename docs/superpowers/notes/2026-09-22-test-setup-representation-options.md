@@ -1,10 +1,10 @@
 # Test setup representation: design options
 
-**Date:** 2026-09-22
+**Date:** 2026-09-22 (revised after two roborev design reviews)
 **Purpose:** Survey alternative representations for a capacity-test setup (the
 `TEST_SETUPS` entry: regression columns trees, formula, reporting conditions)
-ahead of a redesign. For external review before choosing a direction.
-Backward compatibility is deliberately out of scope for this note.
+ahead of a redesign, and record the chosen direction. Backward compatibility
+is deliberately out of scope for this note.
 
 ## Background / problem being solved
 
@@ -48,6 +48,12 @@ live function objects. Shape-based dispatch is ambiguous once the tree passes
 through yaml or json, and function objects cannot be serialized, compared, or
 inspected without importing them.
 
+The defect was found storing a hand-run test into the pft-mono `ctsweep`
+store, which holds each run's `CapTest.to_mapping()` as a canonical-JSON
+document in SQLite and content-hashes it for identity. That store already
+demands what this redesign provides: a setup made only of JSON-representable
+data. See "Storage model" below.
+
 ## Goals for a redesign
 
 Ranked by the intended use — an agent defining and running many test types
@@ -61,46 +67,58 @@ on one project:
 4. Validity checks that can run without loading data: is the setup
    well-formed, internally consistent, and runnable on a given project?
 
-## Options
+## Chosen direction: pure data with a calculation registry
 
-### 0. Current form plus key-level override merge
+The yaml or json document *is* the setup; a typed Python model is a validated
+view of it. Every function is referenced by name through a registry (the
+`FILTER_REGISTRY` / `step_from_config` pattern in `filters.py`), never held
+as a Python object. The tree then contains only strings, numbers, and tagged
+nodes: nothing in it can fail to serialize, and nothing has to be imported to
+read it.
 
-Keep the tuple tree. Change `resolve_test_setup` so a `reg_cols_*` override
-merges per top-level key onto the preset (as `rep_conditions` already does via
-`_merge_rep_conditions`), with `null` deleting a key. Keep the encoder and
-decoder, but only decode data read from a file.
+### Node grammar
 
-- For: smallest change; removes the original cause (preset callables leaking
-  into an override that changed one key).
-- Against: the literal-list ambiguity remains for file-loaded trees; two
-  merge regimes (`rep_conditions` merges `func` one level deep, `reg_cols`
-  merges at the top level) to document; a full dict that deliberately omits a
-  preset key now gets that key merged back.
+Every node is a mapping with exactly one discriminating key, or a literal.
+There is no shorthand: a bare string is always a literal.
 
-### 1. Typed nodes holding callables
+| Node | Meaning |
+|---|---|
+| `{group: irr_poa, agg: mean}` | aggregate a column group; `agg` defaults to `mean` |
+| `{column: E_Grid}` | a raw column by name (the sim side, or a single-sensor meas column) |
+| `{calc: cell_temp, args: {...}}` | a registered calculation; `args` are keyword-only, each value a node |
+| `"cdte"`, `3.5`, `true`, `[1, 2]` | a literal argument, passed through unchanged |
 
-Frozen dataclasses `Agg(group, func)` and `Calc(func: Callable, kwargs)`,
-with tuple-to-node conversion at the API boundary and a tagged yaml form
-(`{agg: ..., func: ...}`, `{calc: module:qualname, kwargs: ...}`).
+Callable-valued arguments are not supported in the document form. If a
+calculation needs one, it takes a registry name (`{calc: ...}`) or a string
+that the calculation resolves itself. This is the rule that makes the
+motivating defects impossible: reference vs literal is decided by the tag,
+never by shape or position.
 
-- For: node kind is the type, not the shape, so both roborev findings are
-  impossible; construction-time checks; hashable `Agg` replaces the
-  `agg_cache` key hack; same `to_config` / `from_config` pattern as filter
-  steps.
-- Against: still holds function objects, so equality is by identity, `__main__`
-  callables cannot round-trip, and a setup is still a Python object that
-  happens to serialize rather than data.
+`args` are keyword-only and bind by name to the registered function's
+parameters after `data` is injected. Positional binding is not offered: the
+first review of a DSL sketch showed `cell_temp(mean(irr_poa), mean(temp_bom))`
+silently swapping irradiance for module temperature because the real
+signature is `cell_temp(data, bom, poa, ...)`.
 
-### 2. Pure data with a calculation registry
+### Document shape
 
-The yaml *is* the setup; a pydantic (or dataclass) model is a typed view of
-it. Functions are referenced by name through `CALC_REGISTRY` (the
-`FILTER_REGISTRY` pattern). Node grammar: `{group, agg?}`, `{column}`,
-`{calc, args}`, or a literal.
+The tree keeps its current nested, recursive form. Each formula variable
+maps to one node; a `calc` node's `args` are themselves nodes, evaluated
+bottom-up exactly as `transform_calc_params` does today, and a calculation's
+output column — named for the calculation — is what the parent consumes.
+Only the *encoding* of a node changes (tagged mapping instead of a
+shape-detected tuple), not the architecture.
+
+Each side has its own tree, because the sides need *different derivations*,
+not merely different source columns: temperature-corrected presets compute
+measured cell temperature but read PVsyst's `TArray` directly; spectral
+presets compute measured precipitable water (`precipitable_water_gueymard`)
+but scale PVsyst's `PrecWat` by 100.
 
 ```yaml
-name: bifi_power_tc_etotal
-derived_from: e2848_default
+name: bifi_power_tc_etotal_rear_shade_sim
+derived_from: e2848_default            # provenance only; never used to fill fields
+description: Bifacial, temperature-corrected power, E_total, rear shade in the model.
 reg_fml: power ~ poa + I(poa * poa) + I(poa * t_amb) + I(poa * w_vel) - 1
 reg_cols:
   meas:
@@ -110,174 +128,344 @@ reg_cols:
         power: {group: real_pwr_mtr, agg: sum}
         cell_temp:
           calc: cell_temp
-          args: {poa: {group: irr_poa}, bom: {group: temp_bom}}
-    poa: {calc: e_total, args: {poa: {group: irr_poa}, rpoa: {group: irr_rpoa}}}
+          args:
+            poa: {group: irr_poa, agg: mean}
+            bom: {group: temp_bom, agg: mean}
+    poa:
+      calc: e_total
+      args:
+        poa:  {group: irr_poa,  agg: mean}
+        rpoa: {group: irr_rpoa, agg: mean}
     t_amb: {group: temp_amb}
     w_vel: {group: wind}
   sim:
-    power: {calc: power_temp_correct, args: {power: {column: E_Grid}, cell_temp: {column: TArray}}}
+    power:
+      calc: power_temp_correct
+      args: {power: {column: E_Grid}, cell_temp: {column: TArray}}
+    poa:
+      calc: e_total
+      args:
+        poa:  {column: GlobInc}
+        rpoa: {calc: rpoa_pvsyst, args: {globbak: {column: GlobBak}, backshd: {column: BackShd}}}
     t_amb: {column: T_Amb}
+    w_vel: {column: WindVel}
+params:
+  rear_shade: 0            # constraints on test-level params this setup requires
 rep_conditions:
   func: {poa: perc_60, t_amb: mean, w_vel: mean}
 scatter_plots: default
 ```
 
-- For: every node says what it is; nothing can fail to serialize; equality
-  and diffing are plain data comparison; presets become yaml files loaded
-  through the same path users and agents use; `group` vs `column` makes the
-  current implicit "group id if it resolves, else column name" rule explicit.
-- For (validation): three layers, each a pure function — schema (pydantic,
-  path-bearing errors, JSON Schema export for agents); internal consistency
-  (formula variables are keys on both sides, `rep_conditions.func` keys are
-  rhs variables, `calc` args match the registered function's signature);
-  project fit (`required_groups(setup, side)` compared against
-  `column_groups`, no data load needed).
-- For (overrides): a setup is a complete value. `derive(base, ...)` returns a
-  new complete setup; `derived_from` records provenance; diffs are computed,
-  never stored. No merge semantics at all.
-- Against: pydantic is a new dependency alongside `param` (dataclasses plus a
-  hand-written validator work but lose the path-bearing errors and schema
-  export); the registry is a boundary — custom calculations must be
-  registered, with a `module:qualname` escape hatch marked non-portable;
-  every preset is rewritten and `transform_calc_params` and its `plotting.py`
-  twin are re-pointed.
+Repeated sub-expressions (`{group: irr_poa, agg: mean}` appears under both
+`power` and `poa`) are evaluated once: `Group` nodes are frozen and
+hashable, so the existing `agg_cache` keys on the node itself rather than on
+a `(group_id, agg_func)` tuple. `reg_cols` after processing is the flat
+`{formula variable: column}` map it is today.
 
-### 3. Expression strings (a small DSL)
+A setup is a complete value. `derived_from` is provenance; loading never
+fills omitted fields from it. To make a variant, copy and edit (or
+`TestSetup.derive(base, ...)` in Python, which returns a new complete
+setup). A diff against the base is computed, never stored. There is no
+override merge, so the `null`-to-delete and partial-vs-whole questions from
+the current `resolve_test_setup` do not arise.
 
-One line per regression variable, parsed with `ast` restricted to calls,
-names, keywords, and constants:
+### Output naming
 
-```yaml
-reg_cols:
-  meas:
-    power: power_temp_correct(sum(real_pwr_mtr), cell_temp=cell_temp(mean(irr_poa), mean(temp_bom)))
-    poa:   e_total(mean(irr_poa), mean(irr_rpoa))
-    t_amb: mean(temp_amb)
-  sim:
-    power: power_temp_correct(col("E_Grid"), cell_temp=col("TArray"))
+`CapData.custom_param` names its output column after `func.__name__`; with
+the registry the output column is the registry *name* (`calc: cell_temp`
+writes `cell_temp`), which keeps today's convention and keeps the column
+readable in `data`. Two `calc` nodes with the same name but different
+`args` on one side would collide, so that is a structural check (tier 1
+below). An optional `as: <column>` key on a `calc` node is the escape
+hatch when the same calculation is genuinely needed twice with different
+inputs. A calculation's output name may not shadow a column group id or a
+raw column on that side (tier 2).
+
+### Validation, in three tiers
+
+1. **Structural** — no data, no project. Schema validation of the document:
+   unknown keys, wrong types, `agg` not in the allowed set, `calc` not in
+   the registry, the same `calc` name used twice on one side with different
+   `args` and no `as`. Then: formula variables ⊆ keys of both sides of
+   `reg_cols`; `rep_conditions.func` keys ⊆ rhs variables; each `calc`'s
+   `args` match the registered function's signature (required kwargs
+   present, no unknown ones). Errors carry a path
+   (`reg_cols.meas.power.args.cell_temp.calc`) so an authoring agent can
+   self-correct.
+2. **Project fit** — needs `column_groups` and the sim header, not data. Every
+   `group` exists in the project's groups; every `column` exists on that
+   side; every test-level parameter the setup's calculations need
+   (`power_temp_coeff`, `bifaciality`, `spectral_module_type`, site
+   metadata for solar position) is present and not `None`; optional
+   dependencies the calculations import (`pvlib`) are installed. The
+   registry entry for each calculation declares these requirements so the
+   check is a lookup, not an execution. This tier is per setup, not once per
+   project.
+3. **Runtime** — what only running can establish: enough points survive,
+   the regression fits, a calculation raises on the actual data.
+
+The registry entry is therefore more than a name-to-function map:
+
+```python
+register_calc(
+    "cell_temp", cell_temp,
+    requires_params=("module_type", "racking"),
+    requires_import=("pvlib",),
+)
 ```
 
-- For: the most readable form for humans and agents; line diffs are
-  meaningful; consistent with `reg_fml`, which is already a string DSL
-  (patsy); the AST is the typed tree, so validation is the same as option 2.
-- Against: owning a parser and its error messages; quoting inside yaml;
-  literal list arguments need syntax. This is a surface syntax over a node
-  model, not a replacement for one, and can be layered on later.
+Signature matching alone is not enough: `power_temp_correct` accepts
+`power_temp_coeff=None` and then fails, so the requirement has to be
+declared, not inferred.
 
-### 4. Flat named derivations instead of a nested tree
+### Custom calculations
 
-An ordered list of named columns, like the filter pipeline:
+A calculation not in the registry must be registered before a setup can name
+it. There is no `module:qualname` form in the document: loading a setup
+never imports code named by the document. A project that needs a one-off
+calculation registers it in its own code (`register_calc("my_calc", fn)`)
+before loading; the stored document then records the *name*, and
+reproducing a run requires the same registration — which is the honest
+statement of the dependency.
 
-```yaml
-derive:
-  - {name: poa_mean,  group: irr_poa,      agg: mean}
-  - {name: bom_mean,  group: temp_bom,     agg: mean}
-  - {name: pwr_sum,   group: real_pwr_mtr, agg: sum}
-  - {name: cell_temp, calc: cell_temp,           args: {poa: poa_mean, bom: bom_mean}}
-  - {name: power_tc,  calc: power_temp_correct,  args: {power: pwr_sum, cell_temp: cell_temp}}
-reg_cols: {power: power_tc, poa: poa_mean, t_amb: t_amb_mean, w_vel: ws_mean}
+### Storage model (ctsweep)
+
+The pft-mono `ctsweep` store is stdlib SQLite. `runs.config_json` and
+`test_configs.config_json` hold the unwrapped `CapTest.to_mapping()` as
+canonical JSON (`identity.canonical_json`: sorted keys, no whitespace, only
+str/int/float/bool/list/dict, NaN rejected), and `run_id` / `config_hash`
+are sha256 of that text. `json_extract` builds generated columns from it.
+
+A setup document as specified here is exactly what that store accepts: the
+model's `dump()` yields JSON types only, `canonical_json` of it is the
+setup's identity, and yaml versus json is only a choice of encoding for the
+same validated document (always load through the model; never rely on a yaml
+parser's own type guessing for dates or `yes`/`no`).
+
+Proposed store change: a setup is today nested inside a test config (setup +
+paths + filters + window). Give setups their own table keyed by content
+hash — `test_setups(setup_hash, name, derived_from, setup_json)` — with
+`runs` referencing `setup_hash`. Setups then dedupe automatically, "every
+run of this recipe across projects" is an index lookup, and `derived_from`
+becomes a foreign key. The JSON Schema exported from the model validates a
+document at insert time, before any run, and is versioned alongside
+`id_algo`.
+
+An exported run must stay reproducible after the project or registry
+changes. The run envelope should therefore carry the setup document itself
+(not a name), the captest version, and the registry version, and the project
+side of tier-2 (the group and column bindings actually used) should be
+recorded in `metrics_json` at run time.
+
+### Library choice: pydantic v2
+
+Pydantic v2 (`pydantic>=2.5,<3`, a core dependency, not an extra) was
+compared against stdlib dataclasses, `TypedDict` + `Annotated`,
+attrs/cattrs, msgspec, and the already-present `param`. Every API claim
+below was run in isolated `uv` environments (pydantic 2.13.5, msgspec
+0.21.1, attrs/cattrs 26.1.0, param 2.4.1 from the lockfile).
+
+| Requirement | pydantic v2 | msgspec | attrs + cattrs | dataclasses | TypedDict | param |
+|---|---|---|---|---|---|---|
+| Recursive discriminated union, path-bearing errors | ✓ callable `Discriminator` dispatches on which key is present, so the grammar above needs no `type` field; error is `reg_cols.meas.power.args.cell_temp.calc: unknown calculation 'foo'` | partial: tagged unions need a `type:` key in every node; error paths elide dict keys (`$.reg_cols[...][...].args[...]`) | partial: hand-written structure hooks; three attempts did not get the recursive scalar-mixing union working | ✗ no validation | ✗ static only; runtime validation is pydantic `TypeAdapter` anyway | ✗ per-field only, no unions, no paths |
+| JSON Schema export | ✓ `model_json_schema()` with `$defs` per node, `oneOf`, `additionalProperties: false` | ✓ `msgspec.json.schema()` (tag field appears in schema) | ✗ | ✗ | ✗ | partial: flat per-class list |
+| JSON-type round trip, `==`, hashability | ✓ `model_dump(mode="json")` yields only JSON types (tuples → lists, `np.float64` → `float`); frozen models compare by value; **not hashable with `dict` fields** — define `__hash__` over the canonical dump | ✓ `to_builtins()`; same hash caveat | ✓ `unstructure()`; same caveat | ✓ `asdict` | ✓ it is a dict | ✗ identity equality; dump includes auto `name` |
+| Custom validators | ✓ `model_validator` / `field_validator` with path | partial: `__post_init__`, path elided | ✓ attrs validators | manual | manual | per-parameter only |
+| Dependency cost | compiled `pydantic-core` + 3 small pure deps (~2 MB); conda-forge current (2.13.5, 2026-08-28); v1/v2 split settled, pin `<3`; py ≥ 3.9 (captest is ≥ 3.10) | compiled C; conda-forge current; 0.x, no stability promise | attrs already in lock (dev only); cattrs pure Python | zero | zero | zero |
+| Maintainability, NumPy docstrings | ✓ one class per node; docstring on the class; `Field(description=)` feeds the schema | ✓ but `tag=True` boilerplate and 0.x churn | partial: converter wiring lives apart from the classes | ✗ walker grows with every node kind | ✗ | ✗ wrong tool: identity semantics, mutable |
+
+Pydantic is the only option that meets the first requirement as stated: the
+grammar above, with no tag field, parses directly through a callable
+`Discriminator`, and the error names the full dict-key path an agent needs
+to self-correct. msgspec, the runner-up, forces a `type:` key into every
+node and hides dict keys in error paths.
+
+Sketch of the node union and the setup model:
+
+```python
+from typing import Annotated, Literal, Union
+from pydantic import BaseModel, ConfigDict, Discriminator, Field, Tag, model_validator
+
+class _Frozen(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+class Group(_Frozen):  group: str; agg: str = "mean"
+class Column(_Frozen): column: str
+class Calc(_Frozen):
+    calc: str
+    args: dict[str, "Node"] = Field(default_factory=dict)
+    @model_validator(mode="after")
+    def _known(self):
+        if self.calc not in CALC_REGISTRY:
+            raise ValueError(f"unknown calculation {self.calc!r}")
+        return self
+
+Scalar = str | int | float | bool | list[str | int | float | bool]
+
+def _node_kind(v):            # which key is present decides the member
+    if isinstance(v, dict):
+        return next((k for k in ("group", "column", "calc") if k in v), None)
+    return "literal" if not isinstance(v, BaseModel) else type(v).__name__.lower()
+
+Node = Annotated[
+    Union[Annotated[Group, Tag("group")], Annotated[Column, Tag("column")],
+          Annotated[Calc, Tag("calc")], Annotated[Scalar, Tag("literal")]],
+    Discriminator(_node_kind),
+]
+Calc.model_rebuild()
+
+class TestSetup(_Frozen):
+    name: str
+    reg_fml: str
+    reg_cols: dict[Literal["meas", "sim"], dict[str, Node]]
+    def to_dict(self):  return self.model_dump(mode="json", exclude_none=True)
+    def __hash__(self): return hash(canonical_json(self.to_dict()))
+
+TestSetup.model_json_schema()               # agent contract / DB insert check
+TestSetup.model_validate(d).to_dict() == d  # verified True
 ```
 
-- For: matches what `CapData` actually does (adds columns to `data`); every
-  intermediate is named, inspectable, and plottable; sharing is natural
-  (`poa_mean` feeds both `power` and `poa` without `agg_cache`); `reg_cols`
-  is a flat `{var: column}` map, the same shape before and after processing;
-  validation is a DAG check (references resolve, no cycles, args match
-  signatures), simpler than a recursive tree walker.
-- Against: more verbose for simple setups; every intermediate needs a name;
-  nesting is closer to how a single formula term is thought about.
+`CapTest` stays a `param.Parameterized` and holds the setup in a
+`param.ClassSelector(class_=TestSetup)`. The two systems meet at one
+boundary: pydantic for pure-data documents, `param` for live objects with
+runtime state. Filter steps are not migrated.
 
-### 5. Orthogonal aspects instead of a flat preset list
+Risks and mitigations:
 
-`TEST_SETUPS` is roughly the cross product of a few choices. Make the axes
-explicit:
+- **Hashability**: frozen models with `dict` fields raise on `hash()`
+  (verified). Define `__hash__` over the canonical dump so it agrees with
+  ctsweep's `config_hash`.
+- **Hash stability across dump options**: `exclude_none` / `exclude_defaults`
+  change the bytes. Fix one `to_dict()` policy (`exclude_none=True`, keep
+  defaults) and test that a reloaded document dumps byte-identically.
+- **Model-level validators lose the path** (a whole-document check such as
+  formula variables ⊆ keys printed no location). Raise from a
+  `field_validator("reg_cols")` reading `info.data["reg_fml"]`, or use
+  `PydanticCustomError`, so every error carries a location.
+- **Compiled `pydantic-core`**: wheels cover every captest platform and the
+  conda-forge feedstock tracks releases within days; the `conda-release`
+  skill gates on the dependency change.
+- **Union with scalar literals**: without the callable discriminator pydantic
+  reports eleven errors for one bad node (verified). Keep `_node_kind` as the
+  single dispatch point and unit-test the "no recognised key" case.
 
-```yaml
-power:      temp_corrected      # or: raw
-irradiance: e_total_spectral    # or: poa, e_total, poa_spectral
-rep_cond:   perc_60
-formula:    e2848
-```
+## Options considered and not chosen
 
-Each aspect declares the variables it provides, the groups it requires, and
-the parameters it needs (`bifaciality`, `spectral_module_type`, ...). The
-resolver composes the derivation list.
+### 0. Current form plus key-level override merge
 
-- For: "run every valid test type on this project" is `product(axes)`
-  filtered by `required_groups ⊆ project.groups`; new combinations are free;
-  validation is per aspect; provenance is built in (the setup *is* its
-  choices).
-- Against: not all combinations are meaningful, so compatibility rules are
-  needed; fully custom tests still need an escape hatch (a raw derivation
-  list); preset descriptions would be generated; the largest conceptual
-  change.
+Keep the tuple tree; make `reg_cols_*` overrides merge per top-level key
+(as `_merge_rep_conditions` does), with `null` deleting a key; decode only
+file-loaded trees. Smallest change and removes the original trigger, but the
+literal-vs-pair ambiguity remains, there would be two merge regimes to
+document, and a full dict that deliberately omits a preset key gets it
+merged back.
 
-### 6. Setups as Python classes, config as parameters only
+### 1. Typed nodes holding callables
 
-Each test type is a class with a `derive(cd)` method in plain pandas; the
-yaml holds only the class name and numeric parameters.
+Frozen dataclasses `Agg` / `Calc(func: Callable, kwargs)` with tuple
+conversion at the boundary. Node kind becomes the type, which fixes the
+shape ambiguity at the outer level, but callable-valued *arguments* are still
+untyped, function identity still decides equality, `__main__` callables
+still cannot round-trip, and a setup is still a Python object that happens
+to serialize.
 
-- For: full expressiveness, IDE support, ordinary unit tests, no DSL or
-  registry.
-- Against: the wrong trade for the goal. Agent-authored setups must be
-  importable Python; nothing is statically inspectable; "which setups can run
-  here" needs a `requires` declaration that will drift. Ruled out.
+### A. Expression strings (a small DSL)
 
-### 7. Split project variables from the test transform
+`power: power_temp_correct(power=sum(real_pwr_mtr), cell_temp=cell_temp(bom=mean(temp_bom), poa=mean(irr_poa)))`,
+parsed with `ast` restricted to calls, names, keywords and constants. The
+most readable form, consistent with `reg_fml` being a patsy string, and the
+AST is the same node model. Costs: owning a parser and its error messages,
+yaml quoting, literal-list syntax, and positional arguments must be
+forbidden (see the `cell_temp` swap above). Deferred: it is a surface syntax
+over the chosen model and can be added later without changing the model.
 
-The current tree mixes *what the site has* (sensor aggregation:
-`("irr_poa", "mean")`, repeated in every preset) with *what the test
-computes* (`e_total`, `cell_temp`). Separate them:
+### B. Flat named derivations instead of a nested tree
 
-```yaml
-# project (lives with column_groups)
-variables:
-  poa:   {group: irr_poa,      agg: mean}
-  rpoa:  {group: irr_rpoa,     agg: mean}
-  power: {group: real_pwr_mtr, agg: sum}
-  t_bom: {group: temp_bom,     agg: mean}
+An ordered `derive` list of named columns per side, each `{name, group|calc,
+args}` with `{ref: name}` nodes pointing at earlier entries, and a flat
+`vars` map from formula variable to column. Every intermediate is named and
+shared sub-expressions are written once, and validation is a DAG check. Not
+chosen: the nested tree with recursive bottom-up evaluation, where a
+calculation's output name is consumed by the parent, already works and is
+the architecture `transform_calc_params`, `plotting.py` and the presets are
+built on. Its two costs — repeated sub-expressions and unnamed intermediates
+— are handled by hashable `Group` nodes as the `agg_cache` key and by
+naming outputs for the calculation (with `as` for collisions). The flat
+form would have added a `ref` node kind, a name-resolution pass, and a
+second grammar for the plotting consumer, for no gain in the properties
+that matter (tagged nodes, no callables in the document).
 
-# test setup — references project variables only
-derive:
-  - {name: cell_temp, calc: cell_temp,          args: {poa: poa, bom: t_bom}}
-  - {name: power_tc,  calc: power_temp_correct, args: {power: power, cell_temp: cell_temp}}
-```
+### C. Orthogonal aspects instead of a flat preset list
 
-- For: setups become small and portable across projects; the meas/sim
-  asymmetry mostly disappears (the sim side is just a different `variables`
-  map, `power: {column: E_Grid}`); project fit is "does the project define
-  every variable the setup names", checked once per project rather than per
-  setup.
-- Against: a second config location; some aggregation choices (`sum` vs
-  `mean` of inverter power) are test decisions, not site facts, and a rule is
-  needed for where they go.
+`TEST_SETUPS` is roughly a cross product of power (raw / temp-corrected),
+irradiance (POA / E_total / spectral / both), rep-condition rule, and
+formula. Making the axes explicit makes "run every valid test type" an
+enumeration. Not chosen now: the eligibility rule is more than "required
+groups present" — the rear-shade `_sim` and `_meas` variants need identical
+groups but combining sim-side rear shading with a non-zero measured
+`rear_shade` double-counts the loss — so aspects need parameter constraints,
+and the composition rules are a project of their own. Revisit once complete
+setups exist as documents; aspects are then reusable sub-trees, and the
+preset library can be generated.
 
-## Current leaning
+### D. Setups as Python classes, config as parameters only
 
-Options 4 and 7 together (a flat DAG of named derivations over
-project-declared variables, encoded as pure data per option 2) are the
-structural change with the best payoff: easier to validate than any tree,
-matches what `CapData` does, and makes setups short enough that option 5
-becomes practical on top — aspects are reusable fragments of the derivation
-list, and the preset library becomes a generated product rather than ten
-hand-maintained dicts. Option 3 can be layered on afterwards as terser syntax
-for derivation entries. Option 6 is dropped.
+Full expressiveness, IDE support, ordinary unit tests. The wrong trade for
+the goal: agent-authored setups would have to be importable Python, nothing
+is statically inspectable, and "which setups can run here" needs a
+`requires` declaration that will drift. Dropped.
 
-Proposed next step before a spec: rewrite the two largest presets
-(`bifi_power_tc_etotal` and the spectral-corrected E_total variant) in the
-4+7 form and check whether they read well and whether any aggregation choice
-resists being pushed to the project side.
+### E. Split project variables from the test transform
 
-## Questions for review
+Project config declares `variables: {poa: {group: irr_poa, agg: mean}, ...}`
+and setups reference only those. Attractive for portability, but review
+showed two problems: the sim side needs its own derivations (above), and
+some aggregation choices (`sum` versus `mean` of inverter power) are test
+decisions, not site facts. The chosen document keeps the aggregation in the
+setup. A project-level `variables` map can be added later as a *source* for
+`{group, agg}` nodes without changing the setup grammar.
 
-- Is the 4+7 leaning right, or does nesting (option 2 alone) keep enough
-  locality to be worth its validation cost?
-- Where should the aggregation choice live when it is a test decision (e.g.
-  `sum` of inverter power for a per-inverter test)? Project default with a
-  setup-level override, or always in the setup?
-- Is the calculation registry the right boundary for custom calculations, or
-  should `module:qualname` be first-class?
-- pydantic versus dataclasses given `param` is already a dependency.
-- Does option 5 pull its weight, or should the sweep tooling in pft-mono
-  own the "generate variants" step and captest only validate and run complete
-  setups?
+## Open questions before a spec
+
+- Whether `as` on a `calc` node is needed in the first cut, or whether a
+  same-name-different-args collision can simply be a structural error until
+  a real preset needs it.
+- Where the prep stage (column renames and unit conversions before setup)
+  sits relative to tier-2 validation: the bindings checked must be the
+  post-prep names.
+- Migration of `plotting.py`'s calc specs and the pft-mono consumers
+  (`perfactory/captest.py`, `ctsweep/adhoc.py`, `captest-gui` views) —
+  out of scope for this note but must be sized.
+- Whether `scatter_plots` stays a named entry in a small registry (as
+  sketched) or becomes a document of its own.
+
+## Review history
+
+- roborev job 420 (design, astra, on the first version of this note):
+  argument ambiguity unresolved; incomplete example contradicting the
+  no-inheritance rule; project/test split ignoring per-side derivations;
+  static validation overstated; spike would not exercise the motivating
+  defects; missing: output naming, import trust, reproducibility.
+- roborev job 425 (design, astra, on a brief covering A–E): DSL example
+  bound `cell_temp` args positionally and swapped them; E's example
+  referenced a local derivation while claiming "project variables only";
+  C's eligibility rule missed the rear-shade double-count constraint;
+  spike named a non-existent preset (`bifi_power_tc_etotal`) and had no
+  numerical acceptance criteria; missing: migration, prep-stage
+  interaction, callable trust, serialization scope beyond derivations.
+
+Both sets of findings are folded into the chosen direction above.
+
+## Proposed next step
+
+Rewrite `bifi_power_tc_etotal_rear_shade_sim`,
+`bifi_power_tc_etotal_rear_shade_meas`, and
+`bifi_e2848_etotal_rear_shade_sim_spec_corrected` as documents in the form
+above, plus three small documents exercising a literal-list argument, a
+literal-string argument (`spectral_module_type`), and a three-deep `calc`
+nesting with a repeated `{group, agg}` leaf. Accept
+the spike when: each document validates at tiers 1 and 2 against a fixture
+project; loading each through the new model and running it reproduces the
+existing preset's measured and modeled regression results to numerical
+equality on the fixture data; and `canonical_json(dump(load(doc)))` equals
+`canonical_json(doc)` for all six.
