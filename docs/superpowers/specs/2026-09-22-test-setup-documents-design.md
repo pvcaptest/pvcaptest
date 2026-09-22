@@ -235,7 +235,7 @@ class RepConditions(_Frozen):
     func: dict[str, str] = Field(default_factory=dict)   # "mean" | "median" | "perc_N"
     w_vel: float | None = None
     irr_bal: bool = False
-    percent_filter: float | tuple[float, float] = 20   # a two-item list in yaml
+    percent_filter: float = 20        # numeric only: filters.RepCond.percent_filter is param.Number
     front_poa: str = "poa"
     rc_kwargs: dict[str, Scalar] | None = None
 
@@ -477,11 +477,16 @@ Runs in `CapTest.setup()` after prep and before evaluation, against the
 
 - every `Group.group` is a key of `cd.column_groups`;
 - every `Column.column` is in `cd.data.columns`;
-- for every `Calc` reached, every name in `requires_params` that is not
-  supplied in `args` resolves to a value (a `cd` attribute that is not
-  `None`, or a function default) — a parameter with no default, no `args`
-  entry and a `None` attribute is the `power_temp_coeff` failure; and every
-  package in `requires_import` is importable (`importlib.util.find_spec`);
+- for every `Calc` reached, every name in `requires_params` resolves under
+  the precedence rules to a value that is **not `None`**. `requires_params`
+  is the declaration that the calculation cannot run without a real value,
+  so a `None` reached by any route fails: an explicit `args: {power_temp_coeff:
+  null}`, a `None` `CapData` attribute, or a function default of `None`
+  (`power_temp_correct(power_temp_coeff=None)` is a placeholder, not a
+  default). Parameters *not* in `requires_params` may legitimately be `None`
+  (`absolute_airmass(pressure=None)`), which is why the two are distinct.
+  Every package in `requires_import` is importable
+  (`importlib.util.find_spec`);
 - no column written by a `Group` or `Calc` node is a column group id or an
   existing raw column on that side;
 - for every key in `setup.params` and every `Calc` on this side whose
@@ -564,7 +569,9 @@ presets are migrated.
    - normalisation with explicit `null` fields (`w_vel: null`) is
      idempotent and digests equal the field-omitted form;
    - `Group` naming a group the project lacks; `Column` absent from the
-     sim header; `requires_params` value `None` (`power_temp_coeff`);
+     sim header; `requires_params` resolving to `None` by each route —
+     `CapData.power_temp_coeff` unset, explicit `args: {power_temp_coeff:
+     null}`, and the function's own `None` default;
      `requires_import` package missing (monkeypatched `find_spec`).
 5. **Registry declarations:** the source-inspection test described above,
    over every entry.
