@@ -145,6 +145,14 @@ TestSetup.derive(TEST_SETUPS["e2848_default"],
                  reg_cols_meas={"power": {"group": "real_pwr_inv", "agg": "sum"}})
 ```
 
+Removing a term has one knock-on effect `derive` handles itself: after the
+formula and both sides are resolved, any `rep_conditions.func` entry whose
+variable is no longer on the formula's right-hand side is **pruned**, so
+dropping `w_vel` from `e2848_default` does not leave the inherited
+`func.w_vel` behind for tier 1 to reject. Pruning happens after
+`_merge_rep_conditions` has applied any `rep_conditions` override, and only
+removes entries; it never adds or changes one.
+
 The stored value is always the complete result. Diffs against a base are
 computed, never stored.
 
@@ -643,7 +651,10 @@ presets are migrated.
      column;
    - a literal as a top-level `reg_cols` value;
    - override merge: `reg_cols_meas: {poa: {group: irr_ghi}}` keeps the
-     other three e2848 terms; `null` removes a term; `null` for a term the
+     other three e2848 terms; `null` removes a term; removing `w_vel` from
+     `e2848_default` (formula override plus `null` on both sides) yields a
+     valid setup whose `rep_conditions.func` no longer has `w_vel`, while a
+     `func` entry for a surviving variable is untouched; `null` for a term the
      preset lacks is rejected; an override key that is not a formula
      variable is rejected; `custom` with a partial side is rejected;
    - non-finite float; dict literal;
@@ -669,7 +680,9 @@ presets are migrated.
    same-named output.
 7. **CapTest round trip:** `to_yaml` → `from_yaml` for a preset with one
    overridden term (the file contains only that term), for a removed term
-   (the file contains `null`), for `custom`, and for a document using a
+   (the file contains the formula override and `null`, and the reloaded
+   setup's `rep_conditions.func` is pruned identically), for `custom`, and
+   for a document using a
    custom registered calculation; the reloaded `resolved_setup` equals the
    original by value and by `content_digest()`; `check_fit()` lists errors
    without running setup.
