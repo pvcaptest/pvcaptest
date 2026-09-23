@@ -61,7 +61,7 @@ There is no shorthand: a bare string is always a literal.
 |---|---|
 | `{group: irr_poa, agg: mean}` | aggregate a column group with `CapData.agg_group`; `agg` defaults to `mean` |
 | `{column: E_Grid}` | a raw column of `data` by name |
-| `{calc: cell_temp, args: {...}, as: <name>}` | a registered calculation; `args` are keyword-only, each value a node; `as` (optional) names the output column |
+| `{calc: cell_temp, args: {...}}` | a registered calculation; `args` are keyword-only, each value a node; its output column is named `cell_temp` |
 | `"cdte"`, `3.5`, `true`, `null`, `[1, 2]` | a literal argument, passed through unchanged |
 
 Rules:
@@ -79,6 +79,9 @@ Rules:
   mean(temp_bom))` would silently swap irradiance and module temperature
   against the real signature `cell_temp(data, bom, poa, ...)`.
 - The allowed `agg` values are those `agg_group` accepts today.
+- A top-level `reg_cols` value (a formula variable's node) must be a
+  `Group`, `Column` or `Calc`; a literal there is a tier-1 error. Literals
+  belong only inside `args`.
 
 ### Setup
 
@@ -131,7 +134,19 @@ A setup is a complete value. `derived_from` (a preset name or a content
 digest) is provenance; loading never fills omitted fields from it. A
 variant is made by copying and editing, or by `TestSetup.derive(base,
 **changes)` in Python, which returns a new complete setup with
-`derived_from = base.name`. Diffs against a base are computed, never stored.
+`derived_from = base.name`. `derive` merges `reg_cols_meas` /
+`reg_cols_sim` **key by key** onto the base side (each formula variable's
+node is replaced whole; `null` removes the variable) and replaces every
+other field wholesale, so pointing one term at a different sensor group is
+a one-line change:
+
+```python
+TestSetup.derive(TEST_SETUPS["e2848_default"],
+                 reg_cols_meas={"power": {"group": "real_pwr_inv", "agg": "sum"}})
+```
+
+The stored value is always the complete result. Diffs against a base are
+computed, never stored.
 
 `params` maps a test-level parameter name to the value this setup
 *requires*. It is neither a default nor an override: at tier 2, on each side
@@ -159,16 +174,18 @@ Every `Group` and `Calc` node *produces* a column of `data`:
 | Node | Column it writes |
 |---|---|
 | `{group: g, agg: a}` | `<g>_<a>_agg` (the existing `agg_group` naming) |
-| `{calc: c}` | `c` |
-| `{calc: c, as: n}` | `n` |
+| `{calc: c}` | `c` (the registry name; there is no alias) |
 
 Two producers on one side may write the same column only if they are the
 **same node** — equal kind, and for `Calc` equal registry name and equal
 `args`. Anything else that would write a column another node writes is a
-tier-1 error naming both paths, including a `Calc` aliased to an
-aggregation's name (`as: irr_poa_mean_agg` next to `{group: irr_poa}`) and
-two different calculations sharing an `as`. The check needs no project: the
-names are determined by the document alone.
+tier-1 error naming both paths: the same calculation twice with different
+`args`, or a registry name that happens to equal an aggregation's column
+(`<g>_<a>_agg`). The check needs no project: the names are determined by
+the document alone. An alias key (`as:`) was considered and dropped — no
+existing or planned setup needs the same calculation twice with different
+inputs on one side, and the collision error is the safer default until one
+does.
 
 ## Architecture
 
@@ -196,7 +213,7 @@ attributes named by `requires_params`), the same rule `filters.py` follows.
 
 ```python
 class _Frozen(BaseModel):
-    model_config = ConfigDict(frozen=True, extra="forbid", populate_by_name=True)
+    model_config = ConfigDict(frozen=True, extra="forbid")
 
 class Group(_Frozen):
     group: str
@@ -208,17 +225,25 @@ class Column(_Frozen):
 class Calc(_Frozen):
     calc: str
     args: dict[str, "Node"] = Field(default_factory=dict)
-    as_: str | None = Field(default=None, alias="as")
 
 Scalar = None | bool | int | float | str
 Literal_ = Scalar | list[Scalar]
 
-def _node_kind(v):
-    if isinstance(v, dict):
-        keys = [k for k in ("group", "column", "calc") if k in v]
-        return keys[0] if len(keys) == 1 else None       # None → union_tag_not_found
-    if isinstance(v, BaseModel):
-        return type(v).__name__.lower()
+NODE_TAGS = ("group", "column", "calc")
+
+def _node_kind(node):
+    """Name the union member ``node`` belongs to, for the discriminator.
+
+    A mapping is identified by which one of ``NODE_TAGS`` it carries; a
+    mapping with none or several is unclassifiable and returns ``None`` so
+    pydantic reports ``union_tag_not_found`` at that path. An already-built
+    model reports its own class; anything else is a literal.
+    """
+    if isinstance(node, dict):
+        present_tags = [tag for tag in NODE_TAGS if tag in node]
+        return present_tags[0] if len(present_tags) == 1 else None
+    if isinstance(node, BaseModel):
+        return type(node).__name__.lower()
     return "literal"
 
 Node = Annotated[
@@ -262,14 +287,11 @@ mutable under `frozen=True` and `1 == 1.0` would dump differently.
 
 Identity and serialization:
 
-- `to_dict()` = `model_dump(mode="json", by_alias=True)`. Every field is
+- `to_dict()` = `model_dump(mode="json")`. Every field is
   written, including those whose value is `null`, and defaults are
   materialised (`{group: temp_amb}` dumps as `{group: temp_amb, agg:
   mean}`), so identity belongs to the *normalised* document and a `null`
-  never changes meaning by being dropped. The one exception is `Calc.as`,
-  omitted when unset through a `model_serializer`, since an absent `as`
-  and `as: null` mean the same thing (write the registry name).
-  Normalisation is idempotent: `load(to_dict(load(d))).to_dict() ==
+  never changes meaning by being dropped. Normalisation is idempotent: `load(to_dict(load(d))).to_dict() ==
   load(d).to_dict()` — that, not byte equality with the author's input, is
   the round-trip property. Preset yaml files may omit defaults; the
   normalised form is what is compared and digested.
@@ -370,9 +392,8 @@ def transform_calc_params(node, cd, agg_cache=None, verbose=True):
     if isinstance(node, Calc):
         entry = CALC_REGISTRY[node.calc]
         resolved = transform_calc_params(node.args, cd, agg_cache, verbose)
-        output = node.as_ or node.calc
-        cd.custom_param(entry.func, output=output, verbose=verbose, **resolved)
-        return output
+        cd.custom_param(entry.func, output=node.calc, verbose=verbose, **resolved)
+        return node.calc
     return node                                     # literal
 ```
 
@@ -406,19 +427,36 @@ later optimisation, not part of this design).
 - `resolve_test_setup(name, overrides)` returns a `TestSetup`. For a named
   preset it first partial-merges `overrides["rep_conditions"]` onto the
   preset's with `_merge_rep_conditions` (today's behaviour, unchanged), then
-  calls `TestSetup.derive(TEST_SETUPS[name], **overrides)`, which replaces
-  each named field wholesale. For `"custom"` it builds a `TestSetup` from
-  the overrides and requires `reg_cols_meas`, `reg_cols_sim`, `reg_fml` as
+  calls `TestSetup.derive(TEST_SETUPS[name], **overrides)`, which merges
+  `reg_cols_*` key by key and replaces every other field wholesale. For
+  `"custom"` there is no base: it builds a `TestSetup` from the overrides
+  and requires complete `reg_cols_meas`, `reg_cols_sim` and `reg_fml` as
   today. `validate_test_setup` is deleted; the model validates, and
   `captest.py` adds the `scatter_plots` membership check.
 - `CapTest._downstream_attrs` becomes `setup.DOWNSTREAM_PARAMS` so the
   `params` tier-1 check and the propagation loop share one list.
-- The `CapTest` params `reg_cols_meas` / `reg_cols_sim` take a `dict[str,
-  Node]` in document form (a mapping is coerced through `Side`); `reg_fml`,
-  `rep_conditions` (still partial-merged, as today), `scatter_plots` (a
-  name) and, new, `params` are the other overrides. An override replaces
-  that field of the preset wholesale; there is no key-level merge of a
-  side's tree.
+- The `CapTest` params `reg_cols_meas` / `reg_cols_sim` take a mapping of
+  formula variable to node in document form and are **merged key by key**
+  onto the named preset's side: a key present in the override replaces that
+  variable's whole node; a key absent from the override keeps the preset's
+  node; a key whose value is `null` removes the variable (needed when an
+  overridden `reg_fml` drops a term). So
+
+  ```yaml
+  overrides:
+    reg_cols_meas:
+      poa: {group: irr_ghi, agg: mean}
+  ```
+
+  swaps the irradiance term to the GHI sensors for a stowed tracker and
+  leaves `power`, `t_amb` and `w_vel` as the preset defines them. `reg_fml`,
+  `rep_conditions` (partial-merged, as today), `scatter_plots` (a name) and,
+  new, `params` are the other overrides; `reg_fml`, `scatter_plots` and
+  `params` replace wholesale. Under `test_setup: custom` there is no base
+  and both sides must be complete. Test-level parameters (`bifaciality`,
+  `power_temp_coeff`, ...) are not part of the setup document; they remain
+  `CapTest` params set from yaml or kwargs exactly as today, and interact
+  with a setup only through its `params` constraints.
 - `CapTest.resolved_setup` is a `param.ClassSelector(class_=TestSetup)`
   replacing `_resolved_setup`; `setup()` assigns
   `cd.regression_cols = dict(resolved.meas.reg_cols)` (a shallow copy of an
@@ -427,7 +465,13 @@ later optimisation, not part of this design).
   as now. `scatter_plots()` and `captest_results()` read `resolved_setup`.
 - `to_mapping()` keeps the current yaml layout — `test_setup: <name>` plus
   an `overrides` sub-mapping — with each override written in document form
-  via `to_dict()` of the relevant piece. `_encode_override`,
+  via `to_dict()` of the relevant piece. For `reg_cols_*` it writes the
+  **difference** from the named preset: only the formula variables whose
+  node differs, plus `null` for variables the preset has and the resolved
+  setup lacks. A file therefore says exactly what was changed, and
+  `from_mapping` merging it back onto the same preset reproduces the
+  resolved setup (a tested round trip). Under `custom` both sides are
+  written in full. `_encode_override`,
   `encode_reg_cols`, `decode_reg_cols` and `_serialize_rep_conditions`'s
   `perc_wrap` branch are deleted. A consumer that needs the complete
   normalised setup (ctsweep) reads `ct.resolved_setup.to_dict()` and
@@ -440,6 +484,41 @@ later optimisation, not part of this design).
 `_missing_column_groups(node, available_groups)` walks nodes: `Group` leaves
 are checked, `Column` and literals are not. `calc_tc_power_column(cd,
 tc_power_calc)` takes a `dict[str, Node]` whose `"power"` entry is a `Calc`.
+
+## Extending
+
+What a contributor does after this lands, and nothing more:
+
+**A new calculation** — in `calcparams.py`, write the function with `data`
+as its first parameter and keyword parameters for everything else, give it
+a NumPy-style docstring, and decorate it:
+
+```python
+@register_calc(requires_params=("power_temp_coeff",), requires_import=())
+def power_temp_correct_clipped(data, power, cell_temp, power_temp_coeff=None, cap=0.98):
+    ...
+```
+
+`requires_params` lists the parameters that come from `CapData` attributes
+(the `DOWNSTREAM_PARAMS` names); `requires_import` lists optional packages
+the body imports. The registry-declaration test in `tests/test_calcparams.py`
+runs over every entry automatically and fails if the declaration disagrees
+with the source. A project-specific calculation is registered the same way
+in the project's own code before the setup that names it is loaded.
+
+**A new test setup** — write `src/captest/test_setups/<name>.yaml` in the
+grammar above (copy the nearest preset and edit). It is validated at tier 1
+the next time `captest` is imported, and the parametrised preset tests
+(load, normalise, digest, oracle) pick it up by directory listing. Two
+fixture lines accompany it: its digest in `tests/data/setup_digests.json`
+and, if its numbers should be regression-locked, an oracle captured with
+the existing capture script into `tests/data/setup_oracles/<name>.json`.
+The `add-test-setup` skill is rewritten for this workflow as part of the
+implementation.
+
+**A one-off variant for a project** — no code at all: an `overrides`
+block in the project's yaml, merged key by key as described under
+`captest.py`.
 
 ## Validation
 
@@ -458,10 +537,15 @@ for tier 1 and by an explicit path argument for tier 2.
   not in `requires_params` is present in `args`.
 - `TestSetup`: `reg_fml` parses (`util.parse_regression_formula`); lhs ∪
   rhs ⊆ keys of `meas.reg_cols` and of `sim.reg_cols`; `rep_conditions.func`
-  keys ⊆ rhs and values match `mean|median|perc_\d+`; per side, the
-  output-column rule — every column written by a `Group` or `Calc` node is
-  written only by nodes equal to it; `params` keys are names in
-  `setup.DOWNSTREAM_PARAMS`.
+  keys ⊆ rhs and values match `mean|median|perc_\d+`; every top-level
+  `reg_cols` value is a `Group`, `Column` or `Calc` (not a literal); per
+  side, the output-column rule — every column written by a `Group` or
+  `Calc` node is written only by nodes equal to it; `params` keys are names
+  in `setup.DOWNSTREAM_PARAMS`.
+- `TestSetup.derive` / `resolve_test_setup`: a `reg_cols_*` override key
+  that is neither a formula variable of the resulting `reg_fml` nor `null`
+  is an error (it would aggregate a column nothing uses); `null` for a key
+  the base lacks is an error naming the key.
 - `captest.py`, on loading `TEST_SETUPS` and in `resolve_test_setup`:
   `scatter_plots` in `SCATTER_REGISTRY`.
 
@@ -553,10 +637,15 @@ presets are migrated.
    - unknown `calc`, unknown `args` key, missing required arg;
    - `reg_fml` variable absent from one side; `rep_conditions.func` key not
      in rhs;
-   - output-column collisions: same `calc`, different `args`, no `as`; two
-     different calculations sharing an `as`; a `Calc` with
-     `as: irr_poa_mean_agg` beside `{group: irr_poa}`; and the accepted
-     case — two identical `Calc` nodes — evaluated to one column;
+   - output-column collisions: same `calc`, different `args`, on one side;
+     a registered name equal to an aggregation column beside that `Group`;
+     and the accepted case — two identical `Calc` nodes — evaluated to one
+     column;
+   - a literal as a top-level `reg_cols` value;
+   - override merge: `reg_cols_meas: {poa: {group: irr_ghi}}` keeps the
+     other three e2848 terms; `null` removes a term; `null` for a term the
+     preset lacks is rejected; an override key that is not a formula
+     variable is rejected; `custom` with a partial side is rejected;
    - non-finite float; dict literal;
    - `params: {rear_shade: 0}` against a `CapData` with `rear_shade=0.2`
      (tier 2), and the accepted case — the `_rear_shade_sim` preset on a
@@ -576,12 +665,14 @@ presets are migrated.
 5. **Registry declarations:** the source-inspection test described above,
    over every entry.
 6. **Evaluation:** nested three-deep `Calc` with a repeated `Group` leaf
-   aggregates once; `as` writes the named column; re-running with a
-   different setup overwrites a same-named output.
+   aggregates once; re-running with a different setup overwrites a
+   same-named output.
 7. **CapTest round trip:** `to_yaml` → `from_yaml` for a preset with one
-   overridden side, for `custom`, and for a document using a custom
-   registered calculation; `check_fit()` lists errors without running
-   setup.
+   overridden term (the file contains only that term), for a removed term
+   (the file contains `null`), for `custom`, and for a document using a
+   custom registered calculation; the reloaded `resolved_setup` equals the
+   original by value and by `content_digest()`; `check_fit()` lists errors
+   without running setup.
 8. **Plotting:** `_missing_column_groups` and `calc_tc_power_column` over
    node trees.
 
