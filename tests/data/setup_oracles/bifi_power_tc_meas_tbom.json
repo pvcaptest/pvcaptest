@@ -1,0 +1,60 @@
+{
+  "meas": {
+    "params": {
+      "Intercept": -28861.39417060704,
+      "poa": 6372.477601646087,
+      "rpoa": 955.8716402447935
+    },
+    "pvalues": {
+      "Intercept": 3.418556232122042e-05,
+      "poa": 0.0,
+      "rpoa": 0.0
+    },
+    "regression_cols": {
+      "poa": {
+        "column": "irr_poa_mean_agg",
+        "mean": 255.29248680119724,
+        "sum": 367621.18099372403
+      },
+      "power": {
+        "column": "power_temp_correct",
+        "mean": 1634588.287053676,
+        "sum": 2353807133.3572936
+      },
+      "rpoa": {
+        "column": "irr_rpoa_mean_agg",
+        "mean": 38.29387302017959,
+        "sum": 55143.1771490586
+      }
+    }
+  },
+  "sim": {
+    "params": {
+      "Intercept": -26337.915830390615,
+      "poa": 6675.502318363299,
+      "rpoa": 1001.3253477567816
+    },
+    "pvalues": {
+      "Intercept": 9.019386437887806e-284,
+      "poa": 0.0,
+      "rpoa": 0.0
+    },
+    "regression_cols": {
+      "poa": {
+        "column": "GlobInc",
+        "mean": 204.85834818493151,
+        "sum": 1794559.1301
+      },
+      "power": {
+        "column": "power_temp_correct",
+        "mean": 1371963.9409247676,
+        "sum": 12018404122.500965
+      },
+      "rpoa": {
+        "column": "rpoa_pvsyst",
+        "mean": 30.72875222773973,
+        "sum": 269183.869515
+      }
+    }
+  }
+}

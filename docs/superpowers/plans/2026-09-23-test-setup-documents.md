@@ -67,7 +67,7 @@ Run this task **before any other change**. It records what every preset computes
 **Interfaces:**
 - Produces: `tests.setup_fixtures.build_meas_default() -> CapData`, `build_sim_default() -> CapData`, `add_bom_temp(cd) -> CapData`, `add_spec_corrected(cd) -> CapData`, `add_precwat(cd) -> CapData`, `PRESET_FIXTURES: dict[str, tuple[callable, callable, dict]]` mapping preset → (meas builder, sim builder, `CapTest.from_params` kwargs); `snapshot(tst) -> dict`.
 
-- [ ] **Step 1: Create the builders module**
+- [x] **Step 1: Create the builders module**
 
 ```python
 # tests/setup_fixtures.py
@@ -237,7 +237,7 @@ def snapshot(tst):
     return out
 ```
 
-- [ ] **Step 2: Point the conftest fixtures at the builders**
+- [x] **Step 2: Point the conftest fixtures at the builders**
 
 In `tests/conftest.py`, replace the bodies of `meas_cd_default`, `sim_cd_default`, `meas_cd_bom_temp`, `meas_cd_spec_corrected`, `sim_cd_spec_corrected` so each is a one-liner over `tests.setup_fixtures` (keep the docstrings):
 
@@ -283,12 +283,12 @@ def sim_cd_spec_corrected(sim_cd_default):
 
 Leave the `ct_*` fixtures as they are.
 
-- [ ] **Step 3: Run the existing suite to confirm the refactor is neutral**
+- [x] **Step 3: Run the existing suite to confirm the refactor is neutral**
 
 Run: `just test-module test_captest.py`
 Expected: same pass count as before the change (no failures).
 
-- [ ] **Step 4: Write the capture script**
+- [x] **Step 4: Write the capture script**
 
 ```python
 # tests/tools/capture_setup_oracles.py
@@ -327,12 +327,12 @@ if __name__ == "__main__":
     main()
 ```
 
-- [ ] **Step 5: Run it and inspect**
+- [x] **Step 5: Run it and inspect**
 
 Run: `touch tests/tools/__init__.py && uv run python -m tests.tools.capture_setup_oracles && ls tests/data/setup_oracles`
 Expected: ten json files, one per `TEST_SETUPS` key; each has `meas` and `sim` blocks with non-empty `params`.
 
-- [ ] **Step 6: Write the equivalence test**
+- [x] **Step 6: Write the equivalence test**
 
 ```python
 # tests/test_setup_oracles.py
@@ -369,12 +369,12 @@ def test_preset_reproduces_oracle(preset):
                 np.testing.assert_allclose(act[key][term], value, rtol=1e-9)
 ```
 
-- [ ] **Step 7: Run it**
+- [x] **Step 7: Run it**
 
 Run: `uv run pytest tests/test_setup_oracles.py -v`
 Expected: 10 passed.
 
-- [ ] **Step 8: Lint, format, commit, review gate**
+- [x] **Step 8: Lint, format, commit, review gate**
 
 ```bash
 just lint && just fmt
