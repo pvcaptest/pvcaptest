@@ -378,8 +378,31 @@ Branch: `reg-cols-serialization`
   in `tests/test_CapData.py` (a real `CapData`, `util.transform_calc_params` run once,
   `check_project_fit` before and after both `[]`), `test_effective_value_skips_a_cd_attribute_shadowed_by_a_column_group_id`,
   and `test_requires_param_message_distinguishes_no_value_from_none`.
-- Test result (after the fix round): `tests/test_setup.py` → 66 passed. Scoped-module
-  run → 505 passed. Full suite → 93 failed, 1209 passed, 87 errors — red count still
+- Test result (after fix round 1): `tests/test_setup.py` → 66 passed. Scoped-module run
+  → 505 passed. Full suite → 93 failed, 1209 passed, 87 errors — red count still
   unchanged, 4 more tests passing.
-- Anything the owner should look at: nothing.
+- **Task-review fix round 2**: the coordinator's own re-review caught that its fix-round-1
+  instruction (`effective_value` skipping a `cd` attribute shadowed by a column-group id)
+  was itself wrong: `CapData.custom_param` does not skip such an attribute and fall back
+  to the default — for *any* parameter of the function (not just `requires_params`
+  names) that is absent from `kwargs` and whose name is a column-group id, it **raises**
+  `ValueError`. So round 1's `effective_value` change made tier 2 report `[]` in exactly
+  the case where evaluation would raise. Reverted `effective_value` to the plain
+  precedence (args, then a non-`None` `cd` attribute, then the function default, then
+  `Parameter.empty`) with a docstring note that the collision is a separate check, not a
+  value substitution. Added that check to `check_project_fit`: for every `Calc` node,
+  every parameter of its registered function (excluding `data`/`verbose`) absent from
+  `node.args` and present in the (`agg`/`_aggs`-excluded) column-group ids is now a
+  `FitError` at the node path, mirroring `custom_param`'s message and telling the author
+  to pass the argument explicitly in `args` or rename the group. Replaced
+  `test_effective_value_skips_a_cd_attribute_shadowed_by_a_column_group_id` with
+  `test_calc_argument_colliding_with_a_column_group_id_is_reported` (the collision is
+  now reported) and `test_explicit_arg_clears_a_column_group_id_collision` (passing the
+  argument explicitly in `args` clears it).
+- Test result (after fix round 2): `tests/test_setup.py` → 67 passed. Scoped-module run
+  → 506 passed. Full suite → 93 failed, 1210 passed, 87 errors — red count still
+  unchanged.
+- Anything the owner should look at: the `"agg"` / `"_aggs"` column-group-id reservation
+  (fix round 1) remains convention/documentation-only, not structurally enforced on
+  `CapData`; flagged for a possible follow-up. Otherwise nothing.
 - Commits / roborev: (filled in by controller)

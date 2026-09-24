@@ -588,16 +588,25 @@ class TestCheckProjectFit:
         }
         assert _fit(e2848_doc(), groups=groups) == []
 
-    def test_effective_value_skips_a_cd_attribute_shadowed_by_a_column_group_id(self):
-        # custom_param never injects a cd attribute whose name is also a
-        # column-group id (it would be ambiguous); effective_value mirrors
-        # that so tier 2 predicts the same value evaluation would use -- here
-        # the function's own default (25), not the cd.base_temp attribute
-        # (99), because a "base_temp" column group also exists.
+    def test_calc_argument_colliding_with_a_column_group_id_is_reported(self):
+        # CapData.custom_param raises when a parameter absent from args is
+        # also a column-group id (the call is ambiguous); tier 2 must report
+        # this rather than silently predicting a value evaluation would never
+        # actually produce.
         groups = {**MEAS_GROUPS, "base_temp": ["some_column"]}
-        doc = self._tc_doc(power_temp_coeff=-0.3)
-        doc["params"] = {"base_temp": 25}
-        errors = _fit(doc, groups=groups, columns=["bom"], base_temp=99)
+        errors = _fit(
+            self._tc_doc(power_temp_coeff=-0.3), groups=groups, columns=["bom"]
+        )
+        assert [e.path for e in errors] == ["meas.reg_cols.power"]
+        assert "base_temp" in errors[0].message
+
+    def test_explicit_arg_clears_a_column_group_id_collision(self):
+        groups = {**MEAS_GROUPS, "base_temp": ["some_column"]}
+        errors = _fit(
+            self._tc_doc(power_temp_coeff=-0.3, base_temp=20),
+            groups=groups,
+            columns=["bom"],
+        )
         assert errors == []
 
     def test_params_constraint_checks_effective_value_per_side(self):

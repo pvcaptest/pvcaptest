@@ -630,19 +630,20 @@ def effective_value(name, node, cd):
     """Value a calculation would receive for ``name`` under the precedence rules.
 
     1. the node's ``args`` entry, if present (an explicit ``None`` counts);
-    2. else the ``cd`` attribute of that name, when present, not ``None``, and
-       not also a column-group id (``CapData.custom_param`` never injects an
-       attribute whose name collides with a column-group id; mirroring that
-       guard here keeps this precedence identical to what evaluation does);
+    2. else the ``cd`` attribute of that name when present and not ``None``;
     3. else the function's own default;
     4. else ``inspect.Parameter.empty``.
+
+    This does not account for ``CapData.custom_param`` raising when an
+    absent parameter's name is also a column-group id (an ambiguous call);
+    that collision is a separate tier-2 check, since it is an error at
+    evaluation, not a value substitution.
     """
     if name in node.args:
         return node.args[name]
-    if name not in cd.column_groups:
-        attr = getattr(cd, name, None)
-        if attr is not None:
-            return attr
+    attr = getattr(cd, name, None)
+    if attr is not None:
+        return attr
     param = inspect.signature(CALC_REGISTRY[node.calc].func).parameters.get(name)
     if param is None:
         return inspect.Parameter.empty
@@ -711,6 +712,19 @@ def check_project_fit(setup, side, cd):
                 )
             continue
         entry = CALC_REGISTRY[node.calc]
+        for name in inspect.signature(entry.func).parameters:
+            if name in ("data", "verbose") or name in node.args:
+                continue
+            if name in groups:
+                errors.append(
+                    FitError(
+                        path,
+                        f"{node.calc}'s {name!r} argument is also a column-group "
+                        f"id; CapData.custom_param would raise on this ambiguity "
+                        f"at evaluation -- pass {name!r} explicitly in args or "
+                        f"rename the column group",
+                    )
+                )
         for package in entry.requires_import:
             if importlib.util.find_spec(package) is None:
                 errors.append(
