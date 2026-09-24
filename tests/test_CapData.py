@@ -3897,6 +3897,29 @@ class TestRegressionColumnsDocumentForm:
         meas.custom_param(scale, col="meter_power", factor=2.0, verbose=False)
         assert "scale" in meas.data.columns  # output defaults to __name__
 
+    def test_explicit_null_pressure_reaches_absolute_airmass(self, meas):
+        """``args: {pressure: null}`` wins over a ``pressure`` column group."""
+        from captest import util
+        from captest.calcparams import absolute_airmass
+        from captest.setup import Calc
+
+        meas.data["zenith"] = 40.0
+        meas.data["baro"] = 500.0
+        meas.column_groups["pressure"] = ["baro"]
+        node = Calc.model_validate(
+            {
+                "calc": "absolute_airmass",
+                "args": {"apparent_zenith": {"column": "zenith"}, "pressure": None},
+            }
+        )
+        util.transform_calc_params({"am": node}, meas, verbose=False)
+        expected = absolute_airmass(
+            meas.data, apparent_zenith="zenith", pressure=None, verbose=False
+        )
+        pd.testing.assert_series_equal(
+            meas.data["absolute_airmass"], expected, check_names=False
+        )
+
     def test_agg_sensors_default_map_reads_group_nodes(self, meas):
         meas.regression_cols = {
             "power": {"column": "meter_power"},

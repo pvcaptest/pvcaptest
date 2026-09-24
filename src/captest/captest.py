@@ -32,16 +32,18 @@ import param
 import yaml
 
 from captest import util
+from captest.calcparams import DOWNSTREAM_PARAMS
 from captest.capdata import CapData
 from captest.filters import wrap_year_end
 from captest.plotting import ScatterBifiPowerTc, ScatterPlot
-from captest.setup import DerivationError, TestSetup, derive
-from captest.util import (
-    _perc_wrap_to_string,
-    _resolve_func_strings,
-    perc_wrap,
-    to_native,
+from captest.setup import (
+    DerivationError,
+    SetupFitError,
+    TestSetup,
+    check_project_fit,
+    derive,
 )
+from captest.util import perc_wrap, to_native
 
 _hv_spec = importlib.util.find_spec("holoviews")
 if _hv_spec is not None:
@@ -331,6 +333,9 @@ def _merge_rep_conditions(base, override):
     return merged
 
 
+#: Overrides merged onto the preset rather than replacing it; empty is no change.
+_MERGED_OVERRIDES = ("reg_cols_meas", "reg_cols_sim", "rep_conditions")
+
 _RESOLVE_KEYS = (
     "reg_cols_meas",
     "reg_cols_sim",
@@ -426,20 +431,38 @@ def resolve_test_setup(name, overrides=None):
 def _serialize_rep_conditions(rc):
     """Return a yaml-safe copy of a ``rep_conditions`` dict.
 
-    Recursively walks the dict; ``func`` sub-dict values that are
-    ``perc_wrap(N)`` callables are converted to ``"perc_N"`` strings, and
-    numpy scalars are coerced to native Python types via ``util.to_native``,
-    so the dict survives a yaml.safe_dump round-trip.
+    ``func`` values are already ``"mean"`` / ``"median"`` / ``"perc_N"``
+    strings (the document form); numpy scalars are coerced to native Python
+    types via ``util.to_native`` so the dict survives ``yaml.safe_dump``.
     """
     if not isinstance(rc, dict):
         return rc
-    serialized = {}
-    for key, val in rc.items():
-        if key == "func" and isinstance(val, dict):
-            serialized[key] = {k: _perc_wrap_to_string(v) for k, v in val.items()}
-        else:
-            serialized[key] = to_native(copy.deepcopy(val))
-    return serialized
+    return {key: to_native(copy.deepcopy(val)) for key, val in rc.items()}
+
+
+def _reg_cols_diff(base, resolved):
+    """Overrides that turn ``base`` into ``resolved`` (document form).
+
+    Changed or added terms are written as document nodes; terms ``base``
+    has and ``resolved`` lacks are written as ``None``.
+
+    Parameters
+    ----------
+    base, resolved : dict
+        Formula variable -> node (``Side.reg_cols``).
+
+    Returns
+    -------
+    dict
+    """
+    diff = {}
+    for var, node in resolved.items():
+        if base.get(var) != node:
+            diff[var] = node.model_dump(mode="json")
+    for var in base:
+        if var not in resolved:
+            diff[var] = None
+    return diff
 
 
 _AUTO_WRAP_DAYS = 60
@@ -459,7 +482,8 @@ def load_config(path, key="captest"):
     Returns
     -------
     dict
-        The sub-mapping at ``key`` with string shorthands resolved. Does NOT
+        The sub-mapping at ``key``, as written. ``rep_conditions.func``
+        values stay ``"perc_N"`` strings (the document form). Does NOT
         validate against ``CapTest`` param types; ``CapTest.from_yaml`` does
         that.
 
@@ -488,18 +512,6 @@ def load_config(path, key="captest"):
         raise ValueError(
             f"Value at {key!r} must be a mapping; got {type(sub).__name__}."
         )
-    # Resolve perc_N shorthand in overrides.rep_conditions.func.
-    overrides = sub.get("overrides") or {}
-    if isinstance(overrides, dict) and isinstance(
-        overrides.get("rep_conditions"), dict
-    ):
-        func_dict = overrides["rep_conditions"].get("func")
-        if isinstance(func_dict, dict):
-            overrides["rep_conditions"]["func"] = _resolve_func_strings(func_dict)
-    # Also resolve top-level rep_conditions.func if someone put it there.
-    rc = sub.get("rep_conditions")
-    if isinstance(rc, dict) and isinstance(rc.get("func"), dict):
-        rc["func"] = _resolve_func_strings(rc["func"])
     return sub
 
 
@@ -589,7 +601,14 @@ _CAPTEST_YAML_KEYS = frozenset(
 
 # Keys that may appear under the ``overrides`` sub-mapping.
 _CAPTEST_OVERRIDE_KEYS = frozenset(
-    {"reg_cols_meas", "reg_cols_sim", "reg_fml", "rep_conditions"}
+    {
+        "reg_cols_meas",
+        "reg_cols_sim",
+        "reg_fml",
+        "rep_conditions",
+        "params",
+        "scatter_plots",
+    }
 )
 
 # Keys whose ``None`` (yaml ``null``) value is a distinct, meaningful value
@@ -670,15 +689,26 @@ class CapTest(param.Parameterized):
         ``"e2848_default"``.
     reg_fml : str or None
         If set, overrides the preset's regression formula at ``setup()``.
-    reg_cols_meas : dict or None
-        If set, overrides the preset's measured ``regression_cols`` dict.
-    reg_cols_sim : dict or None
-        If set, overrides the preset's modeled ``regression_cols`` dict.
+    reg_cols_meas, reg_cols_sim : dict or None
+        Formula variable -> node in document form (see
+        :mod:`captest.setup`), merged key by key onto the preset's measured /
+        modeled regression columns at ``setup()``: a present key replaces
+        that variable's whole node, an absent key keeps the preset's node,
+        and a value of ``None`` removes the variable. Under
+        ``test_setup="custom"`` both sides must be complete.
     rep_conditions : dict or None
         If set, partial-merged onto the preset's ``rep_conditions`` at
         ``setup()``. Top-level keys replace; the nested ``func`` dict is
         merged one level deep so users can override only a single
         variable's aggregation.
+    params : dict or None
+        Required test-level parameter values (see
+        :attr:`captest.setup.TestSetup.params`); replaces the preset's
+        ``params`` wholesale. Checked against the effective value each
+        calculation would receive at ``setup()``.
+    scatter_plots_name : str or None
+        Name in ``SCATTER_REGISTRY`` overriding the preset's scatter plot.
+        Written to yaml as ``overrides.scatter_plots``.
     rc_source : {"meas", "sim"}
         Which ``CapData`` provides reporting conditions. Used by
         ``captest_results`` and wired onto both ``meas`` and ``sim`` at
@@ -742,10 +772,9 @@ class CapTest(param.Parameterized):
 
     Attributes
     ----------
-    _resolved_setup : dict or None
-        The fully-resolved ``TEST_SETUPS`` entry after ``setup()`` has run.
-        Plain instance attribute (not a ``param.*``) so ``setup()`` can be
-        called multiple times.
+    resolved_setup : captest.setup.TestSetup or None
+        The complete setup resolved from ``test_setup`` plus the overrides
+        by the last ``setup()``; ``None`` before ``setup()`` has run.
 
     See Also
     --------
@@ -782,12 +811,32 @@ class CapTest(param.Parameterized):
     reg_cols_meas = param.Dict(
         default=None,
         allow_None=True,
-        doc="If set, overrides the preset measured regression_cols dict.",
+        doc="Merged key by key onto the preset's measured regression columns; "
+        "a value of None removes that term.",
     )
     reg_cols_sim = param.Dict(
         default=None,
         allow_None=True,
-        doc="If set, overrides the preset modeled regression_cols dict.",
+        doc="Merged key by key onto the preset's modeled regression columns; "
+        "a value of None removes that term.",
+    )
+    params = param.Dict(
+        default=None,
+        allow_None=True,
+        doc="Required test-level parameter values for this setup (see "
+        "captest.setup.TestSetup.params). Replaces the preset's wholesale.",
+    )
+    scatter_plots_name = param.String(
+        default=None,
+        allow_None=True,
+        doc="Name in SCATTER_REGISTRY overriding the preset's scatter plot. "
+        "Written to yaml as overrides.scatter_plots.",
+    )
+    resolved_setup = param.ClassSelector(
+        class_=TestSetup,
+        default=None,
+        allow_None=True,
+        doc="The complete TestSetup resolved by setup(); None before setup().",
     )
     rep_conditions = param.Dict(
         default=None,
@@ -1009,30 +1058,16 @@ class CapTest(param.Parameterized):
         ),
     )
 
-    # Class-level tuple of param names to copy onto the CapData instances
-    # during setup(). Names also listed in _downstream_attrs_meas_only are
-    # copied onto meas only; all others are copied onto both meas and sim.
-    # Extending is a one-line edit. Invariant: every name in
-    # _downstream_attrs_meas_only MUST also appear in _downstream_attrs, since
-    # setup() iterates _downstream_attrs (guarded by a subset test).
-    _downstream_attrs = (
-        "bifaciality",
-        "bifacial_frac",
-        "rear_shade",
-        "power_temp_coeff",
-        "base_temp",
-        "module_type",
-        "racking",
-        "spectral_module_type",
-        "airmass_model",
-        "altitude_override",
-    )
+    # Param names copied onto the CapData instances during setup(); the same
+    # list the TestSetup ``params`` tier-1 check uses. Names also listed in
+    # _downstream_attrs_meas_only are copied onto meas only; all others onto
+    # both. Every name in _downstream_attrs_meas_only MUST also appear in
+    # _downstream_attrs (guarded by a subset test).
+    _downstream_attrs = DOWNSTREAM_PARAMS
     _downstream_attrs_meas_only = ("rear_shade",)
 
     def __init__(self, **kwargs):  # noqa: D107
         super().__init__(**kwargs)
-        # Plain instance attr rather than a param.* so setup() can be re-run.
-        self._resolved_setup = None
         # Construction-time paths. Not ``param.*`` because they are strings
         # that only matter for ``to_yaml`` round-trip; tracking them here
         # lets ``from_params``/``from_yaml`` remember what paths the class
@@ -1312,7 +1347,7 @@ class CapTest(param.Parameterized):
     # --- constructors ----------------------------------------------------
 
     @classmethod
-    def from_params(cls, run_setup=True, **kwargs):
+    def from_params(cls, run_setup=True, verbose=True, **kwargs):
         """Construct a CapTest from parameter kwargs.
 
         Recognizes the non-param kwargs ``meas``, ``sim``, ``meas_path``,
@@ -1342,6 +1377,8 @@ class CapTest(param.Parameterized):
             derived-parameter calculation, no regression-column
             processing, no ``_captest`` back-references. A later
             ``tst.setup()`` or ``tst.run_test()`` proceeds normally.
+        verbose : bool, default True
+            Forwarded to the automatic ``setup()``.
         **kwargs
             Any declared CapTest parameter, plus ``meas``, ``sim``,
             ``meas_path``, ``sim_path``.
@@ -1402,7 +1439,7 @@ class CapTest(param.Parameterized):
             inst._replay_prep("sim")
 
         if run_setup and inst.meas is not None and inst.sim is not None:
-            inst.setup()
+            inst.setup(verbose=verbose)
 
         return inst
 
@@ -1562,19 +1599,14 @@ class CapTest(param.Parameterized):
             )
         }
 
-        # Lift override keys into direct kwargs.
+        # Lift override keys into direct kwargs; values pass straight to the
+        # params and the TestSetup model validates them at setup().
+        # ``overrides.scatter_plots`` is the ``scatter_plots_name`` param.
         for k in _CAPTEST_OVERRIDE_KEYS:
             if overrides.get(k) is not None:
-                kwargs[k] = overrides[k]
-
-        # A regression-columns tree read from yaml/json holds lists where
-        # ``process_reg_cols`` dispatches on tuples, and ``"module:qualname"``
-        # strings where it needs callables (``to_mapping`` wrote them that
-        # way). Decode here so a file round-trips; a tree passed in native
-        # form is untouched.
-        for k in ("reg_cols_meas", "reg_cols_sim"):
-            if kwargs.get(k) is not None:
-                kwargs[k] = util.decode_reg_cols(kwargs[k])
+                kwargs["scatter_plots_name" if k == "scatter_plots" else k] = overrides[
+                    k
+                ]
 
         # 'custom' setup requires the three regression overrides.
         if kwargs.get("test_setup") == "custom":
@@ -1664,7 +1696,7 @@ class CapTest(param.Parameterized):
         inst.meas_filters_pending = list(meas_filters or [])
         inst.sim_filters_pending = list(sim_filters or [])
         if inst.rc_source == "manual" and rc_values is not None:
-            if inst._resolved_setup is not None:
+            if inst.resolved_setup is not None:
                 df = inst._coerce_and_validate_manual_rc(rc_values)
                 inst._set_rc(df, "manual", warn=False)
             else:
@@ -1757,8 +1789,7 @@ class CapTest(param.Parameterized):
         The written sub-mapping is :meth:`to_mapping`'s return value. It
         lives under the top-level ``key`` (default
         ``"captest"``) and contains every scalar ``param.*`` plus
-        ``test_setup``, any non-None override of ``reg_fml`` /
-        ``reg_cols_meas`` / ``reg_cols_sim`` / ``rep_conditions``,
+        ``test_setup``, an ``overrides`` sub-mapping (see below),
         ``meas_path`` / ``sim_path`` (when the instance was constructed from
         paths), and non-empty ``meas_load_kwargs`` / ``sim_load_kwargs``.
 
@@ -1773,10 +1804,16 @@ class CapTest(param.Parameterized):
         is omitted — the step is then the authoritative reporting-conditions
         source (avoids representing it in two places).
 
-        Percentile ``perc_wrap(N)`` callables inside
-        ``rep_conditions['func']`` are written back as ``"perc_N"`` strings
-        so that ``from_yaml`` round-trips them. ``meas``, ``sim``,
-        ``regression_results``, ``_resolved_setup``, and the loader
+        ``overrides`` is written in document form. For a named preset,
+        ``reg_cols_meas`` / ``reg_cols_sim`` hold only the difference from
+        the preset (changed formula variables as nodes, ``null`` for a
+        variable the preset has and the resolved setup lacks) and
+        ``reg_fml`` only when it differs; under ``test_setup: custom`` both
+        sides and the formula are written in full. ``params`` and
+        ``scatter_plots`` (from :attr:`scatter_plots_name`) are written when
+        set. ``from_yaml`` merging the file back onto the same preset
+        reproduces the resolved setup. ``meas``, ``sim``,
+        ``regression_results``, :attr:`resolved_setup`, and the loader
         callables are never serialized.
 
         Parameters
@@ -1822,7 +1859,7 @@ class CapTest(param.Parameterized):
 
         The public dict counterpart of :meth:`to_yaml` and the symmetric
         inverse of :meth:`from_mapping`. Emits the same programmatic-only
-        attribute warning as ``to_yaml`` (loaders, mutated scatter_plots).
+        attribute warning as ``to_yaml`` (loader callables).
 
         Returns
         -------
@@ -1835,24 +1872,14 @@ class CapTest(param.Parameterized):
     def _warn_unserializable(self):
         """Warn once for any non-yaml-serializable user overrides.
 
-        Loader callables and a user-mutated ``scatter_plots`` entry cannot be
-        represented in the yaml config; name them in a single ``UserWarning``
-        so the omission is visible at export time.
+        Loader callables cannot be represented in the yaml config; name them
+        in a single ``UserWarning`` so the omission is visible at export time.
         """
         unserializable = []
         if self.meas_loader is not None:
             unserializable.append("meas_loader")
         if self.sim_loader is not None:
             unserializable.append("sim_loader")
-        if self._resolved_setup is not None and self.test_setup != "custom":
-            preset_scatter = TEST_SETUPS.get(self.test_setup, {}).get("scatter_plots")
-            current_scatter = self._resolved_setup.get("scatter_plots")
-            if (
-                preset_scatter is not None
-                and current_scatter is not None
-                and current_scatter is not preset_scatter
-            ):
-                unserializable.append("scatter_plots")
         if unserializable:
             warnings.warn(
                 "The following CapTest attributes are programmatic-only and "
@@ -1886,20 +1913,32 @@ class CapTest(param.Parameterized):
         if self._sim_path is not None:
             sub["sim_path"] = str(self._sim_path)
 
-        # Overrides sub-mapping.
-        preset = TEST_SETUPS.get(self.test_setup, {})
         overrides = {}
+        # Always resolve from the *current* params, never from the cached
+        # ``resolved_setup``: an override edited after setup() must be what
+        # gets written, and a changed ``test_setup`` must not be paired with
+        # the previous preset's document.
+        resolved = resolve_test_setup(self.test_setup, self._collect_overrides())
         if self.test_setup == "custom":
-            # ``custom`` has no preset; always include whatever the user set.
-            for name in ("reg_cols_meas", "reg_cols_sim", "reg_fml"):
-                val = getattr(self, name)
-                if val is not None:
-                    overrides[name] = copy.deepcopy(val)
+            overrides["reg_cols_meas"] = resolved.meas.model_dump(mode="json")[
+                "reg_cols"
+            ]
+            overrides["reg_cols_sim"] = resolved.sim.model_dump(mode="json")["reg_cols"]
+            overrides["reg_fml"] = resolved.reg_fml
         else:
-            for name in ("reg_cols_meas", "reg_cols_sim", "reg_fml"):
-                val = getattr(self, name)
-                if val is not None and val != preset.get(name):
-                    overrides[name] = copy.deepcopy(val)
+            preset = TEST_SETUPS[self.test_setup]
+            for side in ("meas", "sim"):
+                diff = _reg_cols_diff(
+                    getattr(preset, side).reg_cols, getattr(resolved, side).reg_cols
+                )
+                if diff:
+                    overrides[f"reg_cols_{side}"] = diff
+            if resolved.reg_fml != preset.reg_fml:
+                overrides["reg_fml"] = resolved.reg_fml
+        if self.params is not None:
+            overrides["params"] = dict(self.params)
+        if self.scatter_plots_name is not None:
+            overrides["scatter_plots"] = self.scatter_plots_name
         meas_filters = (
             self.meas.filters_to_config()
             if self.meas is not None and self.meas.filters
@@ -2111,12 +2150,104 @@ class CapTest(param.Parameterized):
         self.sim.data = wrapped
         self.sim.filters = []
 
-    def setup(self, verbose=True, side="both"):
-        """Resolve TEST_SETUPS, propagate scalars, process regression cols.
+    def _collect_overrides(self):
+        """The setup overrides currently set on this instance.
 
-        Raises ``RuntimeError`` if any ``CapData`` targeted by ``side`` is
-        unset. Assigns the resolved TEST_SETUPS entry to
-        ``self._resolved_setup`` and returns ``self`` for fluent chaining.
+        ``None`` values are skipped, and so are empty ``reg_cols_meas`` /
+        ``reg_cols_sim`` / ``rep_conditions`` mappings (merging nothing is
+        no change), so an untouched test resolves to the preset itself (same
+        provenance and digest). An empty ``params`` is kept: it replaces the
+        preset's constraints wholesale, removing them.
+
+        Returns
+        -------
+        dict
+            Keyword overrides for :func:`resolve_test_setup`.
+        """
+        overrides = {}
+        for name in (
+            "reg_cols_meas",
+            "reg_cols_sim",
+            "reg_fml",
+            "rep_conditions",
+            "params",
+        ):
+            val = getattr(self, name)
+            if val is None or (name in _MERGED_OVERRIDES and not val):
+                continue
+            overrides[name] = val
+        if self.scatter_plots_name is not None:
+            overrides["scatter_plots"] = self.scatter_plots_name
+        return overrides
+
+    def _prepare_sides(self, sides):
+        """Propagate downstream params and ``meas.site`` onto ``sides``.
+
+        The preparation :meth:`setup` performs before tier 2 and evaluation:
+        names in ``_downstream_attrs`` are copied onto each targeted
+        ``CapData`` (``_downstream_attrs_meas_only`` onto meas only), and for
+        sim-side setup ``meas.site`` is copied onto ``sim`` with a fixed-offset
+        tz for PVsyst. Neither touches ``data``.
+        """
+        for name in self._downstream_attrs:
+            if "meas" in sides:
+                setattr(self.meas, name, getattr(self, name))
+            if "sim" in sides and name not in self._downstream_attrs_meas_only:
+                setattr(self.sim, name, getattr(self, name))
+        # Reads meas.site but mutates only sim, so it runs for sim-side setup.
+        if "sim" in sides and self.meas is not None:
+            self._propagate_sim_site()
+
+    def check_fit(self, side="both"):
+        """Tier-2 project-fit findings for the resolved setup, without running setup.
+
+        Resolves the preset and overrides, propagates the downstream
+        parameters onto the targeted ``CapData`` instances exactly as
+        :meth:`setup` would, and returns
+        :func:`captest.setup.check_project_fit`'s findings for each side.
+        Nothing is written to ``data`` and ``resolved_setup`` is untouched.
+
+        Parameters
+        ----------
+        side : {"both", "meas", "sim"}
+            Which side(s) to check.
+
+        Returns
+        -------
+        list of captest.setup.FitError
+            Empty when every checked side fits.
+
+        Raises
+        ------
+        ValueError
+            If ``side`` is invalid, or the setup cannot be resolved.
+        RuntimeError
+            If a ``CapData`` targeted by ``side`` is unset.
+        """
+        if side not in ("meas", "sim", "both"):
+            raise ValueError(f"side must be 'meas', 'sim', or 'both', got {side!r}.")
+        sides = ("meas", "sim") if side == "both" else (side,)
+        resolved = resolve_test_setup(self.test_setup, self._collect_overrides())
+        for s in sides:
+            if getattr(self, s) is None:
+                raise RuntimeError(f"CapTest.{s} must be set before check_fit().")
+        self._prepare_sides(sides)
+        errors = []
+        for s in sides:
+            errors.extend(check_project_fit(resolved, s, getattr(self, s)))
+        return errors
+
+    def setup(self, verbose=True, side="both"):
+        """Resolve the setup, propagate scalars, check fit, process regression cols.
+
+        Resolves ``test_setup`` plus the overrides (``reg_cols_meas`` /
+        ``reg_cols_sim`` merged key by key, ``reg_fml``, ``rep_conditions``,
+        ``params``, ``scatter_plots_name``) to a
+        :class:`captest.setup.TestSetup`, propagates the downstream params,
+        runs the tier-2 project-fit check on each targeted side, then
+        evaluates the regression columns. Raises ``RuntimeError`` if any
+        ``CapData`` targeted by ``side`` is unset. Assigns the resolved setup
+        to :attr:`resolved_setup` and returns ``self`` for fluent chaining.
 
         A full setup (``side='both'``) also consumes manual
         reporting-conditions values stashed by a load-only
@@ -2147,7 +2278,11 @@ class CapTest(param.Parameterized):
         Raises
         ------
         ValueError
-            If ``side`` is not ``'meas'``, ``'sim'``, or ``'both'``.
+            If ``side`` is not ``'meas'``, ``'sim'``, or ``'both'``, or the
+            setup cannot be resolved.
+        captest.setup.SetupFitError
+            If the resolved setup does not fit a targeted side's project
+            (tier 2); raised before any column is written.
         RuntimeError
             If a ``CapData`` targeted by ``side`` is unset.
         """
@@ -2166,41 +2301,25 @@ class CapTest(param.Parameterized):
         if "sim" in sides and self.meas is not None:
             self._maybe_wrap_sim_year_end()
 
-        # Build the overrides dict for resolve_test_setup. Only non-None
-        # values are passed through so named-preset resolution falls back to
-        # the preset's defaults for keys the user hasn't overridden.
-        overrides = {}
-        for name in ("reg_cols_meas", "reg_cols_sim", "reg_fml", "rep_conditions"):
-            val = getattr(self, name)
-            if val is not None:
-                overrides[name] = val
+        resolved = resolve_test_setup(self.test_setup, self._collect_overrides())
+        self._prepare_sides(sides)
 
-        resolved = resolve_test_setup(self.test_setup, overrides=overrides)
-        self._resolved_setup = resolved
+        # Tier 2 runs against the prepared CapData and before any column is
+        # written, so a setup that does not fit leaves ``data`` untouched.
+        fit_errors = []
+        for s in sides:
+            fit_errors.extend(check_project_fit(resolved, s, getattr(self, s)))
+        if fit_errors:
+            raise SetupFitError(fit_errors)
+        self.resolved_setup = resolved
 
-        # Propagate scalar calc-params onto the targeted CapData instances.
-        # Names in _downstream_attrs_meas_only are copied onto meas only;
-        # all others are copied onto both meas and sim.
-        for name in self._downstream_attrs:
-            if "meas" in sides:
-                setattr(self.meas, name, getattr(self, name))
-            if "sim" in sides and name not in self._downstream_attrs_meas_only:
-                setattr(self.sim, name, getattr(self, name))
-
-        # Propagate site from meas -> sim with Etc/GMT±N tz for PVsyst.
-        # Reads meas.site but mutates only sim, so it runs for sim-side setup.
-        if "sim" in sides and self.meas is not None:
-            self._propagate_sim_site()
-
-        # Wire per-CapData regression state on each targeted side. Deepcopy
-        # the regression_cols dict because process_regression_columns mutates
-        # it in place. process_regression_columns also resets data_filtered
-        # to data.copy() so any prior filter state on that side is dropped
-        # (intended behavior per the design spec).
+        # Wire per-CapData regression state on each targeted side. A shallow
+        # copy suffices: the node tree is immutable, and
+        # process_regression_columns replaces (never mutates) the values.
         for s in sides:
             cd = getattr(self, s)
-            cd.regression_cols = copy.deepcopy(resolved[f"reg_cols_{s}"])
-            cd.regression_formula = resolved["reg_fml"]
+            cd.regression_cols = dict(getattr(resolved, s).reg_cols)
+            cd.regression_formula = resolved.reg_fml
             cd.tolerance = self.test_tolerance
             cd.process_regression_columns(verbose=verbose)
             # Wire the CapData back to this CapTest so
@@ -2298,15 +2417,17 @@ class CapTest(param.Parameterized):
         """
         cd = self._pick_cd(which)
         self._require_setup()
-        return self._resolved_setup["scatter_plots"](cd, **kwargs)
+        return SCATTER_REGISTRY[self.resolved_setup.scatter_plots](cd, **kwargs)
 
     def rep_cond(self, which=None, **overrides):
         """Call ``cd.rep_cond`` with the resolved preset's rep_conditions.
 
-        The preset's ``rep_conditions`` dict (after any ``self.rep_conditions``
-        overrides from ``setup()``) is used as the default kwargs. ``overrides``
-        is partial-merged on top: top-level keys replace, the nested ``func``
-        dict merges one level deep.
+        The resolved setup's ``rep_conditions`` (after any
+        ``self.rep_conditions`` overrides from ``setup()``) is used as the
+        default kwargs. ``overrides`` is partial-merged on top: top-level keys
+        replace, the nested ``func`` dict merges one level deep. ``func``
+        values may be ``"mean"``, ``"median"`` or ``"perc_N"`` strings;
+        ``"perc_N"`` is resolved to ``perc_wrap(N)`` before the call.
 
         See :meth:`~captest.capdata.CapData.rep_cond` for details on the reporting conditions calculation
         options.
@@ -2331,8 +2452,11 @@ class CapTest(param.Parameterized):
         cd = self._pick_cd(which)
         self._require_setup()
         resolved_rc = _merge_rep_conditions(
-            self._resolved_setup["rep_conditions"], overrides
+            self.resolved_setup.rep_conditions.model_dump(mode="json"), overrides
         )
+        # An empty func mapping means "mean of every rhs variable", which
+        # CapData.rep_cond spells func=None.
+        resolved_rc["func"] = util._resolve_func_strings(resolved_rc["func"]) or None
         return cd.rep_cond(**resolved_rc)
 
     # --- ported cross-CapData methods ------------------------------------
@@ -2730,7 +2854,7 @@ class CapTest(param.Parameterized):
                 "`uv add holoviews` or equivalent."
             )
         self._require_setup()
-        scatter_fn = self._resolved_setup["scatter_plots"]
+        scatter_fn = SCATTER_REGISTRY[self.resolved_setup.scatter_plots]
         meas_layout = scatter_fn(self.meas)
         sim_layout = scatter_fn(self.sim)
         # scatter_fn returns an hv.Layout whose first element is an hv.Scatter.
@@ -2811,7 +2935,7 @@ class CapTest(param.Parameterized):
     # --- internal helpers ------------------------------------------------
 
     def _require_setup(self):
-        if self._resolved_setup is None:
+        if self.resolved_setup is None:
             raise RuntimeError("CapTest.setup() must be called first.")
 
     def _require_meas_and_sim(self):
@@ -2843,12 +2967,6 @@ class CapTest(param.Parameterized):
         if which == "sim":
             return self.sim
         raise ValueError(f"which must be 'meas' or 'sim'; got {which!r}.")
-
-    @property
-    def resolved_setup(self):
-        """Return the resolved TEST_SETUPS entry or raise if setup() not run."""
-        self._require_setup()
-        return self._resolved_setup
 
 
 # Silence ruff F401: these are public API; re-imported by `capdata.py`.

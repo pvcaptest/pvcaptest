@@ -465,4 +465,51 @@ Branch: `reg-cols-serialization`
   `captest.rst` `validate_test_setup` line are Task 10's scope. Keeping
   `util.encode_reg_cols` in `to_yaml` is not possible: Task 5 already deleted it, and
   Task 8 rewrites that code.
+- Commits / roborev: `c8cbcd2` (job 482: 1 valid finding fixed in `174b5c2`; 2 judged invalid — CHANGELOG/api docs are Task 10, `encode_reg_cols` no longer exists), `174b5c2` (job 483 clean). Controller task review: approved. The reviewer checked all 10 yaml presets node by node against the deleted tuple dicts, independently, and they match exactly. **Task 7 complete.**
+
+### Task 8: `CapTest` integration — params, `setup()`, `rep_cond`, scatter, yaml round trip, `check_fit`
+- What was done: `CapTest` gains `params`, `scatter_plots_name`, `resolved_setup`
+  (a `TestSetup` param, `None` before `setup()`) and `check_fit()`; `setup()` resolves the
+  setup, propagates `DOWNSTREAM_PARAMS`, runs tier 2 (`SetupFitError`) before writing any
+  column, then evaluates the node trees. `rep_cond` resolves `perc_N` strings,
+  `scatter_plots`/`overlay_scatters` read `SCATTER_REGISTRY`, `to_mapping` writes
+  `overrides.reg_cols_*` as the diff from the preset (full sides under `custom`), plus
+  `params` / `scatter_plots`. `load_config` no longer turns `perc_N` into callables;
+  `from_mapping` drops `decode_reg_cols` and lifts `overrides.scatter_plots` to
+  `scatter_plots_name`.
+- Test result: `uv run pytest tests --ignore=tests/test_plotting.py -q` → 1391 passed.
+  `tests/test_setup_oracles.py` → 11 passed (all ten presets reproduce their oracles,
+  unchanged). `tests/test_plotting.py` → 8 failed (Task 9).
+- Deviations: (1) `from_params` gains `verbose=True`, forwarded to the automatic
+  `setup()`: the brief's tests call `from_params(..., verbose=False)`, which raised
+  `TypeError` before. (2) `_collect_overrides` skips `None` and empty `reg_cols_meas` /
+  `reg_cols_sim` / `rep_conditions` (controller ruling: an untouched test resolves to the
+  preset itself), but keeps an empty `params`: `params` replaces wholesale, so `{}`
+  means "no constraints" and is a real override (used by two
+  `TestDownstreamPropagation` tests that set `rear_shade=0.12` on the `_rear_shade_sim`
+  preset, now rejected by its `params: {rear_shade: 0}` without that lift). (3)
+  `rep_cond` passes `func=None` when the resolved `func` is empty (a `custom` setup with
+  no `rep_conditions`), which is what the pre-migration code passed (it only forwarded
+  keys the dict had); the brief's snippet would pass `{}`. (4) `util._perc_wrap_to_string`
+  kept (ruling R2); only the `captest.py` import is gone. (5) The downstream-attr
+  propagation plus `meas.site` copy is factored into `_prepare_sides()`, shared by
+  `setup()` and `check_fit()`, instead of duplicated. (6) `_warn_unserializable` drops the
+  "user-mutated scatter_plots" branch (a scatter is now a name, always serializable).
+- Tests changed to the spec: tuple / callable `reg_cols` round-trip tests replaced by
+  document-form equivalents (nested calc override writes only that term; the `[group,
+  agg]` list form and a Python callable are rejected at resolution); the mutated-scatter
+  warning test deleted; `perc_N` strings stay strings through `load_config` /
+  `from_yaml` / `to_yaml` and a malformed one is rejected at resolution (`perc_N` pattern)
+  instead of at load; `TestResolvedSetupProperty` asserts `None` before setup;
+  `TestSetupAutoWrap` uses `{"column": ...}` nodes; the path round-trip test gives `sim`
+  its own fixture (tier 2 now rejects meas data on the sim side). Added: spec Testing
+  item 6 second half (re-running `setup()` with a derived setup whose `e_total` args
+  differ overwrites the `e_total` column), `args: {pressure: null}` reaching
+  `absolute_airmass` as `None` beside a `pressure` column group (`test_CapData.py`), two
+  `load_presets` error paths plus the valid case, a second `setup()` on the same
+  instance, and the untouched-test digest equality.
+- Anything the owner should look at: `to_yaml` / `to_mapping` now resolve the setup, so
+  a `custom` test missing a side or the formula (or an invalid override) raises at export
+  instead of writing a file that could not be loaded. `check_fit()` propagates the
+  downstream params onto the `CapData` (as `setup()` would) — it does not write `data`.
 - Commits / roborev: (filled in by controller)

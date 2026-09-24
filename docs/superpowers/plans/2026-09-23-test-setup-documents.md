@@ -2875,7 +2875,7 @@ Then run the review gate. State in the commit body that `CapTest.setup()` is wir
 - Produces: `CapTest.params` (param.Dict), `CapTest.scatter_plots_name` (param.String, yaml key `overrides.scatter_plots`), `CapTest.resolved_setup` (param.ClassSelector of `TestSetup`, `None` before `setup()`), `CapTest.check_fit(side="both") -> list[FitError]`, `to_mapping()` writing `overrides.reg_cols_*` as the diff against the preset.
 - Consumes: `resolve_test_setup`, `SCATTER_REGISTRY`, `setup.check_project_fit`, `setup.SetupFitError`, `util._resolve_func_strings`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Add to `tests/test_captest.py` (new classes; place after `TestResolveTestSetup`):
 
@@ -3055,12 +3055,12 @@ Then update the existing tests that the grammar change invalidates (grep the fil
 - `TestToMapping` / `TestToYamlAndRoundTrip` expectations that `overrides.rep_conditions.func` holds callables → strings;
 - the three tuple-form sites (`grep -n '("irr_poa", "mean")' tests/test_captest.py`) → document form.
 
-- [ ] **Step 2: Run to verify they fail**
+- [x] **Step 2: Run to verify they fail**
 
 Run: `uv run pytest tests/test_captest.py -q -x`
 Expected: first failure in `setup()` reading `resolved["reg_cols_meas"]`.
 
-- [ ] **Step 3: Params and downstream attrs**
+- [x] **Step 3: Params and downstream attrs**
 
 In `CapTest`:
 ```python
@@ -3091,7 +3091,7 @@ In `CapTest`:
 ```
 Replace the `_downstream_attrs` tuple with `_downstream_attrs = DOWNSTREAM_PARAMS` (import from `captest.calcparams`). Delete the `resolved_setup` *property* at the end of the class and `_resolved_setup` wherever it appears (`grep -n _resolved_setup src/captest/captest.py`); `_require_setup` checks `self.resolved_setup is None`.
 
-- [ ] **Step 4: `setup()`**
+- [x] **Step 4: `setup()`**
 
 Replace the override collection and the per-side wiring in `setup()`:
 
@@ -3167,7 +3167,7 @@ Tier 2 runs after the downstream attributes are propagated (so `power_temp_coeff
 
 Factor the override-collection block into `_collect_overrides(self) -> dict` used by both methods (write it out; the `{...}` above is the block shown in the `setup()` snippet).
 
-- [ ] **Step 5: `rep_cond`, scatter, `overlay_scatters`**
+- [x] **Step 5: `rep_cond`, scatter, `overlay_scatters`**
 
 ```python
         resolved_rc = _merge_rep_conditions(
@@ -3178,14 +3178,14 @@ Factor the override-collection block into `_collect_overrides(self) -> dict` use
 ```
 `scatter_plots()` → `return SCATTER_REGISTRY[self.resolved_setup.scatter_plots](cd, **kwargs)`; `overlay_scatters` (≈3380) → `scatter_fn = SCATTER_REGISTRY[self.resolved_setup.scatter_plots]`. `captest_results` and anything else reading `_resolved_setup` follow the same substitution.
 
-- [ ] **Step 6: `load_config`, `from_mapping`, `_serialize_rep_conditions`**
+- [x] **Step 6: `load_config`, `from_mapping`, `_serialize_rep_conditions`**
 
 - `load_config`: delete the two `_resolve_func_strings` blocks (strings stay strings). Drop `_perc_wrap_to_string` from the `captest.py` import list only if `captest.py` no longer references it; **keep it in `util.py`** — `filters._encode_func_value` (filters.py ≈ 1776) uses it to serialize the `perc_wrap` callables that `rep_cond()` hands to the `RepCond` step, so the pipeline yaml round trip after `rep_cond()` depends on it (tested below). Keep `_resolve_perc_string` / `_resolve_func_strings`.
 - `_CAPTEST_OVERRIDE_KEYS = frozenset({"reg_cols_meas", "reg_cols_sim", "reg_fml", "rep_conditions", "params", "scatter_plots"})`.
 - `from_mapping`: delete the `decode_reg_cols` block; when lifting overrides, map `overrides["scatter_plots"]` to `kwargs["scatter_plots_name"]`; the `custom` requirement check stays.
 - `_serialize_rep_conditions`: drop the `func` special case (values are strings already); keep `to_native`.
 
-- [ ] **Step 7: `_build_yaml_sub_mapping`**
+- [x] **Step 7: `_build_yaml_sub_mapping`**
 
 Replace the overrides block:
 
@@ -3232,12 +3232,12 @@ def _reg_cols_diff(base, resolved):
 ```
 The `rep_conditions` block that follows is unchanged.
 
-- [ ] **Step 8: Run the whole suite except plotting**
+- [x] **Step 8: Run the whole suite except plotting**
 
 Run: `uv run pytest tests --ignore=tests/test_plotting.py -q`
 Expected: all pass, including `tests/test_setup_oracles.py` (every preset reproduces its pre-migration numbers) and `tests/test_captest.py`. Work through remaining failures in `test_captest.py` one at a time; each is either a test still written against the tuple/callable form (update it) or a real regression (fix the code).
 
-- [ ] **Step 9: Lint, format, commit, review gate**
+- [x] **Step 9: Lint, format, commit, review gate**
 
 ```bash
 just lint && just fmt
