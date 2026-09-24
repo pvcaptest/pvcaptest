@@ -3257,7 +3257,7 @@ Then run the review gate.
 **Interfaces:**
 - Produces: `plotting.DEFAULT_TC_POWER_CALC: dict[str, Calc]`, `plotting._missing_column_groups(node, available_groups) -> set[str]`, `plotting.calc_tc_power_column(cd, tc_power_calc: dict, ...)` accepting document mappings or nodes.
 
-- [ ] **Step 1: Update the tests**
+- [x] **Step 1: Update the tests**
 
 In `TestCalcTcPowerColumn._calc_spec` return document form:
 
@@ -3291,12 +3291,12 @@ In `test_rejects_spec_without_top_level_power_calculation` use `{"power": {"grou
         assert isinstance(side.reg_cols["power"], Calc)
 ```
 
-- [ ] **Step 2: Run to verify they fail**
+- [x] **Step 2: Run to verify they fail**
 
 Run: `uv run pytest tests/test_plotting.py::TestCalcTcPowerColumn -q`
 Expected: failures (tuple checks reject mappings).
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 ```python
 from captest.setup import Calc, Group, Side
@@ -3346,12 +3346,12 @@ In `calc_tc_power_column`, replace the tuple validation with:
 ```
 (the `copy.deepcopy` is no longer needed — nodes are immutable). Update the function's docstring to describe document nodes and drop `import copy` if unused.
 
-- [ ] **Step 4: Run the full suite**
+- [x] **Step 4: Run the full suite**
 
 Run: `just test`
 Expected: all pass.
 
-- [ ] **Step 5: Lint, format, commit, review gate**
+- [x] **Step 5: Lint, format, commit, review gate**
 
 ```bash
 just lint && just fmt

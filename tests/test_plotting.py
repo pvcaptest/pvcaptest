@@ -154,22 +154,20 @@ class TestCalcTcPowerColumn:
         # Mirror DEFAULT_TC_POWER_CALC but force the synthetic fixture's
         # column-group ids so it works without depending on default
         # column-group inference.
-        from captest.calcparams import cell_temp, power_temp_correct
-
         return {
-            "power": (
-                power_temp_correct,
-                {
-                    "power": ("real_pwr_mtr", "sum"),
-                    "cell_temp": (
-                        cell_temp,
-                        {
-                            "poa": ("irr_poa", "mean"),
-                            "bom": ("temp_bom", "mean"),
+            "power": {
+                "calc": "power_temp_correct",
+                "args": {
+                    "power": {"group": "real_pwr_mtr", "agg": "sum"},
+                    "cell_temp": {
+                        "calc": "cell_temp",
+                        "args": {
+                            "poa": {"group": "irr_poa"},
+                            "bom": {"group": "temp_bom"},
                         },
-                    ),
+                    },
                 },
-            ),
+            },
         }
 
     def test_writes_to_data_and_data_filtered(self, synth_cd):
@@ -219,20 +217,32 @@ class TestCalcTcPowerColumn:
 
     def test_rejects_spec_without_top_level_power_calculation(self, synth_cd):
         """Verify raw-power-only calc specs are rejected instead of copied."""
-        from captest.calcparams import cell_temp
-
         calc_spec = {
-            "power": ("real_pwr_mtr", "sum"),
-            "cell_temp": (
-                cell_temp,
-                {
-                    "poa": ("irr_poa", "mean"),
-                    "bom": ("temp_bom", "mean"),
+            "power": {"group": "real_pwr_mtr", "agg": "sum"},
+            "cell_temp": {
+                "calc": "cell_temp",
+                "args": {
+                    "poa": {"group": "irr_poa"},
+                    "bom": {"group": "temp_bom"},
                 },
-            ),
+            },
         }
-        with pytest.raises(ValueError, match="top-level 'power' calculation tuple"):
+        with pytest.raises(ValueError, match="top-level 'power' calc"):
             plotting.calc_tc_power_column(synth_cd, calc_spec)
+
+    def test_accepts_node_models(self, synth_cd):
+        from captest.setup import Side
+
+        spec = dict(Side.model_validate({"reg_cols": self._calc_spec()}).reg_cols)
+        assert (
+            plotting.calc_tc_power_column(synth_cd, spec) == plotting.TC_POWER_PLOT_COL
+        )
+
+    def test_default_spec_is_valid(self):
+        from captest.setup import Calc, Side
+
+        side = Side.model_validate({"reg_cols": plotting.DEFAULT_TC_POWER_CALC})
+        assert isinstance(side.reg_cols["power"], Calc)
 
 
 # --- ScatterPlot.view -------------------------------------------------------
@@ -455,9 +465,71 @@ class TestScatterPlotView:
         assert len(curves[0]) == len(synth_cd.data)
         assert curves[0].vdims[0].name == "power"
 
+    def test_timeseries_curve_resolves_semantic_y_via_regression_col_nodes(
+        self, synth_cd
+    ):
+        """Curve resolution handles unresolved ``Column`` nodes.
+
+        Before ``process_regression_columns`` runs (e.g. straight after
+        ``load_pvsyst``), ``regression_cols`` values are ``Column`` /
+        ``Group`` nodes rather than plain strings. The timeseries
+        background curve must still resolve the underlying column via
+        ``util.reg_col_label`` instead of silently dropping to ``None``.
+        """
+        from captest.setup import Column
+
+        synth_cd.data = synth_cd.data.rename(
+            columns={
+                "power": "real_pwr_mtr_sum_agg",
+                "poa": "irr_poa_mean_agg",
+                "t_amb": "temp_amb_mean_agg",
+                "w_vel": "wind_speed_mean_agg",
+            }
+        )
+        synth_cd.regression_cols = {
+            "power": Column(column="real_pwr_mtr_sum_agg"),
+            "poa": Column(column="irr_poa_mean_agg"),
+            "t_amb": Column(column="temp_amb_mean_agg"),
+            "w_vel": Column(column="wind_speed_mean_agg"),
+        }
+
+        layout = plotting.ScatterPlot(cd=synth_cd, timeseries=True).view()
+        timeseries_panel = list(layout)[1]
+        assert isinstance(timeseries_panel, hv.Overlay)
+        elements = list(timeseries_panel)
+        curves = [el for el in elements if isinstance(el, hv.Curve)]
+        assert len(curves) == 1
+        # Curve plots the full underlying series but exposes it under the
+        # semantic ``power`` vdim so it shares a y-axis with the linked
+        # scatter, exactly as it does when regression_cols holds a plain
+        # string.
+        assert len(curves[0]) == len(synth_cd.data)
+        assert curves[0].vdims[0].name == "power"
+
     def test_view_requires_cd(self):
         with pytest.raises(ValueError, match="cd must be set"):
             plotting.ScatterPlot().view()
+
+    def test_tc_power_check_resolves_unprocessed_column_node(self, synth_cd):
+        """``_ensure_tc_power`` must resolve a ``Column`` node, not compare it raw.
+
+        Before ``process_regression_columns`` runs (e.g. straight after
+        ``load_pvsyst``), ``regression_cols`` values are ``Column`` /
+        ``Group`` nodes rather than plain strings. Comparing such a node
+        directly against the literal ``'power_temp_correct'`` is always
+        false (a node never equals a string), so the already-tc case must
+        be detected through ``util.reg_col_label`` instead.
+        """
+        from captest.setup import Column
+
+        synth_cd.data["power_temp_correct"] = synth_cd.data["power"]
+        synth_cd.regression_cols["power"] = Column(column="power_temp_correct")
+        with pytest.warns(UserWarning, match="already targets"):
+            plotting.ScatterPlot(
+                cd=synth_cd,
+                tc_power=True,
+                tc_power_calc=TestCalcTcPowerColumn()._calc_spec(),
+            ).view()
 
     def test_tc_power_with_already_tc_regression_warns(self, synth_cd):
         # Simulate the bifi_power_tc shape: regression_cols['power'] is the

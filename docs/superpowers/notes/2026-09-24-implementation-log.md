@@ -523,4 +523,44 @@ Branch: `reg-cols-serialization`
   stage (it reads only `column_groups` and `data.columns`, which the wrap does not change,
   but it must see the propagated downstream params). Suite: 1398 passed excluding plotting;
   oracles 11 passed.
+- Review 486 (on b3d8ef8), one low finding judged not to act on: `overrides.params` is
+  written whenever `params` is set, even when it equals the preset's. The plan's Step 7
+  code writes it that way (like `scatter_plots`), and the round trip already keeps the
+  preset's identity because the resolve-time equality check treats an equal `params` as
+  redundant. So no behaviour is wrong; only the file is a little more verbose.
+- Commits / roborev: `c53ba6b` (job 484: 2 low; 1 fixed in `96f1d89`, 1 kept+documented+pinned), `96f1d89` (job 485 clean), controller fix round 1 `b3d8ef8` (job 486: 1 low judged invalid — `overrides.params` written whenever set is the plan's Step 7 rule and identity still holds; explanation carried in the next commit body). **Oracle equivalence test: 11 passed with the oracle files untouched — the migration preserves every preset's numbers.** Controller review: redundant overrides changed the digest across a round trip → fixed; scoped re-review addressed. **Task 8 complete; red window closed (only test_plotting red, Task 9).**
+- **For the owner:** already the case before this work: when a `RepCond` step exists, `to_yaml` drops `overrides.rep_conditions`, so a reloaded test's `resolved_setup.rep_conditions` (and digest) can differ from the original. `to_yaml`/`to_mapping` now resolve the setup and raise for an incomplete/invalid config instead of writing an unloadable file.
+
+### Task 9: `plotting.py` over nodes
+- Ported `DEFAULT_TC_POWER_CALC`, `_missing_column_groups`, and `calc_tc_power_column`
+  from the tuple/callable calc-params grammar to document nodes: `_missing_column_groups`
+  now walks `dict` / `Group` / `Calc` (checking only `Group.group`), and
+  `calc_tc_power_column` validates via `Side.model_validate({"reg_cols": dict(tc_power_calc)})`,
+  requires `spec["power"]` to be a `Calc`, and drops the now-unneeded `copy.deepcopy`
+  (nodes are frozen). Also fixed the two carried-over review items: `_ensure_tc_power`'s
+  already-tc check and the timeseries background-curve lookup both compared
+  `regression_cols` values directly to strings / `data.columns`, which silently mis-behaves
+  once those values are `Group`/`Column` nodes (pre-`process_regression_columns`, e.g.
+  right after `load_pvsyst`); both now go through `util.reg_col_label`, matching the
+  pattern already used in `capdata.py`'s `index_capdata`.
+- Tests: `TestCalcTcPowerColumn._calc_spec` and the sibling reject-spec test moved to
+  document form (`match="top-level 'power' calc"`); added `test_accepts_node_models` and
+  `test_default_spec_is_valid` verbatim from the brief. Added two regression tests for the
+  carried review items — `test_timeseries_curve_resolves_semantic_y_via_regression_col_nodes`
+  and `test_tc_power_check_resolves_unprocessed_column_node` — both confirmed to fail
+  against the pre-fix code (temporarily reverted the two `reg_col_label` call sites) and
+  pass with the fix.
+- Test result: `tests/test_plotting.py` 37 passed (was 8 failed / 25 passed). Full suite
+  `uv run pytest tests -q`: 1435 passed. Red window closed — no module is red.
+- Deviations from plan/spec and why: none. The brief's code snippets were used verbatim;
+  the two carried-over fixes were additive (not in the brief's snippet) and scoped exactly
+  to the two call sites named in the carried review item.
+- Invalid finding carried from the previous task (recorded here per instruction, not a
+  finding against this task): roborev 486 (b3d8ef8) argued `overrides.params` should not
+  be written when equal to the preset's. Judged invalid in Task 8's log/commit: the plan's
+  Step 7 writes `params` whenever set (the same rule used for `scatter_plots`), and the
+  round trip still keeps the preset's identity because `resolve_test_setup` collapses a
+  redundant derivation (equal `reg_cols`/`reg_fml`/`params`/etc.) onto the preset itself —
+  so the extra verbosity in the yaml does not change behavior or digest identity.
+- Anything the owner should look at: nothing.
 - Commits / roborev: (filled in by controller)
