@@ -563,4 +563,11 @@ Branch: `reg-cols-serialization`
   redundant derivation (equal `reg_cols`/`reg_fml`/`params`/etc.) onto the preset itself —
   so the extra verbosity in the yaml does not change behavior or digest identity.
 - Anything the owner should look at: nothing.
+- Review 487 (on cc7305a), one low finding fixed: the timeseries background-curve lookup's
+  `reg_col_label` resolution returns the bare group id for a `Group` node, which is a
+  `column_groups` key, not a column of `cd.data` — so if that group's aggregated column
+  already exists (e.g. a direct `agg_group` call made ahead of `agg_sensors`), the curve
+  still silently dropped to `None`. Added `_resolve_reg_col_column`, which tries the
+  node's `<group>_<agg>_agg` name first, and a regression test that fails against cc7305a
+  and passes with the fix.
 - Commits / roborev: (filled in by controller)

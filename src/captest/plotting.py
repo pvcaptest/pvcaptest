@@ -635,6 +635,35 @@ def _missing_column_groups(node, available_groups):
     return missing
 
 
+def _resolve_reg_col_column(cd, var):
+    """Column of ``cd.data`` that ``cd.regression_cols[var]`` refers to.
+
+    ``regression_cols`` values are ``Group`` / ``Column`` nodes before
+    ``process_regression_columns`` (or ``agg_sensors``) runs and plain
+    strings afterwards; ``util.reg_col_label`` resolves both to a column
+    name for ``Column`` nodes and strings, or a bare group id for
+    ``Group`` nodes. A ``Group`` node's aggregated column (e.g. from a
+    direct ``agg_group`` call made ahead of ``agg_sensors``) is tried
+    under its ``<group>_<agg>_agg`` name before falling back to the bare
+    group id, since that id is a ``column_groups`` key, not a column of
+    ``cd.data``.
+
+    Returns
+    -------
+    str or None
+        The column name, or ``None`` if ``var`` is not a key of
+        ``cd.regression_cols`` or no candidate column exists on ``cd.data``.
+    """
+    if var not in cd.regression_cols:
+        return None
+    node = cd.regression_cols[var]
+    candidates = []
+    if isinstance(node, Group):
+        candidates.append(util.get_agg_column_name(node.group, node.agg))
+    candidates.append(util.reg_col_label(node))
+    return next((c for c in candidates if c in cd.data.columns), None)
+
+
 def add_am_pm_dim(df, split_time):
     """
     Tag rows of ``df`` as morning or afternoon based on a clock-time split.
@@ -1053,21 +1082,16 @@ class ScatterPlot(param.Parameterized):
         DataLink(principal_link, timeseries)
 
         # ``y_col`` is the semantic regression-formula name (e.g. ``power``)
-        # which may not exist as a literal column on ``cd.data``; resolve
-        # it through ``regression_cols`` to recover the underlying column
-        # holding the unfiltered series. ``regression_cols`` values are
-        # ``Group`` / ``Column`` nodes before ``process_regression_columns``
-        # runs and plain strings afterwards; ``reg_col_label`` handles both.
+        # which may not exist as a literal column on ``cd.data``; resolve it
+        # through ``regression_cols`` to recover the underlying column
+        # holding the unfiltered series.
         if y_col in self.cd.data.columns:
             full_series = self.cd.data[y_col]
-        elif y_col in self.cd.regression_cols and (
-            util.reg_col_label(self.cd.regression_cols[y_col]) in self.cd.data.columns
-        ):
-            full_series = self.cd.data[
-                util.reg_col_label(self.cd.regression_cols[y_col])
-            ]
         else:
-            full_series = None
+            resolved_col = _resolve_reg_col_column(self.cd, y_col)
+            full_series = (
+                self.cd.data[resolved_col] if resolved_col is not None else None
+            )
 
         if full_series is not None:
             full_df = full_series.rename(y_col).reset_index()

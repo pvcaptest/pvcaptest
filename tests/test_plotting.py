@@ -506,6 +506,36 @@ class TestScatterPlotView:
         assert len(curves[0]) == len(synth_cd.data)
         assert curves[0].vdims[0].name == "power"
 
+    def test_timeseries_curve_resolves_semantic_y_via_unflattened_group_node(
+        self, synth_cd
+    ):
+        """Curve resolution finds a ``Group`` node's already-aggregated column.
+
+        A ``Group`` node's aggregated column can exist on ``cd.data`` (e.g.
+        from a direct ``agg_group`` call) before ``regression_cols`` itself
+        has been flattened by ``agg_sensors`` / ``process_regression_columns``.
+        The background curve must resolve the node's
+        ``<group>_<agg>_agg`` column rather than the bare group id, which is
+        a ``column_groups`` key, not a column of ``cd.data``.
+        """
+        from captest.setup import Group
+
+        synth_cd.data = synth_cd.data.rename(columns={"power": "power_raw"})
+        synth_cd.column_groups["real_pwr_mtr"] = ["power_raw"]
+        synth_cd.agg_group("real_pwr_mtr", "sum", verbose=False)
+        assert "power" not in synth_cd.data.columns
+        assert "real_pwr_mtr_sum_agg" in synth_cd.data.columns
+        synth_cd.regression_cols["power"] = Group(group="real_pwr_mtr", agg="sum")
+
+        layout = plotting.ScatterPlot(cd=synth_cd, timeseries=True).view()
+        timeseries_panel = list(layout)[1]
+        assert isinstance(timeseries_panel, hv.Overlay)
+        elements = list(timeseries_panel)
+        curves = [el for el in elements if isinstance(el, hv.Curve)]
+        assert len(curves) == 1
+        assert len(curves[0]) == len(synth_cd.data)
+        assert curves[0].vdims[0].name == "power"
+
     def test_view_requires_cd(self):
         with pytest.raises(ValueError, match="cd must be set"):
             plotting.ScatterPlot().view()
