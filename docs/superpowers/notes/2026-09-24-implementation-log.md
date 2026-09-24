@@ -459,4 +459,10 @@ Branch: `reg-cols-serialization`
   string is a PVsyst column, including `scale`'s `col: PrecWat`; `factor: 100` stays an
   int literal. `docs/source/api_reference/captest.rst` still lists `validate_test_setup`;
   it is left for the docs task.
+- Review 482: `resolve_test_setup("custom", ...)` read `overrides["description"]` but the
+  unknown-key check rejected it (dead code). Fixed by accepting `description` for
+  `custom` only, as the old code did. Invalid findings: the CHANGELOG entry and the
+  `captest.rst` `validate_test_setup` line are Task 10's scope. Keeping
+  `util.encode_reg_cols` in `to_yaml` is not possible: Task 5 already deleted it, and
+  Task 8 rewrites that code.
 - Commits / roborev: (filled in by controller)

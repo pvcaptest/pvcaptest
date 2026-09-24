@@ -180,6 +180,27 @@ class TestResolveTestSetup:
         assert out.scatter_plots == "default"
         assert out.rep_conditions.func == {}
 
+    def test_custom_accepts_a_description(self):
+        side = {"power": {"column": "p"}, "poa": {"column": "i"}}
+        out = ct.resolve_test_setup(
+            "custom",
+            overrides={
+                "reg_cols_meas": side,
+                "reg_cols_sim": side,
+                "reg_fml": "power ~ poa",
+                "description": "site-specific form",
+            },
+        )
+        assert out.description == "site-specific form"
+
+    def test_description_is_not_an_override_of_a_named_preset(self):
+        with pytest.raises(ValueError, match="Unknown override key"):
+            ct.resolve_test_setup("e2848_default", {"description": "x"})
+
+    def test_unknown_override_key_raises(self):
+        with pytest.raises(ValueError, match="reg_fmll"):
+            ct.resolve_test_setup("e2848_default", {"reg_fmll": "power ~ poa"})
+
 
 class TestLoadConfig:
     def test_happy_path(self, tmp_path):

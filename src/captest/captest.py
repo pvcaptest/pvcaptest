@@ -354,7 +354,7 @@ def resolve_test_setup(name, overrides=None):
         (partial-merged: top-level keys replace, ``func`` merges one level
         deep), and ``reg_fml`` / ``params`` / ``scatter_plots`` (replace).
         ``"custom"`` has no base and requires complete ``reg_cols_meas``,
-        ``reg_cols_sim`` and ``reg_fml``.
+        ``reg_cols_sim`` and ``reg_fml``; it also accepts a ``description``.
 
     Returns
     -------
@@ -370,7 +370,8 @@ def resolve_test_setup(name, overrides=None):
         applied (see :class:`captest.setup.DerivationError`).
     """
     overrides = dict(overrides or {})
-    unknown = set(overrides) - set(_RESOLVE_KEYS)
+    allowed = set(_RESOLVE_KEYS) | ({"description"} if name == "custom" else set())
+    unknown = set(overrides) - allowed
     if unknown:
         raise ValueError(f"Unknown override key(s) {sorted(unknown)}")
     if name == "custom":
