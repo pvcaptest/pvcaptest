@@ -141,6 +141,16 @@ class TestNodes:
         )
         assert node.args["base_temp"] == 20
 
+    def test_calc_with_a_reserved_output_parameter_is_rejected(self, monkeypatch):
+        from captest.calcparams import CALC_REGISTRY, CalcEntry
+
+        def clash(data, col=None, output=None):
+            return data[col]
+
+        monkeypatch.setitem(CALC_REGISTRY, "clash", CalcEntry(clash, (), ()))
+        with pytest.raises(ValidationError, match="reserved"):
+            Calc(calc="clash", args={"col": {"column": "a"}})
+
     def test_extra_keys_are_forbidden(self):
         with pytest.raises(ValidationError):
             Group(group="a", aggr="mean")

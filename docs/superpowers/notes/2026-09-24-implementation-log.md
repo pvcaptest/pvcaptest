@@ -288,4 +288,11 @@ Branch: `reg-cols-serialization`
   `ct_default` fixture builds a CapTest from a tuple-grammar preset); it is
   outside the three named red modules but cannot go green until the presets
   migrate (Task 7).
+- Review 467 fix: `setup.Calc` now rejects a registered function with a
+  parameter named `output` (reserved by `custom_param`'s keyword; it would
+  otherwise raise `TypeError: multiple values`). Findings judged invalid:
+  captest.py `to_yaml`/`from_yaml` runtime breakage (the plan's red window,
+  fixed in Tasks 7-9); CHANGELOG entries (Task 10 owns CHANGELOG); coercing
+  bare strings in `process_regression_columns` to `Column` (the grammar has no
+  untagged top-level form; `Side` rejects literals by design, Task 3).
 - Commits / roborev: (filled in by controller)

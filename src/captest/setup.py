@@ -214,6 +214,11 @@ class Calc(_Frozen):
             suffix = f" Did you mean {hint[0]!r}?" if hint else ""
             raise ValueError(f"unknown calculation {self.calc!r}.{suffix}")
         params = inspect.signature(entry.func).parameters
+        if "output" in params:
+            raise ValueError(
+                f"calculation {self.calc!r} has a parameter named 'output', which "
+                "is reserved by CapData.custom_param; rename the parameter."
+            )
         allowed = set(params) - {"data", "verbose"}
         unknown = sorted(set(self.args) - allowed)
         if unknown:
