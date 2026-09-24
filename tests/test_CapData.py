@@ -27,6 +27,7 @@ from captest import (
     load_pvsyst,
     prep,
 )
+from captest.setup import Side
 
 data = np.arange(0, 1300, 54.167)
 index = pd.date_range(start="1/1/2017", freq="h", periods=24)
@@ -1224,6 +1225,10 @@ class TestCapDataCopyCompleteness:
             "pre_agg_cols": (pd.Index(["poa"]), _values_equal),
             "pre_agg_trans": ({"irr_poa_": ["poa"]}, _values_equal),
             "pre_agg_reg_trans": ({"poa": "irr_poa_"}, _values_equal),
+            "regression_cols_preprocess": (
+                Side.model_validate({"reg_cols": {"poa": {"group": "irr_poa_"}}}),
+                _values_equal,
+            ),
             "filters": ([filters.Irradiance(low=200, high=800)], _steps_equal),
             "prep": ([prep.Scale(columns=["poa"], factor=2.0)], _steps_equal),
         }
@@ -3901,6 +3906,68 @@ class TestRegressionColumnsDocumentForm:
         }
         meas.agg_sensors(verbose=False)
         assert meas.regression_cols["poa"] == "irr_poa_pyran_mean_agg"
+
+    def test_agg_sensors_honours_an_explicit_group_agg(self, meas):
+        meas.regression_cols = {
+            "power": {"column": "meter_power"},
+            "poa": {"group": "irr_poa_pyran", "agg": "median"},
+            "t_amb": {"group": "temp_amb"},
+            "w_vel": {"group": "wind"},
+        }
+        meas.agg_sensors(verbose=False)
+        assert meas.regression_cols["poa"] == "irr_poa_pyran_median_agg"
+        assert "irr_poa_pyran_mean_agg" not in meas.data.columns
+        assert meas.regression_cols["t_amb"] == "temp_amb_mean_agg"
+
+    def test_agg_sensors_unset_agg_on_power_still_sums(self, meas):
+        meas.regression_cols = {
+            "power": {"group": "power_inv"},
+            "poa": {"group": "irr_poa_pyran"},
+            "t_amb": {"group": "temp_amb"},
+            "w_vel": {"group": "wind"},
+        }
+        meas.agg_sensors(verbose=False)
+        assert meas.regression_cols["power"] == "power_inv_sum_agg"
+
+    def test_agg_sensors_explicit_map_does_not_resolve_a_different_agg(self, meas):
+        from captest.setup import Group
+
+        meas.regression_cols = {
+            "power": {"column": "meter_power"},
+            "poa": {"group": "irr_poa_pyran", "agg": "median"},
+            "t_amb": {"group": "temp_amb"},
+            "w_vel": {"group": "wind"},
+        }
+        meas.agg_sensors(agg_map={"irr_poa_pyran": "mean"}, verbose=False)
+        assert meas.regression_cols["poa"] == Group(group="irr_poa_pyran", agg="median")
+
+    def test_process_regression_columns_twice_reruns_from_preprocess(self, meas):
+        meas.regression_cols = {
+            "power": {"column": "meter_power"},
+            "poa": {"group": "irr_poa_pyran"},
+            "scaled": {
+                "calc": "scale",
+                "args": {"col": {"column": "meter_power"}, "factor": 2.0},
+            },
+        }
+        meas.process_regression_columns(verbose=False)
+        first = dict(meas.regression_cols)
+        meas.data["scale"] = 0.0
+        meas.process_regression_columns(verbose=False)
+        assert meas.regression_cols == first
+        assert (meas.data["scale"] == meas.data["meter_power"] * 2.0).all()
+
+    def test_process_regression_columns_rejects_uninterpretable_strings(self, meas):
+        meas.regression_cols = {"poa": "irr_poa_pyran_mean_agg"}
+        with pytest.raises(ValueError, match="plain strings"):
+            meas.process_regression_columns(verbose=False)
+
+    def test_process_regression_columns_rejects_strings_for_other_variables(self, meas):
+        meas.regression_cols = {"poa": {"group": "irr_poa_pyran"}}
+        meas.process_regression_columns(verbose=False)
+        meas.regression_cols = {"poa": "irr_poa_pyran_mean_agg", "t_amb": "temp_amb"}
+        with pytest.raises(ValueError, match="plain strings"):
+            meas.process_regression_columns(verbose=False)
 
     def test_agg_sensors_single_column_group_resolves_to_its_column(self, meas):
         meas.regression_cols = {

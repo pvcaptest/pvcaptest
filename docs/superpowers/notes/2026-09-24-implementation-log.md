@@ -295,4 +295,18 @@ Branch: `reg-cols-serialization`
   fixed in Tasks 7-9); CHANGELOG entries (Task 10 owns CHANGELOG); coercing
   bare strings in `process_regression_columns` to `Column` (the grammar has no
   untagged top-level form; `Side` rejects literals by design, Task 3).
+- Controller fix round 1: (F1) `agg_sensors` honours an explicitly given
+  `Group.agg` (`"agg" in node.model_fields_set`) and falls back to the
+  per-variable default (sum power, mean otherwise) only when unset; `resolve`
+  leaves a node with an explicit `agg` unresolved when its group was
+  aggregated with a different function. (F2) `process_regression_columns`
+  on already-flattened `regression_cols` (all strings, same variables as the
+  stored `regression_cols_preprocess`) re-runs from that `Side`; other string
+  values raise a `ValueError` naming them. `regression_cols_preprocess` is now
+  initialised to `None` in `__init__` and carried by `CapData.copy()` (the
+  copy-completeness guard test required a sentinel). (F3) docstrings for both
+  methods updated. 6 new tests in `TestRegressionColumnsDocumentForm`;
+  test_CapData 285 passed; full-suite red set unchanged (93 failed / 87 errors,
+  all in test_captest / test_plotting / test_setup_oracles plus the one
+  test_filter_classes CapTest-fixture error).
 - Commits / roborev: (filled in by controller)

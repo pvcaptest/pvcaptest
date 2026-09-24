@@ -854,6 +854,7 @@ class CapData(param.Parameterized):
         self.pre_agg_cols = None
         self.pre_agg_trans = None
         self.pre_agg_reg_trans = None
+        self.regression_cols_preprocess = None
         self.loc = LocIndexer(self)
         self.floc = FilteredLocIndexer(self)
 
@@ -961,6 +962,7 @@ class CapData(param.Parameterized):
         cd_c.pre_agg_cols = copy.copy(self.pre_agg_cols)
         cd_c.pre_agg_trans = copy.deepcopy(self.pre_agg_trans)
         cd_c.pre_agg_reg_trans = copy.deepcopy(self.pre_agg_reg_trans)
+        cd_c.regression_cols_preprocess = self.regression_cols_preprocess
         return cd_c
 
     def empty(self):
@@ -1656,10 +1658,14 @@ class CapData(param.Parameterized):
             dictionary values should be aggregation functions. See pandas API
             documentation of Computations / descriptive statistics for a list of all
             options.
-            By default the groups of columns assigned to the 'power', 'poa', 't_amb',
-            and 'w_vel' keys in the `regression_cols` attribute are aggregated:
+            By default the groups referenced by the 'power', 'poa', 't_amb',
+            and 'w_vel' entries of the `regression_cols` attribute are
+            aggregated. A group node whose ``agg`` was given explicitly (e.g.
+            ``{"group": "irr_poa", "agg": "median"}``) is aggregated with that
+            function; otherwise the per-variable default applies:
             - sum power
             - mean of poa, t_amb, w_vel
+            Column nodes are already resolved and are not aggregated.
         verbose : bool, default False
             Set to True to print the columns that have been aggregated, the
             aggregation function used, and the new column name. If the group being
@@ -1670,8 +1676,22 @@ class CapData(param.Parameterized):
         None
             Acts in place on the `data` and `regression_cols` attributes.
 
+        Raises
+        ------
+        ValueError
+            If `regression_cols` holds a calc node; use
+            `process_regression_columns` for calculated regression columns.
+
         Notes
         -----
+        After aggregating, `regression_cols` is flattened: each column node
+        becomes its column name, each group node or group id that was
+        aggregated (or whose aggregate column already existed) becomes the
+        aggregate column name, and a single-column group becomes its column.
+        A group node whose group was not aggregated in this call (not in an
+        explicit `agg_map`, or aggregated with a different function than the
+        node's explicit ``agg``) is left unchanged.
+
         This method is intended to be used before any filtering methods are applied.
         It clears the `filters` list, so any filtering steps already applied are
         lost.
@@ -1699,6 +1719,18 @@ class CapData(param.Parameterized):
         self.pre_agg_trans = copy.deepcopy(self.column_groups)
         self.pre_agg_reg_trans = copy.deepcopy(self.regression_cols)
 
+        defaults = {"power": "sum", "poa": "mean", "t_amb": "mean", "w_vel": "mean"}
+
+        def node_agg(var, node):
+            """Aggregation for a group node: its explicit ``agg``, else the default.
+
+            ``Group.agg`` defaults to ``"mean"``; only an ``agg`` the user wrote
+            (in ``model_fields_set``) overrides the per-variable default here.
+            """
+            if isinstance(node, Group) and "agg" in node.model_fields_set:
+                return node.agg
+            return defaults.get(var, "mean")
+
         def node_group_id(node):
             """Group id a node aggregates, or None for a raw-column reference.
 
@@ -1718,12 +1750,12 @@ class CapData(param.Parameterized):
             )
 
         if agg_map is None:
-            defaults = {"power": "sum", "poa": "mean", "t_amb": "mean", "w_vel": "mean"}
             agg_map = {}
-            for var, func in defaults.items():
-                gid = node_group_id(self.regression_cols[var])
+            for var in defaults:
+                node = self.regression_cols[var]
+                gid = node_group_id(node)
                 if gid is not None:
-                    agg_map[gid] = func
+                    agg_map[gid] = node_agg(var, node)
 
         agg_names = {}
         agg_map, rename_map, subgroup_rename_map = self.expand_agg_map(agg_map)
@@ -1754,11 +1786,16 @@ class CapData(param.Parameterized):
         self.rename_cols(rename_map, record=False)
         self.agg_name_mapper = agg_names
 
-        def resolve(node):
+        def resolve(var, node):
             if isinstance(node, Column):
                 return node.column
             gid = node_group_id(node)
             if gid in agg_names:
+                explicit = isinstance(node, Group) and "agg" in node.model_fields_set
+                if explicit and agg_names[gid] != util.get_agg_column_name(
+                    gid, node.agg
+                ):
+                    return node
                 return agg_names[gid]
             columns = self.column_groups.get(gid, [])
             if len(columns) == 1:
@@ -1766,7 +1803,7 @@ class CapData(param.Parameterized):
             return node
 
         self.regression_cols = {
-            var: resolve(node) for var, node in self.regression_cols.items()
+            var: resolve(var, node) for var, node in self.regression_cols.items()
         }
         self.create_column_group_attributes()
         self.create_agg_attributes()
@@ -3340,9 +3377,21 @@ class CapData(param.Parameterized):
 
     def process_regression_columns(self, verbose=True):
         """
-        Walk the regression column dictionary and calculate parameters.
+        Evaluate `regression_cols` and flatten it to column names.
 
-        See util.process_reg_cols for additional documentation.
+        `regression_cols` maps each regression variable to a document mapping
+        (``{"group": ...}``, ``{"column": ...}``, ``{"calc": ..., "args": ...}``)
+        or the equivalent :mod:`captest.setup` node. The mapping is validated
+        as a :class:`captest.setup.Side`, which is stored in
+        `regression_cols_preprocess`; groups are aggregated, calculations are
+        run (each writes its registry name as a column of `data`) and
+        `regression_cols` is replaced by ``{variable: column name}``. See
+        :func:`captest.util.process_reg_cols`.
+
+        Calling this again once `regression_cols` has been flattened (every
+        value a string, and `regression_cols_preprocess` covering the same
+        variables) re-runs the evaluation from `regression_cols_preprocess`,
+        so every calculation overwrites its output column again.
 
         Parameters
         ----------
@@ -3350,6 +3399,17 @@ class CapData(param.Parameterized):
             By default prints summary of aggregations and parameter calculations
             performed while traversing the `regression_cols` dictionary.
             Set to False to prevent all output.
+
+        Raises
+        ------
+        ValueError
+            If `regression_cols` holds plain strings that cannot be re-run from
+            `regression_cols_preprocess` (none stored, or different variables).
+        pydantic.ValidationError
+            If a mapping or node is invalid (unknown calculation, bad args,
+            clashing output columns, ...).
+        KeyError
+            If a column node names a column missing from `data`.
         """
         if self.filters:
             warnings.warn(
@@ -3358,7 +3418,7 @@ class CapData(param.Parameterized):
                 "lost.  It is recommended to use agg_sensors "
                 "before any filtering methods."
             )
-        side = Side.model_validate({"reg_cols": dict(self.regression_cols)})
+        side = self._regression_side()
         self.regression_cols_preprocess = side
         self.regression_cols = dict(side.reg_cols)
         util.process_reg_cols(self.regression_cols, cd=self, verbose=verbose)
@@ -3366,6 +3426,35 @@ class CapData(param.Parameterized):
         self.create_column_group_attributes()
         if "agg" in self.column_groups:
             self.create_agg_attributes()
+
+    def _regression_side(self):
+        """Return the ``Side`` that `process_regression_columns` evaluates.
+
+        Plain-string values mean `regression_cols` was already flattened; the
+        stored `regression_cols_preprocess` is reused when it covers the same
+        variables. Any other string value cannot be interpreted as a node.
+        """
+        strings = {
+            var: value
+            for var, value in self.regression_cols.items()
+            if isinstance(value, str)
+        }
+        if not strings:
+            return Side.model_validate({"reg_cols": dict(self.regression_cols)})
+        previous = self.regression_cols_preprocess
+        if (
+            len(strings) == len(self.regression_cols)
+            and isinstance(previous, Side)
+            and set(previous.reg_cols) == set(self.regression_cols)
+        ):
+            return previous
+        raise ValueError(
+            f"regression_cols holds plain strings {strings} that cannot be "
+            "evaluated: they are not the output of an earlier "
+            "process_regression_columns call covering the same variables. Give "
+            "each variable a node, e.g. {'group': <group id>} or "
+            "{'column': <column name>}."
+        )
 
     def custom_param(self, func, *, output=None, verbose=True, **kwargs):
         """Run ``func`` on ``data`` and store the result as a new column.
