@@ -214,7 +214,7 @@ Branch: `reg-cols-serialization`
   wholesale when given, merges `reg_cols_meas`/`reg_cols_sim` key by key via
   `merge_reg_cols` against the resolved formula's variables, then prunes
   `rep_conditions.func` entries whose key is no longer in the formula's rhs,
-  and revalidates through `TestSetup.model_validate`. Added `TestDerive` (11
+  and revalidates through `TestSetup.model_validate`. Added `TestDerive` (10
   tests) to `tests/test_setup.py` covering term replacement, model-node
   overrides, provenance/name defaulting, `null` removal + func pruning,
   prune-only-removes, rejecting `null` for a term the base lacks, rejecting
