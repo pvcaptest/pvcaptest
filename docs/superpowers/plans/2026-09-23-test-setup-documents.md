@@ -82,15 +82,15 @@ import warnings
 import numpy as np
 import pandas as pd
 
-import captest as pvc
 from captest import columngroups as cg
+from captest.capdata import CapData
 from captest.captest import CapTest
 from captest.io import load_pvsyst
 
 
 def build_meas_default():
     """Measured CapData from the example csv with a synthetic rear-POA group."""
-    cd = pvc.CapData("meas")
+    cd = CapData("meas")
     df = pd.read_csv(
         "./tests/data/example_measured_data.csv", index_col=0, parse_dates=True
     )
@@ -666,7 +666,7 @@ Then run the review gate.
 
 - [ ] **Step 1: Move `parse_regression_formula` out of `util.py`**
 
-Cut the `parse_regression_formula` function (util.py ≈ line 742, through the end of its body) and paste it unchanged into the new `src/captest/setup.py` (Step 3 shows where). In `util.py`, at the import block, add:
+Cut the `parse_regression_formula` function (util.py ≈ line 742, through the end of its body) and paste it unchanged into the new `src/captest/setup.py` (Step 3 shows where). It uses `ModelDesc`: move `from patsy import ModelDesc` (util.py line 11) with it, unless `grep -n ModelDesc src/captest/util.py` shows another user, in which case add the import to `setup.py` and leave util's. In `util.py`, at the import block, add:
 
 ```python
 from captest.setup import canonical_json, parse_regression_formula  # noqa: F401
@@ -723,6 +723,18 @@ def _paths(exc):
     return [".".join(str(p) for p in err["loc"]) for err in exc.value.errors()]
 
 
+@pytest.fixture
+def probe_calc(monkeypatch):
+    """Register a calculation whose signature accepts the literal kinds under test."""
+    from captest.calcparams import CALC_REGISTRY, CalcEntry
+
+    def probe(data, col=None, factor=1.0, flag=None, xs=None):
+        return data[col] * factor
+
+    monkeypatch.setitem(CALC_REGISTRY, "probe", CalcEntry(probe, (), ()))
+    return probe
+
+
 class TestNodes:
     def test_group_defaults_agg_to_mean(self):
         assert Group(group="irr_poa").agg == "mean"
@@ -751,28 +763,28 @@ class TestNodes:
         with pytest.raises(ValidationError):
             Calc(calc="e_total", args={"poa": {"group": "a", "column": "b"}})
 
-    def test_literals_pass_through_inside_args(self):
+    def test_literals_pass_through_inside_args(self, probe_calc):
         node = Calc(
-            calc="scale",
+            calc="probe",
             args={"col": {"column": "PrecWat"}, "factor": 100, "flag": None, "xs": [1, 2]},
         )
         assert node.args["factor"] == 100
         assert node.args["flag"] is None
         assert node.args["xs"] == [1, 2]
 
-    def test_non_finite_float_literal_is_rejected(self):
+    def test_non_finite_float_literal_is_rejected(self, probe_calc):
         with pytest.raises(ValidationError):
-            Calc(calc="scale", args={"col": {"column": "x"}, "factor": float("nan")})
+            Calc(calc="probe", args={"col": {"column": "x"}, "factor": float("nan")})
 
-    def test_dict_literal_is_rejected(self):
+    def test_dict_literal_is_rejected(self, probe_calc):
         with pytest.raises(ValidationError):
-            Calc(calc="scale", args={"col": {"column": "x"}, "factor": {"a": 1}})
+            Calc(calc="probe", args={"col": {"column": "x"}, "factor": {"a": 1}})
 
-    def test_callable_argument_is_rejected(self):
+    def test_callable_argument_is_rejected(self, probe_calc):
         import numpy as np
 
         with pytest.raises(ValidationError):
-            Calc(calc="scale", args={"col": {"column": "x"}, "factor": np.mean})
+            Calc(calc="probe", args={"col": {"column": "x"}, "factor": np.mean})
 
     def test_unknown_calc_names_the_path_and_suggests(self):
         with pytest.raises(ValidationError) as exc:
@@ -904,7 +916,7 @@ class TestNormalisationAndIdentity:
         with pytest.raises(TypeError):
             setup.canonical_json({1: "x"})
 
-    def test_load_from_yaml_path_json_path_string_and_mapping(self, tmp_path):
+    def test_load_from_yaml_path_json_path_text_and_mapping(self, tmp_path):
         doc = e2848_doc()
         y = tmp_path / "s.yaml"
         y.write_text(yaml.safe_dump(doc))
@@ -912,7 +924,9 @@ class TestNormalisationAndIdentity:
         j.write_text(json.dumps(doc))
         from_yaml = TestSetup.load(y)
         assert TestSetup.load(j) == from_yaml
-        assert TestSetup.load(y.read_text()) == from_yaml
+        assert TestSetup.load(str(j)) == from_yaml
+        assert TestSetup.loads(y.read_text()) == from_yaml
+        assert TestSetup.loads(json.dumps(doc)) == from_yaml   # long text, never a path
         assert TestSetup.load(doc) == from_yaml
 
     def test_to_yaml_and_to_json_round_trip(self, tmp_path):
@@ -965,6 +979,7 @@ from pathlib import Path
 from typing import Annotated, Literal, Union
 
 import yaml
+from patsy import ModelDesc
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -1291,18 +1306,18 @@ class TestSetup(_Frozen):
 
     @classmethod
     def load(cls, source):
-        """Build a setup from a yaml/json path, a yaml/json string, or a mapping.
+        """Build a setup from a yaml/json file path or a mapping.
 
-        Always validates through the model; yaml is read with ``safe_load``.
+        Always validates through the model; yaml is read with ``safe_load``
+        (json is valid yaml). Use :meth:`loads` for document text.
         """
         if isinstance(source, dict):
             return cls.model_validate(source)
-        if isinstance(source, Path) or (
-            isinstance(source, str) and "\n" not in source and Path(source).exists()
-        ):
-            text = Path(source).read_text()
-        else:
-            text = source
+        return cls.loads(Path(source).read_text())
+
+    @classmethod
+    def loads(cls, text):
+        """Build a setup from yaml or json document text."""
         return cls.model_validate(yaml.safe_load(text))
 
     def to_yaml(self, path):
@@ -1608,15 +1623,21 @@ def dummy_cd(monkeypatch):
             self.calls[func.__name__] = kwargs
             self.data[output or func.__name__] = func(self.data, **kwargs)
 
-    def make(value):
-        def calc(data, **kwargs):
-            return np.full(10, value)
+    # Explicit signatures: the Calc validator checks args against them.
+    def test_func1(data, power=None, cell_temp=None, factor=None, enabled=None,
+                   offset=None, cols=None, nothing=None):
+        return np.full(10, 1)
 
-        return calc
+    def test_func2(data, poa=None, bom=None):
+        return np.full(10, 2)
 
-    for i in (1, 2, 3, 4):
-        f = make(i)
-        f.__name__ = f"test_func{i}"
+    def test_func3(data, poa=None, temp_amb=None, wind_speed=None):
+        return np.full(10, 3)
+
+    def test_func4(data, poa=None, rpoa=None):
+        return np.full(10, 4)
+
+    for f in (test_func1, test_func2, test_func3, test_func4):
         monkeypatch.setitem(CALC_REGISTRY, f.__name__, CalcEntry(f, (), ()))
     return DummyCapData()
 
@@ -1878,6 +1899,9 @@ class TestRegressionColumnsDocumentForm:
         assert "probed" in meas.data.columns
         assert seen["power_temp_coeff"] == -0.4      # absent -> injected
         assert seen["pressure"] is None              # explicit None passes through
+        meas.power_temp_coeff = None
+        meas.custom_param(probe, output="probed2", col="meter_power")
+        assert seen["power_temp_coeff"] is None      # None attribute -> function default
         meas.custom_param(scale, col="meter_power", factor=2.0, verbose=False)
         assert "scale" in meas.data.columns          # output defaults to __name__
 
@@ -1940,8 +1964,11 @@ In `capdata.py`, add `from captest.setup import Column, Group, Side` to the impo
                     f"column groups id. Change the name of the column group id or "
                     f"include the kwarg in the CapData.regression_cols"
                 )
-            if hasattr(self, key):
-                kwargs[key] = getattr(self, key)
+            # Same rule as setup.effective_value: an attribute that is None
+            # supplies nothing, so the function's own default applies.
+            value = getattr(self, key, None)
+            if value is not None:
+                kwargs[key] = value
         if "verbose" in signature.parameters:
             kwargs["verbose"] = verbose
         self.data[output or func.__name__] = func(self.data, **kwargs)
@@ -1980,6 +2007,14 @@ and update its docstring: "Each value is a column group id (becomes a mean aggre
 In `agg_sensors`, replace the default `agg_map` construction with:
 
 ```python
+        # ``regression_cols`` may hold document mappings, node models, or (after
+        # processing) flat column names. Normalise once so the rest of this
+        # method sees nodes or strings only.
+        if any(isinstance(v, dict) for v in self.regression_cols.values()):
+            self.regression_cols = dict(
+                Side.model_validate({"reg_cols": self.regression_cols}).reg_cols
+            )
+
         def group_id(node):
             if isinstance(node, Group):
                 return node.group
@@ -1987,7 +2022,8 @@ In `agg_sensors`, replace the default `agg_map` construction with:
                 return node
             raise ValueError(
                 "agg_sensors default agg_map needs group nodes or group ids in "
-                f"regression_cols; got {node!r}"
+                f"regression_cols; got {node!r}. Use process_regression_columns "
+                "for calc nodes."
             )
 
         if agg_map is None:
@@ -1997,6 +2033,23 @@ In `agg_sensors`, replace the default `agg_map` construction with:
                 group_id(self.regression_cols["t_amb"]): "mean",
                 group_id(self.regression_cols["w_vel"]): "mean",
             }
+```
+
+and, where the existing body updates `regression_cols` to point at the aggregated columns (the block that today rewrites string values), replace it with a flattening pass that runs after the aggregation loop:
+
+```python
+        flat = {}
+        for var, node in self.regression_cols.items():
+            if isinstance(node, Group):
+                flat[var] = agg_names.get(node.group, util.get_agg_column_name(
+                    node.group, agg_map.get(node.group, node.agg)))
+            elif isinstance(node, Column):
+                flat[var] = node.column
+            elif isinstance(node, str):
+                flat[var] = agg_names.get(node, node)
+            else:
+                raise ValueError(f"agg_sensors cannot resolve {var}={node!r}")
+        self.regression_cols = flat
 ```
 
 Run `grep -n "regression_cols_preprocess" src tests` and update any reader that expected a dict to read `.reg_cols` (there should be none outside `capdata.py`).
@@ -2688,6 +2741,8 @@ def resolve_test_setup(name, overrides=None):
         available = sorted(TEST_SETUPS) + ["custom"]
         raise KeyError(f"Unknown test_setup={name!r}. Available: {available}")
     base = TEST_SETUPS[name]
+    if not any(v is not None for v in overrides.values()):
+        return base  # the preset itself, provenance and digest untouched
     if overrides.get("scatter_plots") is not None:
         _check_scatter_name(overrides["scatter_plots"])
     rep_conditions = None
@@ -2728,7 +2783,7 @@ print(open('tests/data/setup_digests.json').read())
 Run: `uv run pytest tests/test_captest.py::TestTestSetupsRegistry tests/test_captest.py::TestResolveTestSetup tests/test_presets.py -q`
 Expected: all pass.
 
-- [ ] **Step 7: Delete the now-dead import of `_perc_wrap_to_string` in `util.py`?** No — `util._perc_wrap_to_string` is still used by the converter and by nothing else in `src`; delete it from `util.py` together with `_resolve_func_strings` only in Task 8 Step 6, where `rep_cond` resolution is settled.
+- [ ] **Step 7: Leave `util._perc_wrap_to_string` in place.** `filters._encode_func_value` still serializes the `perc_wrap` callables a `RepCond` step holds; only the `captest.py` preset code stops using it.
 
 - [ ] **Step 8: Run the oracle test (the equivalence proof)**
 
@@ -2840,6 +2895,24 @@ class TestSetupWiring:
         monkeypatch.setitem(ct.SCATTER_REGISTRY, "default", lambda cd, **kw: called.update(cd=cd))
         ct_default.scatter_plots()
         assert called["cd"] is ct_default.meas
+
+    def test_rep_cond_then_yaml_round_trip(self, ct_default, tmp_path):
+        """The RepCond step's perc_wrap callable still serializes and reloads."""
+        ct_default.meas.filter_irr(200, 2000)
+        ct_default.rep_cond()
+        ct_default.to_yaml(tmp_path / "c.yaml", merge_into_existing=False)
+        with open(tmp_path / "c.yaml") as fh:
+            sub = yaml.safe_load(fh)["captest"]
+        rep_steps = [d for d in sub["meas_filters"] if d["type"] == "RepCond"]
+        assert rep_steps and rep_steps[0]["func"]["poa"] == "perc_60"
+        CapTest.from_yaml(tmp_path / "c.yaml", run_setup=False)
+
+    def test_edit_after_setup_is_what_gets_written(self, ct_default, tmp_path):
+        ct_default.reg_cols_meas = {"poa": {"group": "irr_rpoa", "agg": "mean"}}
+        ct_default.to_yaml(tmp_path / "c.yaml", merge_into_existing=False)
+        with open(tmp_path / "c.yaml") as fh:
+            sub = yaml.safe_load(fh)["captest"]
+        assert sub["overrides"]["reg_cols_meas"] == {"poa": {"group": "irr_rpoa", "agg": "mean"}}
 
 
 class TestRegColsYamlRoundTrip:
@@ -3009,18 +3082,24 @@ Tier 2 runs after the downstream attributes are propagated (so `power_temp_coeff
         list of captest.setup.FitError
         """
         sides = ("meas", "sim") if side == "both" else (side,)
-        overrides = {...}  # same block as in setup(); factor it into _collect_overrides()
-        resolved = resolve_test_setup(self.test_setup, overrides=overrides)
-        errors = []
+        resolved = resolve_test_setup(self.test_setup, self._collect_overrides())
+        for s in sides:
+            if getattr(self, s) is None:
+                raise RuntimeError(f"CapTest.{s} must be set before check_fit().")
+        # The same preparation setup() performs before it evaluates anything:
+        # downstream params onto each side, and meas.site onto sim (the
+        # spectral presets need it there). Neither touches ``data``.
         for s in sides:
             cd = getattr(self, s)
-            if cd is None:
-                raise RuntimeError(f"CapTest.{s} must be set before check_fit().")
             for name in self._downstream_attrs:
                 if s == "sim" and name in self._downstream_attrs_meas_only:
                     continue
                 setattr(cd, name, getattr(self, name))
-            errors.extend(check_project_fit(resolved, s, cd))
+        if "sim" in sides and self.meas is not None:
+            self._propagate_sim_site()
+        errors = []
+        for s in sides:
+            errors.extend(check_project_fit(resolved, s, getattr(self, s)))
         return errors
 ```
 
@@ -3039,7 +3118,7 @@ Factor the override-collection block into `_collect_overrides(self) -> dict` use
 
 - [ ] **Step 6: `load_config`, `from_mapping`, `_serialize_rep_conditions`**
 
-- `load_config`: delete the two `_resolve_func_strings` blocks (strings stay strings). Delete `_resolve_func_strings` and `_perc_wrap_to_string` from the `captest.py` import list; delete `_perc_wrap_to_string` from `util.py` (keep `_resolve_perc_string` / `_resolve_func_strings`, now used by `rep_cond`).
+- `load_config`: delete the two `_resolve_func_strings` blocks (strings stay strings). Drop `_perc_wrap_to_string` from the `captest.py` import list only if `captest.py` no longer references it; **keep it in `util.py`** — `filters._encode_func_value` (filters.py ≈ 1776) uses it to serialize the `perc_wrap` callables that `rep_cond()` hands to the `RepCond` step, so the pipeline yaml round trip after `rep_cond()` depends on it (tested below). Keep `_resolve_perc_string` / `_resolve_func_strings`.
 - `_CAPTEST_OVERRIDE_KEYS = frozenset({"reg_cols_meas", "reg_cols_sim", "reg_fml", "rep_conditions", "params", "scatter_plots"})`.
 - `from_mapping`: delete the `decode_reg_cols` block; when lifting overrides, map `overrides["scatter_plots"]` to `kwargs["scatter_plots_name"]`; the `custom` requirement check stays.
 - `_serialize_rep_conditions`: drop the `func` special case (values are strings already); keep `to_native`.
@@ -3050,18 +3129,17 @@ Replace the overrides block:
 
 ```python
         overrides = {}
+        # Always resolve from the *current* params, never from the cached
+        # ``resolved_setup``: an override edited after setup() must be what
+        # gets written, and a changed ``test_setup`` must not be paired with
+        # the previous preset's document.
+        resolved = resolve_test_setup(self.test_setup, self._collect_overrides())
         if self.test_setup == "custom":
-            resolved = self.resolved_setup or resolve_test_setup(
-                "custom", self._collect_overrides()
-            )
             overrides["reg_cols_meas"] = resolved.meas.model_dump(mode="json")["reg_cols"]
             overrides["reg_cols_sim"] = resolved.sim.model_dump(mode="json")["reg_cols"]
             overrides["reg_fml"] = resolved.reg_fml
         else:
             preset = TEST_SETUPS[self.test_setup]
-            resolved = self.resolved_setup or resolve_test_setup(
-                self.test_setup, self._collect_overrides()
-            )
             for side in ("meas", "sim"):
                 diff = _reg_cols_diff(
                     getattr(preset, side).reg_cols, getattr(resolved, side).reg_cols
