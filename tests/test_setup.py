@@ -541,6 +541,12 @@ class TestCheckProjectFit:
         assert [e.path for e in errors] == ["meas.reg_cols.poa"]
         assert "e_total" in errors[0].message
 
+    def test_group_output_shadowing_a_sensor_column_is_reported(self):
+        groups = {**MEAS_GROUPS, "shadow": ["real_pwr_mtr_sum_agg"]}
+        errors = _fit(e2848_doc(), groups=groups)
+        assert [e.path for e in errors] == ["meas.reg_cols.power"]
+        assert "real_pwr_mtr_sum_agg" in errors[0].message
+
     def test_params_constraint_checks_effective_value_per_side(self):
         doc = e2848_doc(reg_fml="power ~ poa", params={"rear_shade": 0})
         etotal = {
