@@ -2015,8 +2015,12 @@ In `agg_sensors`, replace the default `agg_map` construction with:
                 Side.model_validate({"reg_cols": self.regression_cols}).reg_cols
             )
 
-        def group_id(node):
-            """Group id a node aggregates, or None for a raw-column reference."""
+        def node_group_id(node):
+            """Group id a node aggregates, or None for a raw-column reference.
+
+            Named to stay clear of the existing ``for group_id, agg_func in
+            agg_map.items()`` loop variable below, which would shadow it.
+            """
             if isinstance(node, Group):
                 return node.group
             if isinstance(node, Column):
@@ -2033,9 +2037,19 @@ In `agg_sensors`, replace the default `agg_map` construction with:
             defaults = {"power": "sum", "poa": "mean", "t_amb": "mean", "w_vel": "mean"}
             agg_map = {}
             for var, func in defaults.items():
-                gid = group_id(self.regression_cols[var])
+                gid = node_group_id(self.regression_cols[var])
                 if gid is not None:          # Column nodes are already resolved
                     agg_map[gid] = func
+
+In the existing aggregation loop, the branch that skips a group because its output column already exists must record that column before continuing, so the resolver below can use it:
+
+```python
+            if col_name in self.data.columns:
+                if verbose:
+                    print(f"Skipping aggregation of {group_id} as column "
+                          f"{col_name} already exists")
+                agg_names[group_id] = col_name
+                continue
 ```
 
 and, where the existing body updates `regression_cols` to point at the aggregated columns (the block that today rewrites string values), replace it with a flattening pass that runs after the aggregation loop. `agg_names` maps each group id that was actually aggregated to the column written; a group the loop skipped (single-column groups are not aggregated today; an explicit `agg_map` may omit a group) has no entry:
@@ -2044,8 +2058,8 @@ and, where the existing body updates `regression_cols` to point at the aggregate
         def resolve(var, node):
             if isinstance(node, Column):
                 return node.column
-            gid = group_id(node)
-            if gid in agg_names:                      # aggregated in this call
+            gid = node_group_id(node)
+            if gid in agg_names:                      # aggregated or reused in this call
                 return agg_names[gid]
             columns = self.column_groups.get(gid, [])
             if len(columns) == 1:                     # single-column group: the column
@@ -2083,10 +2097,21 @@ Add two tests beside `test_agg_sensors_default_map_reads_group_nodes`:
         assert meas.regression_cols["poa"] == "irr_poa_pyran_mean_agg"
         assert meas.regression_cols["power"] == "meter_power"
         assert meas.regression_cols["t_amb"] == Group(group="temp_amb")
+
+    def test_agg_sensors_reuses_an_existing_aggregate_column(self, meas):
+        meas.data["irr_poa_pyran_mean_agg"] = 1.0
+        meas.regression_cols = {
+            "power": {"column": "meter_power"},
+            "poa": {"group": "irr_poa_pyran"},
+            "t_amb": {"group": "temp_amb"},
+            "w_vel": {"group": "wind"},
+        }
+        meas.agg_sensors(verbose=False)
+        assert meas.regression_cols["poa"] == "irr_poa_pyran_mean_agg"
+        assert (meas.data["irr_poa_pyran_mean_agg"] == 1.0).all()
 ```
 
 (If `real_pwr_mtr` is not a single-column group in the `meas` fixture, pick the fixture's single-column group for the first test; `grep -n "column_groups" tests/conftest.py` shows them.)
-```
 
 Run `grep -n "regression_cols_preprocess" src tests` and update any reader that expected a dict to read `.reg_cols` (there should be none outside `capdata.py`).
 
