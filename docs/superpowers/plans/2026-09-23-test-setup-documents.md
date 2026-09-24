@@ -3459,12 +3459,12 @@ Then run the review gate.
 
 ### Task 11: Branch wrap-up
 
-- [ ] **Step 1: Confirm the branch state**
+- [x] **Step 1: Confirm the branch state**
 
 Run: `git status --short && git log --oneline master..HEAD`
 Expected: clean tree apart from the pre-existing `pyproject.toml` change the owner left uncommitted (leave it), and one commit per task above plus any `fix: address roborev review` commits.
 
-- [ ] **Step 2: Hand off**
+- [x] **Step 2: Hand off**
 
 Invoke `superpowers:finishing-a-development-branch`. The PR description should name the breaking change, the migration steps for pft-mono (`perfactory/captest.py`, `ctsweep/adhoc.py`, `captest-gui`), and point at the spec and this plan.
 

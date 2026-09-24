@@ -4,6 +4,50 @@ Plan: `docs/superpowers/plans/2026-09-23-test-setup-documents.md`
 Spec: `docs/superpowers/specs/2026-09-22-test-setup-documents-design.md`
 Branch: `reg-cols-serialization`
 
+## Summary (read this first)
+
+- **Result:** all 11 plan tasks are done and committed. The full suite is green (1450 passed), and
+  lint, format and docs are clean. **The oracle equivalence test (`tests/test_setup_oracles.py`)
+  passes, and the oracle files have not changed since Task 1's fix round.** Every preset
+  reproduces its pre-migration regression columns, coefficients and p-values at
+  rtol 1e-9.
+- **Review gate:** every commit went through roborev (jobs 460-495, on glm-5.3 via the
+  `Review: code` trailer). No review is pending. No 402 or rate-limit errors happened.
+- **Decisions to look at** (details in the task sections below):
+  1. Task 1: the plan's oracle fixtures could not tell the rear-shade `_sim` presets from
+     the `_meas` ones: `BackShd` was 0 and there was no `rear_shade`. Before migrating, I added
+     a non-zero `BackShd` sim builder and `rear_shade=0.1` on the `_meas` variants, plus a
+     pairwise-distinct oracle test.
+  2. Attribution: every commit ends with a `Review: code` trailer so review routes to
+     glm-5.3. The remaining trailers are the plan's (`Claude Fable 5.1` plus the plan's session URL), as you
+     asked, except `5f13d51` and `ebaadf4` (Task 5): the implementer used this session's
+     attribution. They had already been reviewed, so they were not amended.
+  3. `TestSetup.derive` was added as an alias of `setup.derive` to match the spec's spelling.
+  4. `set_regression_cols` maps a single-column group to a `Column` node, which preserves
+     0.17 behaviour. `agg_sensors` honours an explicit `Group.agg`. `process_regression_columns`
+     can be re-run, including after `agg_sensors`.
+  5. Tier 2 ignores the generated `agg` / `*_aggs` column groups when checking for shadowed
+     outputs, so a second `setup()` works. This is by naming convention only, so a real
+     group named `agg` would be misjudged. It also reports a calc argument whose name
+     collides with a column-group id, which `custom_param` raises on at runtime.
+  6. `resolve_test_setup` returns the preset itself when an override is redundant, so
+     identity survives a round trip. `to_yaml` now always writes `overrides.rep_conditions`,
+     even when a RepCond step or a manual rc exists. Earlier code dropped it; that looked
+     presentational, and replay is unchanged (tested).
+  7. The three `*_rear_shade_sim` preset descriptions were reworded because `setup()` now
+     refuses a non-zero `rear_shade`, and their stored digests were regenerated. The oracles were not touched.
+  8. `util._perc_wrap_to_string` is kept, because `filters` uses it. The plan's Task 8 file
+     list said to delete it.
+  9. The CHANGELOG "Removed" list omits `encode_reg_cols` / `decode_reg_cols`, which were
+     never released. This differs from the spec's changelog bullet.
+- **Known leftovers (minor, not blocking):** there is no test for `derive` adding a new
+  formula variable, or for NaN inside `params`/`rc_kwargs`. `AGG_FUNCS` is unused and
+  duplicates `Group.agg`'s Literal. `SETUPS_DIR` assumes an on-disk install. An old
+  callable-tuple yaml fails with a noisy 8-error pydantic message. The notebook
+  `captest_class_bifi.ipynb` names its instance `ts`.
+- **pft-mono consumers that must migrate:** `perfactory/captest.py`, `ctsweep/adhoc.py`,
+  `captest-gui`.
+
 ## Before Task 1
 
 - `roborev status`: daemon running. `uv run pytest tests -q`: 1256 passed on 5846ed3.
@@ -737,3 +781,18 @@ Branch: `reg-cols-serialization`
   the flat value, so the re-run rule would still reject it), and a bare string is no longer
   a reference in `regression_cols`; took the finding's first option and named this case,
   with the callable-`agg_map` and renamed-subgroup cases, in the `agg_sensors` docstring.
+- Commits / roborev: `6b2dd45` I1 (job 491 clean), `a050e95` I2+M1 (job 492 clean),
+  `9c0f4fc` I3 (job 493 clean), `c09b3f8` M2-M9 (job 494: 1 low, fixed in `0d83779`),
+  `0d83779` (job 495 clean). Scoped re-review of the fix wave (controller-dispatched, Opus): all 12 findings addressed, no new breakage.
+
+### Task 11: Branch wrap-up
+
+- Final verification on the tip of the fix wave: `just lint`, `just fmt` clean; `just test`
+  1450 passed; `just docs` build succeeded (86 warnings on an incremental build; the fix
+  wave measured 85 on a clean `-E` build, identical to before).
+- Final whole-branch review (Opus) verdict: "Ready after fixes". Three Important
+  findings: the yaml round trip lost `rep_conditions` when a RepCond step existed, `derive`
+  dropped a mistyped `func` key without an error, and re-registering a calc in a notebook
+  raised. There were also nine minors. All were fixed in one wave (`6b2dd45`..`0d83779`)
+  and re-reviewed clean.
+- Branch pushed; draft PR opened (link in the PR list / final message).
