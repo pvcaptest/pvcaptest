@@ -2449,7 +2449,7 @@ Then run the review gate.
 - Produces: `captest.SCATTER_REGISTRY: dict[str, callable]`, `captest.SETUPS_DIR: Path`, `captest.load_presets() -> dict[str, TestSetup]`, `captest.TEST_SETUPS: dict[str, TestSetup]`, `captest.resolve_test_setup(name, overrides=None) -> TestSetup` (overrides keys: `reg_cols_meas`, `reg_cols_sim`, `reg_fml`, `rep_conditions` (partial-merged), `params`, `scatter_plots`), `captest._check_scatter_name(name)`.
 - Consumes: `setup.TestSetup`, `setup.derive`, `setup.DerivationError`.
 
-- [ ] **Step 1: Generate the yaml files with a throwaway converter**
+- [x] **Step 1: Generate the yaml files with a throwaway converter**
 
 The old tuple dicts are still in `captest.py` at this point; convert them mechanically rather than by hand. Save this in the scratchpad (not the repo) and run it once:
 
@@ -2513,7 +2513,7 @@ for name, entry in ctm.TEST_SETUPS.items():
 Run: `uv run python /path/to/scratch/convert_presets.py && ls src/captest/setups`
 Expected: ten files. Open each and check: every meas leaf that was a bare string became `{group: …}` — if any of those is really a raw column name in the fixture data, change it to `{column: …}` (the oracle test in Step 8 will also catch it). Reflow descriptions if the dumper folded them badly; content, not layout, is what matters.
 
-- [ ] **Step 2: Write the failing registry tests**
+- [x] **Step 2: Write the failing registry tests**
 
 Replace `TestTestSetupsRegistry` in `tests/test_captest.py`:
 
@@ -2666,12 +2666,12 @@ class TestResolveTestSetup:
         assert out.rep_conditions.func == {}
 ```
 
-- [ ] **Step 3: Run to verify they fail**
+- [x] **Step 3: Run to verify they fail**
 
 Run: `uv run pytest tests/test_captest.py::TestTestSetupsRegistry tests/test_presets.py -q`
 Expected: failures / errors (no `SETUPS_DIR`, `TEST_SETUPS` entries are dicts).
 
-- [ ] **Step 4: Rewrite the preset machinery in `captest.py`**
+- [x] **Step 4: Rewrite the preset machinery in `captest.py`**
 
 Delete the `TEST_SETUPS = {...}` literal, `_TEST_SETUP_REQUIRED_KEYS`, `validate_test_setup`, `_encode_override`, and the `from captest.calcparams import (...)` block that only fed the dicts (keep any name still used elsewhere; `grep` before deleting). Add imports:
 
@@ -2828,7 +2828,7 @@ def resolve_test_setup(name, overrides=None):
 
 `_merge_rep_conditions` is unchanged (it merges plain dicts). Keep `perc_wrap` exported; delete `_perc_wrap_to_string` from the `captest.py` imports if nothing else uses it there.
 
-- [ ] **Step 5: Store the digests**
+- [x] **Step 5: Store the digests**
 
 ```bash
 uv run python -c "
@@ -2840,19 +2840,19 @@ print(open('tests/data/setup_digests.json').read())
 "
 ```
 
-- [ ] **Step 6: Run the registry, preset and resolve tests**
+- [x] **Step 6: Run the registry, preset and resolve tests**
 
 Run: `uv run pytest tests/test_captest.py::TestTestSetupsRegistry tests/test_captest.py::TestResolveTestSetup tests/test_presets.py -q`
 Expected: all pass.
 
-- [ ] **Step 7: Leave `util._perc_wrap_to_string` in place.** `filters._encode_func_value` still serializes the `perc_wrap` callables a `RepCond` step holds; only the `captest.py` preset code stops using it.
+- [x] **Step 7: Leave `util._perc_wrap_to_string` in place.** `filters._encode_func_value` still serializes the `perc_wrap` callables a `RepCond` step holds; only the `captest.py` preset code stops using it.
 
-- [ ] **Step 8: Run the oracle test (the equivalence proof)**
+- [x] **Step 8: Run the oracle test (the equivalence proof)**
 
 Run: `uv run pytest tests/test_setup_oracles.py -q`
 Expected: fails on `CapTest.setup()` because `CapTest` still reads `resolved["reg_cols_meas"]` — that is Task 8. Skip to Step 9; the oracle test is the first thing Task 8 makes green.
 
-- [ ] **Step 9: Lint, format, commit, review gate**
+- [x] **Step 9: Lint, format, commit, review gate**
 
 ```bash
 just lint && just fmt

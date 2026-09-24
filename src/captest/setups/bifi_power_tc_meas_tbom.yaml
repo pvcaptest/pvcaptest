@@ -1,0 +1,39 @@
+name: bifi_power_tc_meas_tbom
+description: >-
+  The regression equation is temperature corrected power regressed against
+  front POA and rear POA. The back of module temperature is from field measurements
+  and the cell temperature is calculated using the Sandia PV Array Performance
+  Model from the POA irradiance and measured BOM temperature. Note that
+  the PVsyst temperature correction uses the 'TArray' output variable.
+reg_fml: power ~ poa + rpoa
+meas:
+  reg_cols:
+    power:
+      calc: power_temp_correct
+      args:
+        power: {group: real_pwr_mtr, agg: sum}
+        cell_temp:
+          calc: cell_temp
+          args:
+            poa: {group: irr_poa, agg: mean}
+            bom: {group: temp_bom, agg: mean}
+    poa: {group: irr_poa, agg: mean}
+    rpoa: {group: irr_rpoa, agg: mean}
+sim:
+  reg_cols:
+    power:
+      calc: power_temp_correct
+      args:
+        power: {column: E_Grid}
+        cell_temp: {column: TArray}
+    poa: {column: GlobInc}
+    rpoa:
+      calc: rpoa_pvsyst
+      args:
+        globbak: {column: GlobBak}
+        backshd: {column: BackShd}
+rep_conditions:
+  irr_bal: false
+  percent_filter: 20
+  func: {poa: perc_60, rpoa: mean}
+scatter_plots: bifi_power_tc

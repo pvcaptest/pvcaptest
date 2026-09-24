@@ -1,0 +1,56 @@
+name: e2848_spec_corrected_poa
+description: >-
+  Standard ASTM E2848 regression with a First Solar spectral correction
+  applied to front-side POA irradiance before fitting. Requires relative
+  humidity and atmospheric pressure on the measured side and precipitable
+  water from the PVsyst output.
+reg_fml: power ~ poa + I(poa * poa) + I(poa * t_amb) + I(poa * w_vel) -
+  1
+meas:
+  reg_cols:
+    power: {group: real_pwr_mtr, agg: sum}
+    poa:
+      calc: poa_spec_corrected
+      args:
+        poa: {group: irr_poa, agg: mean}
+        spectral_correction:
+          calc: spectral_factor_firstsolar
+          args:
+            precipitable_water:
+              calc: precipitable_water_gueymard
+              args:
+                temp_amb: {group: temp_amb, agg: mean}
+                rel_humidity: {group: humidity, agg: mean}
+            absolute_airmass:
+              calc: absolute_airmass
+              args:
+                apparent_zenith: {calc: apparent_zenith, args: {}}
+                pressure: {group: pressure, agg: mean}
+    t_amb: {group: temp_amb, agg: mean}
+    w_vel: {group: wind_speed, agg: mean}
+sim:
+  reg_cols:
+    power: {column: E_Grid}
+    poa:
+      calc: poa_spec_corrected
+      args:
+        poa: {column: GlobInc}
+        spectral_correction:
+          calc: spectral_factor_firstsolar
+          args:
+            precipitable_water:
+              calc: scale
+              args:
+                col: {column: PrecWat}
+                factor: 100
+            absolute_airmass:
+              calc: absolute_airmass
+              args:
+                apparent_zenith: {calc: apparent_zenith_pvsyst, args: {}}
+    t_amb: {column: T_Amb}
+    w_vel: {column: WindVel}
+rep_conditions:
+  irr_bal: false
+  percent_filter: 20
+  func: {poa: perc_60, t_amb: mean, w_vel: mean}
+scatter_plots: default

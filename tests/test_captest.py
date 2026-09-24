@@ -1,7 +1,7 @@
 """Tests for captest.captest module.
 
-Covers the TEST_SETUPS registry, the validate_test_setup / resolve_test_setup
-/ load_config helpers, the three shipped scatter-plot callables, and the
+Covers the TEST_SETUPS registry, the resolve_test_setup / load_config
+helpers, the three shipped scatter-plot callables, and the
 ``CapTest`` orchestrator class itself (Units 4 and 6 of the implementation
 plan).
 """
@@ -20,14 +20,7 @@ import yaml
 
 from captest import CapTest, captest as ct, columngroups as cg, load_pvsyst, util
 from captest.calcparams import (
-    apparent_zenith_pvsyst,
-    cell_temp,
-    e_total,
     poa_spec_corrected,
-    power_temp_correct,
-    rpoa_pvsyst,
-    scale,
-    spectral_factor_firstsolar,
 )
 from captest.capdata import CapData
 from captest.captest import CapTestResults
@@ -69,263 +62,123 @@ def other_pvsyst_file():
 
 
 class TestTestSetupsRegistry:
-    @pytest.mark.parametrize("preset", list(ct.TEST_SETUPS.keys()))
-    def test_each_shipped_preset_validates(self, preset):
-        """Each shipped preset dict passes validate_test_setup as-is."""
-        ct.validate_test_setup(ct.TEST_SETUPS[preset])
+    @pytest.mark.parametrize("preset", sorted(ct.TEST_SETUPS))
+    def test_each_preset_is_a_test_setup(self, preset):
+        from captest.setup import TestSetup
 
-    @pytest.mark.parametrize("preset", list(ct.TEST_SETUPS.keys()))
+        assert isinstance(ct.TEST_SETUPS[preset], TestSetup)
+        assert ct.TEST_SETUPS[preset].name == preset
+
+    @pytest.mark.parametrize("preset", sorted(ct.TEST_SETUPS))
     def test_each_preset_lhs_is_power(self, preset):
-        """Naming convention: lhs regression variable is always 'power'."""
-        entry = ct.TEST_SETUPS[preset]
-        lhs = entry["reg_fml"].split("~")[0].strip()
-        assert lhs == "power", f"preset {preset!r} lhs is {lhs!r}, expected 'power'"
+        assert ct.TEST_SETUPS[preset].reg_fml.split("~")[0].strip() == "power"
 
-    @pytest.mark.parametrize("preset", list(ct.TEST_SETUPS.keys()))
-    def test_each_preset_has_rep_conditions_dict(self, preset):
-        rc = ct.TEST_SETUPS[preset]["rep_conditions"]
-        assert isinstance(rc, dict)
-        assert "func" in rc
-        assert isinstance(rc["func"], dict)
+    @pytest.mark.parametrize("preset", sorted(ct.TEST_SETUPS))
+    def test_each_preset_scatter_name_is_registered(self, preset):
+        assert ct.TEST_SETUPS[preset].scatter_plots in ct.SCATTER_REGISTRY
+
+    def test_registry_matches_the_files_on_disk(self):
+        names = {p.stem for p in ct.SETUPS_DIR.glob("*.yaml")}
+        assert names == set(ct.TEST_SETUPS)
 
     def test_e2848_default_shape(self):
-        """Sanity-check the default preset's reg_cols keys."""
         entry = ct.TEST_SETUPS["e2848_default"]
-        assert set(entry["reg_cols_meas"].keys()) == {"power", "poa", "t_amb", "w_vel"}
-        assert set(entry["reg_cols_sim"].keys()) == {"power", "poa", "t_amb", "w_vel"}
+        assert set(entry.meas.reg_cols) == {"power", "poa", "t_amb", "w_vel"}
+        assert set(entry.sim.reg_cols) == {"power", "poa", "t_amb", "w_vel"}
 
     def test_bifi_e2848_etotal_rear_shade_sim_uses_e_total(self):
-        """bifi_e2848_etotal_rear_shade_sim preset wraps poa in an e_total calc-tuple."""
-        entry = ct.TEST_SETUPS["bifi_e2848_etotal_rear_shade_sim"]
-        meas_poa = entry["reg_cols_meas"]["poa"]
-        assert isinstance(meas_poa, tuple)
-        assert meas_poa[0] is e_total
+        from captest.setup import Calc
 
-    def test_bifi_power_tc_calc_tbom_uses_power_temp_correct(self):
-        entry = ct.TEST_SETUPS["bifi_power_tc_calc_tbom"]
-        meas_power = entry["reg_cols_meas"]["power"]
-        assert isinstance(meas_power, tuple)
-        assert meas_power[0] is power_temp_correct
+        node = ct.TEST_SETUPS["bifi_e2848_etotal_rear_shade_sim"].meas.reg_cols["poa"]
+        assert isinstance(node, Calc) and node.calc == "e_total"
 
-    def test_bifi_power_tc_meas_tbom_uses_measured_bom(self):
-        """meas-side BOM temp is a direct column-group ref, not a calc tuple."""
-        entry = ct.TEST_SETUPS["bifi_power_tc_meas_tbom"]
-        meas_power = entry["reg_cols_meas"]["power"]
-        assert isinstance(meas_power, tuple)
-        assert meas_power[0] is power_temp_correct
-        cell_temp_node = meas_power[1]["cell_temp"]
-        assert isinstance(cell_temp_node, tuple)
-        assert cell_temp_node[0] is cell_temp
-        # BOM temperature comes from field measurements (direct column-group ref).
-        bom_spec = cell_temp_node[1]["bom"]
-        assert bom_spec == ("temp_bom", "mean")
+    def test_rear_shade_sim_presets_constrain_rear_shade(self):
+        for name in (
+            "bifi_e2848_etotal_rear_shade_sim",
+            "bifi_power_tc_etotal_rear_shade_sim",
+            "bifi_e2848_etotal_rear_shade_sim_spec_corrected",
+        ):
+            assert ct.TEST_SETUPS[name].params == {"rear_shade": 0}, name
+
+    def test_rear_shade_meas_presets_are_unconstrained(self):
+        assert ct.TEST_SETUPS["bifi_e2848_etotal_rear_shade_meas"].params == {}
 
     def test_e2848_spec_corrected_poa_meas_tree_uses_spectral_factor(self):
-        """The meas-side poa tree ends with spectral_factor_firstsolar."""
-        entry = ct.TEST_SETUPS["e2848_spec_corrected_poa"]
-        meas_poa = entry["reg_cols_meas"]["poa"]
-        assert isinstance(meas_poa, tuple)
-        assert meas_poa[0] is poa_spec_corrected
-        spec_node = meas_poa[1]["spectral_correction"]
-        assert isinstance(spec_node, tuple)
-        assert spec_node[0] is spectral_factor_firstsolar
+        poa = ct.TEST_SETUPS["e2848_spec_corrected_poa"].meas.reg_cols["poa"]
+        assert poa.calc == "poa_spec_corrected"
+        assert poa.args["spectral_correction"].calc == "spectral_factor_firstsolar"
 
     def test_e2848_spec_corrected_poa_sim_uses_apparent_zenith_pvsyst(self):
-        """The sim-side tree routes through apparent_zenith_pvsyst."""
-        entry = ct.TEST_SETUPS["e2848_spec_corrected_poa"]
-        sim_poa = entry["reg_cols_sim"]["poa"]
-        abs_airmass_node = sim_poa[1]["spectral_correction"][1]["absolute_airmass"]
-        zenith_node = abs_airmass_node[1]["apparent_zenith"]
-        assert isinstance(zenith_node, tuple)
-        assert zenith_node[0] is apparent_zenith_pvsyst
-
-    def test_spec_corrected_etotal_sim_front_spec_corrected_rear_raw(self):
-        """_sim meas poa = e_total(front=poa_spec_corrected, rear=raw irr_rpoa)."""
-        entry = ct.TEST_SETUPS["bifi_e2848_etotal_rear_shade_sim_spec_corrected"]
-        meas_poa = entry["reg_cols_meas"]["poa"]
-        assert isinstance(meas_poa, tuple)
-        assert meas_poa[0] is e_total
-        assert meas_poa[1]["poa"][0] is poa_spec_corrected
-        assert meas_poa[1]["rpoa"] == ("irr_rpoa", "mean")
-
-    def test_spec_corrected_etotal_sim_rear_uses_rpoa_pvsyst(self):
-        """_sim sim-side rear routes through rpoa_pvsyst (shading in model)."""
-        entry = ct.TEST_SETUPS["bifi_e2848_etotal_rear_shade_sim_spec_corrected"]
-        sim_rear = entry["reg_cols_sim"]["poa"][1]["rpoa"]
-        assert isinstance(sim_rear, tuple)
-        assert sim_rear[0] is rpoa_pvsyst
-
-    def test_spec_corrected_etotal_meas_rear_maps_to_globbak(self):
-        """_meas sim-side rear maps directly to GlobBak; meas side matches _sim."""
-        entry = ct.TEST_SETUPS["bifi_e2848_etotal_rear_shade_meas_spec_corrected"]
-        assert entry["reg_cols_sim"]["poa"][1]["rpoa"] == "GlobBak"
-        meas_poa = entry["reg_cols_meas"]["poa"]
-        assert meas_poa[0] is e_total
-        assert meas_poa[1]["poa"][0] is poa_spec_corrected
-        assert meas_poa[1]["rpoa"] == ("irr_rpoa", "mean")
-
-    def test_spec_corrected_etotal_sim_routes_through_pvsyst_zenith_and_scale(self):
-        """_sim sim-side spectral tree uses apparent_zenith_pvsyst + scale(PrecWat)."""
-        entry = ct.TEST_SETUPS["bifi_e2848_etotal_rear_shade_sim_spec_corrected"]
-        front = entry["reg_cols_sim"]["poa"][1]["poa"]  # poa_spec_corrected tuple
-        assert front[0] is poa_spec_corrected
-        spec_node = front[1]["spectral_correction"]
-        assert spec_node[0] is spectral_factor_firstsolar
-        zenith = spec_node[1]["absolute_airmass"][1]["apparent_zenith"]
-        assert zenith[0] is apparent_zenith_pvsyst
-        assert spec_node[1]["precipitable_water"][0] is scale
-
-    def test_spec_corrected_etotal_presets_use_scatter_etotal(self):
-        """Both presets use scatter_etotal, matching the other e_total presets."""
-        for name in (
-            "bifi_e2848_etotal_rear_shade_sim_spec_corrected",
-            "bifi_e2848_etotal_rear_shade_meas_spec_corrected",
-        ):
-            assert ct.TEST_SETUPS[name]["scatter_plots"] is ct.scatter_etotal
-
-    def test_power_tc_etotal_power_is_temp_corrected_with_measured_bom(self):
-        """power_tc_etotal meas power is power_temp_correct over measured BOM."""
-        entry = ct.TEST_SETUPS["bifi_power_tc_etotal_rear_shade_sim"]
-        meas_power = entry["reg_cols_meas"]["power"]
-        assert meas_power[0] is power_temp_correct
-        bom_spec = meas_power[1]["cell_temp"][1]["bom"]
-        assert bom_spec == ("temp_bom", "mean")
-
-    def test_power_tc_etotal_poa_is_e_total_over_front_and_rear(self):
-        """power_tc_etotal meas poa is an e_total calc-tuple over front + rear."""
-        entry = ct.TEST_SETUPS["bifi_power_tc_etotal_rear_shade_sim"]
-        meas_poa = entry["reg_cols_meas"]["poa"]
-        assert meas_poa[0] is e_total
-        assert meas_poa[1]["poa"] == ("irr_poa", "mean")
-        assert meas_poa[1]["rpoa"] == ("irr_rpoa", "mean")
-
-    def test_power_tc_etotal_sim_rear_uses_rpoa_pvsyst(self):
-        """_sim sim-side e_total rear routes through rpoa_pvsyst (shading in model)."""
-        entry = ct.TEST_SETUPS["bifi_power_tc_etotal_rear_shade_sim"]
-        sim_rear = entry["reg_cols_sim"]["poa"][1]["rpoa"]
-        assert isinstance(sim_rear, tuple)
-        assert sim_rear[0] is rpoa_pvsyst
-
-    def test_power_tc_etotal_meas_rear_maps_to_globbak(self):
-        """_meas sim-side e_total rear maps directly to GlobBak (no rpoa_pvsyst)."""
-        entry = ct.TEST_SETUPS["bifi_power_tc_etotal_rear_shade_meas"]
-        assert entry["reg_cols_sim"]["poa"][1]["rpoa"] == "GlobBak"
-
-    def test_power_tc_etotal_presets_use_scatter_etotal_and_single_term_formula(self):
-        """Both presets use scatter_etotal and the single-term 'power ~ poa' formula."""
-        for name in (
-            "bifi_power_tc_etotal_rear_shade_sim",
-            "bifi_power_tc_etotal_rear_shade_meas",
-        ):
-            assert ct.TEST_SETUPS[name]["scatter_plots"] is ct.scatter_etotal
-            assert ct.TEST_SETUPS[name]["reg_fml"] == "power ~ poa"
-
-    def test_validate_rejects_unknown_keys(self):
-        bad = dict(ct.TEST_SETUPS["e2848_default"])
-        bad["bogus"] = 42
-        with pytest.raises(KeyError, match="unknown keys"):
-            ct.validate_test_setup(bad)
-
-    def test_validate_rejects_missing_keys(self):
-        bad = dict(ct.TEST_SETUPS["e2848_default"])
-        bad.pop("rep_conditions")
-        with pytest.raises(KeyError, match="missing required keys"):
-            ct.validate_test_setup(bad)
-
-    def test_validate_rejects_non_callable_scatter_plots(self):
-        bad = dict(ct.TEST_SETUPS["e2848_default"])
-        bad["scatter_plots"] = "not-a-callable"
-        with pytest.raises(ValueError, match="scatter_plots"):
-            ct.validate_test_setup(bad)
-
-    def test_validate_rejects_formula_vars_missing_from_reg_cols(self):
-        bad = dict(ct.TEST_SETUPS["e2848_default"])
-        bad["reg_cols_meas"] = {
-            k: v for k, v in bad["reg_cols_meas"].items() if k != "w_vel"
-        }
-        with pytest.raises(ValueError, match="missing keys required by reg_fml"):
-            ct.validate_test_setup(bad)
-
-    def test_validate_rejects_non_dict_rep_conditions(self):
-        bad = dict(ct.TEST_SETUPS["e2848_default"])
-        bad["rep_conditions"] = "not-a-dict"
-        with pytest.raises(ValueError, match="'rep_conditions' must be a dict"):
-            ct.validate_test_setup(bad)
-
-    def test_validate_rejects_func_with_non_rhs_keys(self):
-        bad = dict(ct.TEST_SETUPS["e2848_default"])
-        # Reconstruct rep_conditions with an extra func key.
-        rc = dict(bad["rep_conditions"])
-        rc["func"] = dict(rc["func"])
-        rc["func"]["bogus"] = "mean"
-        bad["rep_conditions"] = rc
-        with pytest.raises(ValueError, match="rhs variables"):
-            ct.validate_test_setup(bad)
+        poa = ct.TEST_SETUPS["e2848_spec_corrected_poa"].sim.reg_cols["poa"]
+        zenith = (
+            poa.args["spectral_correction"]
+            .args["absolute_airmass"]
+            .args["apparent_zenith"]
+        )
+        assert zenith.calc == "apparent_zenith_pvsyst"
 
 
 class TestResolveTestSetup:
     def test_named_preset_no_overrides(self):
-        resolved = ct.resolve_test_setup("e2848_default")
-        assert resolved["reg_fml"] == ct.TEST_SETUPS["e2848_default"]["reg_fml"]
+        assert ct.resolve_test_setup("e2848_default") == ct.TEST_SETUPS["e2848_default"]
 
-    def test_named_preset_with_reg_fml_override(self):
-        # Keep the same rhs variables (otherwise rep_conditions.func keys no
-        # longer align with rhs and validate_test_setup rejects the result).
-        resolved = ct.resolve_test_setup(
-            "e2848_default",
-            overrides={
-                "reg_fml": "power ~ poa + I(poa * poa) + I(poa * t_amb) + I(poa * w_vel)"
-            },
-        )
-        assert resolved["reg_fml"].startswith("power ~ poa")
+    def test_reg_fml_override(self):
+        fml = "power ~ poa + I(poa * poa) + I(poa * t_amb) + I(poa * w_vel)"
+        assert ct.resolve_test_setup("e2848_default", {"reg_fml": fml}).reg_fml == fml
 
-    def test_named_preset_with_rep_conditions_partial_merge(self):
-        resolved = ct.resolve_test_setup(
-            "e2848_default",
-            overrides={"rep_conditions": {"percent_filter": 10}},
+    def test_rep_conditions_partial_merge(self):
+        out = ct.resolve_test_setup(
+            "e2848_default", {"rep_conditions": {"percent_filter": 10}}
         )
-        # Top-level percent_filter replaced, other keys preserved.
-        assert resolved["rep_conditions"]["percent_filter"] == 10
-        assert resolved["rep_conditions"]["irr_bal"] is False
-        # func dict untouched.
-        assert set(resolved["rep_conditions"]["func"].keys()) == {
-            "poa",
-            "t_amb",
-            "w_vel",
+        assert out.rep_conditions.percent_filter == 10
+        assert out.rep_conditions.irr_bal is False
+        assert set(out.rep_conditions.func) == {"poa", "t_amb", "w_vel"}
+
+    def test_rep_conditions_func_partial_merge_takes_strings(self):
+        out = ct.resolve_test_setup(
+            "e2848_default", {"rep_conditions": {"func": {"poa": "perc_55"}}}
+        )
+        assert out.rep_conditions.func == {
+            "poa": "perc_55",
+            "t_amb": "mean",
+            "w_vel": "mean",
         }
 
-    def test_named_preset_with_rep_conditions_func_partial_merge(self):
-        resolved = ct.resolve_test_setup(
-            "e2848_default",
-            overrides={"rep_conditions": {"func": {"poa": ct.perc_wrap(55)}}},
+    def test_reg_cols_override_merges_one_term(self):
+        out = ct.resolve_test_setup(
+            "e2848_default", {"reg_cols_meas": {"poa": {"group": "irr_ghi"}}}
         )
-        # POA entry swapped; others preserved.
-        assert resolved["rep_conditions"]["func"]["t_amb"] == "mean"
-        assert resolved["rep_conditions"]["func"]["w_vel"] == "mean"
-        assert callable(resolved["rep_conditions"]["func"]["poa"])
+        assert out.meas.reg_cols["poa"].group == "irr_ghi"
+        assert (
+            out.meas.reg_cols["power"]
+            == ct.TEST_SETUPS["e2848_default"].meas.reg_cols["power"]
+        )
+        assert out.derived_from == "e2848_default"
 
     def test_unknown_preset_raises(self):
         with pytest.raises(KeyError, match="Unknown test_setup"):
             ct.resolve_test_setup("nonexistent")
+
+    def test_unknown_scatter_name_raises_with_hint(self):
+        with pytest.raises(ValueError, match="etotal"):
+            ct.resolve_test_setup("e2848_default", {"scatter_plots": "etotl"})
 
     def test_custom_requires_all_three_overrides(self):
         with pytest.raises(ValueError, match="test_setup='custom'"):
             ct.resolve_test_setup("custom", overrides={"reg_fml": "y ~ x"})
 
     def test_custom_with_minimal_overrides(self):
-        resolved = ct.resolve_test_setup(
+        out = ct.resolve_test_setup(
             "custom",
             overrides={
-                "reg_cols_meas": {"power": "p", "poa": "i"},
-                "reg_cols_sim": {"power": "p", "poa": "i"},
+                "reg_cols_meas": {"power": {"column": "p"}, "poa": {"column": "i"}},
+                "reg_cols_sim": {"power": {"column": "p"}, "poa": {"column": "i"}},
                 "reg_fml": "power ~ poa",
             },
         )
-        assert resolved["reg_fml"] == "power ~ poa"
-        # scatter_plots falls back to scatter_default.
-        assert resolved["scatter_plots"] is ct.scatter_default
-        # rep_conditions defaults to empty dict.
-        assert resolved["rep_conditions"] == {}
+        assert out.name == "custom"
+        assert out.scatter_plots == "default"
+        assert out.rep_conditions.func == {}
 
 
 class TestLoadConfig:

@@ -416,4 +416,47 @@ Branch: `reg-cols-serialization`
   collision check deliberately does not share it) remains convention/documentation-only,
   not structurally enforced on `CapData`; flagged for a possible follow-up. Otherwise
   nothing.
+- Commits / roborev: `b96f71f`..`6d972ab` (10 commits). roborev jobs 472-481; the final
+  job, 481, found no issues. One finding (job 473) was judged invalid: a missing group
+  produces two findings, which is by design since tier 2 collects every finding. Controller
+  task review: in fix round 1 the Group-output shadow check flagged each group's own
+  generated aggregate (`column_groups["agg"]`), so a second `setup()` would fail. In fix
+  round 2 the controller's own instruction was wrong: tier 2 skipped the group-id collision
+  that `custom_param` raises on. It now reports it. Both scoped re-reviews addressed.
+  **Task 6 complete.**
+- **For the owner:** tier 2 treats `column_groups` two ways by design. The output-shadow
+  checks ignore the generated `agg` / `*_aggs` groups; the argument-collision check uses the
+  raw groups, as `custom_param` does. The `agg`/`_aggs` reservation is by naming convention
+  only, so a project with a real group named `agg` would be misjudged.
+
+### Task 7: Presets as yaml, `TEST_SETUPS` loader, `SCATTER_REGISTRY`, `resolve_test_setup`
+- Generated the ten `src/captest/setups/*.yaml` with the brief's throwaway converter (run
+  before deleting the tuple dicts), plus a scratch check that each yaml matches its old
+  tuple entry leaf by leaf. `TEST_SETUPS` is now loaded from those files at import;
+  `SCATTER_REGISTRY`, `SETUPS_DIR`, `load_presets`, `_check_scatter_name` added;
+  `resolve_test_setup` returns a `TestSetup` (named preset via `derive`, `custom` built
+  from overrides); `validate_test_setup`, `_TEST_SETUP_REQUIRED_KEYS`, `_encode_override`
+  and the calcparams imports deleted. Digests stored in `tests/data/setup_digests.json`.
+- Test result: registry + resolve + `tests/test_presets.py` → 67 passed. Full suite →
+  95 failed, 1217 passed, 87 errors: the +2 are `TestToYamlAndRoundTrip` tests in
+  `test_captest.py` (red window) that index `TEST_SETUPS[...]` as a dict or reach
+  `to_mapping`'s `preset.get(...)`; both are Task 8's rewrite. Other modules unchanged
+  (test_plotting 8, test_setup_oracles 10, test_filter_classes 1 error). The oracle test
+  still fails at `CapTest.setup()` (`'TestSetup' object is not subscriptable`), as
+  expected. A scratch probe that adapts the resolved `TestSetup` back to the old dict
+  shape `CapTest.setup()` reads reproduces all ten oracles at rtol 1e-9.
+- Deviations: (1) the converter's dump styling was changed (flow-style leaf mappings,
+  folded `description`, `params` placed before `rep_conditions`, width 70) for readable
+  files; content is identical to the brief's converter. (2) `_encode_override` is
+  deleted as the brief says, but its two call sites in `_build_yaml_sub_mapping` would
+  then be undefined names (ruff F821), so they now `copy.deepcopy(val)` — overrides are
+  plain document-form data now. Task 8 rewrites that code. (3) `SCATTER_REGISTRY`,
+  `SETUPS_DIR` and `load_presets` added to `__all__`; `validate_test_setup` removed.
+  (4) `_perc_wrap_to_string` stays imported in `captest.py`: `_serialize_rep_conditions`
+  still uses it until Task 8 deletes that branch.
+- Anything the owner should look at: no preset yaml needed hand edits. There were no
+  bare-string meas leaves (every meas leaf was a `(group, agg)` tuple). Every sim bare
+  string is a PVsyst column, including `scale`'s `col: PrecWat`; `factor: 100` stays an
+  int literal. `docs/source/api_reference/captest.rst` still lists `validate_test_setup`;
+  it is left for the docs task.
 - Commits / roborev: (filled in by controller)

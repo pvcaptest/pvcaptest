@@ -23,6 +23,7 @@ import importlib.util
 import textwrap
 import warnings
 from dataclasses import dataclass
+from importlib import resources
 from pathlib import Path
 
 import numpy as np
@@ -31,23 +32,10 @@ import param
 import yaml
 
 from captest import util
-from captest.calcparams import (
-    absolute_airmass,
-    apparent_zenith,
-    apparent_zenith_pvsyst,
-    bom_temp,
-    cell_temp,
-    e_total,
-    poa_spec_corrected,
-    power_temp_correct,
-    precipitable_water_gueymard,
-    rpoa_pvsyst,
-    scale,
-    spectral_factor_firstsolar,
-)
 from captest.capdata import CapData
 from captest.filters import wrap_year_end
 from captest.plotting import ScatterBifiPowerTc, ScatterPlot
+from captest.setup import DerivationError, TestSetup, derive
 from captest.util import (
     _perc_wrap_to_string,
     _resolve_func_strings,
@@ -226,672 +214,64 @@ def scatter_bifi_power_tc(cd, **kwargs):
     return ScatterBifiPowerTc(cd=cd, **kwargs).view()
 
 
-TEST_SETUPS = {
-    "e2848_default": {
-        "description": (
-            "Standard ASTM E2848 regression of AC power against front-side POA irradiance, "
-            "ambient temperature, and wind speed using the full four-term formula. "
-            "This is the default setup for monofacial capacity tests."
-        ),
-        "reg_cols_meas": {
-            "power": ("real_pwr_mtr", "sum"),
-            "poa": ("irr_poa", "mean"),
-            "t_amb": ("temp_amb", "mean"),
-            "w_vel": ("wind_speed", "mean"),
-        },
-        "reg_cols_sim": {
-            "power": "E_Grid",
-            "poa": "GlobInc",
-            "t_amb": "T_Amb",
-            "w_vel": "WindVel",
-        },
-        "reg_fml": "power ~ poa + I(poa * poa) + I(poa * t_amb) + I(poa * w_vel) - 1",
-        "scatter_plots": scatter_default,
-        "rep_conditions": {
-            "irr_bal": False,
-            "percent_filter": 20,
-            "func": {
-                "poa": perc_wrap(60),
-                "t_amb": "mean",
-                "w_vel": "mean",
-            },
-        },
-    },
-    "bifi_e2848_etotal_rear_shade_sim": {
-        "description": (
-            "Standard ASTM E2848 regression form with total effective "
-            "irradiance replacing front-side POA as the independent variable. "
-            "Rear shading and IAM losses are handled in the modeled (PVsyst) "
-            "data: the modeled rear irradiance is rpoa_pvsyst = GlobBak + "
-            "BackShd, while the measured rear sensor (irr_rpoa) is used "
-            "as-measured. Leave CapTest's 'rear_shade' at its default of 0 "
-            "with this setup: the rear shading is already carried by the "
-            "modeled rear irradiance, and a non-zero 'rear_shade' is still "
-            "applied to the measured e_total, double-counting the loss. To "
-            "apply rear shading on the measured side instead, use "
-            "'bifi_e2848_etotal_rear_shade_meas'. Total irradiance is "
-            "E_Total = E_POA + E_Rear * bifaciality, following the NREL "
-            "modified bifacial approach."
-        ),
-        "reg_cols_meas": {
-            "power": ("real_pwr_mtr", "sum"),
-            "poa": (
-                e_total,
-                {
-                    "poa": ("irr_poa", "mean"),
-                    "rpoa": ("irr_rpoa", "mean"),
-                },
-            ),
-            "t_amb": ("temp_amb", "mean"),
-            "w_vel": ("wind_speed", "mean"),
-        },
-        "reg_cols_sim": {
-            "power": "E_Grid",
-            "poa": (
-                e_total,
-                {
-                    "poa": "GlobInc",
-                    "rpoa": (
-                        rpoa_pvsyst,
-                        {"globbak": "GlobBak", "backshd": "BackShd"},
-                    ),
-                },
-            ),
-            "t_amb": "T_Amb",
-            "w_vel": "WindVel",
-        },
-        "reg_fml": "power ~ poa + I(poa * poa) + I(poa * t_amb) + I(poa * w_vel) - 1",
-        "scatter_plots": scatter_etotal,
-        "rep_conditions": {
-            "irr_bal": False,
-            "percent_filter": 20,
-            "func": {
-                "poa": perc_wrap(60),
-                "t_amb": "mean",
-                "w_vel": "mean",
-            },
-        },
-    },
-    "bifi_e2848_etotal_rear_shade_meas": {
-        "description": (
-            "Variant of 'bifi_e2848_etotal_rear_shade_sim' for applying "
-            "rear-shading losses on the measured side. The modeled rear "
-            "irradiance maps directly to PVsyst's unshaded global rear "
-            "('GlobBak') instead of rpoa_pvsyst, and rear shading is applied "
-            "to the measured side through the e_total 'rear_shade' factor "
-            "(propagated by CapTest to the measured CapData only). This is "
-            "the variant to select when 'rear_shade' is set to a non-zero "
-            "value. Total irradiance is E_Total = E_POA + E_Rear * "
-            "bifaciality * (1 - rear_shade)."
-        ),
-        "reg_cols_meas": {
-            "power": ("real_pwr_mtr", "sum"),
-            "poa": (
-                e_total,
-                {
-                    "poa": ("irr_poa", "mean"),
-                    "rpoa": ("irr_rpoa", "mean"),
-                },
-            ),
-            "t_amb": ("temp_amb", "mean"),
-            "w_vel": ("wind_speed", "mean"),
-        },
-        "reg_cols_sim": {
-            "power": "E_Grid",
-            "poa": (
-                e_total,
-                {
-                    "poa": "GlobInc",
-                    "rpoa": "GlobBak",
-                },
-            ),
-            "t_amb": "T_Amb",
-            "w_vel": "WindVel",
-        },
-        "reg_fml": "power ~ poa + I(poa * poa) + I(poa * t_amb) + I(poa * w_vel) - 1",
-        "scatter_plots": scatter_etotal,
-        "rep_conditions": {
-            "irr_bal": False,
-            "percent_filter": 20,
-            "func": {
-                "poa": perc_wrap(60),
-                "t_amb": "mean",
-                "w_vel": "mean",
-            },
-        },
-    },
-    "bifi_power_tc_meas_tbom": {
-        "description": (
-            "The regression equation is temperature corrected power regressed against "
-            "front POA and rear POA. The back of module temperature is from field "
-            "measurements and the cell temperature is calculated using the Sandia PV Array "
-            "Performance Model from the POA irradiance and measured BOM temperature. "
-            "Note that the PVsyst temperature correction uses the 'TArray' output variable."
-        ),
-        "reg_cols_meas": {
-            "power": (
-                power_temp_correct,
-                {
-                    "power": ("real_pwr_mtr", "sum"),
-                    "cell_temp": (
-                        cell_temp,
-                        {
-                            "poa": ("irr_poa", "mean"),
-                            "bom": ("temp_bom", "mean"),
-                        },
-                    ),
-                },
-            ),
-            "poa": ("irr_poa", "mean"),
-            "rpoa": ("irr_rpoa", "mean"),
-        },
-        "reg_cols_sim": {
-            "power": (
-                power_temp_correct,
-                {
-                    "power": "E_Grid",
-                    "cell_temp": "TArray",
-                },
-            ),
-            "poa": "GlobInc",
-            "rpoa": (rpoa_pvsyst, {"globbak": "GlobBak", "backshd": "BackShd"}),
-        },
-        "reg_fml": "power ~ poa + rpoa",
-        "scatter_plots": scatter_bifi_power_tc,
-        "rep_conditions": {
-            "irr_bal": False,
-            "percent_filter": 20,
-            "func": {
-                "poa": perc_wrap(60),
-                "rpoa": "mean",
-            },
-        },
-    },
-    "bifi_power_tc_calc_tbom": {
-        "description": (
-            "The regression equation is temperature corrected power regressed against "
-            "front POA and rear POA. The back of module and cell temperature are "
-            "calculated using the Sandia PV Array Performance Model from the POA "
-            "irradiance, ambient temperature, and wind speed. Note that the PVsyst "
-            "temperature correction uses the 'TArray' output variable."
-        ),
-        "reg_cols_meas": {
-            "power": (
-                power_temp_correct,
-                {
-                    "power": ("real_pwr_mtr", "sum"),
-                    "cell_temp": (
-                        cell_temp,
-                        {
-                            "poa": ("irr_poa", "mean"),
-                            "bom": (
-                                bom_temp,
-                                {
-                                    "poa": ("irr_poa", "mean"),
-                                    "temp_amb": ("temp_amb", "mean"),
-                                    "wind_speed": ("wind_speed", "mean"),
-                                },
-                            ),
-                        },
-                    ),
-                },
-            ),
-            "poa": ("irr_poa", "mean"),
-            "rpoa": ("irr_rpoa", "mean"),
-        },
-        "reg_cols_sim": {
-            "power": (
-                power_temp_correct,
-                {
-                    "power": "E_Grid",
-                    "cell_temp": "TArray",
-                },
-            ),
-            "poa": "GlobInc",
-            "rpoa": (rpoa_pvsyst, {"globbak": "GlobBak", "backshd": "BackShd"}),
-        },
-        "reg_fml": "power ~ poa + rpoa",
-        "scatter_plots": scatter_bifi_power_tc,
-        "rep_conditions": {
-            "irr_bal": False,
-            "percent_filter": 20,
-            "func": {
-                "poa": perc_wrap(60),
-                "rpoa": "mean",
-            },
-        },
-    },
-    "bifi_power_tc_etotal_rear_shade_sim": {
-        "description": (
-            "The regression equation is temperature corrected power regressed against "
-            "total POA irradiance. The back of module temperature is from field "
-            "measurements and the cell temperature is calculated using the Sandia PV Array "
-            "Performance Model from the POA irradiance and measured BOM temperature. "
-            "Note that the PVsyst temperature correction uses the 'TArray' output variable. "
-            "Rear shading and IAM losses are handled in the modeled (PVsyst) "
-            "data: the modeled rear irradiance is rpoa_pvsyst = GlobBak + "
-            "BackShd, while the measured rear sensor (irr_rpoa) is used "
-            "as-measured. Leave CapTest's 'rear_shade' at its default of 0 "
-            "with this setup: the rear shading is already carried by the "
-            "modeled rear irradiance, and a non-zero 'rear_shade' is still "
-            "applied to the measured e_total, double-counting the loss. To "
-            "apply rear shading on the measured side instead, use "
-            "'bifi_power_tc_etotal_rear_shade_meas'. Total irradiance is "
-            "E_Total = E_POA + E_Rear * bifaciality, following the NREL "
-            "modified bifacial approach."
-        ),
-        "reg_cols_meas": {
-            "power": (
-                power_temp_correct,
-                {
-                    "power": ("real_pwr_mtr", "sum"),
-                    "cell_temp": (
-                        cell_temp,
-                        {
-                            "poa": ("irr_poa", "mean"),
-                            "bom": ("temp_bom", "mean"),
-                        },
-                    ),
-                },
-            ),
-            "poa": (
-                e_total,
-                {
-                    "poa": ("irr_poa", "mean"),
-                    "rpoa": ("irr_rpoa", "mean"),
-                },
-            ),
-        },
-        "reg_cols_sim": {
-            "power": (
-                power_temp_correct,
-                {
-                    "power": "E_Grid",
-                    "cell_temp": "TArray",
-                },
-            ),
-            "poa": (
-                e_total,
-                {
-                    "poa": "GlobInc",
-                    "rpoa": (
-                        rpoa_pvsyst,
-                        {"globbak": "GlobBak", "backshd": "BackShd"},
-                    ),
-                },
-            ),
-        },
-        "reg_fml": "power ~ poa",
-        "scatter_plots": scatter_etotal,
-        "rep_conditions": {
-            "irr_bal": False,
-            "percent_filter": 20,
-            "func": {
-                "poa": perc_wrap(60),
-            },
-        },
-    },
-    "bifi_power_tc_etotal_rear_shade_meas": {
-        "description": (
-            "The regression equation is temperature corrected power regressed against "
-            "total POA irradiance. The back of module temperature is from field "
-            "measurements and the cell temperature is calculated using the Sandia PV Array "
-            "Performance Model from the POA irradiance and measured BOM temperature. "
-            "Note that the PVsyst temperature correction uses the 'TArray' output variable. "
-            "Variant of 'bifi_power_tc_etotal_rear_shade_sim' for applying "
-            "rear-shading losses on the measured side. The modeled rear "
-            "irradiance maps directly to PVsyst's unshaded global rear "
-            "('GlobBak') instead of rpoa_pvsyst, and rear shading is applied "
-            "to the measured side through the e_total 'rear_shade' factor "
-            "(propagated by CapTest to the measured CapData only). This is "
-            "the variant to select when 'rear_shade' is set to a non-zero "
-            "value. Total irradiance is E_Total = E_POA + E_Rear * "
-            "bifaciality * (1 - rear_shade)."
-        ),
-        "reg_cols_meas": {
-            "power": (
-                power_temp_correct,
-                {
-                    "power": ("real_pwr_mtr", "sum"),
-                    "cell_temp": (
-                        cell_temp,
-                        {
-                            "poa": ("irr_poa", "mean"),
-                            "bom": ("temp_bom", "mean"),
-                        },
-                    ),
-                },
-            ),
-            "poa": (
-                e_total,
-                {
-                    "poa": ("irr_poa", "mean"),
-                    "rpoa": ("irr_rpoa", "mean"),
-                },
-            ),
-        },
-        "reg_cols_sim": {
-            "power": (
-                power_temp_correct,
-                {
-                    "power": "E_Grid",
-                    "cell_temp": "TArray",
-                },
-            ),
-            "poa": (
-                e_total,
-                {
-                    "poa": "GlobInc",
-                    "rpoa": "GlobBak",
-                },
-            ),
-        },
-        "reg_fml": "power ~ poa",
-        "scatter_plots": scatter_etotal,
-        "rep_conditions": {
-            "irr_bal": False,
-            "percent_filter": 20,
-            "func": {
-                "poa": perc_wrap(60),
-            },
-        },
-    },
-    "e2848_spec_corrected_poa": {
-        "description": (
-            "Standard ASTM E2848 regression with a First Solar spectral correction applied to "
-            "front-side POA irradiance before fitting. Requires relative humidity and atmospheric "
-            "pressure on the measured side and precipitable water from the PVsyst output."
-        ),
-        "reg_cols_meas": {
-            "power": ("real_pwr_mtr", "sum"),
-            "poa": (
-                poa_spec_corrected,
-                {
-                    "poa": ("irr_poa", "mean"),
-                    "spectral_correction": (
-                        spectral_factor_firstsolar,
-                        {
-                            "precipitable_water": (
-                                precipitable_water_gueymard,
-                                {
-                                    "temp_amb": ("temp_amb", "mean"),
-                                    "rel_humidity": ("humidity", "mean"),
-                                },
-                            ),
-                            "absolute_airmass": (
-                                absolute_airmass,
-                                {
-                                    "apparent_zenith": (
-                                        apparent_zenith,
-                                        {},
-                                    ),
-                                    "pressure": ("pressure", "mean"),
-                                },
-                            ),
-                        },
-                    ),
-                },
-            ),
-            "t_amb": ("temp_amb", "mean"),
-            "w_vel": ("wind_speed", "mean"),
-        },
-        "reg_cols_sim": {
-            "power": "E_Grid",
-            "poa": (
-                poa_spec_corrected,
-                {
-                    "poa": "GlobInc",
-                    "spectral_correction": (
-                        spectral_factor_firstsolar,
-                        {
-                            "precipitable_water": (
-                                scale,
-                                {"col": "PrecWat", "factor": 100},
-                            ),
-                            "absolute_airmass": (
-                                absolute_airmass,
-                                {
-                                    "apparent_zenith": (
-                                        apparent_zenith_pvsyst,
-                                        {},
-                                    ),
-                                },
-                            ),
-                        },
-                    ),
-                },
-            ),
-            "t_amb": "T_Amb",
-            "w_vel": "WindVel",
-        },
-        "reg_fml": "power ~ poa + I(poa * poa) + I(poa * t_amb) + I(poa * w_vel) - 1",
-        "scatter_plots": scatter_default,
-        "rep_conditions": {
-            "irr_bal": False,
-            "percent_filter": 20,
-            "func": {
-                "poa": perc_wrap(60),
-                "t_amb": "mean",
-                "w_vel": "mean",
-            },
-        },
-    },
-    "bifi_e2848_etotal_rear_shade_sim_spec_corrected": {
-        "description": (
-            "Standard ASTM E2848 regression with total effective irradiance replacing "
-            "front POA and a First Solar spectral correction applied to "
-            "front-side POA irradiance used to calculate the total POA irradiance. "
-            "Requires relative humidity and atmospheric "
-            "pressure on the measured side and precipitable water from the PVsyst output. "
-            "Rear shading and IAM losses are handled in the modeled (PVsyst) "
-            "data: the modeled rear irradiance is rpoa_pvsyst = GlobBak + "
-            "BackShd, while the measured rear sensor (irr_rpoa) is used "
-            "as-measured. Leave CapTest's 'rear_shade' at its default of 0 "
-            "with this setup: the rear shading is already carried by the "
-            "modeled rear irradiance, and a non-zero 'rear_shade' is still "
-            "applied to the measured e_total, double-counting the loss. To "
-            "apply rear shading on the measured side instead, use "
-            "'bifi_e2848_etotal_rear_shade_meas_spec_corrected'. Total irradiance is "
-            "E_Total = E_POA + E_Rear * bifaciality with the spectral correction "
-            "applied to E_POA. "
-        ),
-        "reg_cols_meas": {
-            "power": ("real_pwr_mtr", "sum"),
-            "poa": (
-                e_total,
-                {
-                    "poa": (  # front POA: spectrally corrected
-                        poa_spec_corrected,
-                        {
-                            "poa": ("irr_poa", "mean"),
-                            "spectral_correction": (
-                                spectral_factor_firstsolar,
-                                {
-                                    "precipitable_water": (
-                                        precipitable_water_gueymard,
-                                        {
-                                            "temp_amb": ("temp_amb", "mean"),
-                                            "rel_humidity": ("humidity", "mean"),
-                                        },
-                                    ),
-                                    "absolute_airmass": (
-                                        absolute_airmass,
-                                        {
-                                            "apparent_zenith": (apparent_zenith, {}),
-                                            "pressure": ("pressure", "mean"),
-                                        },
-                                    ),
-                                },
-                            ),
-                        },
-                    ),
-                    "rpoa": ("irr_rpoa", "mean"),  # rear POA: unchanged
-                },
-            ),
-            "t_amb": ("temp_amb", "mean"),
-            "w_vel": ("wind_speed", "mean"),
-        },
-        "reg_cols_sim": {
-            "power": "E_Grid",
-            "poa": (
-                e_total,
-                {
-                    "poa": (  # front POA: spectrally corrected
-                        poa_spec_corrected,
-                        {
-                            "poa": "GlobInc",
-                            "spectral_correction": (
-                                spectral_factor_firstsolar,
-                                {
-                                    "precipitable_water": (
-                                        scale,
-                                        {"col": "PrecWat", "factor": 100},
-                                    ),
-                                    "absolute_airmass": (
-                                        absolute_airmass,
-                                        {
-                                            "apparent_zenith": (
-                                                apparent_zenith_pvsyst,
-                                                {},
-                                            ),
-                                            # no pressure col: PVsyst uses sea-level default
-                                        },
-                                    ),
-                                },
-                            ),
-                        },
-                    ),
-                    "rpoa": (  # rear POA: unchanged
-                        rpoa_pvsyst,
-                        {"globbak": "GlobBak", "backshd": "BackShd"},
-                    ),
-                },
-            ),
-            "t_amb": "T_Amb",
-            "w_vel": "WindVel",
-        },
-        "reg_fml": "power ~ poa + I(poa * poa) + I(poa * t_amb) + I(poa * w_vel) - 1",
-        "scatter_plots": scatter_etotal,
-        "rep_conditions": {
-            "irr_bal": False,
-            "percent_filter": 20,
-            "func": {
-                "poa": perc_wrap(60),
-                "t_amb": "mean",
-                "w_vel": "mean",
-            },
-        },
-    },
-    "bifi_e2848_etotal_rear_shade_meas_spec_corrected": {
-        "description": (
-            "Standard ASTM E2848 regression with total effective irradiance replacing "
-            "front POA and a First Solar spectral correction applied to "
-            "front-side POA irradiance used to calculate the total POA irradiance. "
-            "Requires relative humidity and atmospheric "
-            "pressure on the measured side and precipitable water from the PVsyst output. "
-            "The modeled rear irradiance maps directly to PVsyst's unshaded global rear "
-            "('GlobBak') instead of rpoa_pvsyst, and rear shading is applied "
-            "to the measured side through the e_total 'rear_shade' factor "
-            "(propagated by CapTest to the measured CapData only). This is the "
-            "variant to select when 'rear_shade' is set to a non-zero value. Total "
-            "irradiance is E_Total = E_POA + E_Rear * bifaciality * (1 - rear_shade)."
-        ),
-        "reg_cols_meas": {
-            "power": ("real_pwr_mtr", "sum"),
-            "poa": (
-                e_total,
-                {
-                    "poa": (
-                        poa_spec_corrected,
-                        {
-                            "poa": ("irr_poa", "mean"),
-                            "spectral_correction": (
-                                spectral_factor_firstsolar,
-                                {
-                                    "precipitable_water": (
-                                        precipitable_water_gueymard,
-                                        {
-                                            "temp_amb": ("temp_amb", "mean"),
-                                            "rel_humidity": ("humidity", "mean"),
-                                        },
-                                    ),
-                                    "absolute_airmass": (
-                                        absolute_airmass,
-                                        {
-                                            "apparent_zenith": (apparent_zenith, {}),
-                                            "pressure": ("pressure", "mean"),
-                                        },
-                                    ),
-                                },
-                            ),
-                        },
-                    ),
-                    "rpoa": ("irr_rpoa", "mean"),
-                },
-            ),
-            "t_amb": ("temp_amb", "mean"),
-            "w_vel": ("wind_speed", "mean"),
-        },
-        "reg_cols_sim": {
-            "power": "E_Grid",
-            "poa": (
-                e_total,
-                {
-                    "poa": (  # front POA: spectrally corrected
-                        poa_spec_corrected,
-                        {
-                            "poa": "GlobInc",
-                            "spectral_correction": (
-                                spectral_factor_firstsolar,
-                                {
-                                    "precipitable_water": (
-                                        scale,
-                                        {"col": "PrecWat", "factor": 100},
-                                    ),
-                                    "absolute_airmass": (
-                                        absolute_airmass,
-                                        {
-                                            "apparent_zenith": (
-                                                apparent_zenith_pvsyst,
-                                                {},
-                                            ),
-                                            # no pressure col: PVsyst uses sea-level default
-                                        },
-                                    ),
-                                },
-                            ),
-                        },
-                    ),
-                    "rpoa": "GlobBak",
-                },
-            ),
-            "t_amb": "T_Amb",
-            "w_vel": "WindVel",
-        },
-        "reg_fml": "power ~ poa + I(poa * poa) + I(poa * t_amb) + I(poa * w_vel) - 1",
-        "scatter_plots": scatter_etotal,
-        "rep_conditions": {
-            "irr_bal": False,
-            "percent_filter": 20,
-            "func": {
-                "poa": perc_wrap(60),
-                "t_amb": "mean",
-                "w_vel": "mean",
-            },
-        },
-    },
+#: Scatter-plot callables a setup may name under ``scatter_plots``.
+SCATTER_REGISTRY = {
+    "default": scatter_default,
+    "etotal": scatter_etotal,
+    "bifi_power_tc": scatter_bifi_power_tc,
 }
 
-_TEST_SETUP_REQUIRED_KEYS = frozenset(
-    {
-        "description",
-        "reg_cols_meas",
-        "reg_cols_sim",
-        "reg_fml",
-        "scatter_plots",
-        "rep_conditions",
-    }
-)
+#: Directory of shipped preset documents.
+SETUPS_DIR = Path(str(resources.files("captest").joinpath("setups")))
+
+
+def _suggest_unknown_key(unknown, known):
+    """Return a 'did you mean X?' hint or empty string."""
+    matches = difflib.get_close_matches(unknown, list(known), n=1)
+    return f" Did you mean {matches[0]!r}?" if matches else ""
+
+
+def _check_scatter_name(name):
+    """Raise ``ValueError`` (with a hint) if ``name`` is not a scatter callable."""
+    if name not in SCATTER_REGISTRY:
+        raise ValueError(
+            f"Unknown scatter_plots {name!r}."
+            f"{_suggest_unknown_key(name, SCATTER_REGISTRY)}"
+        )
+
+
+def load_presets(directory=None):
+    """Load every ``*.yaml`` preset in ``directory`` (default ``SETUPS_DIR``).
+
+    Parameters
+    ----------
+    directory : str or pathlib.Path, optional
+        Directory of preset documents. Defaults to ``SETUPS_DIR``.
+
+    Returns
+    -------
+    dict
+        Preset name -> :class:`captest.setup.TestSetup`, sorted by name.
+
+    Raises
+    ------
+    pydantic.ValidationError, ValueError
+        A preset that fails to validate raises at import; a broken shipped
+        preset must never be silently absent.
+    """
+    directory = Path(directory) if directory is not None else SETUPS_DIR
+    presets = {}
+    for path in sorted(directory.glob("*.yaml")):
+        tsd = TestSetup.load(path)
+        if tsd.name != path.stem:
+            raise ValueError(f"{path.name}: name {tsd.name!r} must equal the file stem")
+        _check_scatter_name(tsd.scatter_plots)
+        presets[tsd.name] = tsd
+    return presets
+
+
+#: Registry of shipped capacity-test presets.
+TEST_SETUPS = load_presets()
 
 
 def test_setups(options=True, descriptions=False):
@@ -924,55 +304,7 @@ def test_setups(options=True, descriptions=False):
             print("\n")
             print(f"{name}")
             print("-" * 60)
-            print(textwrap.fill(setup["description"], 60))
-
-
-def validate_test_setup(entry):
-    """Validate a single ``TEST_SETUPS`` entry dict.
-
-    Raises
-    ------
-    KeyError
-        If required keys are missing or unknown keys are present.
-    ValueError
-        If ``reg_fml`` does not parse, lhs+rhs are not subsets of both
-        ``reg_cols_meas`` and ``reg_cols_sim``, ``scatter_plots`` is not
-        callable, or ``rep_conditions`` / ``rep_conditions['func']`` have an
-        unexpected shape.
-    """
-    keys = set(entry.keys())
-    missing = _TEST_SETUP_REQUIRED_KEYS - keys
-    if missing:
-        raise KeyError(f"TEST_SETUPS entry missing required keys: {sorted(missing)}")
-    extra = keys - _TEST_SETUP_REQUIRED_KEYS
-    if extra:
-        raise KeyError(f"TEST_SETUPS entry has unknown keys: {sorted(extra)}")
-
-    lhs, rhs = util.parse_regression_formula(entry["reg_fml"])
-    formula_vars = set(lhs) | set(rhs)
-    for side in ("reg_cols_meas", "reg_cols_sim"):
-        if not isinstance(entry[side], dict):
-            raise ValueError(f"{side!r} must be a dict.")
-        missing_vars = formula_vars - set(entry[side].keys())
-        if missing_vars:
-            raise ValueError(
-                f"{side!r} is missing keys required by reg_fml: {sorted(missing_vars)}"
-            )
-
-    if not callable(entry["scatter_plots"]):
-        raise ValueError("'scatter_plots' must be callable.")
-
-    rc = entry["rep_conditions"]
-    if not isinstance(rc, dict):
-        raise ValueError("'rep_conditions' must be a dict.")
-    func = rc.get("func")
-    if func is not None and isinstance(func, dict):
-        extra_func = set(func.keys()) - set(rhs)
-        if extra_func:
-            raise ValueError(
-                "'rep_conditions[\"func\"]' has keys that are not rhs "
-                f"variables of reg_fml: {sorted(extra_func)}"
-            )
+            print(textwrap.fill(setup.description, 60))
 
 
 def _merge_rep_conditions(base, override):
@@ -999,69 +331,95 @@ def _merge_rep_conditions(base, override):
     return merged
 
 
+_RESOLVE_KEYS = (
+    "reg_cols_meas",
+    "reg_cols_sim",
+    "reg_fml",
+    "rep_conditions",
+    "params",
+    "scatter_plots",
+)
+
+
 def resolve_test_setup(name, overrides=None):
-    """Resolve a preset by name plus optional overrides.
+    """Resolve a preset by name plus optional overrides into a ``TestSetup``.
 
     Parameters
     ----------
     name : str
         Key into ``TEST_SETUPS`` or the literal ``"custom"``.
     overrides : dict or None
-        Optional dict with any of ``reg_cols_meas``, ``reg_cols_sim``,
-        ``reg_fml``, ``scatter_plots``, ``rep_conditions`` to override the
-        preset. ``rep_conditions`` is partial-merged; other keys replace.
-        When ``name == "custom"``, ``reg_cols_meas``, ``reg_cols_sim``, and
-        ``reg_fml`` are required in ``overrides``.
+        Any of ``reg_cols_meas`` / ``reg_cols_sim`` (merged key by key onto
+        the preset's side; ``None`` removes a term), ``rep_conditions``
+        (partial-merged: top-level keys replace, ``func`` merges one level
+        deep), and ``reg_fml`` / ``params`` / ``scatter_plots`` (replace).
+        ``"custom"`` has no base and requires complete ``reg_cols_meas``,
+        ``reg_cols_sim`` and ``reg_fml``.
 
     Returns
     -------
-    dict
-        A fully-validated entry dict suitable for ``CapTest._resolved_setup``.
+    captest.setup.TestSetup
+
+    Raises
+    ------
+    KeyError
+        Unknown preset name.
+    ValueError
+        Unknown override key, unknown ``scatter_plots`` name, missing
+        ``custom`` requirements, or a ``reg_cols`` override that cannot be
+        applied (see :class:`captest.setup.DerivationError`).
     """
-    overrides = overrides or {}
+    overrides = dict(overrides or {})
+    unknown = set(overrides) - set(_RESOLVE_KEYS)
+    if unknown:
+        raise ValueError(f"Unknown override key(s) {sorted(unknown)}")
     if name == "custom":
-        required = {"reg_cols_meas", "reg_cols_sim", "reg_fml"}
-        missing = required - set(overrides.keys())
+        missing = {"reg_cols_meas", "reg_cols_sim", "reg_fml"} - set(overrides)
         if missing:
             raise ValueError(
-                f"test_setup='custom' requires overrides with keys: {sorted(required)}; "
-                f"missing: {sorted(missing)}"
+                "test_setup='custom' requires overrides with keys: "
+                f"['reg_cols_meas', 'reg_cols_sim', 'reg_fml']; missing: {sorted(missing)}"
             )
-        base = {
+        doc = {
+            "name": "custom",
             "description": overrides.get("description", ""),
-            "reg_cols_meas": copy.deepcopy(overrides["reg_cols_meas"]),
-            "reg_cols_sim": copy.deepcopy(overrides["reg_cols_sim"]),
             "reg_fml": overrides["reg_fml"],
-            "scatter_plots": overrides.get("scatter_plots", scatter_default),
-            "rep_conditions": copy.deepcopy(overrides.get("rep_conditions", {})),
+            "meas": {"reg_cols": overrides["reg_cols_meas"]},
+            "sim": {"reg_cols": overrides["reg_cols_sim"]},
+            "params": overrides.get("params") or {},
+            "rep_conditions": overrides.get("rep_conditions") or {},
+            "scatter_plots": overrides.get("scatter_plots") or "default",
         }
-    else:
-        if name not in TEST_SETUPS:
-            available = sorted(TEST_SETUPS.keys()) + ["custom"]
-            raise KeyError(f"Unknown test_setup={name!r}. Available: {available}")
-        base = copy.deepcopy(TEST_SETUPS[name])
-        for key in ("reg_cols_meas", "reg_cols_sim", "reg_fml", "scatter_plots"):
-            if overrides.get(key) is not None:
-                base[key] = copy.deepcopy(overrides[key])
-        if overrides.get("rep_conditions"):
-            base["rep_conditions"] = _merge_rep_conditions(
-                base["rep_conditions"], overrides["rep_conditions"]
-            )
-
-    validate_test_setup(base)
-    return base
+        _check_scatter_name(doc["scatter_plots"])
+        return TestSetup.model_validate(doc)
+    if name not in TEST_SETUPS:
+        available = sorted(TEST_SETUPS) + ["custom"]
+        raise KeyError(f"Unknown test_setup={name!r}. Available: {available}")
+    base = TEST_SETUPS[name]
+    if not any(v is not None for v in overrides.values()):
+        return base  # the preset itself, provenance and digest untouched
+    if overrides.get("scatter_plots") is not None:
+        _check_scatter_name(overrides["scatter_plots"])
+    rep_conditions = None
+    if overrides.get("rep_conditions"):
+        rep_conditions = _merge_rep_conditions(
+            base.rep_conditions.model_dump(mode="json"), overrides["rep_conditions"]
+        )
+    try:
+        return derive(
+            base,
+            reg_fml=overrides.get("reg_fml"),
+            reg_cols_meas=overrides.get("reg_cols_meas"),
+            reg_cols_sim=overrides.get("reg_cols_sim"),
+            params=overrides.get("params"),
+            rep_conditions=rep_conditions,
+            scatter_plots=overrides.get("scatter_plots"),
+        )
+    except DerivationError as exc:
+        raise ValueError(str(exc)) from exc
 
 
 # --- yaml loading ---------------------------------------------------------
-
-
-def _encode_override(name, value):
-    """Deep-copy an override for ``to_mapping``; regression-columns trees are
-    encoded so callables become importable strings (see
-    :func:`captest.util.encode_reg_cols`)."""
-    if name in ("reg_cols_meas", "reg_cols_sim"):
-        return util.encode_reg_cols(value)
-    return copy.deepcopy(value)
 
 
 def _serialize_rep_conditions(rc):
@@ -1142,12 +500,6 @@ def load_config(path, key="captest"):
     if isinstance(rc, dict) and isinstance(rc.get("func"), dict):
         rc["func"] = _resolve_func_strings(rc["func"])
     return sub
-
-
-def _suggest_unknown_key(unknown, known):
-    """Return a 'did you mean X?' hint or empty string."""
-    matches = difflib.get_close_matches(unknown, list(known), n=1)
-    return f" Did you mean {matches[0]!r}?" if matches else ""
 
 
 def _is_uri_or_absolute_path(val):
@@ -2541,12 +1893,12 @@ class CapTest(param.Parameterized):
             for name in ("reg_cols_meas", "reg_cols_sim", "reg_fml"):
                 val = getattr(self, name)
                 if val is not None:
-                    overrides[name] = _encode_override(name, val)
+                    overrides[name] = copy.deepcopy(val)
         else:
             for name in ("reg_cols_meas", "reg_cols_sim", "reg_fml"):
                 val = getattr(self, name)
                 if val is not None and val != preset.get(name):
-                    overrides[name] = _encode_override(name, val)
+                    overrides[name] = copy.deepcopy(val)
         meas_filters = (
             self.meas.filters_to_config()
             if self.meas is not None and self.meas.filters
@@ -3502,14 +2854,16 @@ class CapTest(param.Parameterized):
 __all__ = [
     "CapTest",
     "CapTestResults",
+    "SCATTER_REGISTRY",
+    "SETUPS_DIR",
     "TEST_SETUPS",
     "highlight_pvals",
     "load_config",
+    "load_presets",
     "perc_wrap",
     "resolve_test_setup",
     "scatter_bifi_power_tc",
     "scatter_default",
     "scatter_etotal",
     "test_setups",
-    "validate_test_setup",
 ]
