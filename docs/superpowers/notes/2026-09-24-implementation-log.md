@@ -319,4 +319,37 @@ Branch: `reg-cols-serialization`
   `ValueError` naming any other string. Removed the redundant "Column nodes
   are already resolved" line from `agg_sensors`' `agg_map` doc. New test
   `test_process_regression_columns_keeps_a_variable_added_between_calls`.
+- Commits / roborev: `5f13d51` (job 467: 4 findings — 1 fixed in `ebaadf4`, 3 judged
+  invalid: captest.py breakage is the planned red window, CHANGELOG is Task 10, bare
+  strings are not grammar), `ebaadf4` (job 468 clean); controller review fix round 1
+  `b6def33` (job 469: 2 low findings fixed in `901bfcb`, job 470 clean); fix round 2
+  `af08d43` (job 471 clean). Scoped re-reviews: all addressed. **Task 5 complete.**
+- **For the owner:** commits `5f13d51` and `ebaadf4` carry this session's attribution
+  trailers (`Claude Opus 5.5 (1M context)` / session `01VrnFv4…`), not the plan's lines.
+  The implementer followed a harness reminder. They were already reviewed, so they were
+  not amended; every later commit uses the plan's trailers.
+
+### Task 6: Tier 2 — `check_project_fit`
+
+- Added `setup.FitError` (frozen dataclass), `setup.SetupFitError`, `setup.effective_value`
+  and `setup.check_project_fit(setup, side, cd)` verbatim from the brief, moving the two
+  `import importlib.util` / `from dataclasses import dataclass` lines into the module's
+  top import block. Amended the spec's tier-2 shadow bullet to compare a `Group`/`Calc`
+  output against columns listed in `column_groups`, not all of `cd.data.columns` (a
+  calculation's own output legitimately reappears in `data` on a second `setup()`).
+  Also added `TestSetup.derive` as a `@staticmethod` delegating to the module-level
+  `setup.derive` (same signature, NumPy docstring pointing at `setup.derive`), per the
+  controller ruling that the spec spells derivation as `TestSetup.derive(base,
+  **changes)` while Task 4 only built the module function; one new test
+  (`TestDerive::test_staticmethod_delegates_to_module_function`) asserts the two calls
+  return equal `TestSetup`s.
+- Test result: `uv run pytest tests/test_setup.py tests/test_util.py tests/test_CapData.py
+  tests/test_calc_params.py -q` → 500 passed. Full suite
+  (`uv run pytest tests -q`) → 93 failed, 1204 passed, 87 errors — identical red count to
+  the pre-task baseline (all in `test_captest.py` / `test_plotting.py` /
+  `test_setup_oracles.py` plus the one pre-existing `test_filter_classes` CapTest-fixture
+  error); no new red.
+- Deviations from plan/spec and why: none beyond the two amendments the brief and
+  controller ruling explicitly called for (both recorded above and in the spec diff).
+- Anything the owner should look at: nothing.
 - Commits / roborev: (filled in by controller)

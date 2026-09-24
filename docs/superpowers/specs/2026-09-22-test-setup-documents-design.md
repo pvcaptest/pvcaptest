@@ -582,8 +582,10 @@ Runs in `CapTest.setup()` after prep and before evaluation, against the
   (`absolute_airmass(pressure=None)`), which is why the two are distinct.
   Every package in `requires_import` is importable
   (`importlib.util.find_spec`);
-- no column written by a `Group` or `Calc` node is a column group id or an
-  existing raw column on that side;
+- no column written by a `Group` or `Calc` node is a column group id or a
+  column listed in `column_groups` on that side (not any `data` column: a
+  calculation's own output from an earlier `setup()` is expected to be
+  present);
 - for every key in `setup.params` and every `Calc` on this side whose
   `requires_params` contains it, the effective value under the precedence
   rules equals `setup.params[key]`. A side where no calculation uses the

@@ -12,10 +12,12 @@ tier 2 in :func:`check_project_fit`). It never imports ``capdata`` or
 
 import difflib
 import hashlib
+import importlib.util
 import inspect
 import json
 import math
 import re
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated, Literal
 
@@ -451,6 +453,37 @@ class TestSetup(_Frozen):
         """JSON Schema of the document shape (an authoring contract)."""
         return cls.model_json_schema()
 
+    @staticmethod
+    def derive(base, **changes):
+        """Return a new complete setup derived from ``base``.
+
+        A thin delegate to the module-level :func:`captest.setup.derive`,
+        which documents the full parameter list, the key-by-key
+        ``reg_cols_meas`` / ``reg_cols_sim`` merge, and the ``rep_conditions``
+        pruning behaviour.
+
+        Parameters
+        ----------
+        base : TestSetup
+        **changes
+            Keyword arguments forwarded to :func:`captest.setup.derive`
+            (``name``, ``description``, ``reg_fml``, ``reg_cols_meas``,
+            ``reg_cols_sim``, ``params``, ``rep_conditions``,
+            ``scatter_plots``).
+
+        Returns
+        -------
+        TestSetup
+
+        Raises
+        ------
+        DerivationError
+            See :func:`captest.setup.derive`.
+        pydantic.ValidationError
+            If the result is not a valid setup.
+        """
+        return derive(base, **changes)
+
 
 # --- derive ------------------------------------------------------------
 
@@ -569,3 +602,120 @@ def derive(
     func = dict(data["rep_conditions"].get("func") or {})
     data["rep_conditions"]["func"] = {k: v for k, v in func.items() if k in rhs}
     return TestSetup.model_validate(data)
+
+
+# --- tier 2: project fit ---------------------------------------------------
+
+
+@dataclass(frozen=True)
+class FitError:
+    """One tier-2 finding: a document path and what is wrong there."""
+
+    path: str
+    message: str
+
+
+class SetupFitError(ValueError):
+    """A setup does not fit the project; ``errors`` lists every finding."""
+
+    def __init__(self, errors):
+        self.errors = list(errors)
+        super().__init__(
+            "setup does not fit this project:\n"
+            + "\n".join(f"  {e.path}: {e.message}" for e in self.errors)
+        )
+
+
+def effective_value(name, node, cd):
+    """Value a calculation would receive for ``name`` under the precedence rules.
+
+    1. the node's ``args`` entry, if present (an explicit ``None`` counts);
+    2. else the ``cd`` attribute of that name when present and not ``None``;
+    3. else the function's own default;
+    4. else ``inspect.Parameter.empty``.
+    """
+    if name in node.args:
+        return node.args[name]
+    attr = getattr(cd, name, None)
+    if attr is not None:
+        return attr
+    param = inspect.signature(CALC_REGISTRY[node.calc].func).parameters.get(name)
+    if param is None:
+        return inspect.Parameter.empty
+    return param.default
+
+
+def check_project_fit(setup, side, cd):
+    """Tier-2 validation of one side of ``setup`` against a project.
+
+    Needs only ``cd.column_groups``, ``cd.data.columns`` and the attributes
+    named by each calculation's ``requires_params``; no data is read.
+
+    Parameters
+    ----------
+    setup : TestSetup
+    side : {"meas", "sim"}
+    cd : CapData-like
+
+    Returns
+    -------
+    list of FitError
+        Empty when the side fits. Every finding is collected so a document
+        can be fixed in one pass.
+    """
+    errors = []
+    reg_cols = getattr(setup, side).reg_cols
+    groups = dict(cd.column_groups)
+    sensor_columns = {c for cols in groups.values() for c in cols}
+    data_columns = set(cd.data.columns)
+
+    for path, node in walk_nodes(reg_cols, f"{side}.reg_cols"):
+        if isinstance(node, Group):
+            if node.group not in groups:
+                errors.append(
+                    FitError(f"{path}.group", f"{node.group!r} is not a column group")
+                )
+            continue
+        if isinstance(node, Column):
+            if node.column not in data_columns:
+                errors.append(
+                    FitError(f"{path}.column", f"{node.column!r} is not a column")
+                )
+            continue
+        entry = CALC_REGISTRY[node.calc]
+        for package in entry.requires_import:
+            if importlib.util.find_spec(package) is None:
+                errors.append(
+                    FitError(path, f"{node.calc} requires the {package!r} package")
+                )
+        for name in entry.requires_params:
+            value = effective_value(name, node, cd)
+            if value is None or value is inspect.Parameter.empty:
+                errors.append(
+                    FitError(
+                        path,
+                        f"{node.calc} requires {name}, which resolves to None; set "
+                        f"it on the test or pass it in args",
+                    )
+                )
+        output = calc_output_name(node)
+        if output in groups or output in sensor_columns:
+            errors.append(
+                FitError(
+                    path,
+                    f"output column {output!r} shadows a column group "
+                    f"id or sensor column",
+                )
+            )
+        for key, required in setup.params.items():
+            if key in entry.requires_params:
+                value = effective_value(key, node, cd)
+                if value != required:
+                    errors.append(
+                        FitError(
+                            f"params.{key}",
+                            f"setup requires {key}={required!r} but {node.calc} at "
+                            f"{path} would receive {value!r}",
+                        )
+                    )
+    return errors

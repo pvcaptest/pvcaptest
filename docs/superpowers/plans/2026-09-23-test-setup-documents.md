@@ -2143,7 +2143,7 @@ Then run the review gate. Tell the reviewer in the commit body that `test_captes
 
 Note on the spec's "existing raw column" shadow rule: a `Calc` output legitimately exists in `data` on a second `setup()` of the same instance, so the raw-column check compares against the columns *listed in `column_groups`* (the sensor columns), not all of `data.columns`. Record this as a one-line amendment in the spec's tier-2 bullet.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `tests/test_setup.py`:
 
@@ -2293,12 +2293,12 @@ class TestCheckProjectFit:
         assert "a: x" in str(exc) and "b: y" in str(exc)
 ```
 
-- [ ] **Step 2: Run to verify they fail**
+- [x] **Step 2: Run to verify they fail**
 
 Run: `uv run pytest tests/test_setup.py::TestCheckProjectFit -q`
 Expected: AttributeError (`check_project_fit`).
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Append to `src/captest/setup.py`:
 
@@ -2422,12 +2422,12 @@ def check_project_fit(setup, side, cd):
 
 Move the two `import` lines to the module's import block when formatting (they are shown inline only to keep this step self-contained). Amend the spec's tier-2 shadow bullet: "…is a column group id or a column listed in `column_groups` on that side (not any `data` column: a calculation's own output from an earlier `setup()` is expected to be present)."
 
-- [ ] **Step 4: Run the tests**
+- [x] **Step 4: Run the tests**
 
 Run: `uv run pytest tests/test_setup.py -q`
 Expected: all pass.
 
-- [ ] **Step 5: Lint, format, commit, review gate**
+- [x] **Step 5: Lint, format, commit, review gate**
 
 ```bash
 just lint && just fmt

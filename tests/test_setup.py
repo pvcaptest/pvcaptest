@@ -395,3 +395,201 @@ class TestDerive:
         expected = TestSetup.model_validate(fresh).to_dict()
         expected.pop("derived_from")
         assert doc == expected
+
+    def test_staticmethod_delegates_to_module_function(self):
+        base = self._base()
+        assert TestSetup.derive(base, reg_fml="power ~ poa") == setup.derive(
+            base, reg_fml="power ~ poa"
+        )
+
+
+class _Cd:
+    """Duck-typed CapData for tier-2 tests."""
+
+    def __init__(self, groups, columns=(), **attrs):
+        import pandas as pd
+
+        self.column_groups = groups
+        all_cols = [c for cols in groups.values() for c in cols] + list(columns)
+        self.data = pd.DataFrame(columns=all_cols)
+        for key, value in attrs.items():
+            setattr(self, key, value)
+
+
+def _fit(doc, side="meas", **cd_kwargs):
+    return setup.check_project_fit(
+        TestSetup.model_validate(doc), side, _Cd(**cd_kwargs)
+    )
+
+
+MEAS_GROUPS = {
+    "real_pwr_mtr": ["meter_power"],
+    "irr_poa": ["poa1", "poa2"],
+    "temp_amb": ["ta1"],
+    "wind_speed": ["ws1"],
+}
+
+
+class TestCheckProjectFit:
+    def test_clean_project_has_no_errors(self):
+        assert _fit(e2848_doc(), groups=MEAS_GROUPS) == []
+
+    def test_missing_group_is_reported_with_path(self):
+        groups = {k: v for k, v in MEAS_GROUPS.items() if k != "wind_speed"}
+        errors = _fit(e2848_doc(), groups=groups)
+        assert [e.path for e in errors] == ["meas.reg_cols.w_vel.group"]
+        assert "wind_speed" in errors[0].message
+
+    def test_missing_column_on_sim_side(self):
+        errors = _fit(e2848_doc(), side="sim", groups={}, columns=["E_Grid", "GlobInc"])
+        assert {e.path for e in errors} == {
+            "sim.reg_cols.t_amb.column",
+            "sim.reg_cols.w_vel.column",
+        }
+
+    def _tc_doc(self, **args):
+        doc = e2848_doc(reg_fml="power ~ poa")
+        doc["meas"]["reg_cols"] = {
+            "power": {
+                "calc": "power_temp_correct",
+                "args": {
+                    "power": {"group": "real_pwr_mtr", "agg": "sum"},
+                    "cell_temp": {"column": "bom"},
+                    **args,
+                },
+            },
+            "poa": {"group": "irr_poa"},
+        }
+        doc["rep_conditions"] = {"func": {"poa": "perc_60"}}
+        return doc
+
+    def test_requires_param_none_by_every_route_is_reported(self):
+        # 1. CapData attribute None (power_temp_correct's own default is None)
+        errors = _fit(
+            self._tc_doc(),
+            groups=MEAS_GROUPS,
+            columns=["bom"],
+            power_temp_coeff=None,
+            base_temp=25,
+        )
+        assert [e.path for e in errors] == ["meas.reg_cols.power"]
+        assert "power_temp_coeff" in errors[0].message
+        # 2. explicit null in args
+        errors = _fit(
+            self._tc_doc(power_temp_coeff=None),
+            groups=MEAS_GROUPS,
+            columns=["bom"],
+            power_temp_coeff=-0.3,
+            base_temp=25,
+        )
+        assert "power_temp_coeff" in errors[0].message
+        # 3. no attribute at all
+        errors = _fit(self._tc_doc(), groups=MEAS_GROUPS, columns=["bom"])
+        assert any("power_temp_coeff" in e.message for e in errors)
+
+    def test_explicit_arg_satisfies_requires_param(self):
+        errors = _fit(
+            self._tc_doc(power_temp_coeff=-0.3),
+            groups=MEAS_GROUPS,
+            columns=["bom"],
+            base_temp=25,
+        )
+        assert errors == []
+
+    def test_function_default_satisfies_requires_param(self):
+        # base_temp has a real default (25); no attribute needed.
+        errors = _fit(
+            self._tc_doc(power_temp_coeff=-0.3), groups=MEAS_GROUPS, columns=["bom"]
+        )
+        assert errors == []
+
+    def test_requires_import_missing_is_reported(self, monkeypatch):
+        import importlib.util
+
+        real = importlib.util.find_spec
+        monkeypatch.setattr(
+            importlib.util, "find_spec", lambda n: None if n == "pvlib" else real(n)
+        )
+        doc = e2848_doc(reg_fml="power ~ poa")
+        doc["meas"]["reg_cols"] = {
+            "power": {"group": "real_pwr_mtr", "agg": "sum"},
+            "poa": {
+                "calc": "absolute_airmass",
+                "args": {"apparent_zenith": {"column": "z"}, "pressure": None},
+            },
+        }
+        doc["rep_conditions"] = {"func": {"poa": "perc_60"}}
+        errors = _fit(
+            doc, groups=MEAS_GROUPS, columns=["z"], airmass_model="kastenyoung1989"
+        )
+        assert any("pvlib" in e.message for e in errors)
+
+    def test_output_shadowing_a_group_id_or_sensor_column(self):
+        groups = {**MEAS_GROUPS, "e_total": ["e_total"]}
+        doc = e2848_doc(reg_fml="power ~ poa")
+        doc["meas"]["reg_cols"] = {
+            "power": {"group": "real_pwr_mtr", "agg": "sum"},
+            "poa": {
+                "calc": "e_total",
+                "args": {"poa": {"group": "irr_poa"}, "rpoa": {"column": "poa2"}},
+            },
+        }
+        doc["rep_conditions"] = {"func": {"poa": "perc_60"}}
+        errors = _fit(
+            doc, groups=groups, bifaciality=0.7, bifacial_frac=1, rear_shade=0
+        )
+        assert [e.path for e in errors] == ["meas.reg_cols.poa"]
+        assert "e_total" in errors[0].message
+
+    def test_params_constraint_checks_effective_value_per_side(self):
+        doc = e2848_doc(reg_fml="power ~ poa", params={"rear_shade": 0})
+        etotal = {
+            "calc": "e_total",
+            "args": {"poa": {"group": "irr_poa"}, "rpoa": {"column": "poa2"}},
+        }
+        doc["meas"]["reg_cols"] = {
+            "power": {"group": "real_pwr_mtr", "agg": "sum"},
+            "poa": etotal,
+        }
+        doc["rep_conditions"] = {"func": {"poa": "perc_60"}}
+        # meas with rear_shade 0.2 -> violation
+        errors = _fit(
+            doc, groups=MEAS_GROUPS, bifaciality=0.7, bifacial_frac=1, rear_shade=0.2
+        )
+        assert any(e.path == "params.rear_shade" for e in errors)
+        # meas with rear_shade 0 -> fine
+        assert (
+            _fit(
+                doc, groups=MEAS_GROUPS, bifaciality=0.7, bifacial_frac=1, rear_shade=0
+            )
+            == []
+        )
+        # sim side has no rear_shade attribute; e_total's default 0 satisfies it
+        doc["sim"]["reg_cols"] = {
+            "power": {"column": "E_Grid"},
+            "poa": {
+                "calc": "e_total",
+                "args": {"poa": {"column": "GlobInc"}, "rpoa": {"column": "GlobBak"}},
+            },
+        }
+        assert (
+            _fit(
+                doc,
+                side="sim",
+                groups={},
+                columns=["E_Grid", "GlobInc", "GlobBak"],
+                bifaciality=0.7,
+                bifacial_frac=1,
+            )
+            == []
+        )
+
+    def test_side_without_the_param_is_not_checked(self):
+        doc = e2848_doc(params={"rear_shade": 0})
+        assert _fit(doc, groups=MEAS_GROUPS, rear_shade=0.5) == []
+
+    def test_setup_fit_error_lists_every_path(self):
+        errors = [setup.FitError("a", "x"), setup.FitError("b", "y")]
+        exc = setup.SetupFitError(errors)
+        assert exc.errors == errors
+        assert "a: x" in str(exc) and "b: y" in str(exc)
