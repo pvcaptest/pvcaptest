@@ -41,8 +41,8 @@ Branch: `reg-cols-serialization`
   9. The CHANGELOG "Removed" list omits `encode_reg_cols` / `decode_reg_cols`, which were
      never released. This differs from the spec's changelog bullet.
 - **Known leftovers (minor, not blocking):** there is no test for `derive` adding a new
-  formula variable, or for NaN inside `params`/`rc_kwargs`. `AGG_FUNCS` is unused and
-  duplicates `Group.agg`'s Literal. `SETUPS_DIR` assumes an on-disk install. An old
+  formula variable, or for NaN inside `params`/`rc_kwargs`. `AGG_FUNCS` (used once, in
+  `capdata.agg_sensors`) duplicates `Group.agg`'s Literal values. `SETUPS_DIR` assumes an on-disk install. An old
   callable-tuple yaml fails with a noisy 8-error pydantic message. The notebook
   `captest_class_bifi.ipynb` names its instance `ts`.
 - **pft-mono consumers that must migrate:** `perfactory/captest.py`, `ctsweep/adhoc.py`,
