@@ -2016,40 +2016,76 @@ In `agg_sensors`, replace the default `agg_map` construction with:
             )
 
         def group_id(node):
+            """Group id a node aggregates, or None for a raw-column reference."""
             if isinstance(node, Group):
                 return node.group
+            if isinstance(node, Column):
+                return None
             if isinstance(node, str):
                 return node
             raise ValueError(
-                "agg_sensors default agg_map needs group nodes or group ids in "
+                "agg_sensors needs group or column nodes (or group ids) in "
                 f"regression_cols; got {node!r}. Use process_regression_columns "
                 "for calc nodes."
             )
 
         if agg_map is None:
-            agg_map = {
-                group_id(self.regression_cols["power"]): "sum",
-                group_id(self.regression_cols["poa"]): "mean",
-                group_id(self.regression_cols["t_amb"]): "mean",
-                group_id(self.regression_cols["w_vel"]): "mean",
-            }
+            defaults = {"power": "sum", "poa": "mean", "t_amb": "mean", "w_vel": "mean"}
+            agg_map = {}
+            for var, func in defaults.items():
+                gid = group_id(self.regression_cols[var])
+                if gid is not None:          # Column nodes are already resolved
+                    agg_map[gid] = func
 ```
 
-and, where the existing body updates `regression_cols` to point at the aggregated columns (the block that today rewrites string values), replace it with a flattening pass that runs after the aggregation loop:
+and, where the existing body updates `regression_cols` to point at the aggregated columns (the block that today rewrites string values), replace it with a flattening pass that runs after the aggregation loop. `agg_names` maps each group id that was actually aggregated to the column written; a group the loop skipped (single-column groups are not aggregated today; an explicit `agg_map` may omit a group) has no entry:
 
 ```python
-        flat = {}
-        for var, node in self.regression_cols.items():
-            if isinstance(node, Group):
-                flat[var] = agg_names.get(node.group, util.get_agg_column_name(
-                    node.group, agg_map.get(node.group, node.agg)))
-            elif isinstance(node, Column):
-                flat[var] = node.column
-            elif isinstance(node, str):
-                flat[var] = agg_names.get(node, node)
-            else:
-                raise ValueError(f"agg_sensors cannot resolve {var}={node!r}")
-        self.regression_cols = flat
+        def resolve(var, node):
+            if isinstance(node, Column):
+                return node.column
+            gid = group_id(node)
+            if gid in agg_names:                      # aggregated in this call
+                return agg_names[gid]
+            columns = self.column_groups.get(gid, [])
+            if len(columns) == 1:                     # single-column group: the column
+                return columns[0]
+            return node                               # untouched; still a node / group id
+
+        self.regression_cols = {
+            var: resolve(var, node) for var, node in self.regression_cols.items()
+        }
+```
+
+Add two tests beside `test_agg_sensors_default_map_reads_group_nodes`:
+
+```python
+    def test_agg_sensors_single_column_group_resolves_to_its_column(self, meas):
+        meas.regression_cols = {
+            "power": {"group": "real_pwr_mtr"},   # one column in this fixture
+            "poa": {"group": "irr_poa_pyran"},
+            "t_amb": {"group": "temp_amb"},
+            "w_vel": {"group": "wind"},
+        }
+        meas.agg_sensors(verbose=False)
+        assert meas.regression_cols["power"] == meas.column_groups["real_pwr_mtr"][0]
+
+    def test_agg_sensors_explicit_map_leaves_unselected_groups_as_nodes(self, meas):
+        from captest.setup import Group
+
+        meas.regression_cols = {
+            "power": {"column": "meter_power"},
+            "poa": {"group": "irr_poa_pyran"},
+            "t_amb": {"group": "temp_amb"},
+            "w_vel": {"group": "wind"},
+        }
+        meas.agg_sensors(agg_map={"irr_poa_pyran": "mean"}, verbose=False)
+        assert meas.regression_cols["poa"] == "irr_poa_pyran_mean_agg"
+        assert meas.regression_cols["power"] == "meter_power"
+        assert meas.regression_cols["t_amb"] == Group(group="temp_amb")
+```
+
+(If `real_pwr_mtr` is not a single-column group in the `meas` fixture, pick the fixture's single-column group for the first test; `grep -n "column_groups" tests/conftest.py` shows them.)
 ```
 
 Run `grep -n "regression_cols_preprocess" src tests` and update any reader that expected a dict to read `.reg_cols` (there should be none outside `capdata.py`).
