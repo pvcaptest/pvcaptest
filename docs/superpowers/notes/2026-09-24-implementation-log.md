@@ -309,4 +309,14 @@ Branch: `reg-cols-serialization`
   test_CapData 285 passed; full-suite red set unchanged (93 failed / 87 errors,
   all in test_captest / test_plotting / test_setup_oracles plus the one
   test_filter_classes CapTest-fixture error).
+- Review 469 fix (`901bfcb`): the re-run now also requires each flattened
+  string to equal the column its stored node produces, so a hand-edited value
+  raises instead of being silently reverted; `agg_sensors` docstring scoped.
+- Controller fix round 2: `_regression_side` no longer reuses the stored
+  `Side` wholesale; it replaces each string value that equals its stored
+  node's output column by that node, keeps mappings/nodes as given (so a
+  variable added between calls is evaluated, not dropped), and raises a
+  `ValueError` naming any other string. Removed the redundant "Column nodes
+  are already resolved" line from `agg_sensors`' `agg_map` doc. New test
+  `test_process_regression_columns_keeps_a_variable_added_between_calls`.
 - Commits / roborev: (filled in by controller)

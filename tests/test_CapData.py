@@ -3979,6 +3979,19 @@ class TestRegressionColumnsDocumentForm:
         with pytest.raises(ValueError, match="plain strings"):
             meas.process_regression_columns(verbose=False)
 
+    def test_process_regression_columns_keeps_a_variable_added_between_calls(
+        self, meas
+    ):
+        meas.regression_cols = {"poa": {"group": "irr_poa_pyran"}}
+        meas.process_regression_columns(verbose=False)
+        meas.regression_cols["power"] = {"column": "meter_power"}
+        meas.process_regression_columns(verbose=False)
+        assert meas.regression_cols == {
+            "poa": "irr_poa_pyran_mean_agg",
+            "power": "meter_power",
+        }
+        assert set(meas.regression_cols_preprocess.reg_cols) == {"poa", "power"}
+
     def test_agg_sensors_single_column_group_resolves_to_its_column(self, meas):
         meas.regression_cols = {
             "power": {"group": "meter_power"},  # one column in this fixture

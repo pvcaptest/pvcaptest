@@ -1674,7 +1674,6 @@ class CapData(param.Parameterized):
             function; otherwise the per-variable default applies:
             - sum power
             - mean of poa, t_amb, w_vel
-            Column nodes are already resolved and are not aggregated.
         verbose : bool, default False
             Set to True to print the columns that have been aggregated, the
             aggregation function used, and the new column name. If the group being
@@ -3398,11 +3397,12 @@ class CapData(param.Parameterized):
         `regression_cols` is replaced by ``{variable: column name}``. See
         :func:`captest.util.process_reg_cols`.
 
-        Calling this again once `regression_cols` has been flattened (every
-        value a string, equal to the column `regression_cols_preprocess`
-        produces for that variable) re-runs the evaluation from
-        `regression_cols_preprocess`, so every calculation overwrites its
-        output column again.
+        Calling this again after a previous call re-runs the evaluation: each
+        string value that equals the column its node in
+        `regression_cols_preprocess` produces is replaced by that stored node,
+        and every other value must be a mapping or node. A variable added (as
+        a mapping or node) between calls is therefore evaluated along with the
+        stored ones, and every calculation overwrites its output column again.
 
         Parameters
         ----------
@@ -3414,9 +3414,9 @@ class CapData(param.Parameterized):
         Raises
         ------
         ValueError
-            If `regression_cols` holds plain strings that cannot be re-run from
-            `regression_cols_preprocess` (none stored, different variables, or
-            a flattened value edited by hand).
+            If `regression_cols` holds a plain string that is not the column
+            its stored node in `regression_cols_preprocess` produces (no node
+            stored for that variable, or a flattened value edited by hand).
         pydantic.ValidationError
             If a mapping or node is invalid (unknown calculation, bad args,
             clashing output columns, ...).
@@ -3442,30 +3442,33 @@ class CapData(param.Parameterized):
     def _regression_side(self):
         """Return the ``Side`` that `process_regression_columns` evaluates.
 
-        Plain-string values mean `regression_cols` was already flattened; the
-        stored `regression_cols_preprocess` is reused when every string is
-        exactly the column its node produces. Any other string value (including
-        a hand-edited flattened value) cannot be interpreted as a node.
+        A plain-string value is the flattened output of an earlier call; it is
+        replaced by its node from `regression_cols_preprocess` when the string
+        is exactly the column that node produces. Mappings and nodes are taken
+        as they are, so a variable added between calls is kept. Any other
+        string (no stored node for the variable, or a hand-edited value)
+        cannot be interpreted as a node.
         """
-        strings = {
-            var: value
-            for var, value in self.regression_cols.items()
-            if isinstance(value, str)
-        }
-        if not strings:
-            return Side.model_validate({"reg_cols": dict(self.regression_cols)})
         previous = self.regression_cols_preprocess
-        if isinstance(previous, Side) and strings == {
-            var: _produced_column(node) for var, node in previous.reg_cols.items()
-        }:
-            return previous
-        raise ValueError(
-            f"regression_cols holds plain strings {strings} that cannot be "
-            "evaluated: they are not the output of an earlier "
-            "process_regression_columns call covering the same variables. Give "
-            "each variable a node, e.g. {'group': <group id>} or "
-            "{'column': <column name>}."
-        )
+        stored = previous.reg_cols if isinstance(previous, Side) else {}
+        reg_cols = {}
+        uninterpretable = {}
+        for var, value in self.regression_cols.items():
+            if not isinstance(value, str):
+                reg_cols[var] = value
+            elif var in stored and _produced_column(stored[var]) == value:
+                reg_cols[var] = stored[var]
+            else:
+                uninterpretable[var] = value
+        if uninterpretable:
+            raise ValueError(
+                f"regression_cols holds plain strings {uninterpretable} that "
+                "cannot be evaluated: they are not the output of an earlier "
+                "process_regression_columns call for those variables. Give each "
+                "variable a node, e.g. {'group': <group id>} or "
+                "{'column': <column name>}."
+            )
+        return Side.model_validate({"reg_cols": reg_cols})
 
     def custom_param(self, func, *, output=None, verbose=True, **kwargs):
         """Run ``func`` on ``data`` and store the result as a new column.
