@@ -1,18 +1,18 @@
 {
   "meas": {
     "params": {
-      "Intercept": -28861.394170607688,
-      "poa": 6372.47760164578
+      "Intercept": -28861.394170609223,
+      "poa": 6386.531093048576
     },
     "pvalues": {
-      "Intercept": 3.4185562321206484e-05,
+      "Intercept": 3.4185562321174066e-05,
       "poa": 0.0
     },
     "regression_cols": {
       "poa": {
         "column": "e_total",
-        "mean": 261.03656775422417,
-        "sum": 375892.6575660828
+        "mean": 260.46215965892145,
+        "sum": 375065.5099088469
       },
       "power": {
         "column": "power_temp_correct",

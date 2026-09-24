@@ -44,6 +44,25 @@ def build_sim_default():
     return cd
 
 
+def build_sim_rear_shade():
+    """PVsyst CapData like ``build_sim_default`` but with shaded rear irradiance.
+
+    ``calcparams.rpoa_pvsyst`` computes ``GlobBak + BackShd``, and PVsyst
+    reports rear shading and IAM losses (``BackShd``) as a negative
+    (loss) term. ``build_sim_default`` leaves ``BackShd`` at ``0.0``, which
+    makes ``rpoa_pvsyst`` collapse to plain ``GlobBak`` -- fine for presets
+    that do not care, but it makes the ``*_rear_shade_sim`` preset (which
+    feeds ``rpoa_pvsyst`` into ``e_total``) numerically indistinguishable
+    from its ``*_rear_shade_meas`` sibling (which feeds raw, unshaded
+    ``GlobBak`` into ``e_total`` instead). Setting ``BackShd`` to a plausible
+    -10% of ``GlobBak`` here keeps that distinction visible in the *_sim
+    presets' oracles.
+    """
+    cd = build_sim_default()
+    cd.data["BackShd"] = cd.data["GlobBak"] * -0.1
+    return cd
+
+
 def add_bom_temp(cd):
     """Add a synthetic ``temp_bom`` group (ambient + 0.025 * POA)."""
     df = cd.data
@@ -99,29 +118,51 @@ def _sim_spec():
     return add_precwat(build_sim_default())
 
 
+def _sim_rear_shade_spec():
+    return add_precwat(build_sim_rear_shade())
+
+
 _BASE = {"ac_nameplate": 6_000_000, "test_tolerance": "- 4"}
 _BIFI = {**_BASE, "bifaciality": 0.15}
 _TC = {**_BIFI, "power_temp_coeff": -0.32, "base_temp": 25}
+# The "*_rear_shade_meas" presets apply rear shading to the measured e_total
+# through CapTest's meas-only "rear_shade" param; the "*_rear_shade_sim"
+# presets must be left at the default 0 (they carry shading in the modeled
+# rpoa_pvsyst term instead -- see build_sim_rear_shade).
+_BIFI_SHADE = {**_BIFI, "rear_shade": 0.1}
+_TC_SHADE = {**_TC, "rear_shade": 0.1}
 
 #: preset -> (meas builder, sim builder, CapTest.from_params kwargs)
 PRESET_FIXTURES = {
     "e2848_default": (build_meas_default, build_sim_default, _BASE),
-    "bifi_e2848_etotal_rear_shade_sim": (build_meas_default, build_sim_default, _BIFI),
+    "bifi_e2848_etotal_rear_shade_sim": (
+        build_meas_default,
+        build_sim_rear_shade,
+        _BIFI,
+    ),
     "bifi_e2848_etotal_rear_shade_meas": (
         build_meas_default,
-        build_sim_default,
-        _BIFI,
+        build_sim_rear_shade,
+        _BIFI_SHADE,
     ),
     "bifi_power_tc_meas_tbom": (_meas_bom, build_sim_default, _TC),
     "bifi_power_tc_calc_tbom": (build_meas_default, build_sim_default, _TC),
-    "bifi_power_tc_etotal_rear_shade_sim": (_meas_bom, build_sim_default, _TC),
-    "bifi_power_tc_etotal_rear_shade_meas": (_meas_bom, build_sim_default, _TC),
+    "bifi_power_tc_etotal_rear_shade_sim": (_meas_bom, build_sim_rear_shade, _TC),
+    "bifi_power_tc_etotal_rear_shade_meas": (
+        _meas_bom,
+        build_sim_rear_shade,
+        _TC_SHADE,
+    ),
     "e2848_spec_corrected_poa": (_meas_spec, _sim_spec, _BASE),
-    "bifi_e2848_etotal_rear_shade_sim_spec_corrected": (_meas_spec, _sim_spec, _BIFI),
+    "bifi_e2848_etotal_rear_shade_sim_spec_corrected": (
+        _meas_spec,
+        _sim_rear_shade_spec,
+        _BIFI,
+    ),
     "bifi_e2848_etotal_rear_shade_meas_spec_corrected": (
         _meas_spec,
-        _sim_spec,
-        _BIFI,
+        _sim_rear_shade_spec,
+        _BIFI_SHADE,
     ),
 }
 

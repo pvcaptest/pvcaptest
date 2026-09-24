@@ -50,3 +50,40 @@ Branch: `reg-cols-serialization`
   bifi variants) — pre-existing behavior of unmodified `src/`, not something
   Task 1 introduced or should fix, but worth a look in a later task.
 - Commits / roborev: (filled in by controller)
+
+#### Fix round 1: rear-shade `_sim` / `_meas` oracles were byte-identical
+
+- Controller review flagged that `bifi_e2848_etotal_rear_shade_{meas,sim}.json`,
+  their `_spec_corrected` variants, and `bifi_power_tc_etotal_rear_shade_{meas,sim}.json`
+  were byte-identical pairs: `build_sim_default` sets `BackShd = 0.0`, so
+  `rpoa_pvsyst(GlobBak, BackShd) == GlobBak`, and `PRESET_FIXTURES` never set a
+  non-zero `rear_shade`, so the measured-side rear-shade factor was a no-op
+  too. A later bug that swapped the two presets' trees would have passed the
+  equivalence test undetected.
+- Fix: added `build_sim_rear_shade()` (and its spec-corrected wrapper
+  `_sim_rear_shade_spec()`) to `tests/setup_fixtures.py`, setting
+  `BackShd = GlobBak * -0.1` (PVsyst reports rear shading/IAM loss as a
+  negative term, per `calcparams.rpoa_pvsyst`'s docstring) — plausible -10%
+  rear-shading loss. Used it as the sim builder for all six affected presets
+  (both `_sim` and `_meas` variants); left `sim_cd_default` /
+  `build_sim_default` (used by `conftest.py` and by the non-rear-shade
+  presets) untouched. Added `_BIFI_SHADE` / `_TC_SHADE` (`rear_shade=0.1`)
+  and used them only for the three `_meas` variants' `CapTest.from_params`
+  kwargs — the `_sim` variants keep `rear_shade` at its default `0`, per the
+  preset docstrings' own warning against double-counting the loss (and the
+  plan's note that a later task makes the `_sim` presets refuse non-zero
+  `rear_shade`).
+- Deviation from the plan/brief's fixture code: `PRESET_FIXTURES` in
+  `task-1-brief.md` used `build_sim_default` and no `rear_shade` override for
+  all ten presets; this fix diverges from that snippet for the six
+  rear-shade-pair entries only, for the reason above (a controller-mandated,
+  plan-consistent correctness fix, not a style choice).
+- Regenerated all ten oracle files from the unmodified `src/` (only the six
+  affected files' bytes changed; the other four are untouched — confirmed by
+  `git diff --stat`). Added `test_oracle_files_are_pairwise_distinct` to
+  `tests/test_setup_oracles.py` so a future collapse is caught automatically.
+- Test result: `uv run pytest tests -q` → 1267 passed (1266 + 1 new pairwise
+  test), 0 regressions. `tests/test_setup_oracles.py -v` → 11 passed. `just
+  lint` / `just fmt` clean.
+- Nothing else the owner needs to look at for this fix round.
+- Commits / roborev: (filled in by controller)
