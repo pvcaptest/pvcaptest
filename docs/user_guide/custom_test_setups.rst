@@ -465,3 +465,31 @@ by key and replacing the other fields you pass:
         name="e2848_ghi",
         reg_cols_meas={"poa": {"group": "irr_ghi", "agg": "mean"}},
     )
+
+A ``CapTest`` takes its setup by name, so to run a setup you derived or loaded
+with :py:meth:`TestSetup.load <captest.setup.TestSetup.load>`, pass its parts as
+the overrides of a ``"custom"`` test. :py:meth:`~captest.setup.TestSetup.to_dict`
+gives them in document form:
+
+.. code-block:: Python
+
+    doc = ghi_variant.to_dict()
+    tst = CapTest.from_params(
+        test_setup="custom",
+        reg_fml=doc["reg_fml"],
+        reg_cols_meas=doc["meas"]["reg_cols"],
+        reg_cols_sim=doc["sim"]["reg_cols"],
+        rep_conditions=doc["rep_conditions"],
+        params=doc["params"],
+        scatter_plots_name=doc["scatter_plots"],
+        meas=meas,
+        sim=sim,
+        ac_nameplate=6_000_000,
+    )
+
+The resolved setup then has the same formula, sides, reporting conditions,
+``params`` and scatter plot as ``ghi_variant``, but it is named ``custom``, so its
+``content_digest()`` differs. To run a setup under its own name, save it with
+:py:meth:`~captest.setup.TestSetup.to_yaml` as a preset file in the package's
+``setups`` directory (see :py:data:`~captest.captest.SETUPS_DIR`); it is loaded
+into ``TEST_SETUPS`` the next time ``captest`` is imported.

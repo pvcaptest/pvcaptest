@@ -429,11 +429,12 @@ class TestSetup(_Frozen):
         """Build a setup from a yaml/json file path or a mapping.
 
         Always validates through the model; yaml is read with ``safe_load``
-        (json is valid yaml). Use :meth:`loads` for document text.
+        (json is valid yaml). Files are read as UTF-8 regardless of the
+        platform's locale. Use :meth:`loads` for document text.
         """
         if isinstance(source, dict):
             return cls.model_validate(source)
-        return cls.loads(Path(source).read_text())
+        return cls.loads(Path(source).read_text(encoding="utf-8"))
 
     @classmethod
     def loads(cls, text):
@@ -441,12 +442,18 @@ class TestSetup(_Frozen):
         return cls.model_validate(yaml.safe_load(text))
 
     def to_yaml(self, path):
-        """Write ``to_dict()`` as yaml."""
-        Path(path).write_text(yaml.safe_dump(self.to_dict(), sort_keys=False))
+        """Write ``to_dict()`` as UTF-8 yaml."""
+        Path(path).write_text(
+            yaml.safe_dump(self.to_dict(), sort_keys=False, allow_unicode=True),
+            encoding="utf-8",
+        )
 
     def to_json(self, path):
-        """Write ``to_dict()`` as json."""
-        Path(path).write_text(json.dumps(self.to_dict(), indent=2) + "\n")
+        """Write ``to_dict()`` as UTF-8 json."""
+        Path(path).write_text(
+            json.dumps(self.to_dict(), indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
 
     @classmethod
     def json_schema(cls):

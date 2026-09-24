@@ -49,7 +49,8 @@ only the changed terms. `rep_conditions.func` values are the strings `mean`,
 `median` or `perc_N`; `perc_wrap(...)` callables are no longer accepted in a
 setup or override. `CapData.custom_param` gains `output=` and injects
 `CapData` attributes only for absent keyword arguments (an explicit `None`
-now reaches the function). New dependency: `pydantic>=2.5,<3`.
+now reaches the function); it no longer takes `*args`, so every argument after
+`func` must be passed by keyword. New dependency: `pydantic>=2.5,<3`.
 - **Breaking:** a bare string is no longer a column or column-group reference
 in `regression_cols`; it is a literal, and a literal as a formula variable's
 value fails validation. Rewrite `cd.regression_cols = {'power':
@@ -97,10 +98,12 @@ power, mean otherwise) only when `agg` is unset.
 `regression_cols`: each string equal to the column its stored node produced
 is evaluated again from that node; any other plain string raises
 `ValueError`.
+- `CapData.agg_sensors` records the node behind each flattened value (with
+the aggregation it applied) in `regression_cols_preprocess`, so
+`agg_sensors()` followed by `process_regression_columns()` keeps working.
 
 ### Removed
-- `util.encode_reg_cols`, `util.decode_reg_cols`, `util.update_by_path`,
-`captest.captest.validate_test_setup`.
+- `util.update_by_path` and `captest.captest.validate_test_setup`.
 
 ### Fixed
 - `CapData.copy()` now carries over the `site` and `tolerance` attributes,

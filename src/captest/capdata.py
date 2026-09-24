@@ -52,7 +52,7 @@ from captest.filters import (
     wrap_year_end,
 )
 from captest.prep import BasePrepStep
-from captest.setup import Column, Group, Side
+from captest.setup import AGG_FUNCS, Column, Group, Side
 
 # visualization library imports
 hv_spec = importlib.util.find_spec("holoviews")
@@ -1679,6 +1679,12 @@ class CapData(param.Parameterized):
             function; otherwise the per-variable default applies:
             - sum power
             - mean of poa, t_amb, w_vel
+            An unset ``agg`` therefore means "the per-variable default" here
+            but ``"mean"`` under `process_regression_columns` and in a setup
+            document. ``TestSetup.to_dict()`` (like a ``Group`` node's
+            ``model_dump``) materialises ``agg: mean``, after which
+            the value counts as given explicitly: a power group written out
+            and read back is averaged, not summed.
         verbose : bool, default False
             Set to True to print the columns that have been aggregated, the
             aggregation function used, and the new column name. If the group being
@@ -1705,6 +1711,13 @@ class CapData(param.Parameterized):
         whose group is not in that map, or whose explicit ``agg`` differs from
         the function the map applied to its group, is left unchanged (an
         existing ``<group>_<agg>_agg`` column for it is not looked up).
+
+        The node behind each flattened value is recorded in
+        `regression_cols_preprocess` with the aggregation actually applied
+        (e.g. ``Group(group="power_inv", agg="sum")``, or a ``Column`` for a
+        single-column group), merged over any nodes stored by an earlier
+        call, so a later `process_regression_columns` re-evaluates them to the
+        same columns.
 
         This method is intended to be used before any filtering methods are applied.
         It clears the `filters` list, so any filtering steps already applied are
@@ -1816,9 +1829,37 @@ class CapData(param.Parameterized):
                 return columns[0]
             return node
 
-        self.regression_cols = {
+        def producing_node(node, flat):
+            """Node that produces the column ``flat`` resolved to, or None."""
+            if isinstance(node, (Group, Column)) and not isinstance(flat, str):
+                return node
+            if not isinstance(flat, str):
+                return None
+            if isinstance(node, Column):
+                return node
+            gid = node_group_id(node)
+            agg_func = agg_map.get(gid)
+            if (
+                gid in agg_names
+                and agg_func in AGG_FUNCS
+                and flat == util.get_agg_column_name(gid, agg_func)
+            ):
+                return Group(group=gid, agg=agg_func)
+            if self.column_groups.get(gid, []) == [flat]:
+                return Column(column=flat)
+            return None
+
+        flattened = {
             var: resolve(var, node) for var, node in self.regression_cols.items()
         }
+        previous = self.regression_cols_preprocess
+        recorded = dict(previous.reg_cols) if isinstance(previous, Side) else {}
+        for var, node in self.regression_cols.items():
+            produced_by = producing_node(node, flattened[var])
+            if produced_by is not None:
+                recorded[var] = produced_by
+        self.regression_cols_preprocess = Side.model_validate({"reg_cols": recorded})
+        self.regression_cols = flattened
         self.create_column_group_attributes()
         self.create_agg_attributes()
 

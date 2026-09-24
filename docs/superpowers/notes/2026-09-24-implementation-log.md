@@ -679,3 +679,55 @@ Branch: `reg-cols-serialization`
   another module (raises, entry kept); existing reject/idempotent tests unchanged. The
   guide's `my_adjusted_poa` example was executed twice (via `exec` in one namespace) and the
   second definition is the registered one. Docstring, guide sentence, CHANGELOG `Added`.
+- M2: `TestSetup.load` reads, and `to_yaml` / `to_json` write, UTF-8 explicitly;
+  `to_yaml` also passes `allow_unicode=True` and `to_json` `ensure_ascii=False`, so
+  non-ASCII text is written as is (the digest hashes `to_dict()`, so it is unaffected).
+  `load_presets` goes through `TestSetup.load`. Also made `load_config` and
+  `CapTest.to_yaml`'s file opens UTF-8 (same portability reason; not in the finding).
+  Test: with `Path.read_text`/`write_text` defaulting to cp1252, a hand-written UTF-8 preset
+  with a non-ASCII description loads intact and `to_yaml`/`to_json` round-trip it with an
+  equal `content_digest()` (fails on the previous code).
+- M3: `CapTest` class docstring `rear_shade` entry now says the `_sim` presets declare
+  `params: {rear_shade: 0}` and `setup()` raises `SetupFitError`, matching the param doc.
+- M4: `scatter_plots()` / `overlay_scatters()` docstrings describe a `SCATTER_REGISTRY` name,
+  not a callable; the three `scatter_plots` examples use `tst.`. (Remaining `ct.rc` mentions
+  in `captest.py` are code comments, not docs.)
+- M5: CHANGELOG `### Removed` lists only `util.update_by_path` and
+  `captest.captest.validate_test_setup`: `git show v0.17.0:src/captest/util.py` (and rc1/rc2)
+  has no `encode_reg_cols` / `decode_reg_cols`, so they were never released (deviation from
+  the spec's Documentation bullet, which lists them; the brief ordered this). The breaking
+  entry now says `custom_param` dropped `*args`. I2 and I3 each got an entry in their commits.
+- M6: `agg_sensors` records, for each variable it flattened, the node that produces that
+  column with the aggregation it actually applied (`Group(gid, agg_func)` when the column is
+  `<gid>_<agg_func>_agg` and `agg_func` is an allowed `agg`; `Column` for a column node or a
+  single-column group; an unresolved `Group`/`Column` node as is), merged over any Side
+  stored earlier, in `regression_cols_preprocess`. The re-run rule then re-evaluates them to
+  the same columns (an existing `<g>_<a>_agg` column is reused). Sound because the recorded
+  node's produced column equals the flat value by construction. Not recorded (so a later
+  `process_regression_columns` still raises): a callable `agg_map` value (`np.mean`) and a
+  subgroup-expanded map whose output was renamed. Tests: full default `agg_sensors` then
+  `process_regression_columns` (same flat values, no new columns, power recorded as
+  `Group(power_inv, sum)`), single-column group recorded as `Column`, partial `agg_map`
+  followed by `process_regression_columns` evaluating the rest. CHANGELOG entry.
+- M7: `agg_sensors` docstring states that an unset `Group.agg` means the per-variable
+  default there but `mean` under `process_regression_columns` / in a document, and that
+  `TestSetup.to_dict()` materialises `agg: mean` (after which a power group is averaged).
+- M8: `custom_test_setups.rst` gains a paragraph and snippet: run a derived/loaded setup as
+  `test_setup="custom"` with `reg_fml`, `reg_cols_meas`/`reg_cols_sim` from `.to_dict()`,
+  `rep_conditions`, `params`, `scatter_plots_name`; notes the resolved setup is named
+  `custom` (different digest) and that a preset file in `SETUPS_DIR` keeps the name. Snippet
+  verified by running it against the fixture data (`build_meas_default` /
+  `build_sim_default`, a variant with `poa` median-aggregated): resolved formula, sides,
+  rep_conditions, params and scatter_plots equal the variant's; filters, `rep_cond`,
+  `fit_regression` and `captest_results` ran.
+- M9: chose to document, not change: `setup(side=...)` docstring says `resolved_setup` is
+  replaced for both sides and the other side's regression state may no longer match it
+  until it is set up again. Keeping the old resolution would leave the side just wired
+  inconsistent with `resolved_setup` instead.
+- Test result: `just lint` / `just fmt` clean; `just test` 1450 passed;
+  `tests/test_setup_oracles.py` 11 passed (oracle files and test untouched); `just docs`
+  exit 0; clean (`-E`) build 85 warnings on both HEAD-before and this tree, sorted warning
+  lists identical.
+- Deviations: M2 also covers `load_config` / `CapTest.to_yaml`; M5 as above.
+- Anything the owner should look at: M6's two unrecorded cases (callable `agg_map` value,
+  renamed subgroup output) still raise on a following `process_regression_columns`.

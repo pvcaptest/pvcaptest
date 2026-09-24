@@ -318,6 +318,34 @@ class TestNormalisationAndIdentity:
         assert TestSetup.load(tmp_path / "out.yaml") == tsd
         assert TestSetup.load(tmp_path / "out.json") == tsd
 
+    def test_non_ascii_description_round_trips_as_utf8(self, tmp_path, monkeypatch):
+        """Files are read and written as UTF-8 whatever the locale: simulate a
+        cp1252 default so an unspecified encoding would garble the text."""
+        import pathlib
+
+        for method in ("read_text", "write_text"):
+            original = getattr(pathlib.Path, method)
+
+            def forced(self, *args, _original=original, encoding=None, **kwargs):
+                return _original(self, *args, encoding=encoding or "cp1252", **kwargs)
+
+            monkeypatch.setattr(pathlib.Path, method, forced)
+
+        description = "Δ bifacial, 25 °C — Zürich"
+        tsd = TestSetup.model_validate(e2848_doc(description=description))
+        authored = tmp_path / "authored.yaml"
+        authored.write_bytes(
+            yaml.safe_dump(tsd.to_dict(), allow_unicode=True).encode("utf-8")
+        )
+        assert TestSetup.load(authored).description == description
+        tsd.to_yaml(tmp_path / "out.yaml")
+        tsd.to_json(tmp_path / "out.json")
+        for name in ("out.yaml", "out.json"):
+            assert description in (tmp_path / name).read_bytes().decode("utf-8")
+            reloaded = TestSetup.load(tmp_path / name)
+            assert reloaded == tsd
+            assert reloaded.content_digest() == tsd.content_digest()
+
     def test_json_schema_marks_extra_keys_forbidden(self):
         schema = TestSetup.json_schema()
         assert schema["additionalProperties"] is False

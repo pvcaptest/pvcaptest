@@ -4039,6 +4039,61 @@ class TestRegressionColumnsDocumentForm:
         assert meas.regression_cols["power"] == "meter_power"
         assert meas.regression_cols["t_amb"] == Group(group="temp_amb")
 
+    def test_process_regression_columns_after_agg_sensors(self, meas):
+        """agg_sensors records the nodes it resolved, so a following
+        process_regression_columns re-evaluates them (it raised before)."""
+        from captest.setup import Column, Group
+
+        meas.regression_cols = {
+            "power": {"group": "power_inv"},
+            "poa": {"group": "irr_poa_pyran"},
+            "t_amb": {"group": "temp_amb"},
+            "w_vel": {"group": "wind"},
+        }
+        meas.agg_sensors(verbose=False)
+        flat = dict(meas.regression_cols)
+        assert flat["power"] == "power_inv_sum_agg"
+        stored = meas.regression_cols_preprocess.reg_cols
+        assert stored["power"] == Group(group="power_inv", agg="sum")
+        assert stored["poa"] == Group(group="irr_poa_pyran", agg="mean")
+        n_cols = meas.data.shape[1]
+
+        meas.process_regression_columns(verbose=False)
+        assert meas.regression_cols == flat
+        assert meas.data.shape[1] == n_cols
+
+        meas.regression_cols = {
+            "power": {"group": "meter_power"},  # single-column group
+            "poa": {"group": "irr_poa_pyran"},
+            "t_amb": {"group": "temp_amb"},
+            "w_vel": {"group": "wind"},
+        }
+        meas.regression_cols_preprocess = None
+        meas.agg_sensors(verbose=False)
+        power_col = meas.column_groups["meter_power"][0]
+        assert meas.regression_cols_preprocess.reg_cols["power"] == Column(
+            column=power_col
+        )
+        meas.process_regression_columns(verbose=False)
+        assert meas.regression_cols["power"] == power_col
+
+    def test_process_regression_columns_after_partial_agg_sensors(self, meas):
+        """A group node agg_sensors left unresolved is evaluated afterwards."""
+        meas.regression_cols = {
+            "power": {"column": "meter_power"},
+            "poa": {"group": "irr_poa_pyran"},
+            "t_amb": {"group": "temp_amb"},
+            "w_vel": {"group": "wind"},
+        }
+        meas.agg_sensors(agg_map={"irr_poa_pyran": "mean"}, verbose=False)
+        meas.process_regression_columns(verbose=False)
+        assert meas.regression_cols == {
+            "power": "meter_power",
+            "poa": "irr_poa_pyran_mean_agg",
+            "t_amb": "temp_amb_mean_agg",
+            "w_vel": "wind_mean_agg",
+        }
+
     def test_agg_sensors_reuses_an_existing_aggregate_column(self, meas):
         meas.data["irr_poa_pyran_mean_agg"] = 1.0
         meas.regression_cols = {

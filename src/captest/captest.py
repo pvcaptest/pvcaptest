@@ -502,7 +502,7 @@ def load_config(path, key="captest"):
         If ``key`` is not present at the top level of the yaml file.
     """
     path = Path(path)
-    with path.open("r") as fh:
+    with path.open("r", encoding="utf-8") as fh:
         raw = yaml.safe_load(fh) or {}
     if not isinstance(raw, dict):
         raise ValueError(
@@ -761,9 +761,9 @@ class CapTest(param.Parameterized):
         side handles rear shading through its own ``reg_cols_sim`` definition.
         Belongs with the ``*_rear_shade_meas`` presets. The
         ``*_rear_shade_sim`` presets already carry rear shading in the modeled
-        rear irradiance (``rpoa_pvsyst``) and expect the default ``0``; since
-        no preset overrides the value, a non-zero ``rear_shade`` shades the
-        measured side there too and double-counts the loss.
+        rear irradiance (``rpoa_pvsyst``) and declare ``params: {rear_shade:
+        0}``, so ``setup()`` raises :class:`~captest.setup.SetupFitError` for
+        a non-zero ``rear_shade`` rather than double-counting the loss.
     meas_loader, sim_loader : callable or None
         Programmatic-only data-loader callables. Default resolution when
         ``None``: ``captest.io.load_data`` and ``captest.io.load_pvsyst``
@@ -1854,7 +1854,7 @@ class CapTest(param.Parameterized):
         root_doc = {}
         if merge_into_existing and path.exists():
             try:
-                with path.open("r") as fh:
+                with path.open("r", encoding="utf-8") as fh:
                     existing = yaml.safe_load(fh)
                 if isinstance(existing, dict):
                     root_doc = existing
@@ -1862,7 +1862,7 @@ class CapTest(param.Parameterized):
                 root_doc = {}
         root_doc[key] = sub
 
-        with path.open("w") as fh:
+        with path.open("w", encoding="utf-8") as fh:
             yaml.safe_dump(root_doc, fh, sort_keys=False)
 
     def to_mapping(self):
@@ -2265,6 +2265,12 @@ class CapTest(param.Parameterized):
         meas-side setup never touches sim — in particular the year-end
         auto-wrap (``_maybe_wrap_sim_year_end``), which mutates ``sim.data``
         while reading the meas span, is skipped for ``side='meas'``.
+        :attr:`resolved_setup` is still replaced by the setup resolved from
+        the current overrides, which describes both sides: if the overrides
+        changed since the other side was wired, that side's
+        ``regression_cols`` / ``regression_formula`` no longer match
+        ``resolved_setup`` until it is set up again (``setup()`` or
+        ``setup(side=<other side>)``).
 
         When the tier-2 check fails, nothing is evaluated: ``resolved_setup``
         and each side's regression state stay those of the last successful
@@ -2365,10 +2371,10 @@ class CapTest(param.Parameterized):
 
         The selected ``test_setup`` controls which plotting function is used.
         During :meth:`setup`, the named setup is resolved from ``TEST_SETUPS``;
-        that resolved setup includes a ``scatter_plots`` callable matched to
-        the setup's regression formula. This method picks ``self.meas`` or
-        ``self.sim`` and forwards it, plus any keyword arguments, to that
-        callable.
+        that resolved setup's ``scatter_plots`` field names a function in
+        :data:`SCATTER_REGISTRY` matched to the setup's regression formula.
+        This method picks ``self.meas`` or ``self.sim`` and forwards it, plus
+        any keyword arguments, to that registered function.
 
         Built-in setup behavior:
 
@@ -2402,7 +2408,7 @@ class CapTest(param.Parameterized):
         which : {'meas', 'sim'}
             Which :class:`captest.capdata.CapData` instance to plot.
         **kwargs
-            Plotting options forwarded to the preset's scatter callable.
+            Plotting options forwarded to the registered scatter function.
 
         Returns
         -------
@@ -2413,17 +2419,17 @@ class CapTest(param.Parameterized):
         --------
         Plot measured data with the default options::
 
-            ct.scatter_plots()
+            tst.scatter_plots()
 
         Plot modeled data, split points into AM and PM groups, and add a
         linked timeseries panel::
 
-            ct.scatter_plots(which="sim", split_day=True, timeseries=True)
+            tst.scatter_plots(which="sim", split_day=True, timeseries=True)
 
         Add a temperature-corrected power panel for a setup that uses raw
         power in the regression::
 
-            ct.scatter_plots(tc_power=True, tc_mode="add_panel")
+            tst.scatter_plots(tc_power=True, tc_mode="add_panel")
         """
         cd = self._pick_cd(which)
         self._require_setup()
@@ -2859,8 +2865,9 @@ class CapTest(param.Parameterized):
     def overlay_scatters(self, expected_label="PVsyst"):
         """Overlay the final scatter plot from ``self.meas`` and ``self.sim``.
 
-        Builds the scatter plot for each CapData instance via the resolved
-        preset's ``scatter_plots`` callable, then overlays the two first-panel
+        Builds the scatter plot for each CapData instance via the
+        :data:`SCATTER_REGISTRY` function the resolved setup's
+        ``scatter_plots`` names, then overlays the two first-panel
         scatters with labels.
 
         Parameters
