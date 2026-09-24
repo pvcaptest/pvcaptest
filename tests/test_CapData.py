@@ -4028,6 +4028,43 @@ class TestRegressionColumnsDocumentForm:
         assert meas.regression_cols["poa"] == "irr_poa_pyran_mean_agg"
         assert (meas.data["irr_poa_pyran_mean_agg"] == 1.0).all()
 
+    def test_check_project_fit_after_evaluation_does_not_shadow_itself(self, meas):
+        """A ``Group`` node's own previously aggregated output is not a shadow.
+
+        ``agg_group`` records every column it writes in
+        ``column_groups["agg"]`` and ``expand_agg_map`` adds ``<key>_aggs``
+        bookkeeping groups; neither is a real sensor group, so
+        ``check_project_fit`` must not treat a node's own output, now listed
+        there, as shadowing a sensor column on a second ``setup()``.
+        """
+        from captest import setup, util
+
+        doc = {
+            "name": "t",
+            "reg_fml": "power ~ poa + t_amb + w_vel",
+            "meas": {
+                "reg_cols": {
+                    "power": {"column": "meter_power"},
+                    "poa": {"group": "irr_poa_pyran"},
+                    "t_amb": {"group": "temp_amb"},
+                    "w_vel": {"group": "wind"},
+                }
+            },
+            "sim": {
+                "reg_cols": {
+                    "power": {"column": "meter_power"},
+                    "poa": {"group": "irr_poa_pyran"},
+                    "t_amb": {"group": "temp_amb"},
+                    "w_vel": {"group": "wind"},
+                }
+            },
+        }
+        ts = setup.TestSetup.model_validate(doc)
+        assert setup.check_project_fit(ts, "meas", meas) == []
+        util.transform_calc_params(dict(ts.meas.reg_cols), meas, verbose=False)
+        assert "agg" in meas.column_groups
+        assert setup.check_project_fit(ts, "meas", meas) == []
+
 
 class TestPipelineConfig:
     def test_filters_to_config_lists_steps(self, nrel):

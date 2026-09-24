@@ -482,10 +482,33 @@ class TestCheckProjectFit:
             power_temp_coeff=-0.3,
             base_temp=25,
         )
+        assert [e.path for e in errors] == ["meas.reg_cols.power"]
         assert "power_temp_coeff" in errors[0].message
         # 3. no attribute at all
         errors = _fit(self._tc_doc(), groups=MEAS_GROUPS, columns=["bom"])
         assert any("power_temp_coeff" in e.message for e in errors)
+
+    def test_requires_param_message_distinguishes_no_value_from_none(self, monkeypatch):
+        from captest.calcparams import CALC_REGISTRY, CalcEntry
+
+        def broken(data, real=None, verbose=True):
+            return data[real]
+
+        # requires_params names a parameter the function itself does not
+        # declare, so effective_value can only resolve it to
+        # inspect.Parameter.empty, not None.
+        monkeypatch.setitem(
+            CALC_REGISTRY, "broken_probe", CalcEntry(broken, ("missing_param",), ())
+        )
+        doc = e2848_doc(reg_fml="power ~ poa")
+        doc["meas"]["reg_cols"] = {
+            "power": {"group": "real_pwr_mtr", "agg": "sum"},
+            "poa": {"calc": "broken_probe", "args": {"real": {"group": "irr_poa"}}},
+        }
+        doc["rep_conditions"] = {"func": {"poa": "perc_60"}}
+        errors = _fit(doc, groups=MEAS_GROUPS)
+        assert any("has no value" in e.message for e in errors)
+        assert not any("resolves to None" in e.message for e in errors)
 
     def test_explicit_arg_satisfies_requires_param(self):
         errors = _fit(
@@ -546,6 +569,36 @@ class TestCheckProjectFit:
         errors = _fit(e2848_doc(), groups=groups)
         assert [e.path for e in errors] == ["meas.reg_cols.power"]
         assert "real_pwr_mtr_sum_agg" in errors[0].message
+
+    def test_generated_aggregate_bookkeeping_does_not_shadow_a_group_node(self):
+        # agg_group appends every aggregate it writes to column_groups["agg"];
+        # expand_agg_map adds "<key>_aggs" groups of pre-rename subgroup
+        # columns. Neither is a real sensor group, so a second setup() of the
+        # same instance -- with this bookkeeping now present -- must not
+        # report a Group node's own output as shadowing it.
+        groups = {
+            **MEAS_GROUPS,
+            "agg": [
+                "real_pwr_mtr_sum_agg",
+                "irr_poa_mean_agg",
+                "temp_amb_mean_agg",
+                "wind_speed_mean_agg",
+            ],
+            "irr_poa_aggs": ["irr_poa_met1_mean_agg", "irr_poa_met2_mean_agg"],
+        }
+        assert _fit(e2848_doc(), groups=groups) == []
+
+    def test_effective_value_skips_a_cd_attribute_shadowed_by_a_column_group_id(self):
+        # custom_param never injects a cd attribute whose name is also a
+        # column-group id (it would be ambiguous); effective_value mirrors
+        # that so tier 2 predicts the same value evaluation would use -- here
+        # the function's own default (25), not the cd.base_temp attribute
+        # (99), because a "base_temp" column group also exists.
+        groups = {**MEAS_GROUPS, "base_temp": ["some_column"]}
+        doc = self._tc_doc(power_temp_coeff=-0.3)
+        doc["params"] = {"base_temp": 25}
+        errors = _fit(doc, groups=groups, columns=["bom"], base_temp=99)
+        assert errors == []
 
     def test_params_constraint_checks_effective_value_per_side(self):
         doc = e2848_doc(reg_fml="power ~ poa", params={"rear_shade": 0})

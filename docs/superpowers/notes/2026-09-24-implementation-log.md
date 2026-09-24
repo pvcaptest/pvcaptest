@@ -343,12 +343,13 @@ Branch: `reg-cols-serialization`
   **changes)` while Task 4 only built the module function; one new test
   (`TestDerive::test_staticmethod_delegates_to_module_function`) asserts the two calls
   return equal `TestSetup`s.
-- Test result: `uv run pytest tests/test_setup.py tests/test_util.py tests/test_CapData.py
-  tests/test_calc_params.py -q` → 501 passed (500 from the brief's tests plus one added
-  during review). Full suite (`uv run pytest tests -q`) → 93 failed, 1205 passed, 87
-  errors — identical red count to the pre-task baseline (all in `test_captest.py` /
-  `test_plotting.py` / `test_setup_oracles.py` plus the one pre-existing
-  `test_filter_classes` CapTest-fixture error); no new red.
+- Test result (initial pass, before task-review fix round below): `tests/test_setup.py`
+  → 63 passed (not 64 as an earlier draft of this entry / the report said — corrected
+  here). Scoped-module run (`tests/test_setup.py tests/test_util.py tests/test_CapData.py
+  tests/test_calc_params.py -q`) → 501 passed. Full suite (`uv run pytest tests -q`) →
+  93 failed, 1205 passed, 87 errors — identical red count to the pre-task baseline (all
+  in `test_captest.py` / `test_plotting.py` / `test_setup_oracles.py` plus the one
+  pre-existing `test_filter_classes` CapTest-fixture error); no new red.
 - Deviations from plan/spec and why: none beyond the two amendments the brief and
   controller ruling explicitly called for (both recorded above and in the spec diff).
   Review round 1 (job 472) found the brief's verbatim `check_project_fit` only
@@ -356,5 +357,29 @@ Branch: `reg-cols-serialization`
   unmodified-by-this-task) spec bullet said "Group or Calc"; fixed by adding the same
   shadow check to the `Group` branch, with a new covering test
   (`test_group_output_shadowing_a_sensor_column_is_reported`).
+- **Task-review fix round 1** (coordinator-requested, after the review gate above had
+  already gone clean): the coordinator's own review found that the Group/Calc shadow
+  check added in round 1 above still had a real bug — `agg_group` appends every column
+  it writes to `column_groups["agg"]`, and `expand_agg_map` adds `<key>_aggs` groups of
+  pre-rename subgroup columns, so on a second `setup()` of the same instance a `Group`
+  node's own prior output was wrongly flagged as shadowing itself (empirically: `[]`
+  before `transform_calc_params`, several `FitError`s after). Fixed by excluding the
+  `"agg"` key and any key ending `"_aggs"` from both the group-id-existence check and
+  `sensor_columns` in `check_project_fit`. Also, in the same pass: `effective_value`'s
+  step 2 now mirrors `CapData.custom_param`'s guard — a `cd` attribute is not used when
+  its name is also a column-group id, since evaluation would never inject it either;
+  the `requires_params` message now says "has no value" for `inspect.Parameter.empty`
+  vs. "resolves to None" for a literal `None`; and
+  `test_requires_param_none_by_every_route_is_reported`'s route 2 now asserts the full
+  error-path list like route 1. New tests:
+  `test_generated_aggregate_bookkeeping_does_not_shadow_a_group_node` (synthetic
+  `column_groups["agg"]` / `"..._aggs"` bookkeeping), the real end-to-end
+  `TestRegressionColumnsDocumentForm::test_check_project_fit_after_evaluation_does_not_shadow_itself`
+  in `tests/test_CapData.py` (a real `CapData`, `util.transform_calc_params` run once,
+  `check_project_fit` before and after both `[]`), `test_effective_value_skips_a_cd_attribute_shadowed_by_a_column_group_id`,
+  and `test_requires_param_message_distinguishes_no_value_from_none`.
+- Test result (after the fix round): `tests/test_setup.py` → 66 passed. Scoped-module
+  run → 505 passed. Full suite → 93 failed, 1209 passed, 87 errors — red count still
+  unchanged, 4 more tests passing.
 - Anything the owner should look at: nothing.
 - Commits / roborev: (filled in by controller)

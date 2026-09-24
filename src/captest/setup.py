@@ -630,15 +630,19 @@ def effective_value(name, node, cd):
     """Value a calculation would receive for ``name`` under the precedence rules.
 
     1. the node's ``args`` entry, if present (an explicit ``None`` counts);
-    2. else the ``cd`` attribute of that name when present and not ``None``;
+    2. else the ``cd`` attribute of that name, when present, not ``None``, and
+       not also a column-group id (``CapData.custom_param`` never injects an
+       attribute whose name collides with a column-group id; mirroring that
+       guard here keeps this precedence identical to what evaluation does);
     3. else the function's own default;
     4. else ``inspect.Parameter.empty``.
     """
     if name in node.args:
         return node.args[name]
-    attr = getattr(cd, name, None)
-    if attr is not None:
-        return attr
+    if name not in cd.column_groups:
+        attr = getattr(cd, name, None)
+        if attr is not None:
+            return attr
     param = inspect.signature(CALC_REGISTRY[node.calc].func).parameters.get(name)
     if param is None:
         return inspect.Parameter.empty
@@ -665,7 +669,15 @@ def check_project_fit(setup, side, cd):
     """
     errors = []
     reg_cols = getattr(setup, side).reg_cols
-    groups = dict(cd.column_groups)
+    # "agg" and "<group>_aggs" are bookkeeping ``agg_group``/``expand_agg_map``
+    # add to ``column_groups`` as columns are aggregated; they are not project
+    # sensor groups, so a node's own output re-evaluated on a later setup()
+    # must never be treated as shadowing one of them.
+    groups = {
+        group_id: columns
+        for group_id, columns in cd.column_groups.items()
+        if group_id != "agg" and not group_id.endswith("_aggs")
+    }
     sensor_columns = {c for cols in groups.values() for c in cols}
     data_columns = set(cd.data.columns)
 
@@ -699,7 +711,15 @@ def check_project_fit(setup, side, cd):
                 )
         for name in entry.requires_params:
             value = effective_value(name, node, cd)
-            if value is None or value is inspect.Parameter.empty:
+            if value is inspect.Parameter.empty:
+                errors.append(
+                    FitError(
+                        path,
+                        f"{node.calc} requires {name}, which has no value; set "
+                        f"it on the test or pass it in args",
+                    )
+                )
+            elif value is None:
                 errors.append(
                     FitError(
                         path,
