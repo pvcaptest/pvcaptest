@@ -720,7 +720,10 @@ def check_project_fit(setup, side, cd):
             if key in entry.requires_params:
                 value = effective_value(key, node, cd)
                 if value is None or value is inspect.Parameter.empty:
-                    # already reported by the requires_params check above.
+                    # key is in entry.requires_params, so the loop above already
+                    # called effective_value(key, node, cd) -- the same node and
+                    # cd, hence the same result -- and already flagged this
+                    # None/empty value; do not report it again here.
                     continue
                 if value != required:
                     errors.append(
