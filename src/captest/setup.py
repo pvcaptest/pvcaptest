@@ -719,7 +719,7 @@ def check_project_fit(setup, side, cd):
         for key, required in setup.params.items():
             if key in entry.requires_params:
                 value = effective_value(key, node, cd)
-                if value is inspect.Parameter.empty:
+                if value is None or value is inspect.Parameter.empty:
                     # already reported by the requires_params check above.
                     continue
                 if value != required:
