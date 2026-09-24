@@ -8,8 +8,9 @@ import warnings
 import numpy as np
 import pandas as pd
 import yaml
-from patsy import ModelDesc
 from upath import UPath
+
+from captest.setup import canonical_json, parse_regression_formula  # noqa: F401
 
 
 def read_json(path):
@@ -737,73 +738,6 @@ def decode_reg_cols(node):
     if isinstance(node, list):
         return [decode_reg_cols(value) for value in node]
     return node
-
-
-def parse_regression_formula(formula: str) -> tuple[list[str], list[str]]:
-    """
-    Return (lhs_list, rhs_list) for `formula`.
-
-    Rules
-    -----
-    • Each list contains the **unique raw variable names** appearing on
-      that side, sorted.
-    • `- 1` (intercept-removal) is ignored.
-    • `I(...)` blocks are unwrapped; products like `I(poa * t_amb)` are
-      split into their component symbols (`poa`, `t_amb`).
-
-    Parameters
-    ----------
-    formula : str
-        Regression formula to parse.
-
-    Returns
-    -------
-    Tuple[List[str], List[str]]
-        Tuple of (lhs_list, rhs_list).
-    """
-    # --- helpers ------------------------------------------------------
-    _sym_re = re.compile(r"[A-Za-z_]\w*")
-
-    def _extract_raw_names(factor_str: str) -> list[str]:
-        """
-        Turn 'I(poa * t_amb)'  ->  ['poa', 't_amb']
-             'poa'             ->  ['poa']
-        """
-        # strip outer I(…)
-        if factor_str.startswith("I(") and factor_str.endswith(")"):
-            factor_str = factor_str[2:-1]
-        # split by * or :  (products/interactions)
-        parts = re.split(r"[\*\:]", factor_str)
-        names = []
-        for part in parts:
-            # pull out identifier tokens
-            names.extend(_sym_re.findall(part))
-        return names
-
-    # --- main logic ---------------------------------------------------
-    md = ModelDesc.from_formula(formula)
-
-    lhs_list: list[str] = []
-    rhs_list: list[str] = []
-
-    # left
-    for term in md.lhs_termlist:
-        for f in term.factors:
-            for name in _extract_raw_names(f.name()):
-                if name not in lhs_list:
-                    lhs_list.append(name)
-
-    # right
-    for term in md.rhs_termlist:
-        for f in term.factors:
-            for name in _extract_raw_names(f.name()):
-                if name not in rhs_list:
-                    rhs_list.append(name)
-
-    # discard the Patsy-built-in intercept symbol if present
-    rhs_list = [n for n in rhs_list if n != "Intercept"]
-
-    return lhs_list, rhs_list
 
 
 class StrictAttrs:

@@ -129,4 +129,46 @@ Branch: `reg-cols-serialization`
     commit; `uv sync` was still run per Step 1 and pydantic/pyyaml resolve
     correctly in the active environment.
 - Owner should look at: nothing.
+- Commits / roborev: `fd7ddaa` — roborev job 462: No issues found. Controller task review: approved, no findings. **Task 2 complete.**
+
+### Task 3: `setup.py` — node models, `Side`, `RepConditions`, `TestSetup` (tier 1)
+
+- Moved `parse_regression_formula` (and its sole `ModelDesc` import) from
+  `util.py` into the new `src/captest/setup.py`, verbatim; `util.py` now does
+  `from captest.setup import canonical_json, parse_regression_formula  #
+  noqa: F401` so `util.parse_regression_formula` / `util.canonical_json` keep
+  working. Wrote `tests/test_setup.py` (brief's Step 2 code, one deviation
+  below) and confirmed RED (`ImportError: cannot import name 'setup'`) before
+  writing `src/captest/setup.py` with the node models (`Group`, `Column`,
+  `Calc`, the tagged `Node` union), `Side`, `RepConditions`, `TestSetup`,
+  `canonical_json`, `agg_column_name`, `calc_output_name`, `walk_nodes`, and
+  the tier-1 validators, verbatim from the brief's Step 4 snippet.
+- Test result: RED confirmed first (`ImportError`). GREEN after implementing:
+  `uv run pytest tests/test_setup.py tests/test_util.py::TestParseRegressionFormula
+  -v` → 44 passed. Full suite `uv run pytest tests -q` → 1351 passed (1313 +
+  38 new tests in `tests/test_setup.py`; the reexport test alongside
+  `util.py`'s pre-existing 6 `TestParseRegressionFormula` tests accounts for
+  the rest of the 44), 0 regressions. `just lint` / `just fmt` clean.
+- Deviations:
+  - **R3 (controller ruling, applied):** in
+    `test_unknown_calc_names_the_path_and_suggests`, changed
+    `p.endswith("reg_cols.poa")` to `"reg_cols.poa" in p`, because pydantic's
+    `Discriminator`-driven `union_tag_not_found` error for an unknown `calc`
+    is reported at `reg_cols.poa.calc` (the loc includes the tag), not at
+    `reg_cols.poa`. Intent (the path names the node) is preserved.
+  - **R4 (controller ruling, applied):** added `__test__ = False` on
+    `TestSetup` — its name starts with `Test` and it is imported into
+    `tests/test_setup.py`, so pytest would otherwise try to collect it as a
+    test class.
+  - **Ruff `UP007` (mechanical, not in the brief's snippet):** the brief's
+    `Scalar = Union[None, bool, int, FiniteFloat, str]` /
+    `Literal_ = Union[Scalar, list[Scalar]]` and the `Node` union's inner
+    `Union[...]` fail this repo's `ruff check` (`UP007: use X | Y`). `ruff
+    --fix` auto-converted the `Node` union; `Scalar`/`Literal_` needed a
+    manual edit to `None | bool | int | FiniteFloat | str` /
+    `Scalar | list[Scalar]`, after which the now-unused `Union` import was
+    dropped. No behavior change — same types, PEP 604 syntax (Python ≥3.10 is
+    the project floor). Recorded because `just lint` is a hard gate this repo
+    enforces that the brief's snippet as written does not pass.
+- Owner should look at: nothing.
 - Commits / roborev: (filled in by controller)

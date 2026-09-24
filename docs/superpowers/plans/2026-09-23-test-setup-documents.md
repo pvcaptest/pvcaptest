@@ -664,7 +664,7 @@ Then run the review gate.
 - Produces: `setup.Group(group, agg="mean")`, `setup.Column(column)`, `setup.Calc(calc, args={})`, `setup.Node`, `setup.NODE_TAGS`, `setup.Side(reg_cols)`, `setup.RepConditions(func={}, w_vel=None, irr_bal=False, percent_filter=20, front_poa="poa", rc_kwargs=None)`, `setup.TestSetup(name, description="", derived_from=None, reg_fml, meas, sim, params={}, rep_conditions=RepConditions(), scatter_plots="default")`, `setup.agg_column_name(group, agg) -> str`, `setup.calc_output_name(node: Calc) -> str`, `setup.parse_regression_formula(formula) -> (lhs, rhs)`, `setup.canonical_json(obj) -> str`, `setup.DOWNSTREAM_PARAMS` (re-export), `TestSetup.load(source)`, `TestSetup.to_dict()`, `TestSetup.to_yaml(path)`, `TestSetup.to_json(path)`, `TestSetup.content_digest()`, `TestSetup.json_schema()`.
 - Consumes: `calcparams.CALC_REGISTRY`, `calcparams.DOWNSTREAM_PARAMS`.
 
-- [ ] **Step 1: Move `parse_regression_formula` out of `util.py`**
+- [x] **Step 1: Move `parse_regression_formula` out of `util.py`**
 
 Cut the `parse_regression_formula` function (util.py ≈ line 742, through the end of its body) and paste it unchanged into the new `src/captest/setup.py` (Step 3 shows where). It uses `ModelDesc`: move `from patsy import ModelDesc` (util.py line 11) with it, unless `grep -n ModelDesc src/captest/util.py` shows another user, in which case add the import to `setup.py` and leave util's. In `util.py`, at the import block, add:
 
@@ -674,7 +674,7 @@ from captest.setup import canonical_json, parse_regression_formula  # noqa: F401
 
 (`util` imports `setup`; `setup` must never import `util`.) Run `uv run pytest tests/test_util.py::TestParseRegressionFormula -q` after Step 3 to confirm the re-export.
 
-- [ ] **Step 2: Write the failing tests**
+- [x] **Step 2: Write the failing tests**
 
 ```python
 # tests/test_setup.py
@@ -949,12 +949,12 @@ class TestParseRegressionFormula:
         assert util.parse_regression_formula is setup.parse_regression_formula
 ```
 
-- [ ] **Step 3: Run to verify they fail**
+- [x] **Step 3: Run to verify they fail**
 
 Run: `uv run pytest tests/test_setup.py -q`
 Expected: ImportError (`captest.setup` does not exist).
 
-- [ ] **Step 4: Write `setup.py`**
+- [x] **Step 4: Write `setup.py`**
 
 ```python
 # src/captest/setup.py
@@ -1336,12 +1336,12 @@ class TestSetup(_Frozen):
 
 Note on `_paths`: pydantic reports a field-validator error at the field's loc (`meas` / `sim` / `rep_conditions`); the variable or key names are in the message. The tests above assert on both.
 
-- [ ] **Step 5: Run the tests**
+- [x] **Step 5: Run the tests**
 
 Run: `uv run pytest tests/test_setup.py tests/test_util.py::TestParseRegressionFormula -v`
 Expected: all pass. If `test_json_schema_marks_extra_keys_forbidden` fails on `$defs` naming, print `schema["$defs"].keys()` and adjust the assertion to the generated name (it must reference the `Group` model).
 
-- [ ] **Step 6: Lint, format, commit, review gate**
+- [x] **Step 6: Lint, format, commit, review gate**
 
 ```bash
 just lint && just fmt
