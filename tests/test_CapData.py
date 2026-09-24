@@ -18,7 +18,6 @@ from patsy import dmatrix
 
 from captest import (
     CapTest,
-    calcparams,
     capdata as pvc,
     captest as captest_module,
     clearsky,
@@ -271,7 +270,7 @@ class TestTopLevelFuncs(unittest.TestCase):
         pvsyst.filter_irr(200, 800)
         pvsyst.rep_cond_freq(freq="MS")
         grps = pvsyst.data_filtered.groupby(pd.Grouper(freq="MS", label="left"))
-        poa_col = pvsyst.column_groups[pvsyst.regression_cols["poa"]][0]
+        poa_col = pvsyst.regression_cols["poa"].column
 
         grps_flt = pvc.filter_grps(grps, pvsyst.rc, poa_col, 0.8, 1.2, "MS")
 
@@ -648,10 +647,10 @@ class TestIndexCapdata:
         Capdata.data_filtered that are identified in `regression_cols`.
         """
         meas.regression_cols = {
-            "power": "meter_power",
-            "poa": ("irr_poa_pyran", "mean"),
-            "temp_amb": ("temp_amb", "mean"),
-            "wind": ("wind", "mean"),
+            "power": {"column": "meter_power"},
+            "poa": {"group": "irr_poa_pyran"},
+            "temp_amb": {"group": "temp_amb"},
+            "wind": {"group": "wind"},
         }
         meas.process_regression_columns()
         meas.filter_custom(pd.DataFrame.head, 10)
@@ -699,7 +698,7 @@ class TestIndexCapdata:
         to map to the new aggregated column."""
         # filter data_filtered to make check of row count for filtered=False meaningful
         meas.filter_custom(pd.DataFrame.head, 10)
-        meas.regression_cols = {"poa": ("irr_poa_pyran", "mean")}
+        meas.regression_cols = {"poa": {"group": "irr_poa_pyran"}}
         meas.process_regression_columns()
         out = pvc.index_capdata(meas, "poa", filtered=False)
         assert isinstance(out, pd.DataFrame)
@@ -766,8 +765,8 @@ class TestIndexCapdata:
         # filter data_filtered to make check of row count for filtered=False meaningful
         meas.filter_custom(pd.DataFrame.head, 10)
         meas.regression_cols = {
-            "poa": ("irr_poa_pyran", "mean"),
-            "t_amb": ("temp_amb", "mean"),
+            "poa": {"group": "irr_poa_pyran"},
+            "t_amb": {"group": "temp_amb"},
         }
         meas.process_regression_columns()
         out = pvc.index_capdata(meas, ["poa", "t_amb"], filtered=False)
@@ -896,10 +895,10 @@ class TestIndexCapdata:
         Capdata that are identified in `regression_cols`.
         """
         meas.regression_cols = {
-            "power": "meter_power",
-            "poa": ("irr_poa_pyran", "mean"),
-            "temp_amb": ("temp_amb", "mean"),
-            "wind": ("wind", "mean"),
+            "power": {"column": "meter_power"},
+            "poa": {"group": "irr_poa_pyran"},
+            "temp_amb": {"group": "temp_amb"},
+            "wind": {"group": "wind"},
         }
         meas.process_regression_columns()
         meas.filter_custom(pd.DataFrame.head, 10)
@@ -957,7 +956,7 @@ class TestIrrRcBalanced:
     def test_check_csv_output_exists(self, meas, tmp_path):
         """Check that function outputs a csv file when given a file path."""
         f = tmp_path / "output.csv"
-        meas.regression_cols = {"poa": ("irr_poa_pyran", "mean")}
+        meas.regression_cols = {"poa": {"group": "irr_poa_pyran"}}
         meas.process_regression_columns()
         rep_irr = pvc.ReportingIrradiance(
             df=meas.data,
@@ -1710,10 +1709,10 @@ class TestGetRegCols:
 
     def test_all_coeffs(self, meas):
         meas.regression_cols = {
-            "power": "meter_power",
-            "poa": ("irr_poa_pyran", "mean"),
-            "t_amb": ("temp_amb", "mean"),
-            "w_vel": ("wind", "mean"),
+            "power": {"column": "meter_power"},
+            "poa": {"group": "irr_poa_pyran"},
+            "t_amb": {"group": "temp_amb"},
+            "w_vel": {"group": "wind"},
         }
         meas.process_regression_columns()
         cols = ["power", "poa", "t_amb", "w_vel"]
@@ -1731,10 +1730,10 @@ class TestGetRegCols:
         and column names.
         """
         meas.regression_cols = {
-            "power": "meter_power",
-            "poa": ("irr_poa_pyran", "mean"),
-            "t_amb": ("temp_amb", "mean"),
-            "w_vel": ("wind", "mean"),
+            "power": {"column": "meter_power"},
+            "poa": {"group": "irr_poa_pyran"},
+            "t_amb": {"group": "temp_amb"},
+            "w_vel": {"group": "wind"},
         }
         meas.process_regression_columns()
         meas.agg_sensors(
@@ -1895,7 +1894,7 @@ class TestAggSensors:
         """
         Warn if method is writing over filtering already applied to data_filtered.
         """
-        poa_key = meas.regression_cols["poa"]
+        poa_key = meas.regression_cols["poa"].group
         meas.column_groups[poa_key] = [meas.column_groups[poa_key][0]]
         meas.filter_irr(200, 800)
         with pytest.warns(
@@ -3487,10 +3486,10 @@ class TestScatterHv:
     def test_no_index_str_column_in_data(self, meas):
         "Check that plot function works when there is no index column in the data."
         meas.regression_cols = {
-            "power": "meter_power",
-            "poa": ("irr_poa_pyran", "mean"),
-            "t_amb": ("temp_amb", "mean"),
-            "w_vel": ("wind", "mean"),
+            "power": {"column": "meter_power"},
+            "poa": {"group": "irr_poa_pyran"},
+            "t_amb": {"group": "temp_amb"},
+            "w_vel": {"group": "wind"},
         }
         meas.process_regression_columns()
         assert "index" not in meas.data.columns
@@ -3502,10 +3501,10 @@ class TestScatterHv:
         to have a specific name.
         """
         meas.regression_cols = {
-            "power": "meter_power",
-            "poa": ("irr_poa_pyran", "mean"),
-            "t_amb": ("temp_amb", "mean"),
-            "w_vel": ("wind", "mean"),
+            "power": {"column": "meter_power"},
+            "poa": {"group": "irr_poa_pyran"},
+            "t_amb": {"group": "temp_amb"},
+            "w_vel": {"group": "wind"},
         }
         meas.process_regression_columns()
         assert "index" not in meas.data.columns
@@ -3523,10 +3522,10 @@ class TestScatterFilters:
         holoviews overlay object.
         """
         meas.regression_cols = {
-            "power": "meter_power",
-            "poa": ("irr_poa_pyran", "mean"),
-            "t_amb": ("temp_amb", "mean"),
-            "w_vel": ("wind", "mean"),
+            "power": {"column": "meter_power"},
+            "poa": {"group": "irr_poa_pyran"},
+            "t_amb": {"group": "temp_amb"},
+            "w_vel": {"group": "wind"},
         }
         meas.process_regression_columns()
         meas.filter_irr(200, 900)
@@ -3538,10 +3537,10 @@ class TestScatterFilters:
 
     def test_layer_count_is_retained_plus_removing_filters(self, meas):
         meas.regression_cols = {
-            "power": "meter_power",
-            "poa": ("irr_poa_pyran", "mean"),
-            "t_amb": ("temp_amb", "mean"),
-            "w_vel": ("wind", "mean"),
+            "power": {"column": "meter_power"},
+            "poa": {"group": "irr_poa_pyran"},
+            "t_amb": {"group": "temp_amb"},
+            "w_vel": {"group": "wind"},
         }
         meas.process_regression_columns()
         meas.filter_irr(200, 900)
@@ -3552,10 +3551,10 @@ class TestScatterFilters:
 
     def test_zero_removal_step_adds_no_layer(self, meas):
         meas.regression_cols = {
-            "power": "meter_power",
-            "poa": ("irr_poa_pyran", "mean"),
-            "t_amb": ("temp_amb", "mean"),
-            "w_vel": ("wind", "mean"),
+            "power": {"column": "meter_power"},
+            "poa": {"group": "irr_poa_pyran"},
+            "t_amb": {"group": "temp_amb"},
+            "w_vel": {"group": "wind"},
         }
         meas.process_regression_columns()
         meas.filter_irr(200, 900)
@@ -3569,10 +3568,10 @@ class TestScatterFilters:
         and each removed layer holds exactly that filter's removed rows (a
         retained/removed swap would still pass the count assertions above)."""
         meas.regression_cols = {
-            "power": "meter_power",
-            "poa": ("irr_poa_pyran", "mean"),
-            "t_amb": ("temp_amb", "mean"),
-            "w_vel": ("wind", "mean"),
+            "power": {"column": "meter_power"},
+            "poa": {"group": "irr_poa_pyran"},
+            "t_amb": {"group": "temp_amb"},
+            "w_vel": {"group": "wind"},
         }
         meas.process_regression_columns()
         meas.filter_irr(200, 900)
@@ -3588,10 +3587,10 @@ class TestScatterFilters:
 
     def test_retained_layer_is_last(self, meas):
         meas.regression_cols = {
-            "power": "meter_power",
-            "poa": ("irr_poa_pyran", "mean"),
-            "t_amb": ("temp_amb", "mean"),
-            "w_vel": ("wind", "mean"),
+            "power": {"column": "meter_power"},
+            "poa": {"group": "irr_poa_pyran"},
+            "t_amb": {"group": "temp_amb"},
+            "w_vel": {"group": "wind"},
         }
         meas.process_regression_columns()
         meas.filter_irr(200, 900)
@@ -3609,10 +3608,10 @@ class TestTimeseriesFilters:
         holoviews overlay object.
         """
         meas.regression_cols = {
-            "power": "meter_power",
-            "poa": ("irr_poa_pyran", "mean"),
-            "t_amb": ("temp_amb", "mean"),
-            "w_vel": ("wind", "mean"),
+            "power": {"column": "meter_power"},
+            "poa": {"group": "irr_poa_pyran"},
+            "t_amb": {"group": "temp_amb"},
+            "w_vel": {"group": "wind"},
         }
         meas.process_regression_columns()
         meas.filter_irr(200, 900)
@@ -3624,10 +3623,10 @@ class TestTimeseriesFilters:
 
     def test_layer_count_is_curve_plus_removing_filters(self, meas):
         meas.regression_cols = {
-            "power": "meter_power",
-            "poa": ("irr_poa_pyran", "mean"),
-            "t_amb": ("temp_amb", "mean"),
-            "w_vel": ("wind", "mean"),
+            "power": {"column": "meter_power"},
+            "poa": {"group": "irr_poa_pyran"},
+            "t_amb": {"group": "temp_amb"},
+            "w_vel": {"group": "wind"},
         }
         meas.process_regression_columns()
         meas.filter_irr(200, 900)
@@ -3638,10 +3637,10 @@ class TestTimeseriesFilters:
 
     def test_retained_scatter_is_last(self, meas):
         meas.regression_cols = {
-            "power": "meter_power",
-            "poa": ("irr_poa_pyran", "mean"),
-            "t_amb": ("temp_amb", "mean"),
-            "w_vel": ("wind", "mean"),
+            "power": {"column": "meter_power"},
+            "poa": {"group": "irr_poa_pyran"},
+            "t_amb": {"group": "temp_amb"},
+            "w_vel": {"group": "wind"},
         }
         meas.process_regression_columns()
         meas.filter_irr(200, 900)
@@ -3655,10 +3654,10 @@ class TestTimeseriesFilters:
         """Pin that a removed-filter scatter layer holds exactly that filter's
         removed rows (the full-data Curve baseline is layer 0)."""
         meas.regression_cols = {
-            "power": "meter_power",
-            "poa": ("irr_poa_pyran", "mean"),
-            "t_amb": ("temp_amb", "mean"),
-            "w_vel": ("wind", "mean"),
+            "power": {"column": "meter_power"},
+            "poa": {"group": "irr_poa_pyran"},
+            "t_amb": {"group": "temp_amb"},
+            "w_vel": {"group": "wind"},
         }
         meas.process_regression_columns()
         meas.filter_irr(200, 900)
@@ -3753,13 +3752,13 @@ class TestCreateColumnGroupAttributes:
 class TestProcessRegressionColumns:
     def test_e_total_reg_cols(self, meas):
         meas.regression_cols = {
-            "e_total": (
-                calcparams.e_total,
-                {
-                    "poa": ("irr_poa_pyran", "mean"),
-                    "rpoa": ("irr_poa_pyran", "mean"),
+            "e_total": {
+                "calc": "e_total",
+                "args": {
+                    "poa": {"group": "irr_poa_pyran"},
+                    "rpoa": {"group": "irr_poa_pyran"},
                 },
-            )
+            }
         }
         meas.process_regression_columns()
         assert "e_total" in meas.data.columns
@@ -3767,7 +3766,7 @@ class TestProcessRegressionColumns:
         assert meas.regression_cols == {"e_total": "e_total"}
 
     def test_agg_amb_temp(self, meas):
-        meas.regression_cols = {"temp_amb": ("temp_amb", "mean")}
+        meas.regression_cols = {"temp_amb": {"group": "temp_amb"}}
         meas.process_regression_columns()
         assert "temp_amb_mean_agg" in meas.data.columns
         assert "temp_amb_mean_agg" in meas.data_filtered.columns
@@ -3776,26 +3775,26 @@ class TestProcessRegressionColumns:
     def test_power_tc_from_amb_temp(self, meas):
         meas.power_temp_coeff = -0.32
         meas.regression_cols = {
-            "power_tc": (
-                calcparams.power_temp_correct,
-                {
-                    "power": "meter_power",
-                    "cell_temp": (
-                        calcparams.cell_temp,
-                        {
-                            "bom": (
-                                calcparams.bom_temp,
-                                {
-                                    "poa": ("irr_poa_pyran", "mean"),
-                                    "temp_amb": ("temp_amb", "mean"),
-                                    "wind_speed": ("wind", "mean"),
+            "power_tc": {
+                "calc": "power_temp_correct",
+                "args": {
+                    "power": {"column": "meter_power"},
+                    "cell_temp": {
+                        "calc": "cell_temp",
+                        "args": {
+                            "bom": {
+                                "calc": "bom_temp",
+                                "args": {
+                                    "poa": {"group": "irr_poa_pyran"},
+                                    "temp_amb": {"group": "temp_amb"},
+                                    "wind_speed": {"group": "wind"},
                                 },
-                            ),
-                            "poa": ("irr_poa_pyran", "mean"),
+                            },
+                            "poa": {"group": "irr_poa_pyran"},
                         },
-                    ),
+                    },
                 },
-            )
+            }
         }
         meas.process_regression_columns()
         assert "power_temp_correct" in meas.data.columns
@@ -3810,13 +3809,13 @@ class TestProcessRegressionColumns:
         test does not include a 'wind_speed' group, it is just 'wind'.
         """
         meas.regression_cols = {
-            "bom": (
-                calcparams.bom_temp,
-                {
-                    "poa": ("irr_poa_pyran", "mean"),
-                    "wind_speed": ("wind", "mean"),
+            "bom": {
+                "calc": "bom_temp",
+                "args": {
+                    "poa": {"group": "irr_poa_pyran"},
+                    "wind_speed": {"group": "wind"},
                 },
-            )
+            }
         }
         with pytest.raises(
             ValueError,
@@ -3827,19 +3826,117 @@ class TestProcessRegressionColumns:
     def test_pass_kwarg_value_in_regression_columns(self, meas):
         """Check that a kwarg for a calcparams function passes through correctly"""
         meas.regression_cols = {
-            "power_tc": (
-                calcparams.power_temp_correct,
-                {
-                    "power": "meter_power",
-                    "cell_temp": ("temp_amb", "mean"),
+            "power_tc": {
+                "calc": "power_temp_correct",
+                "args": {
+                    "power": {"column": "meter_power"},
+                    "cell_temp": {"group": "temp_amb"},
                     "power_temp_coeff": -0.38,
                 },
-            )
+            }
         }
         meas.process_regression_columns()
         assert "power_temp_correct" in meas.data.columns
         assert "power_temp_correct" in meas.data_filtered.columns
         assert meas.regression_cols == {"power_tc": "power_temp_correct"}
+
+
+class TestRegressionColumnsDocumentForm:
+    def test_process_accepts_plain_mappings(self, meas):
+        meas.regression_cols = {
+            "power": {"column": "meter_power"},
+            "poa": {"group": "irr_poa_pyran"},
+        }
+        meas.process_regression_columns(verbose=False)
+        assert meas.regression_cols == {
+            "power": "meter_power",
+            "poa": "irr_poa_pyran_mean_agg",
+        }
+
+    def test_preprocess_keeps_the_normalised_side(self, meas):
+        from captest.setup import Group, Side
+
+        meas.regression_cols = {"poa": {"group": "irr_poa_pyran"}}
+        meas.process_regression_columns(verbose=False)
+        assert isinstance(meas.regression_cols_preprocess, Side)
+        assert meas.regression_cols_preprocess.reg_cols["poa"] == Group(
+            group="irr_poa_pyran"
+        )
+
+    def test_set_regression_cols_builds_group_or_column_nodes(self, meas):
+        from captest.setup import Column, Group
+
+        meas.set_regression_cols(
+            power="meter_power", poa="irr_poa_pyran", t_amb="temp_amb", w_vel="wind"
+        )
+        assert meas.regression_cols["power"] == Column(column="meter_power")
+        assert meas.regression_cols["poa"] == Group(group="irr_poa_pyran")
+
+    def test_custom_param_output_and_absent_only_injection(self, meas):
+        from captest.calcparams import scale
+
+        meas.power_temp_coeff = -0.4
+        seen = {}
+
+        def probe(data, col=None, power_temp_coeff=None, pressure=None):
+            seen.update(col=col, power_temp_coeff=power_temp_coeff, pressure=pressure)
+            return data[col]
+
+        meas.custom_param(probe, output="probed", col="meter_power", pressure=None)
+        assert "probed" in meas.data.columns
+        assert seen["power_temp_coeff"] == -0.4  # absent -> injected
+        assert seen["pressure"] is None  # explicit None passes through
+        meas.power_temp_coeff = None
+        meas.custom_param(probe, output="probed2", col="meter_power")
+        assert seen["power_temp_coeff"] is None  # None attribute -> function default
+        meas.custom_param(scale, col="meter_power", factor=2.0, verbose=False)
+        assert "scale" in meas.data.columns  # output defaults to __name__
+
+    def test_agg_sensors_default_map_reads_group_nodes(self, meas):
+        meas.regression_cols = {
+            "power": {"column": "meter_power"},
+            "poa": {"group": "irr_poa_pyran"},
+            "t_amb": {"group": "temp_amb"},
+            "w_vel": {"group": "wind"},
+        }
+        meas.agg_sensors(verbose=False)
+        assert meas.regression_cols["poa"] == "irr_poa_pyran_mean_agg"
+
+    def test_agg_sensors_single_column_group_resolves_to_its_column(self, meas):
+        meas.regression_cols = {
+            "power": {"group": "meter_power"},  # one column in this fixture
+            "poa": {"group": "irr_poa_pyran"},
+            "t_amb": {"group": "temp_amb"},
+            "w_vel": {"group": "wind"},
+        }
+        meas.agg_sensors(verbose=False)
+        assert meas.regression_cols["power"] == meas.column_groups["meter_power"][0]
+
+    def test_agg_sensors_explicit_map_leaves_unselected_groups_as_nodes(self, meas):
+        from captest.setup import Group
+
+        meas.regression_cols = {
+            "power": {"column": "meter_power"},
+            "poa": {"group": "irr_poa_pyran"},
+            "t_amb": {"group": "temp_amb"},
+            "w_vel": {"group": "wind"},
+        }
+        meas.agg_sensors(agg_map={"irr_poa_pyran": "mean"}, verbose=False)
+        assert meas.regression_cols["poa"] == "irr_poa_pyran_mean_agg"
+        assert meas.regression_cols["power"] == "meter_power"
+        assert meas.regression_cols["t_amb"] == Group(group="temp_amb")
+
+    def test_agg_sensors_reuses_an_existing_aggregate_column(self, meas):
+        meas.data["irr_poa_pyran_mean_agg"] = 1.0
+        meas.regression_cols = {
+            "power": {"column": "meter_power"},
+            "poa": {"group": "irr_poa_pyran"},
+            "t_amb": {"group": "temp_amb"},
+            "w_vel": {"group": "wind"},
+        }
+        meas.agg_sensors(verbose=False)
+        assert meas.regression_cols["poa"] == "irr_poa_pyran_mean_agg"
+        assert (meas.data["irr_poa_pyran_mean_agg"] == 1.0).all()
 
 
 class TestPipelineConfig:

@@ -232,4 +232,60 @@ Branch: `reg-cols-serialization`
   class to the 88-column limit).
 - Deviations: none — implementation and tests match the brief verbatim.
 - Anything the owner should look at: nothing.
+- Commits / roborev: `57f1026` — roborev job 465: No issues found (a verification note spotted a wrong test count in this log); `e5e803b` corrects that count — job 466: No issues found. Controller task review: approved. The spec writes `TestSetup.derive(base, ...)` but the plan built a module function `setup.derive`; a `TestSetup.derive` alias is added in Task 6 so the spec's spelling works too. **Task 4 complete.**
+
+### Task 5: Evaluation over nodes (`util`) and `CapData` integration
+- `util.transform_calc_params` / `_get_or_create_aggregation` now evaluate
+  `Group`/`Column`/`Calc`/literal nodes (Calc via `CALC_REGISTRY`, output =
+  registry name); deleted `update_by_path`, `_is_aggregation_tuple`,
+  `_is_calculation_tuple`, `_resolve_column_group`, `encode_reg_cols`,
+  `decode_reg_cols`. `CapData.custom_param(func, *, output=None, verbose=True,
+  **kwargs)` injects attributes only for absent, non-None-attribute params;
+  `process_regression_columns` validates through `Side` and keeps it in
+  `regression_cols_preprocess`; `set_regression_cols` builds nodes;
+  `agg_sensors` reads node defaults and flattens `regression_cols` afterwards.
+- Tests: RED `test_util.py` 4 failed; RED `TestRegressionColumnsDocumentForm`
+  8 failed. GREEN: test_util 52, test_CapData 279, test_setup 49, test_io 63
+  passed. Red window (expected): test_captest 75 failed + 86 errors,
+  test_plotting 8 failed, test_setup_oracles 10 failed, and 1 error in
+  test_filter_classes (see below). Full run: 1183 passed, 93 failed, 87 errors.
+- Deviations:
+  - `set_regression_cols`: the brief's `node()` returns `Group` for any group
+    id, but the brief's own test expects `Column(column="meter_power")` for
+    `meter_power`, which in the `meas` fixture is both a single-column group
+    and a column. Rule used: not a group -> `Column`; single-column group ->
+    `Column` of its one column (the old `_resolve_column_group` semantics, so
+    such a group is used as is, not aggregated); else `Group`. Docstring says so.
+  - Added `util.reg_col_label(value)` (Group -> group id, Column -> column
+    name, else unchanged) and used it in the readers that look
+    `regression_cols` values up in `column_groups`/`data`:
+    `capdata.index_capdata`, `CapData.get_reg_cols`, `CapData._get_poa_col`,
+    `filters.Sensors` default thresholds. Without it the `meas` fixture (which
+    calls `set_regression_cols`) broke 14 existing CapData tests.
+  - `agg_sensors`: the mapping->Side normalisation runs before the
+    `pre_agg_reg_trans` snapshot (not after), so `reset_agg` and the
+    `Sensors` filter never see raw dict mappings. The brief's "block that
+    today rewrites string values" does not exist (old `agg_sensors` never
+    rewrote `regression_cols`); the flattening pass was added after the loop.
+  - `get_agg_column_name` docstring kept `agg_func : str or callable` (brief
+    said `str`): `agg_group`/`agg_sensors` still accept callables
+    (`test_agg_map_non_str_func`), so `str` would be wrong.
+  - Fixture-name caveat: `real_pwr_mtr` is not in the `meas` fixture; the
+    single-column group test uses `meter_power`.
+  - Test-side reads of `regression_cols["poa"]` as a group key updated to
+    `.group` (`test_warn_if_filters_already_run`) / `.column`
+    (`test_filter_grps`, pvsyst groups are single-column).
+  - `tests/test_io.py`: 5 `load_pvsyst` assertions now expect `Column` nodes
+    (load_pvsyst calls `set_regression_cols`); not in the plan's file list.
+  - Docs: removed `util.update_by_path` from `docs/source/api_reference/util.rst`
+    and deleted its generated stub so the docs build does not reference a
+    deleted function.
+  - captest.py / plotting.py untouched: captest.py already references
+    `util.encode_reg_cols` / `util.decode_reg_cols` by attribute, so import
+    and lint pass; those calls fail at runtime until Tasks 7-9.
+- Owner should look at: `tests/test_filter_classes.py::TestReplayRollback::
+  test_run_pipeline_failure_restores_captest_rc` errors in setup (the
+  `ct_default` fixture builds a CapTest from a tuple-grammar preset); it is
+  outside the three named red modules but cannot go green until the presets
+  migrate (Task 7).
 - Commits / roborev: (filled in by controller)

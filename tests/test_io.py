@@ -19,6 +19,7 @@ from captest import (
     load_pvsyst,
     util,
 )
+from captest.setup import Column
 
 
 class TestLoadExcelColumnGroups:
@@ -295,10 +296,10 @@ class TestLoadPVsyst:
         assert isinstance(pvsyst.data.columns, pd.Index)
         assert pvsyst.data.loc["1/1/90 12:00", "E_Grid"] == 5_469_083
         assert pvsyst.regression_cols == {
-            "power": "E_Grid",
-            "poa": "GlobInc",
-            "t_amb": "T_Amb",
-            "w_vel": "WindVel",
+            "power": Column(column="E_Grid"),
+            "poa": Column(column="GlobInc"),
+            "t_amb": Column(column="T_Amb"),
+            "w_vel": Column(column="WindVel"),
         }
 
     def test_load_pvsyst_semicolon_sep(self):
@@ -312,10 +313,10 @@ class TestLoadPVsyst:
         assert isinstance(pvsyst.data.columns, pd.Index)
         assert pvsyst.data.loc["1/1/90 12:00", "E_Grid"] == 5_469_083
         assert pvsyst.regression_cols == {
-            "power": "E_Grid",
-            "poa": "GlobInc",
-            "t_amb": "T_Amb",
-            "w_vel": "WindVel",
+            "power": Column(column="E_Grid"),
+            "poa": Column(column="GlobInc"),
+            "t_amb": Column(column="T_Amb"),
+            "w_vel": Column(column="WindVel"),
         }
 
     def test_semicolon_sep_warning(self):
@@ -346,10 +347,10 @@ class TestLoadPVsyst:
         assert isinstance(pvsyst.data.columns, pd.Index)
         assert pvsyst.data.loc["1/1/90 12:00", "E_Grid"] == 5_469_083
         assert pvsyst.regression_cols == {
-            "power": "E_Grid",
-            "poa": "GlobInc",
-            "t_amb": "T_Amb",
-            "w_vel": "WindVel",
+            "power": Column(column="E_Grid"),
+            "poa": Column(column="GlobInc"),
+            "t_amb": Column(column="T_Amb"),
+            "w_vel": Column(column="WindVel"),
         }
 
     def test_date_day_month_year(self):
@@ -369,10 +370,10 @@ class TestLoadPVsyst:
         assert isinstance(pvsyst.data.columns, pd.Index)
         assert pvsyst.data.loc["1/1/90 12:00", "E_Grid"] == 5_469_083
         assert pvsyst.regression_cols == {
-            "power": "E_Grid",
-            "poa": "GlobInc",
-            "t_amb": "T_Amb",
-            "w_vel": "WindVel",
+            "power": Column(column="E_Grid"),
+            "poa": Column(column="GlobInc"),
+            "t_amb": Column(column="T_Amb"),
+            "w_vel": Column(column="WindVel"),
         }
 
     def test_date_day_month_year_after_excel_open(self):
@@ -392,10 +393,10 @@ class TestLoadPVsyst:
         assert isinstance(pvsyst.data.columns, pd.Index)
         assert pvsyst.data.loc["1/1/90 12:00", "E_Grid"] == 5_469_083
         assert pvsyst.regression_cols == {
-            "power": "E_Grid",
-            "poa": "GlobInc",
-            "t_amb": "T_Amb",
-            "w_vel": "WindVel",
+            "power": Column(column="E_Grid"),
+            "poa": Column(column="GlobInc"),
+            "t_amb": Column(column="T_Amb"),
+            "w_vel": Column(column="WindVel"),
         }
 
     def test_all_input_date_formats_loaded_to_equal_datetime_indices(self):

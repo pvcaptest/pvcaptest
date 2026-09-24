@@ -1591,7 +1591,7 @@ Then run the review gate.
 - Produces: `util.transform_calc_params(node, cd, agg_cache=None, verbose=True)` over `Group`/`Column`/`Calc`/literal; `util._get_or_create_aggregation(node: Group, cd, agg_cache, verbose) -> str`; `CapData.custom_param(func, *, output=None, verbose=True, **kwargs)`; `CapData.process_regression_columns` accepting nodes or plain mappings; `CapData.regression_cols_preprocess: Side`; `CapData.set_regression_cols` building nodes.
 - Consumes: `setup.Group/Column/Calc/Side`, `calcparams.CALC_REGISTRY`.
 
-- [ ] **Step 1: Rewrite the util tests**
+- [x] **Step 1: Rewrite the util tests**
 
 Replace the `nested_calc_dict` fixture and the `TestUpdateByPath`, `TestProcessRegCols`, `TestGetOrCreateAggregationReuse` and `TestRegColsEncodeDecode` classes in `tests/test_util.py` with:
 
@@ -1747,12 +1747,12 @@ class TestGetOrCreateAggregationReuse:
 
 Delete every remaining reference in `tests/test_util.py` to `update_by_path`, `encode_reg_cols`, `decode_reg_cols`, `nested_calc_dict`.
 
-- [ ] **Step 2: Run to verify they fail**
+- [x] **Step 2: Run to verify they fail**
 
 Run: `uv run pytest tests/test_util.py -q`
 Expected: failures in `TestProcessRegCols` / `TestGetOrCreateAggregationReuse` (tuple dispatch does not recognise nodes; `custom_param` signature).
 
-- [ ] **Step 3: Rewrite the evaluation in `util.py`**
+- [x] **Step 3: Rewrite the evaluation in `util.py`**
 
 Delete `_is_aggregation_tuple`, `_is_calculation_tuple`, `_resolve_column_group`, `update_by_path`, `encode_reg_cols`, `decode_reg_cols`. Add `from captest.calcparams import CALC_REGISTRY` and `from captest.setup import Calc, Column, Group` to the imports. Replace `_get_or_create_aggregation` and `transform_calc_params`:
 
@@ -1844,12 +1844,12 @@ def transform_calc_params(node, cd, agg_cache=None, verbose=True):
 
 Update the `process_reg_cols` docstring: replace the tuple example with the document example from the spec's "Setup" section and drop the sentence about `CapData` methods as tuple heads. Update the `get_agg_column_name` docstring's `agg_func` type to `str`.
 
-- [ ] **Step 4: Run the util tests**
+- [x] **Step 4: Run the util tests**
 
 Run: `uv run pytest tests/test_util.py -q`
 Expected: all pass.
 
-- [ ] **Step 5: Write the CapData tests**
+- [x] **Step 5: Write the CapData tests**
 
 Append to `tests/test_CapData.py` (find the class that tests `process_regression_columns`, near line 640, and add after it):
 
@@ -1918,12 +1918,12 @@ class TestRegressionColumnsDocumentForm:
 
 Then convert every existing `regression_cols = {...}` literal in `tests/test_CapData.py` (≈15 sites, lines 650–3600): `("g", "mean")` → `{"group": "g"}`, `("g", "sum")` → `{"group": "g", "agg": "sum"}`, a bare column-name string → `{"column": "name"}`. Post-processing flat assignments such as `{"poa": "irr_poa_pyran_mean_agg", "t_amb": "temp_amb"}` at line 793 stay as they are when no `process_regression_columns()` follows them.
 
-- [ ] **Step 6: Run to verify the new tests fail**
+- [x] **Step 6: Run to verify the new tests fail**
 
 Run: `uv run pytest tests/test_CapData.py::TestRegressionColumnsDocumentForm -q`
 Expected: failures (`custom_param` has no `output`; mappings not normalised).
 
-- [ ] **Step 7: Implement the CapData changes**
+- [x] **Step 7: Implement the CapData changes**
 
 In `capdata.py`, add `from captest.setup import Column, Group, Side` to the imports. Replace `custom_param`:
 
@@ -2116,12 +2116,12 @@ Add two tests beside `test_agg_sensors_default_map_reads_group_nodes`:
 
 Run `grep -n "regression_cols_preprocess" src tests` and update any reader that expected a dict to read `.reg_cols` (there should be none outside `capdata.py`).
 
-- [ ] **Step 8: Run the CapData and util tests**
+- [x] **Step 8: Run the CapData and util tests**
 
 Run: `uv run pytest tests/test_CapData.py tests/test_util.py tests/test_setup.py -q`
 Expected: all pass. (`tests/test_captest.py` is expected red now.)
 
-- [ ] **Step 9: Lint, format, commit, review gate**
+- [x] **Step 9: Lint, format, commit, review gate**
 
 ```bash
 just lint && just fmt

@@ -52,6 +52,7 @@ from captest.filters import (
     wrap_year_end,
 )
 from captest.prep import BasePrepStep
+from captest.setup import Column, Group, Side
 
 # visualization library imports
 hv_spec = importlib.util.find_spec("holoviews")
@@ -665,12 +666,12 @@ def index_capdata(capdata, label, filtered=True):
     """
     data = capdata.data_filtered if filtered else capdata.data
     if label == "regcols":
-        label = list(capdata.regression_cols.values())
+        label = [util.reg_col_label(v) for v in capdata.regression_cols.values()]
     if isinstance(label, str):
         if label in capdata.column_groups:
             selected_data = data[capdata.column_groups[label]]
         elif label in capdata.regression_cols:
-            col_or_grp = capdata.regression_cols[label]
+            col_or_grp = util.reg_col_label(capdata.regression_cols[label])
             if col_or_grp in capdata.column_groups:
                 selected_data = data[capdata.column_groups[col_or_grp]]
             elif col_or_grp in data.columns:
@@ -700,7 +701,7 @@ def index_capdata(capdata, label, filtered=True):
             if label_item in capdata.column_groups:
                 cols_to_return.extend(capdata.column_groups[label_item])
             elif label_item in capdata.regression_cols:
-                col_or_grp = capdata.regression_cols[label_item]
+                col_or_grp = util.reg_col_label(capdata.regression_cols[label_item])
                 if col_or_grp in capdata.column_groups:
                     cols_to_return.extend(capdata.column_groups[col_or_grp])
                 elif col_or_grp in data.columns:
@@ -901,28 +902,39 @@ class CapData(param.Parameterized):
         a regression column dictionary or assigning a dictionary to the
         `regression_cols` attribute directly.
 
-        Links the independent regression variables to the appropriate
-        translation keys or a column name may be used to specify a
-        single column of data.
+        Each value is a column group id (becomes a mean aggregation node) or a
+        column name (becomes a column node). A group id whose group holds a
+        single column becomes a column node for that column, so it is used as
+        is rather than aggregated.
 
         Sets attribute and returns nothing.
 
         Parameters
         ----------
         power : str
-            Translation key for the power variable.
+            Column group id or column name for the power variable.
         poa : str
-            Translation key for the plane of array (poa) irradiance variable.
+            Column group id or column name for the plane of array (poa)
+            irradiance variable.
         t_amb : str
-            Translation key for the ambient temperature variable.
+            Column group id or column name for the ambient temperature variable.
         w_vel : str
-            Translation key for the wind velocity key.
+            Column group id or column name for the wind velocity variable.
         """
+
+        def node(value):
+            if value not in self.column_groups:
+                return Column(column=value)
+            columns = self.column_groups[value]
+            if len(columns) == 1:
+                return Column(column=columns[0])
+            return Group(group=value)
+
         self.regression_cols = {
-            "power": power,
-            "poa": poa,
-            "t_amb": t_amb,
-            "w_vel": w_vel,
+            "power": node(power),
+            "poa": node(poa),
+            "t_amb": node(t_amb),
+            "w_vel": node(w_vel),
         }
 
     def copy(self):
@@ -1074,10 +1086,11 @@ class CapData(param.Parameterized):
 
         if isinstance(reg_vars, list):
             for reg_var in reg_vars:
-                if self.regression_cols[reg_var] in self.data_filtered.columns:
+                col_or_grp = util.reg_col_label(self.regression_cols[reg_var])
+                if col_or_grp in self.data_filtered.columns:
                     continue
                 else:
-                    columns = self.column_groups[self.regression_cols[reg_var]]
+                    columns = self.column_groups[col_or_grp]
                     if len(columns) != 1:
                         return warnings.warn(
                             "Multiple columns per translation "
@@ -1421,7 +1434,7 @@ class CapData(param.Parameterized):
         Also, issues warning if there are more than one poa columns in
         `column_groups`.
         """
-        poa_trans_key = self.regression_cols["poa"]
+        poa_trans_key = util.reg_col_label(self.regression_cols["poa"])
         if poa_trans_key in self.data.columns:
             return poa_trans_key
         else:
@@ -1674,17 +1687,43 @@ class CapData(param.Parameterized):
                 "lost.  It is recommended to use agg_sensors "
                 "before any filtering methods."
             )
+        # ``regression_cols`` may hold document mappings, node models, or (after
+        # processing) flat column names. Normalise once so the rest of this
+        # method sees nodes or strings only.
+        if any(isinstance(v, dict) for v in self.regression_cols.values()):
+            self.regression_cols = dict(
+                Side.model_validate({"reg_cols": self.regression_cols}).reg_cols
+            )
+
         self.pre_agg_cols = self.data.columns.copy()
         self.pre_agg_trans = copy.deepcopy(self.column_groups)
         self.pre_agg_reg_trans = copy.deepcopy(self.regression_cols)
 
+        def node_group_id(node):
+            """Group id a node aggregates, or None for a raw-column reference.
+
+            Named to stay clear of the existing ``for group_id, agg_func in
+            agg_map.items()`` loop variable below, which would shadow it.
+            """
+            if isinstance(node, Group):
+                return node.group
+            if isinstance(node, Column):
+                return None
+            if isinstance(node, str):
+                return node
+            raise ValueError(
+                "agg_sensors needs group or column nodes (or group ids) in "
+                f"regression_cols; got {node!r}. Use process_regression_columns "
+                "for calc nodes."
+            )
+
         if agg_map is None:
-            agg_map = {
-                self.regression_cols["power"]: "sum",
-                self.regression_cols["poa"]: "mean",
-                self.regression_cols["t_amb"]: "mean",
-                self.regression_cols["w_vel"]: "mean",
-            }
+            defaults = {"power": "sum", "poa": "mean", "t_amb": "mean", "w_vel": "mean"}
+            agg_map = {}
+            for var, func in defaults.items():
+                gid = node_group_id(self.regression_cols[var])
+                if gid is not None:
+                    agg_map[gid] = func
 
         agg_names = {}
         agg_map, rename_map, subgroup_rename_map = self.expand_agg_map(agg_map)
@@ -1696,6 +1735,7 @@ class CapData(param.Parameterized):
                         f"Skipping aggregation of {group_id} as column "
                         f"{col_name} already exists"
                     )
+                agg_names[group_id] = col_name
                 continue
             columns = self._get_group(group_id)
             if columns.shape[1] == 1:
@@ -1713,6 +1753,21 @@ class CapData(param.Parameterized):
         self.filters = []
         self.rename_cols(rename_map, record=False)
         self.agg_name_mapper = agg_names
+
+        def resolve(node):
+            if isinstance(node, Column):
+                return node.column
+            gid = node_group_id(node)
+            if gid in agg_names:
+                return agg_names[gid]
+            columns = self.column_groups.get(gid, [])
+            if len(columns) == 1:
+                return columns[0]
+            return node
+
+        self.regression_cols = {
+            var: resolve(node) for var, node in self.regression_cols.items()
+        }
         self.create_column_group_attributes()
         self.create_agg_attributes()
 
@@ -3303,49 +3358,59 @@ class CapData(param.Parameterized):
                 "lost.  It is recommended to use agg_sensors "
                 "before any filtering methods."
             )
-        self.regression_cols_preprocess = copy.deepcopy(self.regression_cols)
+        side = Side.model_validate({"reg_cols": dict(self.regression_cols)})
+        self.regression_cols_preprocess = side
+        self.regression_cols = dict(side.reg_cols)
         util.process_reg_cols(self.regression_cols, cd=self, verbose=verbose)
         self.filters = []
         self.create_column_group_attributes()
         if "agg" in self.column_groups:
             self.create_agg_attributes()
 
-    def custom_param(self, func, *args, **kwargs):
-        """Applies the function `func` with kwargs and adds result as new column to `data`.
+    def custom_param(self, func, *, output=None, verbose=True, **kwargs):
+        """Run ``func`` on ``data`` and store the result as a new column.
 
-        Calculates and adds a new column to `data` using the function `func` with the
-        provided arguments and keyword arguments. See the functions in the calcparams
-        module for examples.
-
-        Called by `util.process_reg_cols` to add new columns to the `data` attribute
-        while recursively processing and updating the `regression_cols` attribute.
+        Called by ``util.transform_calc_params`` for every ``Calc`` node.
+        Parameters of ``func`` that are **absent** from ``kwargs`` and match
+        an attribute of this ``CapData`` (``power_temp_coeff``, ``site``,
+        ...) are injected from that attribute; a value passed explicitly —
+        including ``None`` — reaches ``func`` unchanged.
 
         Parameters
         ----------
-        func : function
-            Function that takes a DataFrame as its first argument and returns a Series.
+        func : callable
+            Takes ``data`` first and keyword arguments after; returns a Series.
+        output : str or None
+            Column to write. Defaults to ``func.__name__``.
+        verbose : bool, default True
+            Forwarded to ``func`` when it accepts ``verbose``.
+        **kwargs
+            Keyword arguments for ``func``.
 
-        Returns
-        -------
-        None
-            Adds a new column to the `data` attribute.
+        Raises
+        ------
+        ValueError
+            If an absent parameter's name is also a column group id (the
+            call is ambiguous; name it in ``regression_cols``).
         """
-        result = func.__name__
         signature = inspect.signature(func)
         for key in signature.parameters:
-            if key == "data":
+            if key in ("data", "verbose") or key in kwargs:
                 continue
-            if key not in kwargs or kwargs[key] is None:
-                if key in self.column_groups.data:
-                    raise ValueError(
-                        f"The kwarg {key} of the function {func.__name__} is also a "
-                        f"column groups id. "
-                        f"Change the name of the column group id or include the kwarg "
-                        f"in the CapData.regression_cols"
-                    )
-                if hasattr(self, key):
-                    kwargs[key] = getattr(self, key)
-        self.data[result] = func(self.data, *args, **kwargs)
+            if key in self.column_groups.data:
+                raise ValueError(
+                    f"The kwarg {key} of the function {func.__name__} is also a "
+                    f"column groups id. Change the name of the column group id or "
+                    f"include the kwarg in the CapData.regression_cols"
+                )
+            # Same rule as setup.effective_value: an attribute that is None
+            # supplies nothing, so the function's own default applies.
+            value = getattr(self, key, None)
+            if value is not None:
+                kwargs[key] = value
+        if "verbose" in signature.parameters:
+            kwargs["verbose"] = verbose
+        self.data[output or func.__name__] = func(self.data, **kwargs)
 
 
 if __name__ == "__main__":

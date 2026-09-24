@@ -1,4 +1,3 @@
-import copy
 import json
 
 import numpy as np
@@ -113,230 +112,160 @@ class TestReindexDatetime:
 
 
 @pytest.fixture
-def nested_calc_dict():
-    """Create a nested dictionary for testing update_by_path."""
+def dummy_cd(monkeypatch):
+    """A CapData stand-in plus four registered dummy calculations."""
+    from captest.calcparams import CALC_REGISTRY, CalcEntry
 
     class DummyCapData:
         def __init__(self):
             self.data = pd.DataFrame()
-
-        def test_func1(self, **kwargs):
-            self.test_func1_kwargs = kwargs
-            self.data["test_func1"] = np.full(10, 1)
-
-        def test_func2(self, **kwargs):
-            self.test_func2_kwargs = kwargs
-            self.data["test_func2"] = np.full(10, 2)
-
-        def test_func3(self, **kwargs):
-            self.test_func3_kwargs = kwargs
-            self.data["test_func3"] = np.full(10, 3)
-
-        def test_func4(self, **kwargs):
-            self.test_func4_kwargs = kwargs
-            self.data["test_func4"] = np.full(10, 4)
+            self.column_groups = {
+                "real_pwr_mtr": ["metered_power_kw"],
+                "irr_poa": ["pyran1", "pyran2"],
+                "temp_amb": ["temp_amb1", "temp_amb2"],
+                "wind_speed": ["wind_speed1", "wind_speed2"],
+                "irr_rpoa": ["irr_rpoa1", "irr_rpoa2"],
+            }
+            self.calls = {}
 
         def agg_group(self, group_id, agg_func, **kwargs):
             self.agg_group_kwargs = kwargs
-            col_name = group_id + "_" + agg_func
+            col_name = f"{group_id}_{agg_func}_agg"
             self.data[col_name] = np.full(10, 5)
             return col_name
 
-        def custom_param(self, func, *args, **kwargs):
-            setattr(self, f"{func.__name__}_custom_kwargs", kwargs.copy())
-            func(self, **kwargs)
+        def custom_param(self, func, *, output=None, verbose=True, **kwargs):
+            self.calls[func.__name__] = kwargs
+            self.data[output or func.__name__] = func(self.data, **kwargs)
 
-    dummy_cd = DummyCapData()
-    dummy_cd.column_groups = {
-        "real_pwr_mtr": ["metered_power_kw"],
-        "irr_poa": ["pyran1", "pyran2"],
-        "temp_amb": ["temp_amb1", "temp_amb2"],
-        "wind_speed": ["wind_speed1", "wind_speed2"],
-        "irr_rpoa": ["irr_rpoa1", "irr_rpoa2"],
-    }
+    # Explicit signatures: the Calc validator checks args against them.
+    def test_func1(
+        data,
+        power=None,
+        cell_temp=None,
+        factor=None,
+        enabled=None,
+        offset=None,
+        cols=None,
+        nothing=None,
+    ):
+        return np.full(10, 1)
 
-    test_dict = {
-        "power_tc": (
-            DummyCapData.test_func1,
-            {
-                "power": "real_pwr_mtr",
-                "cell_temp": (
-                    DummyCapData.test_func2,
-                    {
-                        "poa": ("irr_poa", "mean"),
-                        "bom": (
-                            DummyCapData.test_func3,
-                            {
-                                "poa": ("irr_poa", "mean"),
-                                "temp_amb": ("temp_amb", "mean"),
-                                "wind_speed": ("wind_speed", "mean"),
-                            },
-                        ),
+    def test_func2(data, poa=None, bom=None):
+        return np.full(10, 2)
+
+    def test_func3(data, poa=None, temp_amb=None, wind_speed=None):
+        return np.full(10, 3)
+
+    def test_func4(data, poa=None, rpoa=None):
+        return np.full(10, 4)
+
+    for f in (test_func1, test_func2, test_func3, test_func4):
+        monkeypatch.setitem(CALC_REGISTRY, f.__name__, CalcEntry(f, (), ()))
+    return DummyCapData()
+
+
+NESTED_TREE = {
+    "power_tc": {
+        "calc": "test_func1",
+        "args": {
+            "power": {"column": "metered_power_kw"},
+            "cell_temp": {
+                "calc": "test_func2",
+                "args": {
+                    "poa": {"group": "irr_poa"},
+                    "bom": {
+                        "calc": "test_func3",
+                        "args": {
+                            "poa": {"group": "irr_poa"},
+                            "temp_amb": {"group": "temp_amb"},
+                            "wind_speed": {"group": "wind_speed"},
+                        },
                     },
-                ),
+                },
             },
-        ),
-        "irr_total": (
-            DummyCapData.test_func4,
-            {
-                "poa": ("irr_poa", "mean"),
-                "rpoa": ("irr_rpoa", "mean"),
-            },
-        ),
-    }
-    return (dummy_cd, test_dict)
+        },
+    },
+    "irr_total": {
+        "calc": "test_func4",
+        "args": {"poa": {"group": "irr_poa"}, "rpoa": {"group": "irr_rpoa"}},
+    },
+}
 
 
-class TestUpdateByPath:
-    """Test the update_by_path function."""
+def _side(tree):
+    from captest.setup import Side
 
-    def test_update_by_path_pass_new_value(self, nested_calc_dict):
-        dummy_cd, test_dict = nested_calc_dict
-        updated_dict = util.update_by_path(
-            test_dict, ["power_tc", 1, "cell_temp", 1, "bom"], new_value="temp_bom"
-        )
-        assert updated_dict["power_tc"][1]["cell_temp"][1]["bom"] == "temp_bom"
-
-    def test_update_by_path_convert_callable(self, nested_calc_dict):
-        dummy_cd, test_dict = nested_calc_dict
-        updated_dict = util.update_by_path(
-            test_dict,
-            ["power_tc", 1, "cell_temp", 1, "bom"],
-            new_value=None,
-            convert_callable=True,
-        )
-        assert updated_dict["power_tc"][1]["cell_temp"][1]["bom"] == "test_func3"
-
-    def test_update_by_path_convert_callable_with_new_value(self, nested_calc_dict):
-        dummy_cd, test_dict = nested_calc_dict
-        updated_dict = util.update_by_path(
-            test_dict,
-            ["power_tc", 1, "cell_temp", 1, "bom"],
-            new_value="temp_bom",
-            convert_callable=True,
-        )
-        assert updated_dict["power_tc"][1]["cell_temp"][1]["bom"] == "temp_bom"
-
-    def test_update_by_path_convert_callable_short_path(self, nested_calc_dict):
-        dummy_cd, test_dict = nested_calc_dict
-        updated_dict = util.update_by_path(
-            test_dict, ["power_tc"], new_value=None, convert_callable=True
-        )
-        assert updated_dict["power_tc"] == "test_func1"
+    return dict(Side.model_validate({"reg_cols": tree}).reg_cols)
 
 
 class TestProcessRegCols:
-    """Test the process_reg_cols function."""
-
-    def test_scalar_literal_kwargs_pass_through(self, nested_calc_dict):
-        """Numeric literals inside calc-tuple kwargs are forwarded unchanged.
-
-        This locks in the behavior that calcparams functions like
-        ``scale(data, col, factor)`` receive their ``factor`` scalar from
-        the TEST_SETUPS nested tuple rather than only from the function
-        signature default.
-        """
-        dummy_cd, _ = nested_calc_dict
-        reg_cols = {
-            "scaled": (
-                type(dummy_cd).test_func1,
-                {
-                    "power": "real_pwr_mtr",
-                    "factor": 100,
-                    "enabled": True,
-                    "offset": 1.5,
-                },
-            ),
-        }
-        dummy_cd.regression_cols = copy.deepcopy(reg_cols)
+    def test_literals_reach_the_calculation_unchanged(self, dummy_cd):
+        dummy_cd.data["metered_power_kw"] = np.full(10, 1.0)
+        reg_cols = _side(
+            {
+                "scaled": {
+                    "calc": "test_func1",
+                    "args": {
+                        "power": {"column": "metered_power_kw"},
+                        "factor": 100,
+                        "enabled": True,
+                        "offset": 1.5,
+                        "cols": ["a", "b"],
+                        "nothing": None,
+                    },
+                }
+            }
+        )
         util.process_reg_cols(reg_cols, cd=dummy_cd)
-        # Scalars survived the walk and were passed to custom_param.
-        assert dummy_cd.test_func1_kwargs["factor"] == 100
-        assert dummy_cd.test_func1_kwargs["enabled"] is True
-        assert dummy_cd.test_func1_kwargs["offset"] == 1.5
-        # The calc tuple was replaced by the function name at the top level.
+        kwargs = dummy_cd.calls["test_func1"]
+        assert kwargs["factor"] == 100 and kwargs["enabled"] is True
+        assert kwargs["offset"] == 1.5 and kwargs["cols"] == ["a", "b"]
+        assert kwargs["nothing"] is None
         assert reg_cols["scaled"] == "test_func1"
 
-    def test_modifies_original_calc_params(self, nested_calc_dict):
-        dummy_cd, test_dict = nested_calc_dict
-        dummy_cd.regression_cols = copy.deepcopy(test_dict)
-        util.process_reg_cols(test_dict, cd=dummy_cd)
-        expected_modified_reg_cols = {
-            "power_tc": "test_func1",
-            "irr_total": "test_func4",
+    def test_nested_tree_evaluates_bottom_up_and_aggregates_once(self, dummy_cd):
+        dummy_cd.data["metered_power_kw"] = np.full(10, 1.0)
+        reg_cols = _side(NESTED_TREE)
+        util.process_reg_cols(reg_cols, cd=dummy_cd)
+        assert reg_cols == {"power_tc": "test_func1", "irr_total": "test_func4"}
+        assert list(dummy_cd.data.columns) == [
+            "metered_power_kw",
+            "irr_poa_mean_agg",
+            "temp_amb_mean_agg",
+            "wind_speed_mean_agg",
+            "test_func3",
+            "test_func2",
+            "test_func1",
+            "irr_rpoa_mean_agg",
+            "test_func4",
+        ]
+        assert dummy_cd.calls["test_func3"] == {
+            "poa": "irr_poa_mean_agg",
+            "temp_amb": "temp_amb_mean_agg",
+            "wind_speed": "wind_speed_mean_agg",
         }
-        # Check that methods of the DummyCapData instance are called with the
-        # correct kwargs in the correct order based on columns added to the
-        # data DataFrame attribute and the kwargs attributes
-        assert isinstance(dummy_cd.data, pd.DataFrame)
-        print(dummy_cd.data)
-        print(dummy_cd.regression_cols)
-        assert dummy_cd.data.shape == (10, 8)
-        expected_columns = pd.Index(
-            [
-                "irr_poa_mean",
-                "temp_amb_mean",
-                "wind_speed_mean",
-                "test_func3",
-                "test_func2",
-                "test_func1",
-                "irr_rpoa_mean",
-                "test_func4",
-            ]
-        )
-        assert dummy_cd.data.columns.equals(expected_columns)
-        assert dummy_cd.test_func1_kwargs == {
-            "power": "metered_power_kw",
-            "cell_temp": "test_func2",
-            "verbose": True,
-        }
-        assert dummy_cd.test_func2_kwargs == {
-            "poa": "irr_poa_mean",
-            "bom": "test_func3",
-            "verbose": True,
-        }
-        assert dummy_cd.test_func3_kwargs == {
-            "poa": "irr_poa_mean",
-            "temp_amb": "temp_amb_mean",
-            "wind_speed": "wind_speed_mean",
-            "verbose": True,
-        }
-        # check that reg_cols is rolled up all the way correctly
-        for k, v in expected_modified_reg_cols.items():
-            assert k in test_dict
-            assert v == test_dict[k]
+
+    def test_missing_column_raises_key_error(self, dummy_cd):
+        reg_cols = _side({"power": {"column": "absent"}})
+        with pytest.raises(KeyError, match="absent"):
+            util.process_reg_cols(reg_cols, cd=dummy_cd)
 
 
 class TestGetOrCreateAggregationReuse:
-    """A pre-existing <group>_<func>_agg column is reused, not re-aggregated.
-
-    This happens e.g. when measured data is loaded from a previously
-    exported test-data csv that already contains aggregated columns. The
-    reuse should be reported when verbose so the absence of an
-    'Aggregating ...' block is explained.
-    """
-
-    def test_reuses_existing_column_and_prints_message(self, nested_calc_dict, capsys):
-        dummy_cd, _ = nested_calc_dict
+    def test_reuses_existing_column_and_prints_message(self, dummy_cd, capsys):
         dummy_cd.data["irr_poa_mean_agg"] = np.full(10, 7)
-        reg_cols = {"poa": ("irr_poa", "mean")}
+        reg_cols = _side({"poa": {"group": "irr_poa"}})
         util.process_reg_cols(reg_cols, cd=dummy_cd)
-        captured = capsys.readouterr()
-        assert (
-            "Reusing existing column 'irr_poa_mean_agg'; skipping "
-            "aggregation of the irr_poa group." in captured.out
-        )
+        assert "Reusing existing column 'irr_poa_mean_agg'" in capsys.readouterr().out
         assert reg_cols["poa"] == "irr_poa_mean_agg"
         assert not hasattr(dummy_cd, "agg_group_kwargs")
 
-    def test_reuse_is_silent_when_verbose_false(self, nested_calc_dict, capsys):
-        dummy_cd, _ = nested_calc_dict
+    def test_reuse_is_silent_when_verbose_false(self, dummy_cd, capsys):
         dummy_cd.data["irr_poa_mean_agg"] = np.full(10, 7)
-        reg_cols = {"poa": ("irr_poa", "mean")}
+        reg_cols = _side({"poa": {"group": "irr_poa"}})
         util.process_reg_cols(reg_cols, cd=dummy_cd, verbose=False)
         assert capsys.readouterr().out == ""
-        assert reg_cols["poa"] == "irr_poa_mean_agg"
-        assert not hasattr(dummy_cd, "agg_group_kwargs")
 
 
 class TestParseRegressionFormula:
@@ -608,44 +537,3 @@ class TestFormatNameList:
 
     def test_non_string_names_are_coerced(self):
         assert util.format_name_list([1, 2]) == "1, 2"
-
-
-class TestRegColsEncodeDecode:
-    """``encode_reg_cols`` / ``decode_reg_cols`` round-trip a calc tree."""
-
-    def test_round_trips_every_preset_through_json(self):
-        import copy
-        import json
-
-        from captest.captest import TEST_SETUPS
-
-        for name, preset in TEST_SETUPS.items():
-            for side in ("reg_cols_meas", "reg_cols_sim"):
-                tree = copy.deepcopy(preset[side])
-                encoded = util.encode_reg_cols(tree)
-                wire = json.loads(json.dumps(encoded))
-                assert util.decode_reg_cols(wire) == tree, (name, side)
-
-    def test_encode_writes_qualnames_and_keeps_pairs(self):
-        from captest.calcparams import multiply
-
-        tree = {"a": ("g", "mean"), "b": (multiply, {"a": ("g", "sum"), "b": "h"})}
-        assert util.encode_reg_cols(tree) == {
-            "a": ("g", "mean"),
-            "b": ("captest.calcparams:multiply", {"a": ("g", "sum"), "b": "h"}),
-        }
-
-    def test_decode_is_a_no_op_on_native_form(self):
-        from captest.calcparams import multiply
-
-        tree = {"a": ("g", "mean"), "b": (multiply, {"a": ("g", "sum")}), "c": "h"}
-        assert util.decode_reg_cols(tree) == tree
-
-    def test_encode_refuses_main_module_callables(self):
-        def f(data, verbose=True):
-            return data
-
-        f.__module__ = "__main__"
-        f.__qualname__ = "f"
-        with pytest.raises(ValueError, match="__main__"):
-            util.encode_reg_cols({"x": (f, {})})

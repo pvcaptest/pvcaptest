@@ -827,7 +827,7 @@ class Sensors(BaseFilter):
         thresholds = self.thresholds
         if thresholds is None:
             if self.method == "percent_diff":
-                thresholds = {regression_cols["poa"]: 0.05}
+                thresholds = {util.reg_col_label(regression_cols["poa"]): 0.05}
             else:
                 raise ValueError(
                     "thresholds is required when method is not 'percent_diff'."
