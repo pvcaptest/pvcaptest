@@ -3957,6 +3957,16 @@ class TestRegressionColumnsDocumentForm:
         assert meas.regression_cols == first
         assert (meas.data["scale"] == meas.data["meter_power"] * 2.0).all()
 
+    def test_process_regression_columns_rejects_a_hand_edited_flat_value(self, meas):
+        meas.regression_cols = {
+            "power": {"column": "meter_power"},
+            "poa": {"group": "irr_poa_pyran"},
+        }
+        meas.process_regression_columns(verbose=False)
+        meas.regression_cols["poa"] = "met1_poa_pyranometer"
+        with pytest.raises(ValueError, match="met1_poa_pyranometer"):
+            meas.process_regression_columns(verbose=False)
+
     def test_process_regression_columns_rejects_uninterpretable_strings(self, meas):
         meas.regression_cols = {"poa": "irr_poa_pyran_mean_agg"}
         with pytest.raises(ValueError, match="plain strings"):

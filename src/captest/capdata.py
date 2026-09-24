@@ -741,6 +741,15 @@ class FilteredLocIndexer:
         return index_capdata(self._capdata, label, filtered=True)
 
 
+def _produced_column(node):
+    """Column ``util.transform_calc_params`` returns for a top-level node."""
+    if isinstance(node, Group):
+        return util.get_agg_column_name(node.group, node.agg)
+    if isinstance(node, Column):
+        return node.column
+    return node.calc
+
+
 class CapData(param.Parameterized):
     """
     Class to store capacity test data and column grouping.
@@ -1685,12 +1694,13 @@ class CapData(param.Parameterized):
         Notes
         -----
         After aggregating, `regression_cols` is flattened: each column node
-        becomes its column name, each group node or group id that was
-        aggregated (or whose aggregate column already existed) becomes the
-        aggregate column name, and a single-column group becomes its column.
-        A group node whose group was not aggregated in this call (not in an
-        explicit `agg_map`, or aggregated with a different function than the
-        node's explicit ``agg``) is left unchanged.
+        becomes its column name; each group node or group id whose group is in
+        the aggregation map used by this call (aggregated now, or skipped
+        because that aggregate column already existed) becomes the aggregate
+        column name; and a single-column group becomes its column. A group node
+        whose group is not in that map, or whose explicit ``agg`` differs from
+        the function the map applied to its group, is left unchanged (an
+        existing ``<group>_<agg>_agg`` column for it is not looked up).
 
         This method is intended to be used before any filtering methods are applied.
         It clears the `filters` list, so any filtering steps already applied are
@@ -3389,9 +3399,10 @@ class CapData(param.Parameterized):
         :func:`captest.util.process_reg_cols`.
 
         Calling this again once `regression_cols` has been flattened (every
-        value a string, and `regression_cols_preprocess` covering the same
-        variables) re-runs the evaluation from `regression_cols_preprocess`,
-        so every calculation overwrites its output column again.
+        value a string, equal to the column `regression_cols_preprocess`
+        produces for that variable) re-runs the evaluation from
+        `regression_cols_preprocess`, so every calculation overwrites its
+        output column again.
 
         Parameters
         ----------
@@ -3404,7 +3415,8 @@ class CapData(param.Parameterized):
         ------
         ValueError
             If `regression_cols` holds plain strings that cannot be re-run from
-            `regression_cols_preprocess` (none stored, or different variables).
+            `regression_cols_preprocess` (none stored, different variables, or
+            a flattened value edited by hand).
         pydantic.ValidationError
             If a mapping or node is invalid (unknown calculation, bad args,
             clashing output columns, ...).
@@ -3431,8 +3443,9 @@ class CapData(param.Parameterized):
         """Return the ``Side`` that `process_regression_columns` evaluates.
 
         Plain-string values mean `regression_cols` was already flattened; the
-        stored `regression_cols_preprocess` is reused when it covers the same
-        variables. Any other string value cannot be interpreted as a node.
+        stored `regression_cols_preprocess` is reused when every string is
+        exactly the column its node produces. Any other string value (including
+        a hand-edited flattened value) cannot be interpreted as a node.
         """
         strings = {
             var: value
@@ -3442,11 +3455,9 @@ class CapData(param.Parameterized):
         if not strings:
             return Side.model_validate({"reg_cols": dict(self.regression_cols)})
         previous = self.regression_cols_preprocess
-        if (
-            len(strings) == len(self.regression_cols)
-            and isinstance(previous, Side)
-            and set(previous.reg_cols) == set(self.regression_cols)
-        ):
+        if isinstance(previous, Side) and strings == {
+            var: _produced_column(node) for var, node in previous.reg_cols.items()
+        }:
             return previous
         raise ValueError(
             f"regression_cols holds plain strings {strings} that cannot be "
