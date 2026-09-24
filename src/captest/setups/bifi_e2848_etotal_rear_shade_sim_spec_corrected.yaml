@@ -14,8 +14,7 @@ description: >-
   use 'bifi_e2848_etotal_rear_shade_meas_spec_corrected'. Total irradiance
   is E_Total = E_POA + E_Rear * bifaciality with the spectral correction
   applied to E_POA.
-reg_fml: power ~ poa + I(poa * poa) + I(poa * t_amb) + I(poa * w_vel) -
-  1
+reg_fml: power ~ poa + I(poa * poa) + I(poa * t_amb) + I(poa * w_vel) - 1
 meas:
   reg_cols:
     power: {group: real_pwr_mtr, agg: sum}

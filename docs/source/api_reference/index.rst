@@ -11,6 +11,7 @@ API Reference
    io
    capdata
    captest
+   setup
    filters
    prep
    clearsky

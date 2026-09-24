@@ -89,7 +89,7 @@ There are two levels of API.
 
 **CapData (single dataset):**
 1. Load data with `load_data(...)` (measured) or `load_pvsyst(...)` (simulated).
-2. Set `regression_cols` / `regression_formula` (or run `process_regression_columns()`); optionally aggregate sensors.
+2. Set `regression_cols` / `regression_formula`: each formula variable maps to a node — `{group: id, agg: fn}`, `{column: name}` or `{calc: name, args: {...}}` (`set_regression_cols` builds `Group` / `Column` nodes) — then `process_regression_columns()` evaluates the nodes and flattens `regression_cols` to `{variable: column}`; optionally aggregate sensors.
 3. Apply filters. Each filter is a `param`-based step class in `filters.py` (`Irradiance`, `Time`, ...); the `CapData.filter_*(...)` methods are thin wrappers that build the step and `run()` it, appending it to the `filters` list. The wrappers always act in place (there is no `inplace` kwarg) and accept an optional `custom_name` label. `data_filtered` is a **derived read-only property** over that list (no setter; clear with `reset_filter()`).
 4. Compute reporting conditions with `rep_cond(...)` — a thin wrapper that appends a zero-removal `RepCond` step.
 5. Fit regression with `fit_regression(...)`.
@@ -97,7 +97,7 @@ There are two levels of API.
 
 **CapTest (measured + modeled pair):**
 1. Build with `CapTest.from_params(...)`, `CapTest.from_yaml(path, ...)`, or bare + `setup()`. `test_setup` selects a `TEST_SETUPS` preset, or `"custom"` (which requires `reg_cols_meas` / `reg_cols_sim` / `reg_fml` overrides).
-2. `setup()` propagates config to `ct.meas` / `ct.sim` and resolves regression columns; the user then applies filters / `rep_cond` on each `CapData` directly (CapTest is a config + state container, not a runner).
+2. `setup()` resolves the setup, propagates config to `ct.meas` / `ct.sim`, runs the tier-2 project-fit check, and evaluates the regression columns; the user then applies filters / `rep_cond` on each `CapData` directly (CapTest is a config + state container, not a runner).
 3. Compare measured vs. modeled with `ct.captest_results(...)`.
 4. `ct.to_yaml(path)` writes the full test config — parameters plus both `meas`/`sim` filter pipelines — to one file; `from_yaml(...)` reloads and re-applies it.
 
@@ -117,9 +117,16 @@ There are two levels of API.
 
 **`src/captest/captest.py`** — Test orchestrator (v0.15)
 - `CapTest` (a `param.Parameterized`): a config + state container binding a measured and a modeled `CapData` to a named preset, holding all test-level parameters. It is intentionally not a runner — users still call `ct.meas.filter_*(...)` / `rep_cond(...)` / `fit_regression()` themselves.
-- `TEST_SETUPS`: registry of named regression presets (`e2848_default`, bifacial and spectral-corrected variants). `test_setup="custom"` requires explicit `reg_cols_meas` / `reg_cols_sim` / `reg_fml` overrides.
-- Constructors: `from_params(...)` (auto-runs `setup()` when both `meas` and `sim` are supplied), `from_yaml(path, key="captest", meas_loader=, sim_loader=)`, and `from_mapping(...)`. `setup()` resolves the preset and wires regression state onto both `CapData` instances; `captest_results(...)` runs the measured-vs-modeled comparison.
-- `to_yaml(path)` writes the single config file (scalar params + `meas_filters` / `sim_filters` pipelines); `_serialize_rep_conditions` / `perc_wrap` handle the `perc_N` percentile encoding (now shared via `util`).
+- `TEST_SETUPS: dict[str, TestSetup]`: named regression presets (`e2848_default`, bifacial and spectral-corrected variants) loaded at import by `load_presets()` from the package-data yaml documents in `src/captest/setups/<name>.yaml` (`SETUPS_DIR`); the file stem must equal `name`. `SCATTER_REGISTRY` maps a setup's `scatter_plots` name to its function. `test_setup="custom"` requires complete `reg_cols_meas` / `reg_cols_sim` / `reg_fml` overrides.
+- `resolve_test_setup(name, overrides)` returns a `TestSetup`: `reg_cols_meas` / `reg_cols_sim` overrides merge **key by key** onto the preset (`None` removes a term), `rep_conditions` partial-merges, `reg_fml` / `params` / `scatter_plots` replace; an override that changes nothing collapses back onto the preset itself (same digest). `CapTest.params` / `scatter_plots_name` are the `params` / `scatter_plots` overrides; `CapTest.resolved_setup` holds the resolved `TestSetup` after `setup()`; `check_fit()` returns the tier-2 findings without running `setup()`.
+- Constructors: `from_params(...)` (auto-runs `setup()` when both `meas` and `sim` are supplied), `from_yaml(path, key="captest", meas_loader=, sim_loader=)`, and `from_mapping(...)`. `setup()` resolves the setup, propagates `DOWNSTREAM_PARAMS`, raises `SetupFitError` before writing any column, then evaluates the node trees on both `CapData` instances; `captest_results(...)` runs the measured-vs-modeled comparison.
+- `to_yaml(path)` / `to_mapping()` write the single config file (scalar params + `overrides` + `meas_filters` / `sim_filters` pipelines); they resolve the setup first (an invalid config raises instead of writing an unloadable file), and `overrides.reg_cols_*` holds only the terms that differ from the preset (full sides under `custom`). `rep_conditions.func` values stay `"mean"` / `"median"` / `"perc_N"` strings; `CapTest.rep_cond` resolves `perc_N` to `util.perc_wrap(N)`.
+
+**`src/captest/setup.py`** — Test setup documents
+- pydantic v2 model of a setup as pure data: node kinds `Group` (`{group, agg}`, writes `<group>_<agg>_agg`), `Column` (`{column}`), `Calc` (`{calc, args}`, keyword-only args, writes a column named for the registry key) and literals (only inside `args`; no shorthand — a bare string is always a literal); `Side`, `RepConditions`, `TestSetup` (`to_dict` / `content_digest` / `load` (path or mapping) / `loads` (text) / `to_yaml` / `to_json` / `json_schema`).
+- Tier 1 (model validators, on every load): registry names with did-you-mean hints, required/unknown `args`, formula variables present on both sides, `func` keys ⊆ rhs, one producer per output column, `params` keys ⊆ `DOWNSTREAM_PARAMS`. Tier 2 `check_project_fit(setup, side, cd) -> list[FitError]` (raised together as `SetupFitError`) checks groups/columns/`requires_params`/`requires_import` against a project without reading data; it ignores the generated `agg` / `*_aggs` column groups for its shadow checks. Tier 3 is runtime.
+- `derive(base, **changes)` (also `TestSetup.derive`): key-by-key `reg_cols_*` merge, `None` removes a term, wholesale replacement of other fields, prunes `rep_conditions.func` entries no longer on the rhs.
+- **Never imports `capdata` or `captest`** — tier 2 takes the `CapData` as a duck-typed runtime argument. Also home of `canonical_json` and `parse_regression_formula` (re-exported by `util`).
 
 **`src/captest/filters.py`** — Filter step classes
 - `BaseSummaryStep` / `BaseFilter` base classes plus concrete steps (`Irradiance`, `Time`, `Pvsyst`, `Shade`, `Days`, `PowerFactor`, `Power`, `Missing`, `Sensors`, `Outliers`, `Clearsky`, `Custom`, `Regression`, `RepCond`). Each declares its config as `param` parameters and implements `_execute(capdata)` returning the kept index; `run()` records `ix_after` / `pts_after` and appends itself to `capdata.filters`.
@@ -130,6 +137,7 @@ There are two levels of API.
 
 **`src/captest/calcparams.py`** — Derived measured values
 - Functions to calculate derived values from measured data (e.g. back-of-module temperature from POA, wind speed, and ambient temperature via the Sandia model).
+- `CALC_REGISTRY` / `@register_calc(name=None, *, requires_params=(), requires_import=())`: every public calculation is registered by name, which is how a `Calc` node refers to it (custom calculations register the same way before a setup naming them loads). `CapData.custom_param(func, *, output=None, ...)` injects a `CapData` attribute only for an argument absent from the node's `args`; `tests/test_calc_params.py` checks each declaration against the function source.
 
 **`src/captest/columngroups.py`** — Column grouping
 - `group_columns(...)`: infers semantic groups from raw column names using type/subtype/sensor keyword dictionaries
@@ -145,7 +153,7 @@ There are two levels of API.
 - Results wrapped in `PrResults` with aggregate PR outputs and per-timestep data
 
 ### Public API Surface
-`src/captest/__init__.py` re-exports `load_data`, `load_pvsyst`, `DataLoader` (from `io`) and `CapTest`, `TEST_SETUPS`, `load_config` (from `captest`), plus submodules `capdata`, `captest`, `io`, `columngroups`, `calcparams`, `clearsky`, `plotting`, `prtest`, `util`. (`filters.py` is internal — imported by `capdata`, not re-exported.)
+`src/captest/__init__.py` re-exports `load_data`, `load_pvsyst`, `DataLoader` (from `io`) and `CapTest`, `TEST_SETUPS`, `load_config` (from `captest`), plus submodules `capdata`, `captest`, `io`, `columngroups`, `calcparams`, `clearsky`, `plotting`, `prtest`, `util`. (`filters.py` is internal — imported by `capdata`, not re-exported. `setup.py` is public but not re-exported by name; import it as `captest.setup`.)
 
 ## Test Layout
 - Use pytest as the testing framework.

@@ -18,19 +18,62 @@ semantics as the Overlay plot's columns filter), where `group_regex` matches
 `column_groups` ids. Accepted by `prep_convert_units`, `prep_scale`, and
 `prep_astype`; `RenameColumns` continues to reject all selectors in favor of
 `column_map`.
+- `captest.setup`: `TestSetup` documents with tier-1 validation, `derive`,
+`content_digest`, `TestSetup.load` / `to_yaml` / `to_json` / `json_schema`,
+and tier-2 `check_project_fit`; `CapTest.check_fit()`; `CapTest.params` and
+`CapTest.scatter_plots_name` overrides; `calcparams.register_calc` /
+`CALC_REGISTRY`; `captest.SCATTER_REGISTRY`.
+- `TestSetup.derive(base, **changes)` is a static alias of `setup.derive`;
+`TestSetup.load` accepts a path (`str` or `Path`) or a mapping and
+`TestSetup.loads` accepts yaml or json document text.
+- `CapTest.resolved_setup` holds the complete `TestSetup` that `setup()`
+resolved (`None` before `setup()`); read `resolved_setup.to_dict()` /
+`content_digest()` for the normalised setup and its identity.
+- `captest.captest.load_presets` and `SETUPS_DIR` (the shipped preset
+directory); `util.canonical_json` and `util.reg_col_label`.
+
+### Changed
+- **Breaking:** test setups are now pure-data documents. `regression_cols`
+trees use tagged nodes — `{group: irr_poa, agg: mean}`, `{column: E_Grid}`,
+`{calc: e_total, args: {...}}` — instead of `(group, agg)` / `(callable,
+kwargs)` tuples, and every calculation is referenced by its registry name.
+The tuple grammar is not accepted anywhere. Presets ship as
+`src/captest/setups/<name>.yaml` and `TEST_SETUPS` holds
+`captest.setup.TestSetup` models. `reg_cols_meas` / `reg_cols_sim` overrides
+merge key by key onto the preset (`null` removes a term) and `to_yaml` writes
+only the changed terms. `rep_conditions.func` values are the strings `mean`,
+`median` or `perc_N`; `perc_wrap(...)` callables are no longer accepted in a
+setup or override. `CapData.custom_param` gains `output=` and injects
+`CapData` attributes only for absent keyword arguments (an explicit `None`
+now reaches the function). New dependency: `pydantic>=2.5,<3`.
+- `pyyaml>=6` is now a declared core dependency alongside `pydantic` (setup
+documents are read with `yaml.safe_load`).
+- `CapTest.setup()` runs the tier-2 project-fit check before writing any
+column and raises `setup.SetupFitError` listing every finding. The
+`*_rear_shade_sim` presets declare `params: {rear_shade: 0}`, so they now
+refuse a non-zero `CapTest.rear_shade` instead of double-counting the rear
+shading loss.
+- `CapTest.to_yaml` / `to_mapping` now resolve the setup and raise for an
+incomplete or invalid config (e.g. a `custom` test missing a side or the
+formula) rather than writing a file that cannot be loaded. An override that
+leaves the preset unchanged resolves to the preset itself, so it keeps the
+preset's `content_digest()` across a round trip.
+- `CapData.set_regression_cols` builds nodes: a column group id becomes a
+`Group` node, a single-column group becomes a `Column` node for its one
+column (used as is, not aggregated), and any other name a `Column` node.
+- `CapData.agg_sensors` honours an explicitly given `Group.agg` in
+`regression_cols` and falls back to its per-variable default (sum for
+power, mean otherwise) only when `agg` is unset.
+- `CapData.process_regression_columns` can be re-run on already flattened
+`regression_cols`: each string equal to the column its stored node produced
+is evaluated again from that node; any other plain string raises
+`ValueError`.
+
+### Removed
+- `util.encode_reg_cols`, `util.decode_reg_cols`, `util.update_by_path`,
+`captest.validate_test_setup`.
 
 ### Fixed
-- `to_yaml` / `to_mapping` can now serialize a `reg_cols_meas` / `reg_cols_sim`
-override that contains calculation callables (every spec-corrected and
-bifacial preset's tree does, and overriding one key replaces the whole
-dict): each callable is written as its `module:qualname` import string, the
-encoding `RepCond.func` already used, and `from_yaml` / `from_mapping` import
-it back. Previously `to_yaml` failed with a yaml `RepresenterError`.
-- `from_yaml` / `from_mapping` now turn the two-element lists a yaml or json
-file holds for `(group_id, agg)` and `(callable, kwargs)` pairs back into
-tuples. Previously a regression-columns override read from a file was left as
-lists, which `process_reg_cols` does not recognise, and `run_test` failed with
-`TypeError: unhashable type: 'list'`.
 - `CapData.copy()` now carries over the `site` and `tolerance` attributes,
 which it previously dropped. Copies are the basis of the load-once,
 copy-per-run pattern, and a dropped `site` made `filter_backtracking` (and the

@@ -1,27 +1,33 @@
 ---
 name: add-test-setup
-description: Use when adding a new preset/entry to the captest TEST_SETUPS registry in src/captest/captest.py — turning a brief description of a capacity-test regression (monofacial, bifacial e_total, spectral-corrected, temperature-corrected) into a complete, validated test-setup dict plus its test coverage. Triggers include "add a test setup", "new TEST_SETUPS preset", "add an e2848/bifacial/spectral preset", or a one-line description of a regression form to register.
+description: Use when adding a new preset to the captest TEST_SETUPS registry — turning a brief description of a capacity-test regression (monofacial, bifacial e_total, spectral-corrected, temperature-corrected) into a complete, validated yaml preset document in `src/captest/setups/` plus its digest, fixture, oracle and docs entry. Triggers include "add a test setup", "new TEST_SETUPS preset", "add an e2848/bifacial/spectral preset", or a one-line description of a regression form to register.
 ---
 
 # Adding a captest TEST_SETUPS preset
 
-`TEST_SETUPS` (in `src/captest/captest.py`) maps a preset name to a dict that
-fully specifies a capacity-test regression: how measured and simulated columns
-map to regression variables, the regression formula, the scatter plot, and the
-reporting conditions. This skill turns a **brief description** into a complete,
-validated entry and a review summary, then (after approval) full test coverage.
+A preset is a **yaml document** in `src/captest/setups/<name>.yaml`. At import,
+`captest.captest.load_presets()` reads every file in that directory into
+`TEST_SETUPS: dict[str, captest.setup.TestSetup]`, validating each one (tier 1),
+so a broken preset fails `import captest`. The document says how measured and
+simulated columns map to regression variables, the regression formula, the
+scatter plot, the reporting conditions and any test-level parameters the setup
+requires. It is pure data: every calculation is referenced by its name in
+`captest.calcparams.CALC_REGISTRY`, never as a Python object.
+
+This skill turns a **brief description** into a complete, validated preset and a
+review summary, then (after approval) the fixture lines and docs entry.
 
 **Do not skip the approval gates.** Two things get explicit user sign-off before
-you build downstream: the **regression equation** and the **assembled dict
-summary**. Build nothing past a gate until the user approves it.
+you build downstream: the **regression equation** and the **review summary** of
+the assembled document. Build nothing past a gate until the user approves it.
 
 ## Inputs you expect
 
 - **A brief description** of the test type (required). You will expand it.
 - **A regression equation** (optional). If absent, you propose one and get
-  approval before building the dict.
-- Convention: `reg_cols_meas` leaves are measured **column-group** refs
-  `(group, agg)`; `reg_cols_sim` leaves are PVsyst **column-name** strings.
+  approval before writing the document.
+- Convention: `meas` leaves are **column-group** nodes `{group: <id>, agg: <fn>}`;
+  `sim` leaves are PVsyst **column** nodes `{column: <PVsyst name>}`.
 
 ## Workflow
 
@@ -29,12 +35,12 @@ summary**. Build nothing past a gate until the user approves it.
 brief description
   → 1. expand description to match existing detail level
   → 2. regression equation: use given, OR propose → APPROVAL GATE
-  → 3. map each variable to reg_cols_meas / reg_cols_sim (building-block catalog)
-  → 4. choose scatter callable
-  → 5. rep_conditions
-  → 6. assemble dict → validate + resolve + end-to-end probe → just fmt
+  → 3. write src/captest/setups/<name>.yaml in the node grammar (copy nearest preset)
+  → 4. params (sim side carries rear shading and meas side calls e_total)
+  → 5. prove it loads
+  → 6. digest line, PRESET_FIXTURES entry, oracle capture
   → 7. review summary → APPROVAL GATE
-  → 8. (after approval) fixtures + exclusion + 4-layer test coverage
+  → 8. docs entry in docs/source/api_reference/captest.rst
 ```
 
 ### Step 1 — Expand the description
@@ -43,8 +49,9 @@ Match the detail level of the existing `description` fields. A good description
 states, in prose: the regression form (which ASTM E2848 variant), what each
 correction does and **which side it lives on** (modeled vs measured), the
 measured→simulated variable mapping in words, the governing equation, and a
-cross-reference to any sibling variant. Read 2–3 existing entries first and mirror
-their voice and length (~4–10 lines).
+cross-reference to any sibling variant. Read 2–3 existing files in
+`src/captest/setups/` first and mirror their voice and length (~4–10 lines). Write
+it as a folded block scalar (`description: >-`).
 
 ### Step 2 — Regression equation (APPROVAL GATE)
 
@@ -57,208 +64,212 @@ power ~ poa + I(poa * poa) + I(poa * t_amb) + I(poa * w_vel) - 1
 
 - `lhs` must be `power` (a project naming convention enforced by tests).
 - For bifacial e_total presets, `poa` *is* the total-irradiance column — the
-  formula text is unchanged; the meaning of `poa` changes via the calc-tree.
+  formula text is unchanged; the meaning of `poa` changes via the `calc` node.
 - `power ~ poa + rpoa` is the two-term bifacial temp-corrected form.
 
 **Formula syntax (Patsy).** Regression formulas use the Patsy formula
 mini-language (the same one statsmodels consumes via `smf.ols`):
-https://patsy.readthedocs.io/en/latest/formulas.html. The string must be a valid
-Patsy expression — e.g. `I(...)` wraps arithmetic so `*` means multiply rather
-than Patsy's interaction operator, and `- 1` drops the intercept. A
-user-supplied formula must parse as valid Patsy.
+https://patsy.readthedocs.io/en/latest/formulas.html. `I(...)` wraps arithmetic so
+`*` means multiply rather than Patsy's interaction operator, and `- 1` drops the
+intercept. A formula that does not parse is a tier-1 error at `reg_fml`.
 
-**Terms must match the reg_cols keys.** Every variable (term) in the formula —
-lhs and rhs — must match a **top-level key** of both `reg_cols_meas` and
-`reg_cols_sim`. `CapData.process_regression_columns` builds, from each reg_cols
-dict, a mapping from regression term (key) → the column name that term resolves
-to in `CapData.data`; a term with no matching key has no column to fit against.
-`validate_test_setup` enforces this: the formula's lhs+rhs must be a subset of
-both reg_cols dicts' keys.
+**Terms must match the reg_cols keys.** Every variable in the formula — lhs and
+rhs — must be a top-level key of both `meas.reg_cols` and `sim.reg_cols`
+(tier 1 rejects a missing one). Keep `reg_fml` on one line in the file.
 
-### Step 3 — Map variables to columns (building-block catalog)
+### Step 3 — Write the document (node grammar)
 
-Each `reg_cols_*` value is **either** a direct ref **or** a *calc-tuple*
-`(func, {arg: <nested spec>})`, where each nested spec is itself a direct ref or
-another calc-tuple. Direct refs: meas `("group", "agg")`; sim `"ColName"`.
+Copy the nearest existing preset to `src/captest/setups/<name>.yaml` and edit it.
+The file name must equal `name:`. Top-level fields: `name`, `description`,
+`reg_fml`, `meas`, `sim`, optional `params`, `rep_conditions`, `scatter_plots`
+(`derived_from` is optional provenance only).
+
+Each `reg_cols` value is a **node**, a mapping with exactly one of these keys:
+
+| Node | Meaning |
+|---|---|
+| `{group: irr_poa, agg: mean}` | aggregate a column group (`agg`: mean/sum/median/min/max; default mean); writes `irr_poa_mean_agg` |
+| `{column: GlobInc}` | one column of `data` by name |
+| `{calc: e_total, args: {...}}` | a registered calculation; `args` are **keyword-only**, each value a node or a literal; writes a column named `e_total` |
+
+Literals (`"cdte"`, `100`, `true`, `null`, `[1, 2]`) are allowed only as `args`
+values. There is **no shorthand**: a bare string is always a literal, so a PVsyst
+column is `{column: E_Grid}`, never `E_Grid`. A mapping without one of the three
+keys is an error, and so is a top-level `reg_cols` value that is a literal.
 
 Sim leaves are exact PVsyst output-variable names (e.g. `GlobInc`, `GlobBak`,
-`E_Grid`, `TArray`, `PrecWat`). To confirm a variable exists or find its correct
-abbreviation, check the PVsyst docs — meteo & irradiance variables:
+`E_Grid`, `TArray`, `PrecWat`). To confirm a variable exists, check the PVsyst
+docs — meteo & irradiance variables:
 https://www.pvsyst.com/help/project-design/results/simulation-variables-meteo-and-irradiations.html
 and grid-system variables:
 https://www.pvsyst.com/help/project-design/results/simulation-variables-grid-system.html.
-A variable absent from PVsyst output cannot be a `reg_cols_sim` leaf (the
-sim-side `validate_test_setup` / `process_regression_columns` checks will fail).
 
-Calc functions live in `captest.calcparams`. Catalog (arg → wire as nested spec):
+Calculation catalog (`captest.calcparams`, registered under these names; list
+them with `sorted(CALC_REGISTRY)`):
 
-| Function | Computes | Wire as |
+| `calc` | Computes | `args` |
 |---|---|---|
-| `e_total` | total effective irr = front + rear·bifaciality·… | `(e_total, {"poa": <front>, "rpoa": <rear>})` |
-| `rpoa_pvsyst` | modeled rear with shading baked in | `(rpoa_pvsyst, {"globbak": "GlobBak", "backshd": "BackShd"})` |
-| `poa_spec_corrected` | spectrally corrected front POA | `(poa_spec_corrected, {"poa": <poa>, "spectral_correction": <spec>})` |
-| `spectral_factor_firstsolar` | First Solar spectral factor | `(spectral_factor_firstsolar, {"precipitable_water": <pw>, "absolute_airmass": <am>})` |
-| `precipitable_water_gueymard` | pw from temp + RH (meas) | `(precipitable_water_gueymard, {"temp_amb": ("temp_amb","mean"), "rel_humidity": ("humidity","mean")})` |
-| `scale` | scale a column (sim pw: PrecWat·100) | `(scale, {"col": "PrecWat", "factor": 100})` |
-| `absolute_airmass` | airmass from zenith (+pressure on meas) | `(absolute_airmass, {"apparent_zenith": <z>, "pressure": ("pressure","mean")})` |
-| `apparent_zenith` / `apparent_zenith_pvsyst` | solar zenith (meas / PVsyst ½-hr shift) | `(apparent_zenith, {})` / `(apparent_zenith_pvsyst, {})` |
-| `power_temp_correct` | temperature-corrected power | `(power_temp_correct, {"power": <p>, "cell_temp": <ct>})` |
-| `cell_temp` | Sandia cell temp from POA + BOM | `(cell_temp, {"poa": ("irr_poa","mean"), "bom": <bom>})` |
-| `bom_temp` | modeled BOM temp | `(bom_temp, {"poa": (...), "temp_amb": (...), "wind_speed": (...)})` |
+| `e_total` | total effective irr = front + rear·bifaciality·… | `{poa: <front>, rpoa: <rear>}` |
+| `rpoa_pvsyst` | modeled rear with shading baked in | `{globbak: {column: GlobBak}, backshd: {column: BackShd}}` |
+| `poa_spec_corrected` | spectrally corrected front POA | `{poa: <poa>, spectral_correction: <spec>}` |
+| `spectral_factor_firstsolar` | First Solar spectral factor | `{precipitable_water: <pw>, absolute_airmass: <am>}` |
+| `precipitable_water_gueymard` | pw from temp + RH (meas) | `{temp_amb: {group: temp_amb, agg: mean}, rel_humidity: {group: humidity, agg: mean}}` |
+| `scale` | scale a column (sim pw: PrecWat·100) | `{col: {column: PrecWat}, factor: 100}` |
+| `absolute_airmass` | airmass from zenith (+pressure on meas) | `{apparent_zenith: <z>, pressure: {group: pressure, agg: mean}}` |
+| `apparent_zenith` / `apparent_zenith_pvsyst` | solar zenith (meas / PVsyst ½-hr shift) | `{}` |
+| `power_temp_correct` | temperature-corrected power | `{power: <p>, cell_temp: <ct>}` |
+| `cell_temp` | Sandia cell temp from POA + BOM | `{poa: {group: irr_poa, agg: mean}, bom: <bom>}` |
+| `bom_temp` | modeled BOM temp | `{poa: ..., temp_amb: ..., wind_speed: ...}` |
 
-Scalars like `bifaciality`, `bifacial_frac`, `rear_shade` are **not** wired in the
-dict — they flow in from `CapTest` attributes. `rear_shade` is **meas-only**:
-the `_sim` variant bakes shading into the modeled rear via `rpoa_pvsyst`; the
-`_meas` variant maps sim rear directly to `"GlobBak"` and applies `rear_shade` on
-the measured side. Name variants `..._sim` / `..._meas` accordingly.
+A calculation the catalog lacks must first be added to `calcparams.py` with
+`@register_calc(requires_params=..., requires_import=...)` (the
+registry-declaration tests in `tests/test_calc_params.py` check the declaration
+against the source). A document never imports code.
+
+Scalars like `bifaciality`, `bifacial_frac`, `rear_shade`, `power_temp_coeff` are
+**not** written in `args` — `CapData.custom_param` injects them from the `CapData`
+attributes `CapTest.setup()` propagates. Give one in `args` only to override the
+test-wide value for that one calculation. `rear_shade` is **meas-only**: the `_sim`
+variant bakes shading into the modeled rear via `rpoa_pvsyst`; the `_meas` variant
+maps the sim rear to `{column: GlobBak}` and applies `rear_shade` on the measured
+side. Name variants `..._sim` / `..._meas` accordingly.
 
 Sim spectral note: the PVsyst side uses `apparent_zenith_pvsyst` and **omits
 `pressure`** (pvlib sea-level default); meas uses `apparent_zenith` + measured
 `pressure`.
 
-### Step 4 — Scatter callable
+One column per producer: two nodes on one side may write the same column only if
+they are identical, so do not use the same `calc` twice on a side with different
+`args`.
+
+`scatter_plots` is a name in `captest.SCATTER_REGISTRY`:
 
 | Regression form | `scatter_plots` |
 |---|---|
-| POA-based / generic | `scatter_default` |
-| e_total-based (incl. spectral e_total) | `scatter_etotal` |
-| `power ~ poa + rpoa` (two-panel) | `scatter_bifi_power_tc` |
+| POA-based / generic | `default` |
+| e_total-based (incl. spectral e_total) | `etotal` |
+| `power ~ poa + rpoa` (two-panel) | `bifi_power_tc` |
 
-### Step 5 — rep_conditions
+`rep_conditions` default shape (override only with reason):
 
-Default shape (override only with reason):
-
-```python
-"rep_conditions": {
-    "irr_bal": False,
-    "percent_filter": 20,
-    "func": {"poa": perc_wrap(60), "t_amb": "mean", "w_vel": "mean"},
-},
+```yaml
+rep_conditions:
+  irr_bal: false
+  percent_filter: 20
+  func: {poa: perc_60, t_amb: mean, w_vel: mean}
 ```
 
-**`func` keys must be exactly the rhs variables of `reg_fml`** — no more, no less.
-`validate_test_setup` raises if `func` has a non-rhs key. Drop a variable from the
-formula → drop it from `func`.
+`func` values are the strings `mean`, `median` or `perc_N` (never a `perc_wrap`
+callable), and **`func` keys must be rhs variables of `reg_fml`** — tier 1 rejects
+any other key. Drop a variable from the formula → drop it from `func`.
 
-### Step 6 — Assemble, validate, probe, format
+### Step 4 — `params`
 
-Add the entry to the dict, then verify before showing the user:
+`params` maps a `CapTest` downstream parameter to the value the setup
+**requires**; tier 2 (`CapTest.setup()` / `check_fit()`) raises
+`SetupFitError` when the value a calculation would receive differs. When the sim
+side carries rear shading (`rpoa_pvsyst`) and the meas side calls `e_total`, add
 
-```python
-import warnings, captest.captest as ct
-from captest import CapTest
-
-name = "your_new_preset"
-ct.validate_test_setup(ct.TEST_SETUPS[name])  # raises on bad shape
-ct.resolve_test_setup(name)  # raises on bad formula/cols
-# end-to-end probe with fixtures that satisfy the preset's required inputs
-with warnings.catch_warnings():
-    warnings.simplefilter("ignore")
-    capt = CapTest.from_params(
-        test_setup=name,
-        meas=meas_cd,
-        sim=sim_cd,
-        ac_nameplate=6_000_000,
-        bifaciality=0.15,
-    )
+```yaml
+params: {rear_shade: 0}
 ```
 
-Then **always run `just fmt`** — nested dict literals over-indent silently; this
-passes Python and tests but fails formatting. Run `just lint` too.
+so a non-zero measured `rear_shade` is refused instead of double-counting the
+loss. Omit `params` otherwise.
+
+### Step 5 — Prove it loads
+
+```bash
+uv run python -c "from captest.captest import TEST_SETUPS; print(TEST_SETUPS['<name>'])"
+```
+
+A tier-1 error names the document path (e.g. `meas.reg_cols.poa.args.rpoa`).
+Then run an end-to-end probe with fixtures that satisfy the preset's inputs
+(`tests/setup_fixtures.py` builders), e.g.
+`CapTest.from_params(test_setup=name, meas=..., sim=..., ac_nameplate=6_000_000,
+bifaciality=0.15)`, and check `tst.check_fit()` is empty.
+
+### Step 6 — Digest, fixture, oracle
+
+The parametrised preset tests pick the new file up by directory listing and fail
+until these exist:
+
+1. **Digest** — add `"<name>": "<digest>"` to `tests/data/setup_digests.json`
+   (keys sorted), where the digest is
+   `uv run python -c "from captest.captest import TEST_SETUPS; print(TEST_SETUPS['<name>'].content_digest())"`.
+2. **Fixture** — add a `PRESET_FIXTURES` entry in `tests/setup_fixtures.py`:
+   `(meas builder, sim builder, CapTest.from_params kwargs)`. Reuse the existing
+   builders (`build_meas_default`, `_meas_bom`, `_meas_spec`, `build_sim_default`,
+   `build_sim_rear_shade`, `_sim_spec`, `_sim_rear_shade_spec`) and kwargs sets
+   (`_BASE`, `_BIFI`, `_BIFI_SHADE`, `_TC`, `_TC_SHADE`). A `_meas` rear-shade
+   variant should use a non-zero `rear_shade`, and its sim builder a non-zero
+   `BackShd`, so the oracle is not identical to its `_sim` sibling.
+3. **Oracle** — capture **only the new preset**; never regenerate an existing
+   oracle file:
+
+   ```bash
+   uv run python -c "
+   import json; from pathlib import Path
+   from tests.setup_fixtures import build_captest, snapshot
+   name = '<name>'
+   Path(f'tests/data/setup_oracles/{name}.json').write_text(
+       json.dumps(snapshot(build_captest(name)), indent=2, sort_keys=True) + '\n')"
+   ```
+
+If the default `meas_cd_default` / `sim_cd_default` fixtures do not satisfy the
+preset's inputs, add it to the exclusion set in `_DEFAULT_FIXTURE_PRESETS` in
+`tests/test_captest.py`. Add targeted tests for any *novel* behaviour (e.g. a new
+calculated column equals the expected combination of its inputs) in the existing
+classes (`TestDownstreamPropagation`, `TestCapTestSpectralCorrection`,
+`TestIntegration`); use the **unit-tests** skill for conventions.
+
+Run `uv run pytest tests/test_presets.py tests/test_setup_oracles.py
+tests/test_captest.py -q`, then the full suite, then `just lint` / `just fmt`.
 
 ### Step 7 — Review summary (APPROVAL GATE)
 
-Present a scannable summary and wait for approval before touching tests:
+Present a scannable summary and wait for approval before the docs entry and
+commit:
 
 ```
-Preset: <name>
+Preset: <name>            File: src/captest/setups/<name>.yaml
 Description: <2-line gist of the expanded description>
 Regression: <reg_fml>
 Variable → meas → sim
-  power : (real_pwr_mtr, sum)        → E_Grid
-  poa   : e_total(spec-corrected …)  → e_total(…, rpoa_pvsyst)
-  t_amb : (temp_amb, mean)           → T_Amb
-  w_vel : (wind_speed, mean)         → WindVel
-Scatter: <scatter_callable>
-Rep conditions: percent_filter=20, func keys = {<rhs vars>}
-Validates: yes | Resolves: yes | End-to-end probe: cap ratio <x>
+  power : {group: real_pwr_mtr, agg: sum}  → {column: E_Grid}
+  poa   : e_total(spec-corrected …)        → e_total(…, rpoa_pvsyst)
+  t_amb : {group: temp_amb, agg: mean}     → {column: T_Amb}
+  w_vel : {group: wind_speed, agg: mean}   → {column: WindVel}
+Scatter: <name>   Params: <params or none>
+Rep conditions: percent_filter=20, func = {<rhs vars>}
+Loads: yes | check_fit: [] | Oracle captured | Digest: <first 12 chars>
 Required inputs (for fixtures): <column groups / site / sim cols>
 ```
 
-### Step 8 — Test coverage (after the dict is approved)
+### Step 8 — Docs entry
 
-Use the **unit-tests** skill for conventions. (Optional: delegate this whole step
-to a subagent — see *Optional: using subagents* below.) Mirror the existing
-presets' four layers in `tests/test_captest.py` (see the spec-corrected etotal
-presets as the worked example):
-
-1. **Structural** (`TestTestSetupsRegistry`): assert the calc-tree shape — the
-   identity of each calc function in the meas/sim trees and the `scatter_plots`
-   callable.
-2. **Downstream propagation** (`TestDownstreamPropagation`): assert the *novel*
-   numeric behavior of this preset (e.g. the corrected/total column equals the
-   expected combination of its inputs and the `CapTest` scalars).
-3. **Column existence** (a class like `TestCapTestSpectralCorrection`): the
-   calculated columns materialize on both meas and sim.
-4. **Integration** (`TestIntegration`): run the canonical filter→rep_cond→fit
-   sequence to `0.8 < cap_ratio < 1.2` and assert `regression_cols["poa"]`.
-
-Fixtures (`tests/conftest.py`): reuse before adding. The existing fixtures and
-what they supply:
-
-| Fixture | Supplies |
-|---|---|
-| `meas_cd_default` / `sim_cd_default` | power, POA, amb, wind; `irr_rpoa`; sim `GlobBak`/`BackShd` |
-| `meas_cd_spec_corrected` / `sim_cd_spec_corrected` | adds `humidity`, `pressure`, `cd.site` (meas); `PrecWat` (sim) |
-| `meas_cd_bom_temp` | adds `temp_bom` group |
-
-If the default fixtures don't satisfy the preset's required inputs, **add the
-preset to the `_DEFAULT_FIXTURE_PRESETS` exclusion set** in `tests/test_captest.py`
-(otherwise the parametrized setup / rep_cond tests run it against the default
-fixtures and fail). Add a `ct_*` fixture; for spectral presets, suppress the
-`Propagating meas.site` `UserWarning` in the fixture.
-
-Run `just test-module test_captest.py`, then the full suite, then `just lint` /
-`just fmt`. Commit.
-
-## Optional: using subagents
-
-Default to doing the work in the main conversation — the dict is small, iterated
-with the user, and gated by the two user approvals (a subagent cannot run those
-gates, and an LLM "reviewing" another LLM's dict is a weaker check than the
-objective `validate`/`resolve`/probe steps). **Keep dict generation in the main
-agent.** Reach for subagents only where they earn their keep:
-
-- **Delegate Step 8 test coverage.** Once the dict is approved, the four test
-  layers + fixtures are a bulky, well-specified, independent chunk. Dispatch a
-  subagent to implement them (it can use the **unit-tests** skill); the main agent
-  reviews the diff and runs the suite + `just lint`. Worth it for complex presets;
-  skip it for a trivial monofacial one.
-- **Semantic verification of a complex dict.** `validate_test_setup` catches
-  shape errors but not a valid-but-wrong wiring — e.g. rear mapped to the wrong
-  column, or `apparent_zenith` used where `apparent_zenith_pvsyst` belongs on the
-  sim side. For deeply nested presets, dispatch one subagent prompted to *refute*
-  the mapping against the expanded description and a sibling preset. Optional;
-  overkill for shallow trees.
-- **Batch-adding presets.** Adding several at once → one subagent per preset (each
-  is independent), each running this skill end-to-end.
+Add the preset to "Predefined Test Setups" in
+`docs/source/api_reference/captest.rst`, mirroring its `description`, and add a
+CHANGELOG `### Added` line. Run `just docs`. Commit.
 
 ## Gotchas
 
 | Gotcha | Reality |
 |---|---|
-| Dict over-indentation | Passes Python & tests, fails `just fmt`. Always run `just fmt`. |
-| `func` has a non-rhs key | `validate_test_setup` raises. `func` keys = rhs vars exactly. |
+| Bare string as a sim leaf | A literal, not a column; tier 1 rejects it at top level. Write `{column: ...}`. |
+| `func` has a non-rhs key | Tier 1 rejects it. `func` keys ⊆ rhs vars. |
+| `perc_wrap(60)` in the file | Not data. Write `perc_60`. |
+| Changing a shipped preset's content | Changes its digest and may change its oracle; both are deliberate-change-only. Layout-only edits (line folding) do not change the digest. |
 | Spectral factor NaN at sunrise/sunset | Select test rows on `poa_spec_corrected.notna() & > 0`, not `irr_poa > 0`. |
 | `Propagating meas.site` warning | Fires when sim has no `site`; suppress in spectral `ct_*` fixtures. |
-| New preset breaks parametrized tests | If it needs special fixtures, exclude it from `_DEFAULT_FIXTURE_PRESETS`. |
-| Wiring scalars into the dict | `bifaciality`/`bifacial_frac`/`rear_shade` come from `CapTest`, not the dict. |
+| Wiring scalars into `args` | `bifaciality`/`bifacial_frac`/`rear_shade` come from `CapTest`; an `args` entry overrides the test-wide value. |
 
 ## Red flags — you skipped a gate
 
-- You wrote the dict before the user approved the regression equation.
-- You started writing tests before the user approved the dict summary.
-- You reported "done" without running `validate_test_setup`, `resolve_test_setup`,
-  an end-to-end probe, and `just fmt` / `just lint`.
+- You wrote the document before the user approved the regression equation.
+- You wrote the docs entry or committed before the user approved the summary.
+- You reported "done" without the load check, the digest / fixture / oracle
+  lines, the preset tests, and `just fmt` / `just lint`.
+- You regenerated an existing oracle file.
 
 All of these mean: stop, back up to the gate you skipped.

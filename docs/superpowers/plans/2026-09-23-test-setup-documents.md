@@ -3371,7 +3371,7 @@ Then run the review gate.
 - Modify: `.agents/skills/add-test-setup/SKILL.md`
 - Modify: `CLAUDE.md`
 
-- [ ] **Step 1: Smoke test asserts the presets ship in the wheel**
+- [x] **Step 1: Smoke test asserts the presets ship in the wheel**
 
 Append to `test_smoke()` in `tests/smoke_test.py`:
 
@@ -3387,7 +3387,7 @@ Append to `test_smoke()` in `tests/smoke_test.py`:
 Run: `just build && uv run --isolated --with dist/*.whl python tests/smoke_test.py` (or the `test-install` recipe in `.justfile`).
 Expected: "Smoke test succeeded".
 
-- [ ] **Step 2: Changelog**
+- [x] **Step 2: Changelog**
 
 Under `## [Unreleased]` add a `### Changed` (breaking) entry and extend `### Added` / `### Removed`:
 
@@ -3419,7 +3419,7 @@ and tier-2 `check_project_fit`; `CapTest.check_fit()`; `CapTest.params` and
 `captest.validate_test_setup`.
 ```
 
-- [ ] **Step 3: User guide**
+- [x] **Step 3: User guide**
 
 Invoke the `docs-update` skill with this brief, then verify each item landed:
 
@@ -3428,7 +3428,7 @@ Invoke the `docs-update` skill with this brief, then verify each item landed:
 - `dataload.rst` lines 11, 198-206, 230-250 — `set_regression_cols` builds nodes; the `regression_cols` examples in document form; `agg_sensors` paragraph unchanged in substance.
 - `bifacial.rst` lines 49-75 — document form.
 
-- [ ] **Step 4: API reference**
+- [x] **Step 4: API reference**
 
 - Create `docs/source/api_reference/setup.rst` with `.. currentmodule:: captest` and an autosummary of `setup.TestSetup`, `setup.Side`, `setup.RepConditions`, `setup.Group`, `setup.Column`, `setup.Calc`, `setup.derive`, `setup.check_project_fit`, `setup.FitError`, `setup.SetupFitError`, `setup.canonical_json`, `setup.parse_regression_formula`; add `setup` to `index.rst` after `captest`.
 - `captest.rst`: in "Module-level Functions" remove `validate_test_setup`, add `captest.captest.load_presets`, `captest.captest.SETUPS_DIR`, `captest.captest.SCATTER_REGISTRY`; in "Setup" add `CapTest.check_fit`, `CapTest.params`, `CapTest.scatter_plots_name`; rewrite the `TEST_SETUPS` data description ("values are `captest.setup.TestSetup` documents loaded from `setups/*.yaml`") and the `rear_shade` warning (the `_sim` presets now *refuse* a non-zero `rear_shade` via `params`).
@@ -3436,15 +3436,15 @@ Invoke the `docs-update` skill with this brief, then verify each item landed:
 - `calcparams.rst`: add `calcparams.register_calc`, `calcparams.CalcEntry`, `calcparams.CALC_REGISTRY`.
 Run: `just docs` — no new warnings from these pages.
 
-- [ ] **Step 5: Rewrite the `add-test-setup` skill**
+- [x] **Step 5: Rewrite the `add-test-setup` skill**
 
 Replace the workflow in `.agents/skills/add-test-setup/SKILL.md` so a new preset is: (1) expand the description; (2) regression equation → approval gate; (3) write `src/captest/setups/<name>.yaml` in the node grammar, copying the nearest preset; (4) `params` if the sim side carries rear shading and the meas side calls `e_total`; (5) `uv run python -c "from captest.captest import TEST_SETUPS; print(TEST_SETUPS['<name>'])"` to prove it loads; (6) add the digest line to `tests/data/setup_digests.json`, a `PRESET_FIXTURES` entry in `tests/setup_fixtures.py`, and capture its oracle; (7) approval gate on the review summary; (8) docs entry in `api_reference/captest.rst`. Update the frontmatter description to say "yaml preset document in `src/captest/setups/`".
 
-- [ ] **Step 6: `CLAUDE.md`**
+- [x] **Step 6: `CLAUDE.md`**
 
 In "Key Modules" add a `src/captest/setup.py` entry (document model, node grammar, `derive`, tiers, import rule: never imports `capdata`/`captest`), note the registry in `calcparams.py`, and change the `captest.py` entry: `TEST_SETUPS` is loaded from `setups/*.yaml`, `resolve_test_setup` returns a `TestSetup`, overrides merge key by key. Update the "Standard Workflow → CapData step 2" sentence to mention nodes.
 
-- [ ] **Step 7: Full verification, commit, review gate**
+- [x] **Step 7: Full verification, commit, review gate**
 
 Run: `just lint && just fmt && just test && just docs`
 Expected: clean lint, all tests pass, docs build.

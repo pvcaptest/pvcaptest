@@ -7,8 +7,7 @@ description: >-
   factor (propagated by CapTest to the measured CapData only). This is the
   variant to select when 'rear_shade' is set to a non-zero value. Total
   irradiance is E_Total = E_POA + E_Rear * bifaciality * (1 - rear_shade).
-reg_fml: power ~ poa + I(poa * poa) + I(poa * t_amb) + I(poa * w_vel) -
-  1
+reg_fml: power ~ poa + I(poa * poa) + I(poa * t_amb) + I(poa * w_vel) - 1
 meas:
   reg_cols:
     power: {group: real_pwr_mtr, agg: sum}

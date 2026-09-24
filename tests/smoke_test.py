@@ -33,6 +33,14 @@ def test_smoke():
     assert hasattr(captest, "load_pvsyst")
     assert hasattr(captest, "DataLoader")
 
+    # Preset documents are package data; a missing package-data entry only
+    # shows up in a built artifact, which is what this test runs against.
+    from captest.captest import SETUPS_DIR, TEST_SETUPS
+
+    assert SETUPS_DIR.is_dir(), SETUPS_DIR
+    assert len(TEST_SETUPS) >= 10
+    assert "e2848_default" in TEST_SETUPS
+
     print("Smoke test succeeded")
 
 

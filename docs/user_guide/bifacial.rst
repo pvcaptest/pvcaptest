@@ -53,6 +53,27 @@ You will then also need to adjust the `CapData.regression_columns` to map the `p
             w_vel='wind_speed_col_or_group'
         )
 
+Alternatively, let pvcaptest calculate :math:`E_{Total}` for you by mapping the ``poa`` term to a calculation node. The registered :py:func:`~captest.calcparams.e_total` calculation reads the front and rear irradiance from the nodes in ``args`` and takes ``bifaciality`` from the ``CapData`` attribute of that name, so set it first. :py:meth:`~captest.capdata.CapData.process_regression_columns` then adds an ``e_total`` column to :py:attr:`~captest.capdata.CapData.data`:
+
+.. code-block:: Python
+
+        CapData.bifaciality = 0.7
+        CapData.regression_cols = {
+            'power': {'group': 'real_pwr_mtr', 'agg': 'sum'},
+            'poa': {
+                'calc': 'e_total',
+                'args': {
+                    'poa': {'group': 'irr_poa', 'agg': 'mean'},
+                    'rpoa': {'group': 'irr_rpoa', 'agg': 'mean'},
+                },
+            },
+            't_amb': {'group': 'temp_amb', 'agg': 'mean'},
+            'w_vel': {'group': 'wind_speed', 'agg': 'mean'},
+        }
+        CapData.process_regression_columns()
+
+This is the measured side of the built-in ``bifi_e2848_etotal_rear_shade_sim`` test setup; see :ref:`choosing-test-setup`.
+
 
 Other Bifacial Capacity Test Approaches
 ---------------------------------------
@@ -67,7 +88,9 @@ The regression columns would also need to be updated to map the regression terms
 .. code-block:: Python
 
         CapData.regression_cols = {
-            'power_temp_adj': 'poa_front',
-            'poa_front': 'E_POA',
-            'poa_rear': 'E_Rear'
+            'power_temp_adj': {'column': 'Power_Temp_Adj'},
+            'poa_front': {'column': 'E_POA'},
+            'poa_rear': {'column': 'E_Rear'},
         }
+
+Each value is a node: ``{'column': ...}`` names one column of the ``data`` dataframe, ``{'group': ..., 'agg': ...}`` aggregates a column group, and ``{'calc': ..., 'args': {...}}`` runs a registered calculation such as :py:func:`~captest.calcparams.power_temp_correct`. The built-in ``bifi_power_tc_meas_tbom`` and ``bifi_power_tc_calc_tbom`` test setups use this form of regression (``power ~ poa + rpoa``) with the temperature correction calculated by pvcaptest.

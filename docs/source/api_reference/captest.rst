@@ -40,7 +40,10 @@ configuration. ``setup`` and ``reload`` accept a ``side`` argument
    CapTest.reload
    CapTest.to_yaml
    CapTest.to_mapping
+   CapTest.check_fit
    CapTest.resolved_setup
+   CapTest.params
+   CapTest.scatter_plots_name
 
 Reporting Conditions
 --------------------
@@ -115,10 +118,31 @@ Standalone functions used alongside :py:class:`~captest.CapTest`.
    :toctree: generated/
 
    load_config
-   captest.captest.test_setups
-   captest.captest.validate_test_setup
-   captest.captest.resolve_test_setup
-   captest.captest.perc_wrap
+
+.. currentmodule:: captest.captest
+
+.. autosummary::
+   :toctree: generated/
+
+   test_setups
+   resolve_test_setup
+   load_presets
+   perc_wrap
+
+.. currentmodule:: captest
+
+.. data:: captest.captest.SETUPS_DIR
+
+   Directory of the preset documents shipped with the package
+   (``captest/setups``); :py:func:`~captest.captest.load_presets` reads every
+   ``*.yaml`` file in it to build :data:`~captest.captest.TEST_SETUPS`.
+
+.. data:: captest.captest.SCATTER_REGISTRY
+
+   Scatter-plot functions a setup's ``scatter_plots`` field may name:
+   ``default`` (:py:func:`~captest.captest.scatter_default`), ``etotal``
+   (:py:func:`~captest.captest.scatter_etotal`) and ``bifi_power_tc``
+   (:py:func:`~captest.captest.scatter_bifi_power_tc`).
 
 .. _test-setups:
 
@@ -126,21 +150,23 @@ Predefined Test Setups
 ----------------------
 
 :data:`~captest.captest.TEST_SETUPS` is a dict that maps preset names to
-fully-validated test-setup entries. Each entry bundles a regression formula,
-column mappings for measured and modeled data, default reporting conditions,
-and a scatter-plot callable. Pass the preset name as ``test_setup`` when
-constructing a :py:class:`~captest.CapTest`.
+validated test-setup documents. Each document bundles a regression formula,
+regression-column trees for measured and modeled data, default reporting
+conditions, the name of a scatter-plot function, and any test-level parameters
+the setup requires. Pass the preset name as ``test_setup`` when constructing a
+:py:class:`~captest.CapTest`.
 
-.. data:: captest.TEST_SETUPS
+.. data:: captest.captest.TEST_SETUPS
 
    Registry of predefined capacity-test presets. Keys are preset-name strings;
-   values are dicts with required keys ``description``, ``reg_cols_meas``,
-   ``reg_cols_sim``, ``reg_fml``, ``scatter_plots``, and ``rep_conditions``.
+   values are :py:class:`captest.setup.TestSetup` documents loaded from
+   ``setups/*.yaml`` (:data:`~captest.captest.SETUPS_DIR`) when ``captest`` is
+   imported. Also available as ``captest.TEST_SETUPS``.
 
-Every entry carries a human-readable ``description`` key summarizing the setup.
+Every document carries a human-readable ``description`` summarizing the setup.
 Read it programmatically with, e.g.,
-``captest.TEST_SETUPS["bifi_e2848_etotal_rear_shade_sim"]["description"]``. The
-summaries below mirror those ``description`` strings.
+``captest.TEST_SETUPS["bifi_e2848_etotal_rear_shade_sim"].description``. The
+summaries below mirror those descriptions.
 
 The built-in presets are:
 
@@ -224,8 +250,12 @@ The built-in presets are:
 
    :py:attr:`~captest.CapTest.rear_shade` belongs with the
    ``*_rear_shade_meas`` presets. The measured ``reg_cols_meas`` mapping is the
-   same in both variants, and no preset overrides the value, so a non-zero
-   ``rear_shade`` is applied to the measured ``e_total`` whichever preset is
-   selected. Paired with a ``*_rear_shade_sim`` preset — where the shading is
-   already carried by ``rpoa_pvsyst`` on the modeled side — that
-   double-counts the loss.
+   same in both variants, so a non-zero ``rear_shade`` would reach the measured
+   ``e_total`` whichever preset is selected, and paired with a
+   ``*_rear_shade_sim`` preset — where the shading is already carried by
+   ``rpoa_pvsyst`` on the modeled side — it would double-count the loss. The
+   ``*_rear_shade_sim`` presets therefore declare ``params: {rear_shade: 0}``,
+   and :py:meth:`~captest.CapTest.setup` refuses a non-zero ``rear_shade``
+   with them (see :py:attr:`~captest.CapTest.params`): it raises
+   :py:class:`~captest.setup.SetupFitError`. Override ``params`` only if you
+   deliberately want both.

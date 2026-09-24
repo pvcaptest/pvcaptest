@@ -16,6 +16,7 @@
       ~CapTest.__init__
       ~CapTest.captest_results
       ~CapTest.captest_results_check_pvalues
+      ~CapTest.check_fit
       ~CapTest.determine_pass_or_fail
       ~CapTest.from_mapping
       ~CapTest.from_params
@@ -61,6 +62,7 @@
       ~CapTest.module_type
       ~CapTest.name
       ~CapTest.param
+      ~CapTest.params
       ~CapTest.power_temp_coeff
       ~CapTest.racking
       ~CapTest.rc
@@ -74,6 +76,7 @@
       ~CapTest.rep_irr_filter_high
       ~CapTest.rep_irr_filter_low
       ~CapTest.resolved_setup
+      ~CapTest.scatter_plots_name
       ~CapTest.shade_filter_end
       ~CapTest.shade_filter_start
       ~CapTest.sim

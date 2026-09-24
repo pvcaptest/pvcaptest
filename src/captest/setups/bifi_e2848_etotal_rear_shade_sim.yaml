@@ -11,8 +11,7 @@ description: >-
   side instead, use 'bifi_e2848_etotal_rear_shade_meas'. Total irradiance
   is E_Total = E_POA + E_Rear * bifaciality, following the NREL modified
   bifacial approach.
-reg_fml: power ~ poa + I(poa * poa) + I(poa * t_amb) + I(poa * w_vel) -
-  1
+reg_fml: power ~ poa + I(poa * poa) + I(poa * t_amb) + I(poa * w_vel) - 1
 meas:
   reg_cols:
     power: {group: real_pwr_mtr, agg: sum}

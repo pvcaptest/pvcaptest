@@ -63,7 +63,10 @@ measured/model column mappings to use. These setups are intended to cover common
 capacity-test cases without requiring users to create one.
 
 A test setup is a named preset that bundles everything needed to configure
-the regression for a capacity test. Each setup defines:
+the regression for a capacity test. Each preset is a plain yaml document shipped
+in the package (``captest/setups/<name>.yaml``) and loaded into
+:data:`~captest.captest.TEST_SETUPS` as a :py:class:`~captest.setup.TestSetup`.
+Each setup defines:
 
 - **Regression formula** — the model equation, such as the standard ASTM E2848
   four-term formula or the bifacial temperature-corrected power formula (see
@@ -71,14 +74,18 @@ the regression for a capacity test. Each setup defines:
 - **Measured column mappings** (``reg_cols_meas``) — which measured data columns
   map to each regression variable, how multiple sensors are aggregated (sum or
   mean), and any calculated columns required by the setup (e.g. ``e_total``,
-  ``power_temp_correct``).
+  ``power_temp_correct``). Each variable maps to a node:
+  ``{group: irr_poa, agg: mean}`` aggregates a column group,
+  ``{column: E_Grid}`` uses one column as is, and
+  ``{calc: e_total, args: {...}}`` runs a registered calculation.
 - **Modeled column mappings** (``reg_cols_sim``) — the corresponding PVsyst output
   columns and any calculated columns for the modeled side.
 - **Default reporting conditions** — how each regression variable is aggregated to
   compute reporting conditions (e.g. 60th-percentile POA, mean ambient temperature
   and wind speed).
-- **Scatter plot function** — the plotting callable matched to the regression
-  formula, used by :py:meth:`~captest.CapTest.scatter_plots`.
+- **Scatter plot** — the name of the plotting function matched to the
+  regression formula (a key of :data:`~captest.captest.SCATTER_REGISTRY`), used
+  by :py:meth:`~captest.CapTest.scatter_plots`.
 
 See :ref:`custom_test_setups` for additional details and example.
 
@@ -179,13 +186,14 @@ in the API reference for their descriptions.
     side accounts for rear shading, and ``rear_shade`` belongs only with the
     ``_meas`` variants.
 
-    The two variants share the same measured column mapping, and no preset
-    overrides ``rear_shade``, so a non-zero value reaches the measured
-    ``e_total`` whichever preset is selected — pvcaptest does not reset it for
-    you. Setting ``rear_shade`` alongside a ``_sim`` preset therefore shades
-    the measured rear *in addition to* the shading already carried by
-    ``rpoa_pvsyst`` on the modeled side, double-counting the loss and biasing
-    the capacity ratio.
+    The two variants share the same measured column mapping, so a non-zero
+    ``rear_shade`` would reach the measured ``e_total`` whichever preset is
+    selected, shading the measured rear *in addition to* the shading already
+    carried by ``rpoa_pvsyst`` on the modeled side. To prevent that
+    double-count, the ``_sim`` presets declare ``params: {rear_shade: 0}``:
+    :py:meth:`~captest.CapTest.setup` checks the value the measured ``e_total``
+    would receive and raises :py:class:`~captest.setup.SetupFitError` when it
+    is not ``0``.
 
     Pick the variant that matches where the shading is accounted for, and
     leave ``rear_shade`` at ``0`` for the ``_sim`` variants.
@@ -491,8 +499,8 @@ only, because the modeled side handles rear shading through its
    * - ``rear_shade``
      - Fraction of rear irradiance lost to shading, applied on the measured
        side by ``calcparams.e_total``. Default ``0.0``. Set a non-zero value
-       only with a ``*_rear_shade_meas`` preset — see the warning in
-       :ref:`choosing-test-setup`.
+       only with a ``*_rear_shade_meas`` preset; the ``*_rear_shade_sim``
+       presets reject it — see the warning in :ref:`choosing-test-setup`.
    * - ``power_temp_coeff``
      - Power temperature coefficient, percent per °C. Default ``-0.32``.
    * - ``base_temp``
@@ -1276,8 +1284,9 @@ The layout can be controlled with ``tc_mode``:
     Passing a custom ``tc_power_calc`` dictionary can be used to calculate
     cell temperature from POA irradiance, ambient temperature, wind speed,
     module type, and mounting type. The dictionary must include a top-level
-    ``power`` calculation tuple that produces the temperature-corrected power
-    column, such as ``{'power': (power_temp_correct, {...})}``.
+    ``power`` calculation node that produces the temperature-corrected power
+    column, such as
+    ``{'power': {'calc': 'power_temp_correct', 'args': {...}}}``.
 
 Linked timeseries
 ~~~~~~~~~~~~~~~~~
@@ -1317,8 +1326,10 @@ The same adjustment can be saved in yaml:
           func:
             poa: perc_55
 
-The ``perc_55`` shorthand is converted to the corresponding percentile
-function when the yaml file is loaded.
+The ``perc_55`` string stays a string in the setup and the yaml file; it is
+converted to the corresponding percentile function
+(:py:func:`~captest.captest.perc_wrap`) when the reporting conditions are
+calculated.
 
 Custom setups
 -------------
@@ -1330,7 +1341,22 @@ See :ref:`custom_test_setups` for additional detail on the options.
 
 For small changes to a built-in setup, use ``overrides``. For example, a yaml
 file can change the reporting-condition calculation without redefining the
-whole setup.
+whole setup. ``reg_cols_meas`` and ``reg_cols_sim`` overrides are merged key by
+key onto the preset: an override replaces only the terms it names, every other
+term keeps the preset's definition, and ``null`` removes a term. This swaps the
+irradiance term to the GHI sensors and leaves ``power``, ``t_amb`` and
+``w_vel`` as the preset defines them:
+
+.. code-block:: yaml
+
+    captest:
+      test_setup: e2848_default
+      overrides:
+        reg_cols_meas:
+          poa: {group: irr_ghi, agg: mean}
+
+:py:meth:`~captest.CapTest.to_yaml` writes only the terms that differ from the
+preset, so the saved file says exactly what was changed.
 
 For a fully custom regression, use ``test_setup: custom`` and provide:
 
@@ -1350,13 +1376,18 @@ For example:
       overrides:
         reg_fml: power ~ poa + t_amb
         reg_cols_meas:
-          power: real_pwr_mtr
-          poa: irr_poa
-          t_amb: temp_amb
+          power: {group: real_pwr_mtr, agg: sum}
+          poa: {group: irr_poa, agg: mean}
+          t_amb: {group: temp_amb, agg: mean}
         reg_cols_sim:
-          power: E_Grid
-          poa: GlobInc
-          t_amb: T_Amb
+          power: {column: E_Grid}
+          poa: {column: GlobInc}
+          t_amb: {column: T_Amb}
+
+Under ``custom`` there is no preset to merge onto, so both sides must list every
+formula variable. Call :py:meth:`~captest.CapTest.check_fit` to list any
+column group, column or parameter the setup names that the loaded data lacks,
+without running :py:meth:`~captest.CapTest.setup`.
 
 .. note::
 

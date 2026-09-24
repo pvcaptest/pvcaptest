@@ -463,8 +463,12 @@ _PERC_N_PREFIX = "perc_"
 def perc_wrap(p):
     """Return a callable that computes the ``p``-th percentile of a Series.
 
-    Used to build ``TEST_SETUPS[...]['rep_conditions']['func']`` dicts for
-    percentile-based reporting irradiance (e.g. 60th percentile POA).
+    Pass the result directly as a ``func`` value to ``CapData.rep_cond`` (or
+    ``CapTest.rep_cond``) for a percentile-based reporting condition (e.g.
+    ``perc_wrap(60)`` for the 60th percentile POA). Test setup documents and
+    ``CapTest`` overrides do not accept callables; they spell the same thing as
+    the string ``"perc_N"`` (e.g. ``"perc_60"``), which ``CapTest.rep_cond``
+    resolves to ``perc_wrap(N)``.
 
     Parameters
     ----------

@@ -4,8 +4,7 @@ description: >-
   applied to front-side POA irradiance before fitting. Requires relative
   humidity and atmospheric pressure on the measured side and precipitable
   water from the PVsyst output.
-reg_fml: power ~ poa + I(poa * poa) + I(poa * t_amb) + I(poa * w_vel) -
-  1
+reg_fml: power ~ poa + I(poa * poa) + I(poa * t_amb) + I(poa * w_vel) - 1
 meas:
   reg_cols:
     power: {group: real_pwr_mtr, agg: sum}

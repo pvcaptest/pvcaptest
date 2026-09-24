@@ -570,4 +570,62 @@ Branch: `reg-cols-serialization`
   still silently dropped to `None`. Added `_resolve_reg_col_column`, which tries the
   node's `<group>_<agg>_agg` name first, and a regression test that fails against cc7305a
   and passes with the fix.
+- Commits / roborev: `cc7305a` (job 487: 1 low, fixed in `ee9ef74`), `ee9ef74` (job 488 clean). Controller task review: approved, no findings. Full suite green (1436 passed). **Task 9 complete.**
+
+### Task 10: Packaging check, changelog, docs, skill, `CLAUDE.md`
+- What was done: smoke test asserts `SETUPS_DIR` / `TEST_SETUPS` ship in the wheel (passes
+  against the built wheel in an isolated env; the wheel and sdist each carry the 10
+  `setups/*.yaml`). CHANGELOG `[Unreleased]` gains the breaking `### Changed` entry plus the
+  carried items (to_yaml/to_mapping resolve and raise, `set_regression_cols` → `Column` for a
+  single-column group, `agg_sensors` honours `Group.agg`, `process_regression_columns` re-run
+  rule, pydantic + pyyaml core deps, `_sim` presets refuse `rear_shade`), `### Added`
+  (`captest.setup`, `TestSetup.derive` alias, `load`/`loads`, `resolved_setup`, `load_presets`,
+  `SETUPS_DIR`, `util.canonical_json`, `util.reg_col_label`) and `### Removed`. User guide
+  (`custom_test_setups.rst` rewritten around nodes / `@register_calc` / key-level overrides /
+  `check_fit` / `derive`; `captest.rst`, `dataload.rst`, `bifacial.rst` in document form),
+  API reference (new `setup.rst`; `captest.rst` drops `validate_test_setup`, adds
+  `load_presets`, `SETUPS_DIR`, `SCATTER_REGISTRY`, `check_fit`, `params`,
+  `scatter_plots_name`, rewrites `TEST_SETUPS` and the `rear_shade` warning; `util.rst` adds
+  `reg_col_label` and a Documents section with `canonical_json`; `calcparams.rst` adds the
+  registry), `add-test-setup` skill rewritten for yaml presets, `CLAUDE.md` (`AGENTS.md`)
+  updated. Carried code items: `perc_wrap` docstring, `CapTest.rear_shade` param doc, the six
+  presets' `reg_fml` re-emitted on one line (parsed values asserted equal; digests and oracle
+  files unchanged). Spec amended: `tests/test_calc_params.py` (3 places) and `TestSetup.load`
+  (path or mapping) / `TestSetup.loads` (text).
+- Test result: `just lint` / `just fmt` clean; `just test` → 1436 passed; `just docs` builds.
+  Clean (`-E`) docs build: 85 warnings vs 95 on a baseline worktree at `ee9ef74` (with only
+  the notebook fix applied so it could finish); no new warning (diff of the sorted lists).
+  Wheel smoke test: "Smoke test succeeded".
+- Deviations:
+  - `docs/examples/complete_capacity_test.ipynb` and `concise_capacity_test.ipynb` (not in
+    the brief's file list) set `regression_cols` in the removed tuple/bare-string grammar, so
+    `just docs` aborted with a `CellExecutionError` before any edit of mine. Converted those
+    two cells to `{group, agg}` nodes (plus one sentence in a markdown cell); all 7 example
+    notebooks now execute (nbclient). The docs-update skill says not to modify notebooks;
+    overridden because the brief requires `just docs` to pass.
+  - CHANGELOG: removed the two unreleased `### Fixed` entries about `to_yaml` encoding
+    calculation callables as `module:qualname` and `from_yaml` turning two-element lists back
+    into tuples; that code (`encode_reg_cols` / `decode_reg_cols`) was never released and is
+    deleted by this plan, so the entries described behaviour that no longer exists.
+  - Also added a "pyyaml is now a declared core dependency" line beside the brief's
+    `pydantic` sentence, per the carried item.
+  - `api_reference/captest.rst` "Module-level Functions": the new `load_presets` entry, spelled
+    `captest.captest.load_presets` under `currentmodule:: captest`, raised a new
+    `autosummary.import_cycle` warning (as the existing `captest.captest.*` entries already
+    did). Split the table: `load_config` stays under `captest`; `test_setups`,
+    `resolve_test_setup`, `load_presets`, `perc_wrap` are listed under
+    `currentmodule:: captest.captest` (stub names unchanged), which also clears three
+    pre-existing warnings.
+  - Tracked autosummary stubs under `docs/source/api_reference/generated/` are committed as
+    regenerated (new setup/registry stubs; stale `validate_test_setup` stub deleted;
+    `resolved_setup` now `autoattribute`, since it is a param).
+  - `CapTest.rear_shade`'s param doc still said "no preset overrides this value"; updated to
+    the `params: {rear_shade: 0}` refusal (docstring only).
+- Anything the owner should look at: the `*_rear_shade_sim` preset `description` strings
+  still say a non-zero `rear_shade` "is still applied to the measured e_total,
+  double-counting the loss"; since Task 8 `setup()` refuses it instead. Not changed here
+  because editing a description changes the preset's `content_digest` (a content change, not
+  layout); worth a follow-up with a digest update. `just docs` on an existing `_build` does not
+  generate autosummary stubs for a newly added page until the second run (Sphinx reads the
+  pickled `found_docs`); a clean build is fine.
 - Commits / roborev: (filled in by controller)

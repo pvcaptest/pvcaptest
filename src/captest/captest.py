@@ -964,9 +964,8 @@ class CapTest(param.Parameterized):
             "instance only (see _downstream_attrs_meas_only). Set a non-zero "
             "value only with the '*_rear_shade_meas' presets; the "
             "'*_rear_shade_sim' presets carry rear shading in the modeled rear "
-            "irradiance and expect the default 0. No preset overrides this "
-            "value, so a non-zero setting reaches the measured e_total "
-            "whichever preset is selected."
+            "irradiance and declare params: {rear_shade: 0}, so setup() raises "
+            "SetupFitError for a non-zero value with them."
         ),
     )
     power_temp_coeff = param.Number(

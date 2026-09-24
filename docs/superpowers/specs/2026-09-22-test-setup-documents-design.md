@@ -307,8 +307,9 @@ Identity and serialization:
   canonical form ctsweep's `identity.canonical_json` defines (sorted keys, no
   whitespace, `ensure_ascii=False`, `allow_nan=False`). `util` gains
   `canonical_json` so captest does not import ctsweep.
-- `TestSetup.load(source)` accepts a path (`.yaml` / `.json`), a string, or a
-  mapping, and always validates through the model. yaml is read with
+- `TestSetup.load(source)` accepts a path (`str` or `Path`, `.yaml` / `.json`)
+  or a mapping, and `TestSetup.loads(text)` accepts document text; both always
+  validate through the model. yaml is read with
   `yaml.safe_load`; documents may not rely on yaml's own type guessing.
 - `TestSetup.to_yaml(path)` / `to_json(path)` write `to_dict()`.
 - `TestSetup.json_schema()` returns `model_json_schema()`. The schema is a
@@ -363,7 +364,7 @@ test-wide value today. Precedence, for every parameter of a calculation:
 `verbose` is supplied by the evaluator and is neither an argument nor a
 requirement. `data` is injected.
 
-A test in `tests/test_calcparams.py` checks every entry against its
+A test in `tests/test_calc_params.py` checks every entry against its
 function: `requires_params ⊆ signature.parameters`; each name in
 `requires_import` appears in the function's source (`inspect.getsource`);
 and no function whose source references `pvlib` lacks the declaration. The
@@ -512,7 +513,7 @@ def power_temp_correct_clipped(data, power, cell_temp, power_temp_coeff=None, ca
 
 `requires_params` lists the parameters that come from `CapData` attributes
 (the `DOWNSTREAM_PARAMS` names); `requires_import` lists optional packages
-the body imports. The registry-declaration test in `tests/test_calcparams.py`
+the body imports. The registry-declaration test in `tests/test_calc_params.py`
 runs over every entry automatically and fails if the declaration disagrees
 with the source. A project-specific calculation is registered the same way
 in the project's own code before the setup that names it is loaded.
@@ -626,7 +627,7 @@ pass.
 ## Testing
 
 Tests follow the existing layout (`tests/test_setup.py` new;
-`tests/test_calcparams.py`, `tests/test_captest.py`, `tests/test_util.py`,
+`tests/test_calc_params.py`, `tests/test_captest.py`, `tests/test_util.py`,
 `tests/test_plotting.py` updated). Oracles are captured **before** the
 presets are migrated.
 
