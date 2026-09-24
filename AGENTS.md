@@ -97,9 +97,9 @@ There are two levels of API.
 
 **CapTest (measured + modeled pair):**
 1. Build with `CapTest.from_params(...)`, `CapTest.from_yaml(path, ...)`, or bare + `setup()`. `test_setup` selects a `TEST_SETUPS` preset, or `"custom"` (which requires `reg_cols_meas` / `reg_cols_sim` / `reg_fml` overrides).
-2. `setup()` resolves the setup, propagates config to `ct.meas` / `ct.sim`, runs the tier-2 project-fit check, and evaluates the regression columns; the user then applies filters / `rep_cond` on each `CapData` directly (CapTest is a config + state container, not a runner).
-3. Compare measured vs. modeled with `ct.captest_results(...)`.
-4. `ct.to_yaml(path)` writes the full test config — parameters plus both `meas`/`sim` filter pipelines — to one file; `from_yaml(...)` reloads and re-applies it.
+2. `setup()` resolves the setup, propagates config to `tst.meas` / `tst.sim`, runs the tier-2 project-fit check, and evaluates the regression columns; the user then applies filters / `rep_cond` on each `CapData` directly (CapTest is a config + state container, not a runner).
+3. Compare measured vs. modeled with `tst.captest_results(...)`.
+4. `tst.to_yaml(path)` writes the full test config — parameters plus both `meas`/`sim` filter pipelines — to one file; `from_yaml(...)` reloads and re-applies it.
 
 ### Key Modules
 
@@ -116,7 +116,7 @@ There are two levels of API.
 - Optional features (clear-sky, interactive plotting) are conditionally enabled if `pvlib`, `holoviews`, `panel`, `openpyxl` are installed.
 
 **`src/captest/captest.py`** — Test orchestrator (v0.15)
-- `CapTest` (a `param.Parameterized`): a config + state container binding a measured and a modeled `CapData` to a named preset, holding all test-level parameters. It is intentionally not a runner — users still call `ct.meas.filter_*(...)` / `rep_cond(...)` / `fit_regression()` themselves.
+- `CapTest` (a `param.Parameterized`): a config + state container binding a measured and a modeled `CapData` to a named preset, holding all test-level parameters. It is intentionally not a runner — users still call `tst.meas.filter_*(...)` / `rep_cond(...)` / `fit_regression()` themselves.
 - `TEST_SETUPS: dict[str, TestSetup]`: named regression presets (`e2848_default`, bifacial and spectral-corrected variants) loaded at import by `load_presets()` from the package-data yaml documents in `src/captest/setups/<name>.yaml` (`SETUPS_DIR`); the file stem must equal `name`. `SCATTER_REGISTRY` maps a setup's `scatter_plots` name to its function. `test_setup="custom"` requires complete `reg_cols_meas` / `reg_cols_sim` / `reg_fml` overrides.
 - `resolve_test_setup(name, overrides)` returns a `TestSetup`: `reg_cols_meas` / `reg_cols_sim` overrides merge **key by key** onto the preset (`None` removes a term), `rep_conditions` partial-merges, `reg_fml` / `params` / `scatter_plots` replace; an override that changes nothing collapses back onto the preset itself (same digest). `CapTest.params` / `scatter_plots_name` are the `params` / `scatter_plots` overrides; `CapTest.resolved_setup` holds the resolved `TestSetup` after `setup()`; `check_fit()` returns the tier-2 findings without running `setup()`.
 - Constructors: `from_params(...)` (auto-runs `setup()` when both `meas` and `sim` are supplied), `from_yaml(path, key="captest", meas_loader=, sim_loader=)`, and `from_mapping(...)`. `setup()` resolves the setup, propagates `DOWNSTREAM_PARAMS`, raises `SetupFitError` before writing any column, then evaluates the node trees on both `CapData` instances; `captest_results(...)` runs the measured-vs-modeled comparison.

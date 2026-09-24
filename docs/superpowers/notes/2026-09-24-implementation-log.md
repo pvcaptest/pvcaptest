@@ -621,11 +621,31 @@ Branch: `reg-cols-serialization`
     `resolved_setup` now `autoattribute`, since it is a param).
   - `CapTest.rear_shade`'s param doc still said "no preset overrides this value"; updated to
     the `params: {rear_shade: 0}` refusal (docstring only).
-- Anything the owner should look at: the `*_rear_shade_sim` preset `description` strings
-  still say a non-zero `rear_shade` "is still applied to the measured e_total,
-  double-counting the loss"; since Task 8 `setup()` refuses it instead. Not changed here
-  because editing a description changes the preset's `content_digest` (a content change, not
-  layout); worth a follow-up with a digest update. `just docs` on an existing `_build` does not
+- Anything the owner should look at: the `*_rear_shade_sim` description wording (fixed in
+  fix round 1 below). `just docs` on an existing `_build` does not
   generate autosummary stubs for a newly added page until the second run (Sphinx reads the
   pickled `found_docs`); a clean build is fine.
+- Commits / roborev: (filled in by controller)
+
+#### Fix round 1 (controller task review)
+- F1: CHANGELOG `### Changed` gains two breaking entries: a bare string in
+  `regression_cols` is a literal, not a column/group reference (rewrite `cd.regression_cols`
+  assignments and yaml `reg_cols_*` overrides as `{column: ...}` / `{group: ..., agg: ...}`;
+  `set_regression_cols` still takes names), and `TEST_SETUPS` values /
+  `resolve_test_setup` return `TestSetup` objects, not dicts, while a `scatter_plots`
+  override is a `SCATTER_REGISTRY` name, not a callable.
+- F2 (controller ruling: digests never released): reworded the `description` of
+  `bifi_e2848_etotal_rear_shade_sim`, `bifi_e2848_etotal_rear_shade_sim_spec_corrected` and
+  `bifi_power_tc_etotal_rear_shade_sim` — a non-zero `rear_shade` is refused (`params:
+  {rear_shade: 0}`, `SetupFitError`) rather than "still applied ... double-counting". Only
+  the description changed (every other parsed field asserted equal), so only those three
+  entries of `tests/data/setup_digests.json` were regenerated (the digest hashes the
+  normalised document, which includes `description`). Oracle files untouched;
+  `tests/test_presets.py` + `tests/test_setup_oracles.py` 32 passed.
+- Minors: CHANGELOG `captest.SCATTER_REGISTRY` / `captest.validate_test_setup` →
+  `captest.captest.*`; `AGENTS.md` uses `tst` for a `CapTest` instance (4 places);
+  `CapData` class docstring's `regression_cols` entry describes document nodes.
+- Test result: `just lint` / `just fmt` clean; `just test` 1436 passed; `just docs` exit 0,
+  clean build 85 warnings, none new vs. baseline.
+- Deviations: none.
 - Commits / roborev: (filled in by controller)

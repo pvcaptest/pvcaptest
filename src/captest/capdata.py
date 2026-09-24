@@ -780,10 +780,15 @@ class CapData(param.Parameterized):
         contain measurements of that type. The abbreviated names are the keys
         and the corresponding values are the lists of columns.
     regression_cols : dictionary
-        Dictionary identifying which columns in `data` or groups of columns as
-        identified by the keys of `column_groups` are the independent variables
-        of the ASTM Capacity test regression equation. Set using
-        `set_regression_cols` or by directly assigning a dictionary.
+        Maps each variable of `regression_formula` to a setup-document node:
+        ``{'group': <column_groups id>, 'agg': <function>}`` aggregates a
+        column group, ``{'column': <name>}`` uses one column of `data`, and
+        ``{'calc': <registry name>, 'args': {...}}`` runs a registered
+        calculation (``captest.setup.Group`` / ``Column`` / ``Calc`` models
+        are accepted too). A bare string is not a node. Set using
+        `set_regression_cols` or by directly assigning a dictionary;
+        `process_regression_columns` evaluates the nodes and replaces each
+        with the name of the column it produced.
     rc : DataFrame
         Dataframe for the reporting conditions (poa, t_amb, and w_vel).
     regression_results : statsmodels linear regression model

@@ -22,7 +22,7 @@ semantics as the Overlay plot's columns filter), where `group_regex` matches
 `content_digest`, `TestSetup.load` / `to_yaml` / `to_json` / `json_schema`,
 and tier-2 `check_project_fit`; `CapTest.check_fit()`; `CapTest.params` and
 `CapTest.scatter_plots_name` overrides; `calcparams.register_calc` /
-`CALC_REGISTRY`; `captest.SCATTER_REGISTRY`.
+`CALC_REGISTRY`; `captest.captest.SCATTER_REGISTRY`.
 - `TestSetup.derive(base, **changes)` is a static alias of `setup.derive`;
 `TestSetup.load` accepts a path (`str` or `Path`) or a mapping and
 `TestSetup.loads` accepts yaml or json document text.
@@ -46,6 +46,20 @@ only the changed terms. `rep_conditions.func` values are the strings `mean`,
 setup or override. `CapData.custom_param` gains `output=` and injects
 `CapData` attributes only for absent keyword arguments (an explicit `None`
 now reaches the function). New dependency: `pydantic>=2.5,<3`.
+- **Breaking:** a bare string is no longer a column or column-group reference
+in `regression_cols`; it is a literal, and a literal as a formula variable's
+value fails validation. Rewrite `cd.regression_cols = {'power':
+'real_pwr_mtr', ...}` assignments and `reg_cols_meas` / `reg_cols_sim`
+overrides in existing yaml configs (`power: real_pwr_mtr`, `poa: irr_poa`) as
+`{column: <name>}` or `{group: <id>, agg: <fn>}` nodes.
+`CapData.set_regression_cols` still accepts plain column names and group ids
+and builds the nodes.
+- **Breaking:** `TEST_SETUPS` values and the return value of
+`resolve_test_setup` are `captest.setup.TestSetup` objects, not dicts, so
+subscripting them (`TEST_SETUPS[name]["reg_fml"]`) fails; use attributes
+(`TEST_SETUPS[name].reg_fml`) or `.to_dict()`. A `scatter_plots` override is
+now a name in `captest.captest.SCATTER_REGISTRY` (`default`, `etotal`,
+`bifi_power_tc`), not a callable.
 - `pyyaml>=6` is now a declared core dependency alongside `pydantic` (setup
 documents are read with `yaml.safe_load`).
 - `CapTest.setup()` runs the tier-2 project-fit check before writing any
@@ -71,7 +85,7 @@ is evaluated again from that node; any other plain string raises
 
 ### Removed
 - `util.encode_reg_cols`, `util.decode_reg_cols`, `util.update_by_path`,
-`captest.validate_test_setup`.
+`captest.captest.validate_test_setup`.
 
 ### Fixed
 - `CapData.copy()` now carries over the `site` and `tolerance` attributes,

@@ -1,16 +1,16 @@
 name: bifi_e2848_etotal_rear_shade_sim
 description: >-
   Standard ASTM E2848 regression form with total effective irradiance replacing
-  front-side POA as the independent variable. Rear shading and IAM losses
-  are handled in the modeled (PVsyst) data: the modeled rear irradiance
-  is rpoa_pvsyst = GlobBak + BackShd, while the measured rear sensor (irr_rpoa)
-  is used as-measured. Leave CapTest's 'rear_shade' at its default of 0
-  with this setup: the rear shading is already carried by the modeled rear
-  irradiance, and a non-zero 'rear_shade' is still applied to the measured
-  e_total, double-counting the loss. To apply rear shading on the measured
-  side instead, use 'bifi_e2848_etotal_rear_shade_meas'. Total irradiance
-  is E_Total = E_POA + E_Rear * bifaciality, following the NREL modified
-  bifacial approach.
+  front-side POA as the independent variable. Rear shading and IAM losses are
+  handled in the modeled (PVsyst) data: the modeled rear irradiance is
+  rpoa_pvsyst = GlobBak + BackShd, while the measured rear sensor (irr_rpoa) is
+  used as-measured. Leave CapTest's 'rear_shade' at its default of 0 with this
+  setup: the rear shading is already carried by the modeled rear irradiance, so
+  this setup requires 'rear_shade' to be 0 (params: {rear_shade: 0}) and setup()
+  raises SetupFitError for a non-zero value rather than double-counting the
+  loss. To apply rear shading on the measured side instead, use
+  'bifi_e2848_etotal_rear_shade_meas'. Total irradiance is E_Total = E_POA +
+  E_Rear * bifaciality, following the NREL modified bifacial approach.
 reg_fml: power ~ poa + I(poa * poa) + I(poa * t_amb) + I(poa * w_vel) - 1
 meas:
   reg_cols:

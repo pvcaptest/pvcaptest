@@ -1,19 +1,19 @@
 name: bifi_e2848_etotal_rear_shade_sim_spec_corrected
 description: >-
-  Standard ASTM E2848 regression with total effective irradiance replacing
-  front POA and a First Solar spectral correction applied to front-side
-  POA irradiance used to calculate the total POA irradiance. Requires relative
-  humidity and atmospheric pressure on the measured side and precipitable
-  water from the PVsyst output. Rear shading and IAM losses are handled
-  in the modeled (PVsyst) data: the modeled rear irradiance is rpoa_pvsyst
-  = GlobBak + BackShd, while the measured rear sensor (irr_rpoa) is used
-  as-measured. Leave CapTest's 'rear_shade' at its default of 0 with this
-  setup: the rear shading is already carried by the modeled rear irradiance,
-  and a non-zero 'rear_shade' is still applied to the measured e_total,
-  double-counting the loss. To apply rear shading on the measured side instead,
-  use 'bifi_e2848_etotal_rear_shade_meas_spec_corrected'. Total irradiance
-  is E_Total = E_POA + E_Rear * bifaciality with the spectral correction
-  applied to E_POA.
+  Standard ASTM E2848 regression with total effective irradiance replacing front
+  POA and a First Solar spectral correction applied to front-side POA irradiance
+  used to calculate the total POA irradiance. Requires relative humidity and
+  atmospheric pressure on the measured side and precipitable water from the
+  PVsyst output. Rear shading and IAM losses are handled in the modeled (PVsyst)
+  data: the modeled rear irradiance is rpoa_pvsyst = GlobBak + BackShd, while
+  the measured rear sensor (irr_rpoa) is used as-measured. Leave CapTest's
+  'rear_shade' at its default of 0 with this setup: the rear shading is already
+  carried by the modeled rear irradiance, so this setup requires 'rear_shade' to
+  be 0 (params: {rear_shade: 0}) and setup() raises SetupFitError for a non-zero
+  value rather than double-counting the loss. To apply rear shading on the
+  measured side instead, use 'bifi_e2848_etotal_rear_shade_meas_spec_corrected'.
+  Total irradiance is E_Total = E_POA + E_Rear * bifaciality with the spectral
+  correction applied to E_POA.
 reg_fml: power ~ poa + I(poa * poa) + I(poa * t_amb) + I(poa * w_vel) - 1
 meas:
   reg_cols:
