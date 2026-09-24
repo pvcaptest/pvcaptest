@@ -344,12 +344,17 @@ Branch: `reg-cols-serialization`
   (`TestDerive::test_staticmethod_delegates_to_module_function`) asserts the two calls
   return equal `TestSetup`s.
 - Test result: `uv run pytest tests/test_setup.py tests/test_util.py tests/test_CapData.py
-  tests/test_calc_params.py -q` → 500 passed. Full suite
-  (`uv run pytest tests -q`) → 93 failed, 1204 passed, 87 errors — identical red count to
-  the pre-task baseline (all in `test_captest.py` / `test_plotting.py` /
-  `test_setup_oracles.py` plus the one pre-existing `test_filter_classes` CapTest-fixture
-  error); no new red.
+  tests/test_calc_params.py -q` → 501 passed (500 from the brief's tests plus one added
+  during review). Full suite (`uv run pytest tests -q`) → 93 failed, 1205 passed, 87
+  errors — identical red count to the pre-task baseline (all in `test_captest.py` /
+  `test_plotting.py` / `test_setup_oracles.py` plus the one pre-existing
+  `test_filter_classes` CapTest-fixture error); no new red.
 - Deviations from plan/spec and why: none beyond the two amendments the brief and
   controller ruling explicitly called for (both recorded above and in the spec diff).
+  Review round 1 (job 472) found the brief's verbatim `check_project_fit` only
+  shadow-checked `Calc` outputs, not `Group` outputs, though the (pre-existing,
+  unmodified-by-this-task) spec bullet said "Group or Calc"; fixed by adding the same
+  shadow check to the `Group` branch, with a new covering test
+  (`test_group_output_shadowing_a_sensor_column_is_reported`).
 - Anything the owner should look at: nothing.
 - Commits / roborev: (filled in by controller)
