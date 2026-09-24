@@ -201,4 +201,35 @@ Branch: `reg-cols-serialization`
   reexport; now +1). Full suite `uv run pytest tests -q` → 1352 passed (1351
   + 1), 0 regressions. `just lint` / `just fmt` clean.
 - Deviations: none — fix matches the finding exactly.
+- Commits / roborev: `7dd0362` — roborev job 464: No issues found. Controller re-review of the fix: addressed.
+  Six Minor review notes deferred to the final review (regex `$` vs fullmatch,
+  unused `AGG_FUNCS`, `load` Mapping/utf-8 encoding, extra tier-1 tests,
+  explicit `__hash__ = None`, spec wording for `load` of a string). **Task 3 complete.**
+
+### Task 4: `derive` — key-level merge, `null` removal, `func` pruning
+- Added `setup.derive`, `setup.merge_reg_cols`, `setup.DerivationError` to
+  `src/captest/setup.py`, verbatim per the brief: `derive` copies
+  `base.to_dict()`, sets `derived_from = base.name`, replaces
+  `name`/`description`/`reg_fml`/`params`/`scatter_plots`/`rep_conditions`
+  wholesale when given, merges `reg_cols_meas`/`reg_cols_sim` key by key via
+  `merge_reg_cols` against the resolved formula's variables, then prunes
+  `rep_conditions.func` entries whose key is no longer in the formula's rhs,
+  and revalidates through `TestSetup.model_validate`. Added `TestDerive` (11
+  tests) to `tests/test_setup.py` covering term replacement, model-node
+  overrides, provenance/name defaulting, `null` removal + func pruning,
+  prune-only-removes, rejecting `null` for a term the base lacks, rejecting
+  an override key that isn't a formula variable, rejecting removal of a term
+  the formula still uses (tier-1 `ValidationError`), wholesale replacement
+  of other fields, and digest/document equivalence with a freshly-built
+  document.
+- TDD: RED confirmed first —
+  `uv run pytest tests/test_setup.py::TestDerive -q` → 10 failed,
+  `AttributeError: module 'captest.setup' has no attribute 'derive'`.
+  GREEN after implementing: `uv run pytest tests/test_setup.py -q` → 49
+  passed. Full suite: `uv run pytest tests -q` → 1362 passed, 0 regressions
+  (outside the red window, per the plan's Task 4 note). `just lint` /
+  `just fmt` clean (fmt only re-wrapped two long call sites in the new test
+  class to the 88-column limit).
+- Deviations: none — implementation and tests match the brief verbatim.
+- Anything the owner should look at: nothing.
 - Commits / roborev: (filled in by controller)

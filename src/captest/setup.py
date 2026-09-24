@@ -445,3 +445,122 @@ class TestSetup(_Frozen):
     def json_schema(cls):
         """JSON Schema of the document shape (an authoring contract)."""
         return cls.model_json_schema()
+
+
+# --- derive ------------------------------------------------------------
+
+
+class DerivationError(ValueError):
+    """A ``reg_cols`` override names a term the derivation cannot apply."""
+
+
+def _node_to_data(node):
+    return node.model_dump(mode="json") if isinstance(node, BaseModel) else node
+
+
+def merge_reg_cols(base_side, override, formula_vars):
+    """Merge a ``reg_cols`` override onto one side, key by key.
+
+    Parameters
+    ----------
+    base_side : Side
+    override : dict or None
+        Formula variable -> node (mapping or model), or ``None`` to remove.
+    formula_vars : set of str
+        Variables of the resulting formula; every non-``None`` override key
+        must be one of them.
+
+    Returns
+    -------
+    dict
+        Plain-data ``reg_cols`` mapping ready for ``Side.model_validate``.
+
+    Raises
+    ------
+    DerivationError
+        For ``None`` on a variable the base lacks, or a key that is not a
+        formula variable.
+    """
+    merged = {var: _node_to_data(node) for var, node in base_side.reg_cols.items()}
+    for var, node in (override or {}).items():
+        if node is None:
+            if var not in merged:
+                raise DerivationError(
+                    f"cannot remove {var!r}: the base setup has no such term"
+                )
+            del merged[var]
+            continue
+        if var not in formula_vars:
+            raise DerivationError(
+                f"override key {var!r} is not a variable of the regression formula "
+                f"{sorted(formula_vars)}"
+            )
+        merged[var] = _node_to_data(node)
+    return merged
+
+
+def derive(
+    base,
+    *,
+    name=None,
+    description=None,
+    reg_fml=None,
+    reg_cols_meas=None,
+    reg_cols_sim=None,
+    params=None,
+    rep_conditions=None,
+    scatter_plots=None,
+):
+    """Return a new complete setup derived from ``base``.
+
+    ``reg_cols_meas`` / ``reg_cols_sim`` merge key by key (a present key
+    replaces that variable's whole node, ``None`` removes the variable);
+    every other argument replaces its field wholesale. After the formula and
+    sides are resolved, ``rep_conditions.func`` entries for variables no
+    longer on the right-hand side are pruned. ``derived_from`` is set to
+    ``base.name``; ``name`` defaults to ``base.name``.
+
+    Parameters
+    ----------
+    base : TestSetup
+    name, description, reg_fml, scatter_plots : str or None
+    reg_cols_meas, reg_cols_sim : dict or None
+    params : dict or None
+    rep_conditions : dict or RepConditions or None
+        Replaces the base's reporting conditions wholesale; callers that
+        want a partial merge do it before calling.
+
+    Returns
+    -------
+    TestSetup
+
+    Raises
+    ------
+    DerivationError
+        See :func:`merge_reg_cols`.
+    pydantic.ValidationError
+        If the result is not a valid setup.
+    """
+    data = base.to_dict()
+    data["derived_from"] = base.name
+    if name is not None:
+        data["name"] = name
+    if description is not None:
+        data["description"] = description
+    if reg_fml is not None:
+        data["reg_fml"] = reg_fml
+    if params is not None:
+        data["params"] = dict(params)
+    if scatter_plots is not None:
+        data["scatter_plots"] = scatter_plots
+    if rep_conditions is not None:
+        data["rep_conditions"] = _node_to_data(rep_conditions)
+
+    lhs, rhs = parse_regression_formula(data["reg_fml"])
+    formula_vars = set(lhs) | set(rhs)
+    data["meas"] = {"reg_cols": merge_reg_cols(base.meas, reg_cols_meas, formula_vars)}
+    data["sim"] = {"reg_cols": merge_reg_cols(base.sim, reg_cols_sim, formula_vars)}
+
+    func = dict(data["rep_conditions"].get("func") or {})
+    data["rep_conditions"]["func"] = {k: v for k, v in func.items() if k in rhs}
+    return TestSetup.model_validate(data)

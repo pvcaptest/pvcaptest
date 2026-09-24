@@ -1360,7 +1360,7 @@ Then run the review gate.
 **Interfaces:**
 - Produces: `setup.derive(base: TestSetup, *, name=None, description=None, reg_fml=None, reg_cols_meas=None, reg_cols_sim=None, params=None, rep_conditions=None, scatter_plots=None) -> TestSetup`; `setup.merge_reg_cols(base_side: Side, override: dict | None, formula_vars: set[str]) -> dict` (the normalised merged mapping); `setup.DerivationError(ValueError)`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `tests/test_setup.py`:
 
@@ -1433,12 +1433,12 @@ class TestDerive:
         assert doc == expected
 ```
 
-- [ ] **Step 2: Run to verify they fail**
+- [x] **Step 2: Run to verify they fail**
 
 Run: `uv run pytest tests/test_setup.py::TestDerive -q`
 Expected: AttributeError: module has no attribute `derive`.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Append to `src/captest/setup.py`:
 
@@ -1562,12 +1562,12 @@ def derive(
     return TestSetup.model_validate(data)
 ```
 
-- [ ] **Step 4: Run the tests**
+- [x] **Step 4: Run the tests**
 
 Run: `uv run pytest tests/test_setup.py -q`
 Expected: all pass.
 
-- [ ] **Step 5: Lint, format, commit, review gate**
+- [x] **Step 5: Lint, format, commit, review gate**
 
 ```bash
 just lint && just fmt

@@ -313,3 +313,75 @@ class TestParseRegressionFormula:
         from captest import util
 
         assert util.parse_regression_formula is setup.parse_regression_formula
+
+
+class TestDerive:
+    def _base(self):
+        return TestSetup.model_validate(e2848_doc())
+
+    def test_replaces_one_term_and_keeps_the_others(self):
+        out = setup.derive(
+            self._base(),
+            reg_cols_meas={"power": {"group": "real_pwr_inv", "agg": "sum"}},
+        )
+        assert out.meas.reg_cols["power"] == Group(group="real_pwr_inv", agg="sum")
+        assert out.meas.reg_cols["poa"] == Group(group="irr_poa")
+        assert out.sim == self._base().sim
+
+    def test_accepts_model_nodes_as_well_as_mappings(self):
+        out = setup.derive(self._base(), reg_cols_meas={"poa": Group(group="irr_ghi")})
+        assert out.meas.reg_cols["poa"].group == "irr_ghi"
+
+    def test_records_provenance_and_keeps_name(self):
+        out = setup.derive(self._base(), reg_fml="power ~ poa")
+        assert out.derived_from == "e2848_default"
+        assert out.name == "e2848_default"
+
+    def test_null_removes_a_term_and_prunes_rep_conditions_func(self):
+        fml = "power ~ poa + I(poa * poa) + I(poa * t_amb) - 1"
+        out = setup.derive(
+            self._base(),
+            reg_fml=fml,
+            reg_cols_meas={"w_vel": None},
+            reg_cols_sim={"w_vel": None},
+        )
+        assert "w_vel" not in out.meas.reg_cols
+        assert "w_vel" not in out.sim.reg_cols
+        assert set(out.rep_conditions.func) == {"poa", "t_amb"}
+        assert out.rep_conditions.func["poa"] == "perc_60"
+
+    def test_pruning_only_removes(self):
+        out = setup.derive(self._base(), rep_conditions={"func": {"poa": "perc_55"}})
+        assert out.rep_conditions.func == {"poa": "perc_55"}
+
+    def test_null_for_a_term_the_base_lacks_is_rejected(self):
+        with pytest.raises(setup.DerivationError, match="ghi"):
+            setup.derive(self._base(), reg_cols_meas={"ghi": None})
+
+    def test_override_key_that_is_not_a_formula_variable_is_rejected(self):
+        with pytest.raises(setup.DerivationError, match="ghi"):
+            setup.derive(self._base(), reg_cols_meas={"ghi": {"group": "irr_ghi"}})
+
+    def test_removing_a_term_the_formula_still_uses_is_rejected(self):
+        with pytest.raises(ValidationError, match="w_vel"):
+            setup.derive(self._base(), reg_cols_meas={"w_vel": None})
+
+    def test_other_fields_replace_wholesale(self):
+        out = setup.derive(
+            self._base(), params={"rear_shade": 0}, scatter_plots="etotal"
+        )
+        assert out.params == {"rear_shade": 0}
+        assert out.scatter_plots == "etotal"
+
+    def test_result_is_complete_and_digests_like_a_fresh_document(self):
+        out = setup.derive(
+            self._base(),
+            reg_cols_meas={"power": {"group": "real_pwr_inv", "agg": "sum"}},
+        )
+        doc = out.to_dict()
+        doc.pop("derived_from")
+        fresh = e2848_doc()
+        fresh["meas"]["reg_cols"]["power"] = {"group": "real_pwr_inv", "agg": "sum"}
+        expected = TestSetup.model_validate(fresh).to_dict()
+        expected.pop("derived_from")
+        assert doc == expected
