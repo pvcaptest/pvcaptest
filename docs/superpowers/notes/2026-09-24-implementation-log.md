@@ -671,3 +671,11 @@ Branch: `reg-cols-serialization`
   `custom_test_setups.rst` (one sentence) and CHANGELOG updated.
 - M1: `_REP_FUNC_RE` has no anchors and is applied with `fullmatch`; `"mean\n"`,
   `"perc_60\n"`, `" mean"`, `"perc_6x"` are rejected (parametrised test).
+- I3 (`register_calc` refused a re-run notebook cell): a new function object with the same
+  `__module__` and `__qualname__` as the registered one is a redefinition and replaces the
+  entry (with its `requires_params` / `requires_import`); any other function under a taken
+  name still raises, and the message names the registered `module.qualname`. Tests: two
+  functions from one factory (redefinition replaces); a function with the same qualname in
+  another module (raises, entry kept); existing reject/idempotent tests unchanged. The
+  guide's `my_adjusted_poa` example was executed twice (via `exec` in one namespace) and the
+  second definition is the registered one. Docstring, guide sentence, CHANGELOG `Added`.

@@ -1,5 +1,6 @@
 import inspect
 import re
+import types
 import warnings
 
 import numpy as np
@@ -731,6 +732,45 @@ class TestCalcRegistry:
 
         with pytest.raises(ValueError, match="already registered"):
             register_calc()(power_temp_correct)
+
+    def test_register_calc_replaces_a_redefinition_of_the_same_function(
+        self, monkeypatch
+    ):
+        """Re-running a notebook cell defines a new function object with the
+        same module and qualname; it replaces the registered one."""
+        monkeypatch.delitem(CALC_REGISTRY, "tmp_redefined", raising=False)
+
+        def make():
+            def tmp_redefined(data, x=None):
+                return data[x]
+
+            return tmp_redefined
+
+        first, second = make(), make()
+        assert first is not second
+        register_calc()(first)
+        register_calc(requires_params=("base_temp",))(second)
+        assert CALC_REGISTRY["tmp_redefined"].func is second
+        assert CALC_REGISTRY["tmp_redefined"].requires_params == ("base_temp",)
+        monkeypatch.delitem(CALC_REGISTRY, "tmp_redefined")
+
+    def test_register_calc_rejects_a_same_named_function_from_elsewhere(
+        self, monkeypatch
+    ):
+        monkeypatch.delitem(CALC_REGISTRY, "tmp_taken", raising=False)
+
+        def tmp_taken(data):
+            return data
+
+        register_calc()(tmp_taken)
+        other = types.FunctionType(
+            tmp_taken.__code__, {"__name__": "other_module"}, "tmp_taken"
+        )
+        other.__qualname__ = tmp_taken.__qualname__
+        with pytest.raises(ValueError, match="already registered"):
+            register_calc()(other)
+        assert CALC_REGISTRY["tmp_taken"].func is tmp_taken
+        monkeypatch.delitem(CALC_REGISTRY, "tmp_taken")
 
     def test_register_calc_is_idempotent_for_the_same_function(self):
         entry = CALC_REGISTRY["e_total"]

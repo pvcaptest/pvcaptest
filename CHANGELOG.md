@@ -23,6 +23,10 @@ semantics as the Overlay plot's columns filter), where `group_regex` matches
 and tier-2 `check_project_fit`; `CapTest.check_fit()`; `CapTest.params` and
 `CapTest.scatter_plots_name` overrides; `calcparams.register_calc` /
 `CALC_REGISTRY`; `captest.captest.SCATTER_REGISTRY`.
+- `calcparams.register_calc` accepts a redefinition of a registered
+function (same `__module__` and `__qualname__`, e.g. a re-run notebook cell)
+and replaces the entry; registering a different function under a taken name
+raises `ValueError`.
 - `TestSetup.derive(base, **changes)` is a static alias of `setup.derive`;
 `TestSetup.load` accepts a path (`str` or `Path`) or a mapping and
 `TestSetup.loads` accepts yaml or json document text.

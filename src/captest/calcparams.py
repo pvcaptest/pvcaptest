@@ -73,6 +73,11 @@ CALC_REGISTRY = {}
 def register_calc(name=None, *, requires_params=(), requires_import=()):
     """Register a calculation under ``name`` (default: the function name).
 
+    Registering the same function again is a no-op re-registration. A new
+    function object with the same ``__module__`` and ``__qualname__`` as the
+    registered one (a redefinition, e.g. a notebook cell run twice) replaces
+    the entry, together with its ``requires_params`` / ``requires_import``.
+
     Parameters
     ----------
     name : str or None
@@ -90,20 +95,40 @@ def register_calc(name=None, *, requires_params=(), requires_import=()):
     Raises
     ------
     ValueError
-        If ``name`` is already registered to a different function.
+        If ``name`` is already registered to a different function, i.e. one
+        with a different ``__module__`` or ``__qualname__``.
     """
 
     def decorator(func):
         key = name or func.__name__
         existing = CALC_REGISTRY.get(key)
-        if existing is not None and existing.func is not func:
-            raise ValueError(f"calculation {key!r} is already registered")
+        if existing is not None and not _is_redefinition(existing.func, func):
+            raise ValueError(
+                f"calculation {key!r} is already registered to "
+                f"{_qualified_name(existing.func)}"
+            )
         CALC_REGISTRY[key] = CalcEntry(
             func, tuple(requires_params), tuple(requires_import)
         )
         return func
 
     return decorator
+
+
+def _qualified_name(func):
+    """``module.qualname`` of ``func``, for identity checks and messages."""
+    module = getattr(func, "__module__", None)
+    qualname = getattr(func, "__qualname__", None) or repr(func)
+    return f"{module}.{qualname}"
+
+
+def _is_redefinition(registered, candidate):
+    """True for the same function or a redefinition of it (same module/qualname)."""
+    if registered is candidate:
+        return True
+    return getattr(registered, "__qualname__", None) is not None and _qualified_name(
+        registered
+    ) == _qualified_name(candidate)
 
 
 # Global record surface-pressure extremes (mBar) used by

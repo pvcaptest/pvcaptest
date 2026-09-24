@@ -172,7 +172,10 @@ A setup then names it like any other calculation:
 The function must be registered in your code **before** the setup that names it
 is loaded, for example in the notebook or script that builds the ``CapTest``.
 A setup document stores only the name; loading one never imports code. A name
-that is not registered is an error with a "did you mean" hint.
+that is not registered is an error with a "did you mean" hint. Running the
+defining cell again replaces the registered function (a redefinition has the
+same module and qualified name), while registering a *different* function under a
+name that is already taken raises ``ValueError``.
 
 The registry name defaults to the function's ``__name__`` and is also the name of
 the column the calculation writes; pass ``register_calc(name=...)`` to choose a
