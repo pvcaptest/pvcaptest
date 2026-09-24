@@ -392,17 +392,28 @@ Branch: `reg-cols-serialization`
   `Parameter.empty`) with a docstring note that the collision is a separate check, not a
   value substitution. Added that check to `check_project_fit`: for every `Calc` node,
   every parameter of its registered function (excluding `data`/`verbose`) absent from
-  `node.args` and present in the (`agg`/`_aggs`-excluded) column-group ids is now a
-  `FitError` at the node path, mirroring `custom_param`'s message and telling the author
-  to pass the argument explicitly in `args` or rename the group. Replaced
-  `test_effective_value_skips_a_cd_attribute_shadowed_by_a_column_group_id` with
+  `node.args` and present in the column-group ids is now a `FitError` at the node path,
+  mirroring `custom_param`'s message and telling the author to pass the argument
+  explicitly in `args` or rename the group. The initial commit checked the
+  `agg`/`_aggs`-excluded `groups` dict (like the shadow checks above); roborev (job 479)
+  caught that this was itself an asymmetry with `custom_param`, which raises against the
+  **raw** `cd.column_groups` with no such exclusion — a parameter literally named `agg`
+  or ending `_aggs` would have raised at evaluation while tier 2 reported clean. Fixed
+  by checking `name in cd.column_groups` directly, with a docstring note that this one
+  check is deliberately the exception to the `agg`/`_aggs` reservation. A further
+  roborev pass (job 480) asked for a test that actually exercises the raw-vs-filtered
+  distinction; added `test_collision_check_uses_the_raw_column_groups_including_bookkeeping`,
+  confirmed discriminating against the old (filtered) logic by hand before committing.
+  Replaced `test_effective_value_skips_a_cd_attribute_shadowed_by_a_column_group_id` with
   `test_calc_argument_colliding_with_a_column_group_id_is_reported` (the collision is
-  now reported) and `test_explicit_arg_clears_a_column_group_id_collision` (passing the
-  argument explicitly in `args` clears it).
-- Test result (after fix round 2): `tests/test_setup.py` → 67 passed. Scoped-module run
-  → 506 passed. Full suite → 93 failed, 1210 passed, 87 errors — red count still
-  unchanged.
+  reported), `test_explicit_arg_clears_a_column_group_id_collision` (passing the
+  argument explicitly in `args` clears it), and the raw-vs-filtered test above.
+- Test result (after fix round 2, final): `tests/test_setup.py` → 68 passed.
+  Scoped-module run → 507 passed. Full suite → 93 failed, 1211 passed, 87 errors — red
+  count still unchanged.
 - Anything the owner should look at: the `"agg"` / `"_aggs"` column-group-id reservation
-  (fix round 1) remains convention/documentation-only, not structurally enforced on
-  `CapData`; flagged for a possible follow-up. Otherwise nothing.
+  (fix round 1, for the `Group`/`Calc` output-shadow checks only — the `Calc`-argument
+  collision check deliberately does not share it) remains convention/documentation-only,
+  not structurally enforced on `CapData`; flagged for a possible follow-up. Otherwise
+  nothing.
 - Commits / roborev: (filled in by controller)

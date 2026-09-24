@@ -609,6 +609,34 @@ class TestCheckProjectFit:
         )
         assert errors == []
 
+    def test_collision_check_uses_the_raw_column_groups_including_bookkeeping(
+        self, monkeypatch
+    ):
+        # The collision check must consult the raw cd.column_groups, the same
+        # mapping CapData.custom_param raises against -- not the agg/_aggs
+        # -filtered groups the shadow checks use -- so a parameter literally
+        # named "agg" is still caught even though "agg" is bookkeeping.
+        from captest.calcparams import CALC_REGISTRY, CalcEntry
+
+        def probe_agg(data, poa=None, agg=None, verbose=True):
+            return data[poa]
+
+        monkeypatch.setitem(CALC_REGISTRY, "probe_agg", CalcEntry(probe_agg, (), ()))
+        doc = e2848_doc(reg_fml="power ~ poa")
+        doc["meas"]["reg_cols"] = {
+            "power": {"group": "real_pwr_mtr", "agg": "sum"},
+            "poa": {"calc": "probe_agg", "args": {"poa": {"group": "irr_poa"}}},
+        }
+        doc["rep_conditions"] = {"func": {"poa": "perc_60"}}
+        groups = {**MEAS_GROUPS, "agg": ["real_pwr_mtr_sum_agg"]}
+
+        errors = _fit(doc, groups=groups)
+        assert [e.path for e in errors] == ["meas.reg_cols.poa"]
+        assert "agg" in errors[0].message
+
+        doc["meas"]["reg_cols"]["poa"]["args"]["agg"] = "mean"
+        assert _fit(doc, groups=groups) == []
+
     def test_params_constraint_checks_effective_value_per_side(self):
         doc = e2848_doc(reg_fml="power ~ poa", params={"rear_shade": 0})
         etotal = {
