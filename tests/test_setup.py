@@ -203,6 +203,11 @@ class TestTestSetupDocument:
         assert any(p.startswith("sim") for p in _paths(exc))
         assert "w_vel" in str(exc.value)
 
+    def test_unparseable_formula_is_a_located_validation_error(self):
+        with pytest.raises(ValidationError) as exc:
+            TestSetup.model_validate(e2848_doc(reg_fml="power ~ poa +"))
+        assert any("reg_fml" in p for p in _paths(exc))
+
     def test_rep_conditions_func_key_not_in_rhs_is_rejected(self):
         doc = e2848_doc(rep_conditions={"func": {"ghi": "mean"}})
         with pytest.raises(ValidationError, match="ghi"):

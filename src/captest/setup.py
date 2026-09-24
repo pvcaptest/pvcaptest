@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Annotated, Literal
 
 import yaml
-from patsy import ModelDesc
+from patsy import ModelDesc, PatsyError
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -367,7 +367,10 @@ class TestSetup(_Frozen):
     @field_validator("reg_fml", mode="after")
     @classmethod
     def _formula_parses(cls, reg_fml):
-        parse_regression_formula(reg_fml)
+        try:
+            parse_regression_formula(reg_fml)
+        except PatsyError as exc:
+            raise ValueError(f"reg_fml does not parse: {exc}") from exc
         return reg_fml
 
     @field_validator("meas", "sim", mode="after")

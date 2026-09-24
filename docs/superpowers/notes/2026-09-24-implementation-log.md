@@ -171,4 +171,34 @@ Branch: `reg-cols-serialization`
     the project floor). Recorded because `just lint` is a hard gate this repo
     enforces that the brief's snippet as written does not pass.
 - Owner should look at: nothing.
+- Commits / roborev: `32499b9` — roborev job 463: No issues found.
+
+#### Fix round 1: an unparseable `reg_fml` escaped as a raw `patsy.PatsyError`
+
+- Controller review (Important, F1) found that `_formula_parses` called
+  `parse_regression_formula(reg_fml)` unguarded, so a malformed formula
+  (`"power ~ poa +"`, `"power ~ (poa"`) raised `patsy.PatsyError` — not a
+  `ValueError` — which pydantic does not catch inside a field validator, so
+  it escaped `TestSetup.model_validate` as a raw `PatsyError` instead of a
+  located `pydantic.ValidationError`. This broke tier 1's contract that
+  every rejection is a located `ValidationError`.
+- Fix: `_formula_parses` now catches `patsy.PatsyError` and re-raises
+  `ValueError(f"reg_fml does not parse: {exc}") from exc`, which pydantic
+  wraps into a `ValidationError` located at `reg_fml`. Confirmed
+  `_formula_variables_present` and `_func_keys_are_rhs` do not re-raise a
+  raw `PatsyError` in this case: both already guard on
+  `info.data.get("reg_fml") is None` and return early, and pydantic omits a
+  field from `info.data` once that field's own validation has failed, so
+  neither validator calls `parse_regression_formula` again when `reg_fml` is
+  invalid (verified: the full suite, including both of those validators'
+  existing tests, stays green with no early-return path changed).
+- Test added: `test_unparseable_formula_is_a_located_validation_error` in
+  `tests/test_setup.py` — `TestSetup.model_validate(e2848_doc(reg_fml="power
+  ~ poa +"))` raises `ValidationError` with `"reg_fml"` in an error path.
+  RED confirmed first (raw `patsy.PatsyError` escaped, not caught by
+  `pytest.raises(ValidationError)`); GREEN after the fix.
+- Test result: `tests/test_setup.py` → 39 passed (was 38 substantive +
+  reexport; now +1). Full suite `uv run pytest tests -q` → 1352 passed (1351
+  + 1), 0 regressions. `just lint` / `just fmt` clean.
+- Deviations: none — fix matches the finding exactly.
 - Commits / roborev: (filled in by controller)
