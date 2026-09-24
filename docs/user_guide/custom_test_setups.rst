@@ -370,8 +370,10 @@ apart from one or two terms, pass ``reg_cols_meas`` and / or ``reg_cols_sim``
 alongside the named ``test_setup``. The overrides are merged **key by key** onto
 the preset: a key you give replaces that variable's whole node, every key you
 leave out keeps the preset's node, and ``null`` (``None`` in Python) removes a
-variable, which is needed when an overridden ``reg_fml`` drops a term. The
-preset's formula, scatter plot and reporting conditions are kept unless you
+variable, which is needed when an overridden ``reg_fml`` drops a term. A
+dropped term's ``rep_conditions.func`` entry is removed with it; any other
+``func`` key that is not a variable on the right-hand side of the formula (a
+misspelling, say) is an error rather than silently ignored. The preset's formula, scatter plot and reporting conditions are kept unless you
 override them too.
 
 For example, to use the GHI sensors in place of the POA sensors on a stowed

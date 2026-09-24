@@ -662,3 +662,12 @@ Branch: `reg-cols-serialization`
   `RepCond` step after `run_test`, same rc; manual rc restored, no step applied). The two
   "omits" tests became "keeps" tests; two round-trip tests assert equal `resolved_setup`
   and `content_digest()`. CHANGELOG `### Changed` entry added.
+- I2 (`derive` pruned caller-supplied `func` keys): `setup.derive` now prunes only the
+  `rep_conditions.func` keys that are right-hand-side variables of `base.reg_fml` and
+  absent from the new right-hand side; anything else not on the new rhs reaches tier 1,
+  which rejects it with a `rep_conditions...` location. Tests: `pao` typo via `derive` and
+  via `resolve_test_setup` is a `ValidationError`; the existing `w_vel` removal prune test
+  still passes; a supplied `w_vel` entry for a dropped term is still pruned. Docstring,
+  `custom_test_setups.rst` (one sentence) and CHANGELOG updated.
+- M1: `_REP_FUNC_RE` has no anchors and is applied with `fullmatch`; `"mean\n"`,
+  `"perc_60\n"`, `" mean"`, `"perc_6x"` are rejected (parametrised test).

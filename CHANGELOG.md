@@ -60,6 +60,11 @@ subscripting them (`TEST_SETUPS[name]["reg_fml"]`) fails; use attributes
 (`TEST_SETUPS[name].reg_fml`) or `.to_dict()`. A `scatter_plots` override is
 now a name in `captest.captest.SCATTER_REGISTRY` (`default`, `etotal`,
 `bifi_power_tc`), not a callable.
+- When `TestSetup.derive` (and so a named preset's overrides) drops a
+formula term, the term's `rep_conditions.func` entry is pruned; only entries
+for variables on the base formula's right-hand side and absent from the new
+one are pruned, so a misspelled `func` key is rejected by validation rather
+than silently dropped.
 - `pyyaml>=6` is now a declared core dependency alongside `pydantic` (setup
 documents are read with `yaml.safe_load`).
 - `CapTest.setup()` runs the tier-2 project-fit check before writing any

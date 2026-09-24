@@ -161,7 +161,7 @@ def canonical_json(obj):
 
 NODE_TAGS = ("group", "column", "calc")
 AGG_FUNCS = ("mean", "sum", "median", "min", "max")
-_REP_FUNC_RE = re.compile(r"^(mean|median|perc_\d+)$")
+_REP_FUNC_RE = re.compile(r"mean|median|perc_\d+")
 
 
 class _Frozen(BaseModel):
@@ -325,7 +325,7 @@ class RepConditions(_Frozen):
     @field_validator("func", mode="after")
     @classmethod
     def _func_values(cls, func):
-        bad = {k: v for k, v in func.items() if not _REP_FUNC_RE.match(v)}
+        bad = {k: v for k, v in func.items() if not _REP_FUNC_RE.fullmatch(v)}
         if bad:
             raise ValueError(f"func values must be mean, median or perc_N; got {bad}")
         return func
@@ -554,8 +554,11 @@ def derive(
     ``reg_cols_meas`` / ``reg_cols_sim`` merge key by key (a present key
     replaces that variable's whole node, ``None`` removes the variable);
     every other argument replaces its field wholesale. After the formula and
-    sides are resolved, ``rep_conditions.func`` entries for variables no
-    longer on the right-hand side are pruned. ``derived_from`` is set to
+    sides are resolved, ``rep_conditions.func`` entries for variables that
+    are on the right-hand side of ``base.reg_fml`` but no longer on the new
+    right-hand side are pruned. Any other ``func`` key that is not on the new
+    right-hand side (e.g. a misspelled variable) is kept, so validation
+    rejects it with its location. ``derived_from`` is set to
     ``base.name``; ``name`` defaults to ``base.name``.
 
     Parameters
@@ -599,8 +602,10 @@ def derive(
     data["meas"] = {"reg_cols": merge_reg_cols(base.meas, reg_cols_meas, formula_vars)}
     data["sim"] = {"reg_cols": merge_reg_cols(base.sim, reg_cols_sim, formula_vars)}
 
+    _, base_rhs = parse_regression_formula(base.reg_fml)
+    dropped = set(base_rhs) - set(rhs)
     func = dict(data["rep_conditions"].get("func") or {})
-    data["rep_conditions"]["func"] = {k: v for k, v in func.items() if k in rhs}
+    data["rep_conditions"]["func"] = {k: v for k, v in func.items() if k not in dropped}
     return TestSetup.model_validate(data)
 
 

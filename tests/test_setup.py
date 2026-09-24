@@ -228,6 +228,12 @@ class TestTestSetupDocument:
         with pytest.raises(ValidationError, match="perc_N"):
             TestSetup.model_validate(doc)
 
+    @pytest.mark.parametrize("value", ["mean\n", "perc_60\n", " mean", "perc_6x"])
+    def test_rep_conditions_func_value_must_match_in_full(self, value):
+        doc = e2848_doc(rep_conditions={"func": {"poa": value}})
+        with pytest.raises(ValidationError, match="perc_N"):
+            TestSetup.model_validate(doc)
+
     def test_percent_filter_is_numeric_only(self):
         doc = e2848_doc(rep_conditions={"percent_filter": [10, 20]})
         with pytest.raises(ValidationError):
@@ -362,6 +368,30 @@ class TestDerive:
 
     def test_pruning_only_removes(self):
         out = setup.derive(self._base(), rep_conditions={"func": {"poa": "perc_55"}})
+        assert out.rep_conditions.func == {"poa": "perc_55"}
+
+    def test_misspelled_rep_conditions_func_key_is_rejected_not_pruned(self):
+        with pytest.raises(ValidationError, match="pao") as exc:
+            setup.derive(self._base(), rep_conditions={"func": {"pao": "mean"}})
+        assert any(p.startswith("rep_conditions") for p in _paths(exc))
+
+    def test_resolve_rejects_misspelled_rep_conditions_func_key(self):
+        from captest.captest import resolve_test_setup
+
+        with pytest.raises(ValidationError, match="pao"):
+            resolve_test_setup(
+                "e2848_default", {"rep_conditions": {"func": {"pao": "mean"}}}
+            )
+
+    def test_pruning_keeps_a_supplied_key_for_a_remaining_variable(self):
+        fml = "power ~ poa + I(poa * poa) + I(poa * t_amb) - 1"
+        out = setup.derive(
+            self._base(),
+            reg_fml=fml,
+            reg_cols_meas={"w_vel": None},
+            reg_cols_sim={"w_vel": None},
+            rep_conditions={"func": {"poa": "perc_55", "w_vel": "mean"}},
+        )
         assert out.rep_conditions.func == {"poa": "perc_55"}
 
     def test_null_for_a_term_the_base_lacks_is_rejected(self):
