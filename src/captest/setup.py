@@ -677,7 +677,11 @@ def check_project_fit(setup, side, cd):
     project must not name a real column group with either shape: this
     function excludes them from both the group-id-existence check and
     ``sensor_columns`` so a node's own output, re-evaluated on a later
-    ``setup()``, is never treated as shadowing itself.
+    ``setup()``, is never treated as shadowing itself. The ``Calc``-argument
+    column-group-id collision check is deliberately the exception: it checks
+    the raw ``cd.column_groups`` with no such exclusion, because it mirrors
+    the ``ValueError`` ``CapData.custom_param`` raises against that same raw
+    mapping, not a shadow warning.
     """
     errors = []
     reg_cols = getattr(setup, side).reg_cols
@@ -715,7 +719,11 @@ def check_project_fit(setup, side, cd):
         for name in inspect.signature(entry.func).parameters:
             if name in ("data", "verbose") or name in node.args:
                 continue
-            if name in groups:
+            # CapData.custom_param checks the raw column_groups (no "agg" /
+            # "_aggs" exclusion) before ever looking at a cd attribute, so
+            # this mirrors that exact check rather than the filtered
+            # ``groups`` used by the shadow checks above and below.
+            if name in cd.column_groups:
                 errors.append(
                     FitError(
                         path,
