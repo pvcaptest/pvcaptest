@@ -38,6 +38,7 @@ from captest.filters import wrap_year_end
 from captest.plotting import ScatterBifiPowerTc, ScatterPlot
 from captest.setup import (
     DerivationError,
+    RepConditions,
     SetupFitError,
     TestSetup,
     check_project_fit,
@@ -2263,6 +2264,11 @@ class CapTest(param.Parameterized):
         auto-wrap (``_maybe_wrap_sim_year_end``), which mutates ``sim.data``
         while reading the meas span, is skipped for ``side='meas'``.
 
+        When the tier-2 check fails, nothing is evaluated: ``resolved_setup``
+        and each side's regression state stay those of the last successful
+        ``setup()``, so the pair remains consistent (the downstream params
+        and the year-end wrap have already been applied).
+
         Parameters
         ----------
         verbose : bool, default True
@@ -2440,17 +2446,31 @@ class CapTest(param.Parameterized):
             ``'meas'``. The computed conditions become the test ``rc`` (and set
             ``rc_source`` to ``which``) via the last-writer-wins sync.
         **overrides
-            Partial-merged onto the resolved ``rep_conditions`` dict.
+            Partial-merged onto the resolved ``rep_conditions`` dict. Keys are
+            the :class:`captest.setup.RepConditions` fields plus
+            ``custom_name``.
 
         Returns
         -------
         None
             ``cd.rep_cond`` writes to ``cd.rc``.
+
+        Raises
+        ------
+        ValueError
+            If an override key is not a ``CapData.rep_cond`` option.
         """
         if which is None:
             which = self.rc_source if self.rc_source in ("meas", "sim") else "meas"
         cd = self._pick_cd(which)
         self._require_setup()
+        allowed = set(RepConditions.model_fields) | {"custom_name"}
+        for key in overrides:
+            if key not in allowed:
+                raise ValueError(
+                    f"Unknown rep_cond override {key!r}."
+                    f"{_suggest_unknown_key(key, allowed)}"
+                )
         resolved_rc = _merge_rep_conditions(
             self.resolved_setup.rep_conditions.model_dump(mode="json"), overrides
         )

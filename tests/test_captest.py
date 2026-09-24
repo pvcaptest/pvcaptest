@@ -313,6 +313,20 @@ class TestSetupWiring:
         ct_default.rep_cond()
         assert ct_default.rc is not None
 
+    def test_rep_cond_rejects_an_unknown_override_key(self, ct_default):
+        with pytest.raises(ValueError, match="Did you mean 'percent_filter'"):
+            ct_default.rep_cond(percent_filt=10)
+
+    def test_failed_rerun_keeps_the_previous_setup(self, ct_default):
+        from captest.setup import SetupFitError
+
+        wired = dict(ct_default.meas.regression_cols)
+        ct_default.reg_cols_meas = {"poa": {"group": "irr_ghi"}}
+        with pytest.raises(SetupFitError):
+            ct_default.setup(verbose=False)
+        assert ct_default.resolved_setup == ct.TEST_SETUPS["e2848_default"]
+        assert ct_default.meas.regression_cols == wired
+
     def test_rep_cond_override_takes_perc_string(self, ct_default):
         ct_default.rep_cond(func={"poa": "perc_55"})
         assert ct_default.rc is not None
