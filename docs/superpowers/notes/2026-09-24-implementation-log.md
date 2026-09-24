@@ -731,3 +731,9 @@ Branch: `reg-cols-serialization`
 - Deviations: M2 also covers `load_config` / `CapTest.to_yaml`; M5 as above.
 - Anything the owner should look at: M6's two unrecorded cases (callable `agg_map` value,
   renamed subgroup output) still raise on a following `process_regression_columns`.
+- Review 494 (on c09b3f8), one low finding: a plain-string group id that `agg_sensors` did
+  not aggregate is not recorded, so a following `process_regression_columns` still raises.
+  Recording `Group(group=gid)` would not help (its produced column `<gid>_mean_agg` is not
+  the flat value, so the re-run rule would still reject it), and a bare string is no longer
+  a reference in `regression_cols`; took the finding's first option and named this case,
+  with the callable-`agg_map` and renamed-subgroup cases, in the `agg_sensors` docstring.

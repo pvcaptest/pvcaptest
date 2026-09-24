@@ -1717,7 +1717,11 @@ class CapData(param.Parameterized):
         (e.g. ``Group(group="power_inv", agg="sum")``, or a ``Column`` for a
         single-column group), merged over any nodes stored by an earlier
         call, so a later `process_regression_columns` re-evaluates them to the
-        same columns.
+        same columns. Nothing is recorded for a value this call cannot tie to
+        a node: a plain-string group id it did not aggregate (a bare string is
+        not a column reference in `regression_cols`), a callable in
+        `agg_map`, or a renamed subgroup aggregate; a following
+        `process_regression_columns` raises for those, as before.
 
         This method is intended to be used before any filtering methods are applied.
         It clears the `filters` list, so any filtering steps already applied are
