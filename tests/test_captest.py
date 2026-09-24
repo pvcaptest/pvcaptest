@@ -216,6 +216,26 @@ class TestSetupWiring:
         assert tst.resolved_setup.derived_from is None
         assert tst.resolved_setup.content_digest() == preset.content_digest()
 
+    def test_params_numpy_scalars_write_as_native_yaml(self, tmp_path):
+        tst = CapTest(
+            test_setup="e2848_default", params={"bifaciality": np.float64(0.7)}
+        )
+        tst.to_yaml(tmp_path / "c.yaml", merge_into_existing=False)
+        with open(tmp_path / "c.yaml") as fh:
+            sub = yaml.safe_load(fh)["captest"]
+        assert sub["overrides"]["params"] == {"bifaciality": 0.7}
+
+    def test_resolution_error_leaves_sim_data_untouched(self):
+        meas_idx = pd.date_range("2023-11-01", "2023-12-15", freq="h")
+        tst = _ct_with(meas_idx, _hourly_typical_year(1990).index)
+        tst.test_setup = "custom"
+        tst.reg_fml = "poa ~ poa - 1"
+        sim_before = tst.sim.data.copy()
+        with pytest.raises(ValueError, match="custom"):
+            tst.setup(verbose=False)
+        pd.testing.assert_frame_equal(tst.sim.data, sim_before)
+        assert getattr(tst.sim, "_pre_wrap_data", None) is None
+
     def test_resolved_setup_is_none_before_setup(self):
         tst = CapTest(test_setup="e2848_default")
         assert tst.resolved_setup is None
@@ -365,6 +385,30 @@ class TestRegColsYamlRoundTrip:
         with open(path) as fh:
             return yaml.safe_load(fh)["captest"]
 
+    def _assert_round_trip_keeps_identity(self, tst, path):
+        """Reloaded test resolves to the original setup by value and digest."""
+        original = ct.resolve_test_setup(tst.test_setup, tst._collect_overrides())
+        again = CapTest.from_yaml(path, run_setup=False)
+        reloaded = ct.resolve_test_setup(again.test_setup, again._collect_overrides())
+        assert reloaded == original
+        assert reloaded.content_digest() == original.content_digest()
+        return original
+
+    @pytest.mark.parametrize(
+        "override",
+        [
+            {"reg_fml": ct.TEST_SETUPS["e2848_default"].reg_fml},
+            {"reg_cols_meas": {"poa": {"group": "irr_poa", "agg": "mean"}}},
+            {"rep_conditions": {"percent_filter": 20}},
+        ],
+        ids=["reg_fml", "reg_cols_term", "rep_conditions"],
+    )
+    def test_redundant_override_keeps_the_preset_identity(self, tmp_path, override):
+        tst = CapTest(test_setup="e2848_default", **override)
+        tst.to_yaml(tmp_path / "c.yaml", merge_into_existing=False)
+        original = self._assert_round_trip_keeps_identity(tst, tmp_path / "c.yaml")
+        assert original is ct.TEST_SETUPS["e2848_default"]
+
     def test_one_overridden_term_writes_only_that_term(self, tmp_path):
         tst = CapTest(
             test_setup="e2848_default",
@@ -376,6 +420,7 @@ class TestRegColsYamlRoundTrip:
             "poa": {"group": "irr_ghi", "agg": "mean"}
         }
         assert "reg_cols_sim" not in sub["overrides"]
+        self._assert_round_trip_keeps_identity(tst, tmp_path / "c.yaml")
 
     def test_removed_term_writes_null_and_reloads_pruned(
         self, tmp_path, meas_cd_default, sim_cd_default
@@ -412,6 +457,7 @@ class TestRegColsYamlRoundTrip:
         tst.to_yaml(tmp_path / "c.yaml", merge_into_existing=False)
         sub = self._load(tmp_path / "c.yaml")
         assert set(sub["overrides"]["reg_cols_meas"]) == {"power", "poa"}
+        self._assert_round_trip_keeps_identity(tst, tmp_path / "c.yaml")
 
     def test_custom_registered_calculation_round_trips(self, tmp_path, monkeypatch):
         from captest.calcparams import CALC_REGISTRY, CalcEntry
@@ -429,6 +475,7 @@ class TestRegColsYamlRoundTrip:
         tst.to_yaml(tmp_path / "c.yaml", merge_into_existing=False)
         again = CapTest.from_yaml(tmp_path / "c.yaml", run_setup=False)
         assert again.reg_cols_meas["power"]["calc"] == "double"
+        self._assert_round_trip_keeps_identity(tst, tmp_path / "c.yaml")
 
     def test_params_and_scatter_overrides_round_trip(self, tmp_path):
         tst = CapTest(

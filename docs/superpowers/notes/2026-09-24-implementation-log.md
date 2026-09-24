@@ -512,4 +512,15 @@ Branch: `reg-cols-serialization`
   a `custom` test missing a side or the formula (or an invalid override) raises at export
   instead of writing a file that could not be loaded. `check_fit()` propagates the
   downstream params onto the `CapData` (as `setup()` would) — it does not write `data`.
+- Fix round 1 (task review): (F1) `resolve_test_setup` returns the `TEST_SETUPS` entry
+  itself when the derived setup equals the preset apart from `derived_from`, so a
+  redundant override (preset `reg_fml`, an unchanged `reg_cols` term, `percent_filter: 20`)
+  keeps the preset's identity and digest across `to_yaml` / `from_yaml`. (F2) the
+  one-term, `custom` and registered-calculation round-trip tests now reload and compare
+  the resolved setup by `==` and `content_digest()`. `to_yaml` writes `params` values
+  through `to_native`. `setup()` resolves before `_maybe_wrap_sim_year_end`, so a
+  resolution error leaves `sim.data` untouched; tier 2 stays after the wrap and the prep
+  stage (it reads only `column_groups` and `data.columns`, which the wrap does not change,
+  but it must see the propagated downstream params). Suite: 1398 passed excluding plotting;
+  oracles 11 passed.
 - Commits / roborev: (filled in by controller)

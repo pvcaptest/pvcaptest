@@ -365,6 +365,9 @@ def resolve_test_setup(name, overrides=None):
     Returns
     -------
     captest.setup.TestSetup
+        For a named preset whose overrides change nothing but provenance,
+        the ``TEST_SETUPS`` entry itself (``derived_from`` unset, same
+        ``content_digest()``).
 
     Raises
     ------
@@ -413,7 +416,7 @@ def resolve_test_setup(name, overrides=None):
             base.rep_conditions.model_dump(mode="json"), overrides["rep_conditions"]
         )
     try:
-        return derive(
+        derived = derive(
             base,
             reg_fml=overrides.get("reg_fml"),
             reg_cols_meas=overrides.get("reg_cols_meas"),
@@ -424,6 +427,11 @@ def resolve_test_setup(name, overrides=None):
         )
     except DerivationError as exc:
         raise ValueError(str(exc)) from exc
+    # Overrides that change nothing keep the preset's identity: to_yaml writes
+    # only the difference, so a reload must resolve to the same setup.
+    if derived.model_copy(update={"derived_from": base.derived_from}) == base:
+        return base
+    return derived
 
 
 # --- yaml loading ---------------------------------------------------------
@@ -1937,7 +1945,7 @@ class CapTest(param.Parameterized):
             if resolved.reg_fml != preset.reg_fml:
                 overrides["reg_fml"] = resolved.reg_fml
         if self.params is not None:
-            overrides["params"] = dict(self.params)
+            overrides["params"] = {k: to_native(v) for k, v in self.params.items()}
         if self.scatter_plots_name is not None:
             overrides["scatter_plots"] = self.scatter_plots_name
         meas_filters = (
@@ -2299,6 +2307,9 @@ class CapTest(param.Parameterized):
             if getattr(self, s) is None:
                 raise RuntimeError(f"CapTest.{s} must be set before setup().")
 
+        # Resolve first: a resolution error must leave sim.data untouched.
+        resolved = resolve_test_setup(self.test_setup, self._collect_overrides())
+
         # Auto-wrap sim.data when measured spans (within 60 days of) a year
         # boundary. Idempotent and reversible — re-running setup() or toggling
         # auto_wrap_sim restores the appropriate state. The wrap mutates
@@ -2307,7 +2318,6 @@ class CapTest(param.Parameterized):
         if "sim" in sides and self.meas is not None:
             self._maybe_wrap_sim_year_end()
 
-        resolved = resolve_test_setup(self.test_setup, self._collect_overrides())
         self._prepare_sides(sides)
 
         # Tier 2 runs against the prepared CapData and before any column is
