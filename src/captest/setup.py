@@ -666,13 +666,20 @@ def check_project_fit(setup, side, cd):
     list of FitError
         Empty when the side fits. Every finding is collected so a document
         can be fixed in one pass.
+
+    Notes
+    -----
+    The ``"agg"`` column-group id and any id ending ``"_aggs"`` are reserved
+    for ``CapData.agg_group`` / ``CapData.expand_agg_map`` bookkeeping (every
+    aggregate column ``agg_group`` writes is recorded in ``column_groups["agg"]``;
+    a nested ``agg_sensors`` subgroup is recorded under ``"<key>_aggs"``). A
+    project must not name a real column group with either shape: this
+    function excludes them from both the group-id-existence check and
+    ``sensor_columns`` so a node's own output, re-evaluated on a later
+    ``setup()``, is never treated as shadowing itself.
     """
     errors = []
     reg_cols = getattr(setup, side).reg_cols
-    # "agg" and "<group>_aggs" are bookkeeping ``agg_group``/``expand_agg_map``
-    # add to ``column_groups`` as columns are aggregated; they are not project
-    # sensor groups, so a node's own output re-evaluated on a later setup()
-    # must never be treated as shadowing one of them.
     groups = {
         group_id: columns
         for group_id, columns in cd.column_groups.items()
