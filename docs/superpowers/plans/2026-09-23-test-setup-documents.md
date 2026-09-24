@@ -2040,6 +2040,7 @@ In `agg_sensors`, replace the default `agg_map` construction with:
                 gid = node_group_id(self.regression_cols[var])
                 if gid is not None:          # Column nodes are already resolved
                     agg_map[gid] = func
+```
 
 In the existing aggregation loop, the branch that skips a group because its output column already exists must record that column before continuing, so the resolver below can use it:
 
