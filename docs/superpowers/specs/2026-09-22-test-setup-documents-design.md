@@ -209,7 +209,7 @@ util.py         transform_calc_params over nodes, process_reg_cols
 capdata.py      CapData.regression_cols holds dict[str, Node]; custom_param(output=)
 plotting.py     SCATTER_REGISTRY; calc_tc_power_column over nodes
       ▲
-captest.py      TEST_SETUPS: dict[str, TestSetup] loaded from test_setups/*.yaml;
+captest.py      TEST_SETUPS: dict[str, TestSetup] loaded from setups/*.yaml;
                 resolve_test_setup returns a TestSetup; CapTest.resolved_setup
 ```
 
@@ -428,7 +428,10 @@ later optimisation, not part of this design).
 
 ### `captest.py` — presets and `CapTest`
 
-- `src/captest/test_setups/<name>.yaml`, one per current `TEST_SETUPS` key,
+The directory is `setups/`, not `test_setups/`, because `captest.test_setups`
+is an existing exported function.
+
+- `src/captest/setups/<name>.yaml`, one per current `TEST_SETUPS` key,
   shipped as package data. `TEST_SETUPS: dict[str, TestSetup]` is built at
   import by loading the directory, so the loader runs on every import and
   every preset is validated at tier 1 then.
@@ -514,7 +517,7 @@ runs over every entry automatically and fails if the declaration disagrees
 with the source. A project-specific calculation is registered the same way
 in the project's own code before the setup that names it is loaded.
 
-**A new test setup** — write `src/captest/test_setups/<name>.yaml` in the
+**A new test setup** — write `src/captest/setups/<name>.yaml` in the
 grammar above (copy the nearest preset and edit). It is validated at tier 1
 the next time `captest` is imported, and the parametrised preset tests
 (load, normalise, digest, oracle) pick it up by directory listing. Two
@@ -692,7 +695,7 @@ presets are migrated.
 ## Documentation and packaging
 
 - `pyproject.toml`: add `pydantic>=2.5,<3` to `[project] dependencies`;
-  add `[tool.setuptools.package-data] captest = ["test_setups/*.yaml"]`
+  add `[tool.setuptools.package-data] captest = ["setups/*.yaml"]`
   (the build is setuptools with `packages.find`, which does not pick up
   non-Python files on its own). `tests/smoke_test.py` gains an assertion
   that a built wheel contains the preset files and that `TEST_SETUPS` is

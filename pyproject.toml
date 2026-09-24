@@ -33,6 +33,8 @@ dependencies = [
     "colorcet",
     "param",
     "universal_pathlib>=0.3.10",
+    "pydantic>=2.5,<3",
+    "pyyaml>=6",
 ]
 
 [project.optional-dependencies]
@@ -79,6 +81,9 @@ package-dir = {"" = "src"}
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+captest = ["setups/*.yaml"]
 
 [tool.setuptools_scm]
 version_file = "src/captest/_version.py"

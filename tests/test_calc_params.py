@@ -1,3 +1,5 @@
+import inspect
+import re
 import warnings
 
 import numpy as np
@@ -6,6 +8,12 @@ import pvlib
 import pytest
 
 from captest import calcparams
+from captest.calcparams import (
+    CALC_REGISTRY,
+    INJECTED_PARAMS,
+    NULLABLE_INJECTED,
+    register_calc,
+)
 
 
 @pytest.fixture
@@ -662,3 +670,69 @@ class TestPoaSpecCorrected:
         assert captured.out.rstrip("\n") == (
             'Calculating and adding "poa_spec_corrected" column as poa * sc.'
         )
+
+
+#: optional package -> regex that proves the function body uses it
+_IMPORT_TOKENS = {"pvlib": re.compile(r"\bpvlib\.|\bLocation\(")}
+
+PUBLIC_CALCS = [
+    "power_temp_correct",
+    "bom_temp",
+    "cell_temp",
+    "avg_typ_cell_temp",
+    "rpoa_pvsyst",
+    "e_total",
+    "apparent_zenith",
+    "apparent_zenith_pvsyst",
+    "absolute_airmass",
+    "precipitable_water_gueymard",
+    "scale",
+    "spectral_factor_firstsolar",
+    "multiply",
+    "poa_spec_corrected",
+]
+
+
+class TestCalcRegistry:
+    def test_every_public_calculation_is_registered(self):
+        assert set(PUBLIC_CALCS) <= set(CALC_REGISTRY)
+
+    @pytest.mark.parametrize("name", PUBLIC_CALCS)
+    def test_entry_points_at_the_module_function(self, name):
+        assert CALC_REGISTRY[name].func is getattr(calcparams, name)
+
+    @pytest.mark.parametrize("name", PUBLIC_CALCS)
+    def test_requires_params_is_the_injected_subset_of_the_signature(self, name):
+        entry = CALC_REGISTRY[name]
+        params = set(inspect.signature(entry.func).parameters)
+        expected = (params & set(INJECTED_PARAMS)) - set(NULLABLE_INJECTED)
+        assert set(entry.requires_params) == expected
+
+    @pytest.mark.parametrize("name", PUBLIC_CALCS)
+    def test_requires_import_matches_the_source(self, name):
+        entry = CALC_REGISTRY[name]
+        source = inspect.getsource(entry.func)
+        for package, token in _IMPORT_TOKENS.items():
+            assert (package in entry.requires_import) == bool(token.search(source))
+
+    def test_register_calc_defaults_name_to_function_name(self, monkeypatch):
+        monkeypatch.delitem(CALC_REGISTRY, "tmp_calc", raising=False)
+
+        @register_calc()
+        def tmp_calc(data, x=None):
+            return data[x]
+
+        assert CALC_REGISTRY["tmp_calc"].func is tmp_calc
+        monkeypatch.delitem(CALC_REGISTRY, "tmp_calc")
+
+    def test_register_calc_rejects_a_different_function_under_a_taken_name(self):
+        def power_temp_correct(data):
+            return data
+
+        with pytest.raises(ValueError, match="already registered"):
+            register_calc()(power_temp_correct)
+
+    def test_register_calc_is_idempotent_for_the_same_function(self):
+        entry = CALC_REGISTRY["e_total"]
+        register_calc(requires_params=entry.requires_params)(entry.func)
+        assert CALC_REGISTRY["e_total"] is not None

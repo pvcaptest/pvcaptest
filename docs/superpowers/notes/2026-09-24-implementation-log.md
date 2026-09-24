@@ -49,7 +49,7 @@ Branch: `reg-cols-serialization`
   building the 3 spec-corrected presets (`e2848_spec_corrected_poa` and its two
   bifi variants) — pre-existing behavior of unmodified `src/`, not something
   Task 1 introduced or should fix, but worth a look in a later task.
-- Commits / roborev: (filled in by controller)
+- Commits / roborev: `ce059d9` — roborev job 460: No issues found. Controller task review: oracles for the rear-shade `_sim`/`_meas` pairs were byte-identical (plan-mandated fixture flaw) → fix round 1.
 
 #### Fix round 1: rear-shade `_sim` / `_meas` oracles were byte-identical
 
@@ -86,4 +86,47 @@ Branch: `reg-cols-serialization`
   test), 0 regressions. `tests/test_setup_oracles.py -v` → 11 passed. `just
   lint` / `just fmt` clean.
 - Nothing else the owner needs to look at for this fix round.
+- Commits / roborev: `362a4ee` — roborev job 461: No issues found. Scoped re-review: addressed. **Task 1 complete.**
+
+### Task 2: Dependencies, spec amendment, calculation registry
+
+- Added `pydantic>=2.5,<3` and `pyyaml>=6` to `pyproject.toml` dependencies and
+  a `[tool.setuptools.package-data]` entry for `captest = ["setups/*.yaml"]`;
+  `uv sync` resolved pydantic 2.13.5 / pyyaml 6.0.3. Amended the spec
+  (`docs/superpowers/specs/2026-09-22-test-setup-documents-design.md`) to say
+  `setups/` in place of `test_setups/` at its four occurrences and added the
+  explanatory sentence under "`captest.py` — presets and `CapTest`" (confirmed
+  `captest.test_setups` exists at `src/captest/captest.py:897`). Implemented
+  `DOWNSTREAM_PARAMS`, `INJECTED_PARAMS`, `NULLABLE_INJECTED`, `CalcEntry`,
+  `CALC_REGISTRY`, and `register_calc` in `src/captest/calcparams.py` verbatim
+  from the brief, and decorated all 14 public calculations with
+  `@register_calc(...)`, function bodies unchanged.
+- Test result: RED confirmed first (`ImportError: cannot import name
+  'CALC_REGISTRY'`) before implementing the registry. After implementing:
+  `uv run pytest tests/test_calc_params.py -v` → 99 passed. Full suite
+  `uv run pytest tests -q` → 1313 passed (1267 + 46 new registry tests), 0
+  regressions. `just lint` / `just fmt` clean.
+- Deviations:
+  - `precipitable_water_gueymard` needed `requires_import=("pvlib",)` even
+    though the brief's shown decorator for it was bare `@register_calc()`
+    (not flagged "confirm" in the brief). Its body calls
+    `pvlib.atmosphere.gueymard94_pw(...)`, which matches the mechanical rule
+    ("`requires_import=("pvlib",)` exactly when the body uses `pvlib.` or
+    `Location(`") and is required by
+    `test_requires_import_matches_the_source`; the brief's other
+    "confirm"-tagged entries (`bom_temp`, `cell_temp`, `apparent_zenith_pvsyst`)
+    matched the brief's shown values exactly on inspection, no change needed
+    there.
+  - The brief's Step 3 snippet places `import inspect`, `import re`, and
+    `from captest.calcparams import (...)` after the existing test classes
+    (mid-file). `ruff` flags that as E402 (module-level import not at top of
+    file) and `just lint` is required to pass before committing, so those
+    imports were merged into the file's existing top-of-file import block
+    instead (mechanical relocation only; no test content changed).
+  - `uv.lock` is listed in the brief's `git add` for the commit, but the repo's
+    `.gitignore` intentionally excludes it ("uv lock file - intentionally
+    untracked so CI resolves latest deps and fails early"). Left it out of the
+    commit; `uv sync` was still run per Step 1 and pydantic/pyyaml resolve
+    correctly in the active environment.
+- Owner should look at: nothing.
 - Commits / roborev: (filled in by controller)

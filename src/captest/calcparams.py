@@ -8,6 +8,7 @@ Sandia module temperature model.
 import copy
 import importlib.util
 import warnings
+from dataclasses import dataclass
 
 import numpy as np
 
@@ -21,6 +22,89 @@ else:
         "(apparent_zenith, absolute_airmass, precipitable_water_gueymard, "
         "spectral_factor_firstsolar) will not work without the pvlib package."
     )
+
+#: ``CapTest`` parameters propagated onto ``CapData`` and injected by name
+#: into calculations that declare them. A setup may constrain any of these.
+DOWNSTREAM_PARAMS = (
+    "bifaciality",
+    "bifacial_frac",
+    "rear_shade",
+    "power_temp_coeff",
+    "base_temp",
+    "module_type",
+    "racking",
+    "spectral_module_type",
+    "airmass_model",
+    "altitude_override",
+)
+
+#: Every ``CapData`` attribute ``custom_param`` injects by name.
+INJECTED_PARAMS = DOWNSTREAM_PARAMS + ("site",)
+
+#: Injected parameters for which ``None`` is a meaningful value, so they are
+#: never listed in ``requires_params``.
+NULLABLE_INJECTED = ("altitude_override",)
+
+
+@dataclass(frozen=True)
+class CalcEntry:
+    """A registered calculation.
+
+    Parameters
+    ----------
+    func : callable
+        The calculation; takes ``data`` first and keyword arguments after.
+    requires_params : tuple of str
+        Parameters that must resolve to a non-``None`` value at setup time,
+        from the document, a ``CapData`` attribute, or the function default.
+    requires_import : tuple of str
+        Optional packages the function imports.
+    """
+
+    func: object
+    requires_params: tuple = ()
+    requires_import: tuple = ()
+
+
+#: Registry of calculations a setup document may name under ``calc``.
+CALC_REGISTRY = {}
+
+
+def register_calc(name=None, *, requires_params=(), requires_import=()):
+    """Register a calculation under ``name`` (default: the function name).
+
+    Parameters
+    ----------
+    name : str or None
+        Registry key. Defaults to ``func.__name__``.
+    requires_params : iterable of str
+        See :class:`CalcEntry`.
+    requires_import : iterable of str
+        See :class:`CalcEntry`.
+
+    Returns
+    -------
+    callable
+        Decorator that records the function and returns it unchanged.
+
+    Raises
+    ------
+    ValueError
+        If ``name`` is already registered to a different function.
+    """
+
+    def decorator(func):
+        key = name or func.__name__
+        existing = CALC_REGISTRY.get(key)
+        if existing is not None and existing.func is not func:
+            raise ValueError(f"calculation {key!r} is already registered")
+        CALC_REGISTRY[key] = CalcEntry(
+            func, tuple(requires_params), tuple(requires_import)
+        )
+        return func
+
+    return decorator
+
 
 # Global record surface-pressure extremes (mBar) used by
 # :func:`absolute_airmass` to sanity-check pressure inputs. Low: ~870 mBar
@@ -39,6 +123,7 @@ EMP_HEAT_COEFF = {
 }
 
 
+@register_calc(requires_params=("power_temp_coeff", "base_temp"))
 def power_temp_correct(
     data, power, cell_temp, power_temp_coeff=None, base_temp=25, verbose=True
 ):
@@ -81,6 +166,7 @@ def power_temp_correct(
     return power / (1 + ((power_temp_coeff / 100) * (cell_temp - base_temp)))
 
 
+@register_calc(requires_params=("module_type", "racking"))
 def bom_temp(
     data,
     poa=None,
@@ -131,6 +217,7 @@ def bom_temp(
     return data[poa] * np.exp(a + b * data[wind_speed]) + data[temp_amb]
 
 
+@register_calc(requires_params=("module_type", "racking"))
 def cell_temp(
     data, bom, poa, module_type="glass_cell_poly", racking="open_rack", verbose=True
 ):
@@ -179,6 +266,7 @@ def cell_temp(
     )
 
 
+@register_calc()
 def avg_typ_cell_temp(data, poa, cell_temp, verbose=True):
     """Calculate irradiance weighted cell temperature.
 
@@ -200,6 +288,7 @@ def avg_typ_cell_temp(data, poa, cell_temp, verbose=True):
     return (data[poa] * data[cell_temp]).sum() / data[poa].sum()
 
 
+@register_calc()
 def rpoa_pvsyst(data, globbak="GlobBak", backshd="BackShd", verbose=True):
     """Calculate the sum of PVsyst's global rear irradiance and rear shading and IAM losses.
 
@@ -228,6 +317,7 @@ def rpoa_pvsyst(data, globbak="GlobBak", backshd="BackShd", verbose=True):
     return data[globbak] + data[backshd]
 
 
+@register_calc(requires_params=("bifaciality", "bifacial_frac", "rear_shade"))
 def e_total(
     data, poa, rpoa, bifaciality=0.7, bifacial_frac=1, rear_shade=0, verbose=True
 ):
@@ -268,6 +358,7 @@ def e_total(
     return data[poa] + data[rpoa] * bifaciality * bifacial_frac * (1 - rear_shade)
 
 
+@register_calc(requires_params=("site",), requires_import=("pvlib",))
 def apparent_zenith(data, site=None, altitude_override=0, verbose=True):
     """Compute apparent solar zenith angle at each timestamp in ``data``.
 
@@ -331,6 +422,7 @@ def apparent_zenith(data, site=None, altitude_override=0, verbose=True):
     return zenith
 
 
+@register_calc(requires_params=("site",), requires_import=("pvlib",))
 def apparent_zenith_pvsyst(
     data, site=None, altitude_override=0, shift_minutes=30, verbose=True
 ):
@@ -428,6 +520,7 @@ def _check_pressure_range(pressure_pa, pressure_col):
         )
 
 
+@register_calc(requires_params=("airmass_model",), requires_import=("pvlib",))
 def absolute_airmass(
     data,
     apparent_zenith=None,
@@ -496,6 +589,7 @@ def absolute_airmass(
     return pvlib.atmosphere.get_absolute_airmass(rel_airmass, pressure_pa)
 
 
+@register_calc(requires_import=("pvlib",))
 def precipitable_water_gueymard(data, temp_amb=None, rel_humidity=None, verbose=True):
     """Precipitable water (cm) from ambient temperature and relative humidity.
 
@@ -526,6 +620,7 @@ def precipitable_water_gueymard(data, temp_amb=None, rel_humidity=None, verbose=
     return pvlib.atmosphere.gueymard94_pw(data[temp_amb], data[rel_humidity])
 
 
+@register_calc()
 def scale(data, col=None, factor=1.0, verbose=True):
     """Multiply a single column by a scalar factor.
 
@@ -562,6 +657,7 @@ def scale(data, col=None, factor=1.0, verbose=True):
     return data[col] * factor
 
 
+@register_calc(requires_params=("spectral_module_type",), requires_import=("pvlib",))
 def spectral_factor_firstsolar(
     data,
     precipitable_water=None,
@@ -616,6 +712,7 @@ def spectral_factor_firstsolar(
     )
 
 
+@register_calc()
 def multiply(data, a=None, b=None, verbose=True):
     """Elementwise multiplication of two columns.
 
@@ -639,6 +736,7 @@ def multiply(data, a=None, b=None, verbose=True):
     return data[a] * data[b]
 
 
+@register_calc()
 def poa_spec_corrected(data, poa=None, spectral_correction=None, verbose=True):
     """Spectrally corrected plane-of-array irradiance.
 

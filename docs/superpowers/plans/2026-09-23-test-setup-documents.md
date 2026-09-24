@@ -396,7 +396,7 @@ Then run the review gate.
 **Interfaces:**
 - Produces: `calcparams.DOWNSTREAM_PARAMS: tuple[str, ...]`, `calcparams.INJECTED_PARAMS`, `calcparams.NULLABLE_INJECTED`, `calcparams.CalcEntry(func, requires_params, requires_import)`, `calcparams.CALC_REGISTRY: dict[str, CalcEntry]`, `calcparams.register_calc(name=None, *, requires_params=(), requires_import=())`.
 
-- [ ] **Step 1: Declare the dependencies and package data**
+- [x] **Step 1: Declare the dependencies and package data**
 
 In `pyproject.toml` add to `dependencies`:
 ```toml
@@ -411,11 +411,11 @@ captest = ["setups/*.yaml"]
 Run: `uv sync`
 Expected: pydantic resolves; `uv run python -c "import pydantic; print(pydantic.VERSION)"` prints a 2.x version.
 
-- [ ] **Step 2: Amend the spec's directory name**
+- [x] **Step 2: Amend the spec's directory name**
 
 In the spec, replace every `test_setups/` and `src/captest/test_setups/` with `setups/` / `src/captest/setups/`, and add one sentence under "`captest.py` — presets and `CapTest`": "The directory is `setups/`, not `test_setups/`, because `captest.test_setups` is an existing exported function."
 
-- [ ] **Step 3: Write the registry declaration tests**
+- [x] **Step 3: Write the registry declaration tests**
 
 Append to `tests/test_calc_params.py`:
 
@@ -497,12 +497,12 @@ class TestCalcRegistry:
         assert CALC_REGISTRY["e_total"] is not None
 ```
 
-- [ ] **Step 4: Run to verify they fail**
+- [x] **Step 4: Run to verify they fail**
 
 Run: `uv run pytest tests/test_calc_params.py::TestCalcRegistry -v`
 Expected: ImportError on `CALC_REGISTRY`.
 
-- [ ] **Step 5: Implement the registry**
+- [x] **Step 5: Implement the registry**
 
 At the top of `src/captest/calcparams.py` (after the existing imports; add `import inspect` only if used, and `from dataclasses import dataclass`):
 
@@ -638,12 +638,12 @@ def poa_spec_corrected(...): ...
 
 Where a comment says "confirm", read the signature and body; the tests in Step 3 are the arbiter — adjust the declaration, never the test.
 
-- [ ] **Step 6: Run the tests**
+- [x] **Step 6: Run the tests**
 
 Run: `uv run pytest tests/test_calc_params.py -v`
 Expected: all pass (existing calculation tests untouched).
 
-- [ ] **Step 7: Lint, format, commit, review gate**
+- [x] **Step 7: Lint, format, commit, review gate**
 
 ```bash
 just lint && just fmt
