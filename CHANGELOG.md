@@ -72,6 +72,12 @@ incomplete or invalid config (e.g. a `custom` test missing a side or the
 formula) rather than writing a file that cannot be loaded. An override that
 leaves the preset unchanged resolves to the preset itself, so it keeps the
 preset's `content_digest()` across a round trip.
+- `CapTest.to_yaml` / `to_mapping` now write `overrides.rep_conditions` also
+when a `RepCond` step is in a filter pipeline or `rc_source` is `manual`
+(it was dropped before), so the reloaded `resolved_setup` keeps its
+`content_digest()`. Loading does not apply it: a replayed `RepCond` step
+uses its own arguments and a manual rc is restored from
+`reporting_conditions_values`.
 - `CapData.set_regression_cols` builds nodes: a column group id becomes a
 `Group` node, a single-column group becomes a `Column` node for its one
 column (used as is, not aggregated), and any other name a `Column` node.

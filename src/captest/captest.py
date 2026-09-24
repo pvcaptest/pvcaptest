@@ -1807,10 +1807,13 @@ class CapTest(param.Parameterized):
         when its chain is empty), each only when non-empty; ``from_yaml``
         stores them as pending pipelines that :meth:`run_test` replays. The
         prep pipelines are written the same way as ``meas_prep`` /
-        ``sim_prep``; ``from_yaml`` applies those at load. When a
-        ``RepCond`` step is present in either pipeline, ``overrides.rep_conditions``
-        is omitted — the step is then the authoritative reporting-conditions
-        source (avoids representing it in two places).
+        ``sim_prep``; ``from_yaml`` applies those at load.
+        ``overrides.rep_conditions`` is written whenever
+        :attr:`rep_conditions` is set, also beside a ``RepCond`` step or a
+        manual ``rc_source``: it is part of the resolved setup's identity,
+        and loading never applies it (a replayed ``RepCond`` step uses its
+        own arguments, and a manual rc is restored from
+        ``reporting_conditions_values``).
 
         ``overrides`` is written in document form. For a named preset,
         ``reg_cols_meas`` / ``reg_cols_sim`` hold only the difference from
@@ -1906,10 +1909,10 @@ class CapTest(param.Parameterized):
         running is lossless), else the key is omitted. Embeds each side's
         prep pipeline as ``meas_prep``/``sim_prep`` under the same three-way
         rule (applied prep chain, else the stored ``meas_prep``/``sim_prep``
-        config, else the key is omitted). Omits
-        ``overrides.rep_conditions`` when a ``RepCond`` step is present in
-        either pipeline (the step is then the single source of reporting
-        conditions).
+        config, else the key is omitted). Writes
+        ``overrides.rep_conditions`` whenever :attr:`rep_conditions` is set,
+        including beside a ``RepCond`` step or a manual ``rc_source``, so the
+        reloaded ``resolved_setup`` keeps the original's ``content_digest``.
         """
         sub = {"test_setup": self.test_setup}
 
@@ -1967,20 +1970,12 @@ class CapTest(param.Parameterized):
             if self.sim is not None and self.sim.prep
             else copy.deepcopy(self.sim_prep)
         )
-        has_rep_cond_step = any(
-            d["type"] == "RepCond" for d in (meas_filters + sim_filters)
-        )
-        # Decision B: when a RepCond step is in either pipeline, it is the
-        # unambiguous source of reporting conditions — drop the redundant
-        # overrides.rep_conditions.
-        # For a manual rc_source, reporting_conditions_values (written below) is
-        # the authoritative RC; do not also serialize overrides.rep_conditions,
-        # which is only aggregation config and would read as a second RC source.
-        if (
-            self.rep_conditions is not None
-            and not has_rep_cond_step
-            and self.rc_source != "manual"
-        ):
+        # Written even beside a RepCond step or a manual rc: it is part of
+        # the resolved setup's identity (content_digest), and nothing applies
+        # it on load. Replayed RepCond steps carry their own kwargs and a
+        # manual rc is restored from reporting_conditions_values, so it only
+        # feeds resolved_setup and the defaults of a later tst.rep_cond().
+        if self.rep_conditions is not None:
             overrides["rep_conditions"] = _serialize_rep_conditions(self.rep_conditions)
         if overrides:
             sub["overrides"] = overrides

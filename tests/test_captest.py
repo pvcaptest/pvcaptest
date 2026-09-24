@@ -3182,15 +3182,17 @@ class TestPipelineYaml:
         assert "meas_filters" not in sub
         assert "sim_filters" not in sub
 
-    def test_rep_cond_step_omits_overrides_rep_conditions(
+    def test_rep_cond_step_keeps_overrides_rep_conditions(
         self, meas_cd_default, sim_cd_default
     ):
+        """The override is part of the setup's identity, so it is written
+        even when a RepCond step carries the reporting-condition arguments."""
         capt = self._capt(meas_cd_default, sim_cd_default)
-        capt.rep_conditions = {"func": {"poa": "mean"}}  # non-None -> would serialize
+        capt.rep_conditions = {"func": {"poa": "mean"}}
         capt.rep_cond(which="meas")  # creates a RepCond step in meas.filters
         sub = capt._build_yaml_sub_mapping()
         assert any(d["type"] == "RepCond" for d in sub["meas_filters"])
-        assert "rep_conditions" not in sub.get("overrides", {})
+        assert sub["overrides"]["rep_conditions"]["func"]["poa"] == "mean"
 
     def test_rep_conditions_kept_without_rep_cond_step(
         self, meas_cd_default, sim_cd_default
@@ -3279,8 +3281,8 @@ class TestPipelineYaml:
         self, tmp_path, meas_cd_default, sim_cd_default
     ):
         """A RepCond step round-trips and recomputes rc when run_test replays
-        the pending pipeline, even though overrides.rep_conditions is omitted
-        from the file (decision B)."""
+        the pending pipeline; overrides.rep_conditions in the file is not
+        applied on top of it."""
         capt = self._capt(meas_cd_default, sim_cd_default)
         clean_meas, clean_sim = capt.meas.copy(), capt.sim.copy()
         capt.rep_conditions = {"func": {"poa": "mean"}}
@@ -3593,18 +3595,18 @@ class TestManualRcSerialization:
         sub = capt._build_yaml_sub_mapping()
         assert "reporting_conditions_values" not in sub
 
-    def test_manual_rc_omits_overrides_rep_conditions(
+    def test_manual_rc_keeps_overrides_rep_conditions(
         self, meas_cd_default, sim_cd_default
     ):
         """A manual rc_source serializes reporting_conditions_values as the
-        authoritative RC and does NOT also write overrides.rep_conditions, so
-        the file never carries two RC-bearing keys."""
+        authoritative RC and still writes overrides.rep_conditions, which is
+        part of the resolved setup's identity."""
         capt = self._capt(meas_cd_default, sim_cd_default)
-        capt.rep_conditions = {"func": {"poa": "mean"}}  # would normally serialize
+        capt.rep_conditions = {"func": {"poa": "mean"}}
         capt.rc = pd.DataFrame({"poa": [805.0], "t_amb": [25.0], "w_vel": [2.0]})
         sub = capt._build_yaml_sub_mapping()
         assert "reporting_conditions_values" in sub
-        assert "rep_conditions" not in sub.get("overrides", {})
+        assert sub["overrides"]["rep_conditions"]["func"]["poa"] == "mean"
 
 
 class TestRcOwnershipRoundTrip:
@@ -3658,6 +3660,55 @@ class TestRcOwnershipRoundTrip:
 
         assert reloaded.rc_source == "manual"
         assert reloaded.rc["poa"].iloc[0] == pytest.approx(805.0)
+
+    def test_roundtrip_rep_cond_step_keeps_setup_identity(
+        self, tmp_path, meas_cd_default, sim_cd_default
+    ):
+        """A rep_conditions override beside a RepCond step survives the round
+        trip (same resolved setup and digest) and is not applied a second
+        time: replay yields one RepCond step and the same rc."""
+        capt = self._capt(
+            meas_cd_default, sim_cd_default, rep_conditions={"func": {"poa": "perc_50"}}
+        )
+        clean_meas, clean_sim = capt.meas.copy(), capt.sim.copy()
+        capt.rep_cond(which="meas")
+        expected_rc = capt.rc.copy()
+
+        reloaded = self._roundtrip(capt, tmp_path, clean_meas, clean_sim)
+        assert reloaded.resolved_setup.rep_conditions.func["poa"] == "perc_50"
+        assert reloaded.resolved_setup == capt.resolved_setup
+        assert (
+            reloaded.resolved_setup.content_digest()
+            == capt.resolved_setup.content_digest()
+        )
+        assert reloaded.rc is None
+        reloaded.run_test()
+        rep_cond_steps = [
+            s for s in reloaded.meas.filters if type(s).__name__ == "RepCond"
+        ]
+        assert len(rep_cond_steps) == 1
+        pd.testing.assert_frame_equal(reloaded.rc, expected_rc)
+
+    def test_roundtrip_manual_rc_keeps_setup_identity(
+        self, tmp_path, meas_cd_default, sim_cd_default
+    ):
+        """A rep_conditions override beside a manual rc survives the round
+        trip, and the manual rc (not a recomputed one) is restored."""
+        capt = self._capt(
+            meas_cd_default, sim_cd_default, rep_conditions={"func": {"poa": "perc_50"}}
+        )
+        clean_meas, clean_sim = capt.meas.copy(), capt.sim.copy()
+        capt.rc = pd.DataFrame({"poa": [805.0], "t_amb": [25.0], "w_vel": [2.0]})
+
+        reloaded = self._roundtrip(capt, tmp_path, clean_meas, clean_sim)
+        assert reloaded.resolved_setup == capt.resolved_setup
+        assert (
+            reloaded.resolved_setup.content_digest()
+            == capt.resolved_setup.content_digest()
+        )
+        assert reloaded.rc_source == "manual"
+        assert reloaded.rc["poa"].iloc[0] == pytest.approx(805.0)
+        assert reloaded.meas.filters == [] and reloaded.sim.filters == []
 
     def test_roundtrip_rc_source_sim_replays_sim_first(
         self, tmp_path, meas_cd_default, sim_cd_default

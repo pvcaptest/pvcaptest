@@ -625,7 +625,7 @@ Branch: `reg-cols-serialization`
   fix round 1 below). `just docs` on an existing `_build` does not
   generate autosummary stubs for a newly added page until the second run (Sphinx reads the
   pickled `found_docs`); a clean build is fine.
-- Commits / roborev: (filled in by controller)
+- Commits / roborev: `59dbb5b` (job 489 clean). Controller task review: CHANGELOG missed the bare-string break, and the `_sim` preset descriptions were false. Fix round 1 in `e2f60e6` (job 490 clean) regenerated only the three `_sim` digests; the controller checked the fix diff. **Task 10 complete.**
 
 #### Fix round 1 (controller task review)
 - F1: CHANGELOG `### Changed` gains two breaking entries: a bare string in
@@ -648,4 +648,17 @@ Branch: `reg-cols-serialization`
 - Test result: `just lint` / `just fmt` clean; `just test` 1436 passed; `just docs` exit 0,
   clean build 85 warnings, none new vs. baseline.
 - Deviations: none.
-- Commits / roborev: (filled in by controller)
+- Commits / roborev: `e2f60e6` — see above (job 490 clean).
+
+### Final review fixes
+
+- I1 (`overrides.rep_conditions` dropped beside a `RepCond` step or a manual rc): the drop
+  dates from #160 ("Decision B", config round-trip plan) and #162 (manual rc); both reasons
+  were presentational ("single source" / "would read as a second RC source"). Nothing
+  applies `rep_conditions` at load: `from_mapping` lifts it into the param, `setup()` only
+  resolves it into `resolved_setup`, `run_test` replays the stored `RepCond` step with its
+  own serialized kwargs, and a manual rc comes from `reporting_conditions_values`. So the
+  override is now always written when set; replay behaviour is unchanged (tested: one
+  `RepCond` step after `run_test`, same rc; manual rc restored, no step applied). The two
+  "omits" tests became "keeps" tests; two round-trip tests assert equal `resolved_setup`
+  and `content_digest()`. CHANGELOG `### Changed` entry added.
