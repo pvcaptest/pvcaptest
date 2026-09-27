@@ -13,6 +13,7 @@ from captest.captest import (
     TEST_SETUPS as TEST_SETUPS,
     CapTest as CapTest,
     load_config as load_config,
+    resolve_setup_from_mapping as resolve_setup_from_mapping,
     test_setups as test_setups,
 )
 from captest.io import (

@@ -434,6 +434,166 @@ def resolve_test_setup(name, overrides=None):
     return derived
 
 
+def _lift_mapping(sub, key="captest"):
+    """Validate a captest sub-mapping and lift it into constructor kwargs.
+
+    The key checks and override lifting that :meth:`CapTest.from_mapping` and
+    :func:`resolve_setup_from_mapping` share. Paths are left exactly as
+    written (no ``base_dir`` resolution) and ``None`` values are kept.
+
+    Parameters
+    ----------
+    sub : dict
+        Captest sub-mapping. Not mutated.
+    key : str, default 'captest'
+        Used only in error messages.
+
+    Returns
+    -------
+    dict
+        Keyword arguments for :meth:`CapTest.from_params`, minus the loaders,
+        with ``overrides.*`` lifted to top level (``overrides.scatter_plots``
+        becomes ``scatter_plots_name``) and ``meas_filters`` /
+        ``sim_filters`` / ``reporting_conditions_values`` / ``overrides``
+        removed.
+
+    Raises
+    ------
+    TypeError
+        ``sub`` is not a mapping.
+    ValueError
+        Unknown key, missing ``test_setup``, ``reg_fml`` set twice, or a
+        ``custom`` setup without its three regression overrides.
+    """
+    if not isinstance(sub, dict):
+        raise TypeError(f"'sub' must be a mapping; got {type(sub).__name__}.")
+    # Unknown-key detection with Levenshtein suggestion.
+    for k in sub:
+        if k not in _CAPTEST_YAML_KEYS:
+            suggestion = _suggest_unknown_key(k, _CAPTEST_YAML_KEYS)
+            raise ValueError(
+                f"Unknown key {k!r} under the {key!r} sub-mapping.{suggestion}"
+            )
+    overrides = sub.get("overrides") or {}
+    if not isinstance(overrides, dict):
+        raise ValueError("'overrides' must be a mapping.")
+    for k in overrides:
+        if k not in _CAPTEST_OVERRIDE_KEYS:
+            suggestion = _suggest_unknown_key(k, _CAPTEST_OVERRIDE_KEYS)
+            raise ValueError(f"Unknown key {k!r} under 'overrides'.{suggestion}")
+    if "test_setup" not in sub:
+        raise ValueError(f"'test_setup' is required under the {key!r} sub-mapping.")
+    # Conflicting reg_fml at the top-level and under overrides.
+    if sub.get("reg_fml") is not None and overrides.get("reg_fml") is not None:
+        raise ValueError(
+            "'reg_fml' cannot be set both at the captest top-level and "
+            "under 'overrides'; pick one."
+        )
+    kwargs = {
+        k: v
+        for k, v in sub.items()
+        if k
+        not in (
+            "overrides",
+            "meas_filters",
+            "sim_filters",
+            "reporting_conditions_values",
+        )
+    }
+    # Lift override keys into direct kwargs; values pass straight to the
+    # params and the TestSetup model validates them at setup().
+    # ``overrides.scatter_plots`` is the ``scatter_plots_name`` param.
+    for k in _CAPTEST_OVERRIDE_KEYS:
+        if overrides.get(k) is not None:
+            kwargs["scatter_plots_name" if k == "scatter_plots" else k] = overrides[k]
+    # 'custom' setup requires the three regression overrides.
+    if kwargs.get("test_setup") == "custom":
+        for req in ("reg_cols_meas", "reg_cols_sim", "reg_fml"):
+            if kwargs.get(req) is None:
+                raise ValueError(
+                    f"test_setup='custom' requires overrides.{req} to be set."
+                )
+    return kwargs
+
+
+def _setup_overrides(values):
+    """The :func:`resolve_test_setup` overrides present in ``values``.
+
+    ``None`` values are skipped, and so are empty ``reg_cols_meas`` /
+    ``reg_cols_sim`` / ``rep_conditions`` mappings (merging nothing is no
+    change), so an untouched test resolves to the preset itself. An empty
+    ``params`` is kept: it replaces the preset's constraints wholesale.
+
+    Parameters
+    ----------
+    values : Mapping
+        Holds any of ``reg_cols_meas``, ``reg_cols_sim``, ``reg_fml``,
+        ``rep_conditions``, ``params`` and ``scatter_plots_name``.
+
+    Returns
+    -------
+    dict
+    """
+    overrides = {}
+    for name in (
+        "reg_cols_meas",
+        "reg_cols_sim",
+        "reg_fml",
+        "rep_conditions",
+        "params",
+    ):
+        val = values.get(name)
+        if val is None or (name in _MERGED_OVERRIDES and not val):
+            continue
+        overrides[name] = val
+    if values.get("scatter_plots_name") is not None:
+        overrides["scatter_plots"] = values["scatter_plots_name"]
+    return overrides
+
+
+def resolve_setup_from_mapping(sub, *, key="captest"):
+    """Resolve the ``TestSetup`` a captest sub-mapping describes, without data.
+
+    The data-free equivalent of ``CapTest.from_mapping(sub, ...)`` followed
+    by ``setup()`` as far as the setup document is concerned: the same key
+    checks, the same lifting of top-level and ``overrides`` spellings, the
+    same override filtering, then :func:`resolve_test_setup`. It never builds
+    a ``CapData``, reads a path or applies prep, so it is safe on a mapping
+    whose data is unavailable.
+
+    Parameters
+    ----------
+    sub : dict
+        Captest sub-mapping (a ``to_mapping()`` result or a config section).
+        Not mutated.
+    key : str, default 'captest'
+        Used only in error messages.
+
+    Returns
+    -------
+    captest.setup.TestSetup
+        The preset object itself when the overrides change nothing.
+
+    Raises
+    ------
+    KeyError
+        Unknown preset name.
+    ValueError
+        Anything :func:`_lift_mapping` or :func:`resolve_test_setup` rejects,
+        including an invalid document (``pydantic.ValidationError`` is a
+        ``ValueError``).
+    TypeError
+        ``sub`` is not a mapping.
+    """
+    kwargs = _lift_mapping(sub, key)
+    # from_mapping drops a null test_setup and lets the param default apply;
+    # mirror that so both routes accept the same mappings.
+    name = kwargs.get("test_setup")
+    if name is None:
+        name = CapTest.param["test_setup"].default
+    return resolve_test_setup(name, _setup_overrides(kwargs))
+
+
 # --- yaml loading ---------------------------------------------------------
 
 
@@ -1567,62 +1727,7 @@ class CapTest(param.Parameterized):
         -------
         CapTest
         """
-        if not isinstance(sub, dict):
-            raise TypeError(f"'sub' must be a mapping; got {type(sub).__name__}.")
-
-        # Unknown-key detection with Levenshtein suggestion.
-        for k in sub:
-            if k not in _CAPTEST_YAML_KEYS:
-                suggestion = _suggest_unknown_key(k, _CAPTEST_YAML_KEYS)
-                raise ValueError(
-                    f"Unknown key {k!r} under the {key!r} sub-mapping.{suggestion}"
-                )
-        overrides = sub.get("overrides") or {}
-        if not isinstance(overrides, dict):
-            raise ValueError("'overrides' must be a mapping.")
-        for k in overrides:
-            if k not in _CAPTEST_OVERRIDE_KEYS:
-                suggestion = _suggest_unknown_key(k, _CAPTEST_OVERRIDE_KEYS)
-                raise ValueError(f"Unknown key {k!r} under 'overrides'.{suggestion}")
-
-        if "test_setup" not in sub:
-            raise ValueError(f"'test_setup' is required under the {key!r} sub-mapping.")
-
-        # Conflicting reg_fml at the top-level and under overrides.
-        if sub.get("reg_fml") is not None and overrides.get("reg_fml") is not None:
-            raise ValueError(
-                "'reg_fml' cannot be set both at the captest top-level and "
-                "under 'overrides'; pick one."
-            )
-
-        kwargs = {
-            k: v
-            for k, v in sub.items()
-            if k
-            not in (
-                "overrides",
-                "meas_filters",
-                "sim_filters",
-                "reporting_conditions_values",
-            )
-        }
-
-        # Lift override keys into direct kwargs; values pass straight to the
-        # params and the TestSetup model validates them at setup().
-        # ``overrides.scatter_plots`` is the ``scatter_plots_name`` param.
-        for k in _CAPTEST_OVERRIDE_KEYS:
-            if overrides.get(k) is not None:
-                kwargs["scatter_plots_name" if k == "scatter_plots" else k] = overrides[
-                    k
-                ]
-
-        # 'custom' setup requires the three regression overrides.
-        if kwargs.get("test_setup") == "custom":
-            for req in ("reg_cols_meas", "reg_cols_sim", "reg_fml"):
-                if kwargs.get(req) is None:
-                    raise ValueError(
-                        f"test_setup='custom' requires overrides.{req} to be set."
-                    )
+        kwargs = _lift_mapping(sub, key)
 
         # Resolve relative paths. URI-scheme paths (e.g. s3://) are treated
         # as absolute; Path.is_absolute() alone is not enough because on
@@ -2167,21 +2272,15 @@ class CapTest(param.Parameterized):
         dict
             Keyword overrides for :func:`resolve_test_setup`.
         """
-        overrides = {}
-        for name in (
+        names = (
             "reg_cols_meas",
             "reg_cols_sim",
             "reg_fml",
             "rep_conditions",
             "params",
-        ):
-            val = getattr(self, name)
-            if val is None or (name in _MERGED_OVERRIDES and not val):
-                continue
-            overrides[name] = val
-        if self.scatter_plots_name is not None:
-            overrides["scatter_plots"] = self.scatter_plots_name
-        return overrides
+            "scatter_plots_name",
+        )
+        return _setup_overrides({n: getattr(self, n) for n in names})
 
     def _prepare_sides(self, sides):
         """Propagate downstream params and ``meas.site`` onto ``sides``.

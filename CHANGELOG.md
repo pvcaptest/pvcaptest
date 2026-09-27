@@ -6,6 +6,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Added
+- `captest.resolve_setup_from_mapping(sub)`: resolve the `TestSetup` a captest
+  sub-mapping describes without loading data, with exactly the key checks and
+  override handling of `CapTest.from_mapping` + `setup()`.
 - New `TimeOfDay` filter step (and `CapData.filter_time_of_day()` wrapper) —
 keep or drop a daily clock-time window via `DataFrame.between_time`. The
 first-class, serializable replacement for
