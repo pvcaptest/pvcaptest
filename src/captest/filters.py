@@ -915,7 +915,9 @@ class Time(BaseFilter):
         doc="IANA time zone for start/end/test_date. Naive values are "
         "localized to it and zone-aware values converted into it before the "
         "window is resolved, so day arithmetic follows the zone's DST. "
-        "Written by to_config for named-zone values; None uses values as given.",
+        "Written by to_config for named-zone values; None uses values as given. "
+        "A naive value that lands on an ambiguous or nonexistent local time "
+        "(a DST transition) raises when the filter runs.",
     )
 
     def _execute(self, capdata):
@@ -997,9 +999,16 @@ class Time(BaseFilter):
 
     @staticmethod
     def _iso(ts):
-        """ISO-8601 text; a naive midnight is written as ``YYYY-MM-DD``."""
+        """ISO-8601 text; a naive midnight is written as ``YYYY-MM-DD``.
+
+        Built manually rather than via ``strftime``, which doesn't zero-pad
+        ``%Y`` on glibc (year 1 -> ``"1-01-01"``) and raises
+        ``NotImplementedError`` for a Timestamp outside Python's stdlib
+        ``datetime`` range. ``to_config`` never calls this for a year outside
+        1-9999; it takes the replay-only path instead.
+        """
         if ts.tz is None and ts == ts.normalize():
-            return ts.strftime("%Y-%m-%d")
+            return f"{ts.year:04d}-{ts.month:02d}-{ts.day:02d}"
         return ts.isoformat()
 
     def to_config(self):
@@ -1010,10 +1019,12 @@ class Time(BaseFilter):
         :meth:`_parse` converts back into on reload. Strings pass through.
 
         Never raises: ``run_test`` snapshots live pipelines through this.
-        When the values cannot be written losslessly as text (an unnamed DST
-        zone, two named zones, or a named zone that conflicts with ``tz``),
-        the raw values are returned unchanged. Replay stays exact, and
-        ``canonical_json`` refuses the config for storage.
+        When the values cannot be written losslessly as text (a missing value
+        such as ``NaT``, an unnamed DST zone, two named zones, a named zone
+        mixed with a fixed-offset or naive value, a named zone that conflicts
+        with ``tz``, or a year outside 1-9999), the raw values are returned
+        unchanged. Replay stays exact, and ``canonical_json`` refuses the
+        config for storage.
 
         Returns
         -------
@@ -1033,6 +1044,12 @@ class Time(BaseFilter):
         set_values = [k for k, v in values.items() if v is not None]
         missing = any(t is pd.NaT for t in stamps.values())
         unnamed = any(kind == "unnamed" for kind, _ in kinds.values())
+        # A year outside 1-9999 can't be written as plain ISO-8601 text (and
+        # would defeat strftime); explicit range check rather than catching
+        # whatever a formatter might raise.
+        out_of_range = any(
+            t is not pd.NaT and not (1 <= t.year <= 9999) for t in stamps.values()
+        )
         # A zone is inferred only when every set value is a Timestamp in that
         # one named zone and it agrees with tz; any other mixture would change
         # how the remaining values are read on replay.
@@ -1041,7 +1058,7 @@ class Time(BaseFilter):
             and all(k in kinds and kinds[k][0] == "named" for k in set_values)
             and self.tz in (None, *named)
         )
-        if missing or unnamed or (named and not inferable):
+        if missing or unnamed or out_of_range or (named and not inferable):
             config.update(values)  # replay-only: exact replay, not storable
             config["tz"] = self.tz
             return config
