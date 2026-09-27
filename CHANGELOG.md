@@ -129,6 +129,14 @@ copy-per-run pattern, and a dropped `site` made `filter_backtracking` (and the
 solar-position `calcparams` helpers) silently degrade to a no-op on the copy,
 while a dropped `tolerance` broke `predict_capacities`. A copy now always
 exposes `site`, set to `None` when the source has none.
+- `Time.to_config()` writes `start` / `end` / `test_date` as ISO-8601 strings,
+  so a test that used `filter_time(test_date=pd.Timestamp(...))` serializes to
+  plain JSON and can be stored and reloaded. A zone-aware value is written as
+  its full instant; a named zone is also kept in the new `Time.tz` param, so
+  day-window arithmetic across DST, and the occurrence of a repeated hour, are
+  unchanged on reload. A zone that cannot be named (e.g. `dateutil.tz.gettz`)
+  is kept as the raw value: replay is exact, and storage refuses it rather
+  than degrading it to a fixed offset.
 
 [0.17.0]: https://github.com/pvcaptest/pvcaptest/compare/v0.16.0...v0.17.0
 ## [0.17.0] - 2026-07-30

@@ -5,6 +5,7 @@ This module is imported one-way by ``capdata.py``; it never imports
 runtime ``capdata`` argument to ``run``/``_execute``.
 """
 
+import datetime
 import difflib
 import importlib.util
 import math
@@ -12,6 +13,7 @@ import numbers
 import warnings
 from itertools import combinations
 
+import numpy as np
 import pandas as pd
 import param
 import sklearn.covariance as sk_cv
@@ -907,14 +909,20 @@ class Time(BaseFilter):
         default=False,
         doc="When True, remove the resolved window from the data instead of keeping it.",
     )
+    tz = param.String(
+        default=None,
+        allow_None=True,
+        doc="IANA time zone for start/end/test_date. Naive values are "
+        "localized to it and zone-aware values converted into it before the "
+        "window is resolved, so day arithmetic follows the zone's DST. "
+        "Written by to_config for named-zone values; None uses values as given.",
+    )
 
     def _execute(self, capdata):
         df = capdata.data_filtered
-        start = pd.to_datetime(self.start) if self.start is not None else None
-        end = pd.to_datetime(self.end) if self.end is not None else None
-        test_date = (
-            pd.to_datetime(self.test_date) if self.test_date is not None else None
-        )
+        start = self._parse(self.start)
+        end = self._parse(self.end)
+        test_date = self._parse(self.test_date)
 
         if test_date is not None:
             if self.days is None:
@@ -952,6 +960,95 @@ class Time(BaseFilter):
         else:
             df_temp = df.loc[start:end, :]
         return df_temp.index
+
+    _DATE_PARAMS = ("start", "end", "test_date")
+
+    def _parse(self, value):
+        """``value`` as a Timestamp in :attr:`tz` when one is set.
+
+        Naive values are localized to ``tz``; zone-aware values (e.g. an ISO
+        string with an offset) are converted into it, which keeps the instant.
+        """
+        if value is None:
+            return None
+        ts = pd.to_datetime(value)
+        if self.tz is not None:
+            ts = ts.tz_localize(self.tz) if ts.tz is None else ts.tz_convert(self.tz)
+        return ts
+
+    @staticmethod
+    def _zone_kind(ts):
+        """``(kind, name)`` for a Timestamp's zone.
+
+        One of ``("naive", None)``, ``("fixed", None)``,
+        ``("named", "<IANA>")`` or ``("unnamed", None)``. ``"unnamed"`` is a
+        DST zone whose IANA name cannot be recovered (e.g. a
+        ``dateutil.tz.gettz`` zone); writing it as an offset would silently
+        change day arithmetic across DST.
+        """
+        if ts.tz is None:
+            return "naive", None
+        name = getattr(ts.tz, "key", None) or getattr(ts.tz, "zone", None)
+        if name:
+            return "named", name
+        if ts.tz.utcoffset(None) is not None:
+            return "fixed", None
+        return "unnamed", None
+
+    @staticmethod
+    def _iso(ts):
+        """ISO-8601 text; a naive midnight is written as ``YYYY-MM-DD``."""
+        if ts.tz is None and ts == ts.normalize():
+            return ts.strftime("%Y-%m-%d")
+        return ts.isoformat()
+
+    def to_config(self):
+        """Serialize this step, with dates as ISO-8601 strings.
+
+        A zone-aware value is written as its full instant (with offset); a
+        value in a named zone also records that zone in ``tz``, which
+        :meth:`_parse` converts back into on reload. Strings pass through.
+
+        Never raises: ``run_test`` snapshots live pipelines through this.
+        When the values cannot be written losslessly as text (an unnamed DST
+        zone, two named zones, or a named zone that conflicts with ``tz``),
+        the raw values are returned unchanged. Replay stays exact, and
+        ``canonical_json`` refuses the config for storage.
+
+        Returns
+        -------
+        dict
+        """
+        config = super().to_config()
+        values = {k: getattr(self, k) for k in self._DATE_PARAMS}
+        stamps = {
+            k: pd.Timestamp(v)
+            for k, v in values.items()
+            if isinstance(
+                v, (pd.Timestamp, datetime.datetime, datetime.date, np.datetime64)
+            )
+        }
+        kinds = {k: self._zone_kind(t) for k, t in stamps.items() if t is not pd.NaT}
+        named = {name for kind, name in kinds.values() if kind == "named"}
+        set_values = [k for k, v in values.items() if v is not None]
+        missing = any(t is pd.NaT for t in stamps.values())
+        unnamed = any(kind == "unnamed" for kind, _ in kinds.values())
+        # A zone is inferred only when every set value is a Timestamp in that
+        # one named zone and it agrees with tz; any other mixture would change
+        # how the remaining values are read on replay.
+        inferable = (
+            len(named) == 1
+            and all(k in kinds and kinds[k][0] == "named" for k in set_values)
+            and self.tz in (None, *named)
+        )
+        if missing or unnamed or (named and not inferable):
+            config.update(values)  # replay-only: exact replay, not storable
+            config["tz"] = self.tz
+            return config
+        for k, v in values.items():
+            config[k] = self._iso(stamps[k]) if k in stamps else v
+        config["tz"] = named.pop() if named else self.tz
+        return config
 
     @property
     def explanation(self):
