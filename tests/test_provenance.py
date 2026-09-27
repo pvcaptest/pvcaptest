@@ -1,5 +1,7 @@
 """Load provenance and run fingerprints (setup source-of-truth spec, P0)."""
 
+from pathlib import Path
+
 import pytest
 
 from captest import CapTest
@@ -609,7 +611,7 @@ class TestReloadAnchoring:
         tst.reload("meas", verbose=False)
         expected = str(tmp_path / "proj" / "meas.csv")
         assert calls[-1] == expected
-        assert calls[0] in (expected, "proj/meas.csv")
+        assert calls[0] in (expected, str(Path("proj") / "meas.csv"))
         assert tst._load_snapshots["meas"]["keys"]["meas_path"] == "meas.csv"
 
     def test_uri_base_dir_is_left_alone(self):

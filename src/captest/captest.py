@@ -700,7 +700,8 @@ def _is_uri_or_absolute_path(val):
 
     * carries a URI scheme (e.g. ``s3://bucket/key``, ``gs://...``,
       ``file:///...``) -- ``"://"`` substring check, or
-    * is an absolute filesystem path per :meth:`pathlib.Path.is_absolute`.
+    * is an absolute filesystem path per :meth:`pathlib.Path.is_absolute`,
+      or a rooted path without a drive (``/data/x.csv`` on Windows).
 
     The scheme check is required because on posix systems
     ``Path("s3://bucket/key").is_absolute()`` returns False (the colon
@@ -711,7 +712,11 @@ def _is_uri_or_absolute_path(val):
     s = str(val)
     if "://" in s:
         return True
-    return Path(s).is_absolute()
+    # A rooted path without a drive ("/data/x.csv" on Windows) is not
+    # is_absolute() there, but it does not depend on the working directory
+    # either, so it is never joined onto a base directory.
+    p = Path(s)
+    return p.is_absolute() or bool(p.root)
 
 
 def _join_base_and_relative(base_dir, relative):
