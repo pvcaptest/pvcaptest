@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Added
+- `CapTest.run_fingerprint`, `run_fingerprint_error`, `mapping_fingerprint()`
+  and `last_results`: bind a completed `run_test()`'s results to the
+  configuration that produced them, including load settings as they were at
+  load time. Unset after a single-side or failed run, a reload, or a run with a
+  non-default `pval`, `check_pvalues=True` or `auto_wrap_sim=False`. Computing it never makes
+  `run_test` raise.
 - `captest.io.loader_id(identifier)`: label a data loader; `load_data` and
   `load_pvsyst` carry `"captest.csv_meas"` and `"captest.pvsyst"`.
   `CapTest.load_provenance` reports the `loader_id` behind each side's

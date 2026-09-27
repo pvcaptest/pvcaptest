@@ -458,6 +458,17 @@ differ only in their labels share a semantic digest, so use it to recognise
 the same setup across renames; use ``content_digest()`` to identify the exact
 document.
 
+A completed ``tst.run_test()`` also records ``tst.run_fingerprint``: a digest
+of the configuration that produced the results, with each side's data path,
+load kwargs and prep taken as they were when that side was loaded. It equals
+``tst.mapping_fingerprint()`` only while nothing that feeds the results has
+changed — edit an override, a filter or a load setting and the two differ
+until you reload (for load settings) and re-run. A test whose data was passed
+in pre-built, or loaded by a loader without a label (see
+:py:func:`captest.io.loader_id`), has no fingerprint;
+``tst.run_fingerprint_error`` says why, and ``tst.load_provenance`` names the
+loader behind each side.
+
 In Python, :py:func:`TestSetup.derive <captest.setup.derive>` makes the same
 kind of variant from any setup, merging ``reg_cols_meas`` / ``reg_cols_sim`` key
 by key and replacing the other fields you pass:

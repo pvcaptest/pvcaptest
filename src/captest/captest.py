@@ -19,6 +19,7 @@ anything from this module at import time; the single-CapData helper
 
 import copy
 import difflib
+import hashlib
 import importlib.util
 import textwrap
 import warnings
@@ -41,6 +42,7 @@ from captest.setup import (
     RepConditions,
     SetupFitError,
     TestSetup,
+    canonical_json,
     check_project_fit,
     derive,
 )
@@ -336,6 +338,10 @@ def _merge_rep_conditions(base, override):
 
 #: Overrides merged onto the preset rather than replacing it; empty is no change.
 _MERGED_OVERRIDES = ("reg_cols_meas", "reg_cols_sim", "rep_conditions")
+
+#: The p-value threshold ``run_test`` / ``captest_results`` default to. A
+#: stored run is only reproducible from its mapping at this value.
+_DEFAULT_PVAL = 0.05
 
 _RESOLVE_KEYS = (
     "reg_cols_meas",
@@ -1244,6 +1250,9 @@ class CapTest(param.Parameterized):
         self._sim_path = None
         # One load-provenance snapshot per side; see _record_load_snapshot.
         self._load_snapshots = {}
+        self._run_fingerprint = None
+        self._run_fingerprint_error = "no run_test of both sides has completed"
+        self._last_results = None
         # The single test reporting-conditions DataFrame (or None). Plain attr,
         # not a param.*, so the `rc` property setter can validate and the
         # `_set_rc` write point can manage provenance. `_loading` is True only
@@ -1912,6 +1921,9 @@ class CapTest(param.Parameterized):
             self.sim = loader(stored_path, **(self.sim_load_kwargs or {}))
         self._replay_prep(side)
         self._record_load_snapshot(side, loader)
+        self._invalidate_run(
+            f"side {side} was reloaded after the last run; re-run run_test()"
+        )
         self.setup(verbose=verbose, side=side)
         return self
 
@@ -2119,6 +2131,140 @@ class CapTest(param.Parameterized):
             live = snap is not None and snap["capdata"] is getattr(self, side)
             out[side] = snap["loader_id"] if live else None
         return out
+
+    @property
+    def run_fingerprint(self):
+        """Fingerprint of the configuration that produced the last results.
+
+        Set only by a ``run_test()`` of both sides that completes: the sha256
+        hex of ``canonical_json`` of ``to_mapping()`` taken at the end of that
+        run, with each side's load keys (path, ``*_load_kwargs``, ``*_prep``)
+        replaced by what was in force when that side's data was loaded. It
+        equals :meth:`mapping_fingerprint` exactly when nothing that feeds
+        the results has changed since, including load settings that need a
+        reload to take effect. ``None`` otherwise; see
+        :attr:`run_fingerprint_error`.
+
+        Returns
+        -------
+        str or None
+        """
+        return self._run_fingerprint
+
+    @property
+    def run_fingerprint_error(self):
+        """Why :attr:`run_fingerprint` is ``None``, else ``None``.
+
+        Returns
+        -------
+        str or None
+        """
+        return self._run_fingerprint_error
+
+    @property
+    def last_results(self):
+        """The ``CapTestResults`` the last completed ``run_test()`` returned.
+
+        The same object, not a recomputation. Cleared when any ``run_test``
+        starts and on :meth:`reload`, so it always describes the current data.
+        ``None`` after a single-side or failed run.
+
+        Returns
+        -------
+        CapTestResults or None
+        """
+        return self._last_results
+
+    def _invalidate_run(self, reason):
+        """Forget the last run's results and fingerprint, recording why."""
+        self._last_results = None
+        self._run_fingerprint = None
+        self._run_fingerprint_error = reason
+
+    def mapping_fingerprint(self):
+        """sha256 hex of ``canonical_json(self.to_mapping())``.
+
+        Compare with :attr:`run_fingerprint` to check that the last results
+        still describe the current configuration.
+
+        Returns
+        -------
+        str
+
+        Raises
+        ------
+        TypeError, ValueError
+            The mapping holds a value canonical JSON cannot represent.
+        """
+        return hashlib.sha256(
+            canonical_json(self._build_yaml_sub_mapping()).encode("utf-8")
+        ).hexdigest()
+
+    def _set_run_fingerprint(self, check_pvalues, pval):
+        """Compute :attr:`run_fingerprint` after a completed both-side run.
+
+        Never raises: an unknown provenance, an execution option the mapping
+        cannot carry, or a mapping that cannot be canonicalised leaves the
+        fingerprint ``None`` with the reason in :attr:`run_fingerprint_error`.
+        """
+        self._run_fingerprint = None
+        if check_pvalues:
+            self._run_fingerprint_error = (
+                "the last run used check_pvalues=True, an execution option the "
+                "mapping does not carry; re-run with run_test() to store results"
+            )
+            return
+        if pval != _DEFAULT_PVAL:
+            self._run_fingerprint_error = (
+                f"the last run used pval={pval}; cap_ratio_pval_check depends "
+                "on it and the mapping does not carry it. Re-run with the "
+                f"default pval={_DEFAULT_PVAL} to store results"
+            )
+            return
+        if not self.auto_wrap_sim:
+            self._run_fingerprint_error = (
+                "auto_wrap_sim=False is not serialized by to_mapping(), so the "
+                "results cannot be reproduced from the mapping"
+            )
+            return
+        for side in ("meas", "sim"):
+            snap = self._load_snapshots.get(side)
+            if snap is None:
+                self._run_fingerprint_error = (
+                    f"side {side} was never loaded; load provenance unknown"
+                )
+                return
+            if snap["capdata"] is not getattr(self, side):
+                self._run_fingerprint_error = (
+                    f"side {side} was replaced after it was loaded; "
+                    "load provenance unknown"
+                )
+                return
+            if snap["keys"] is None:
+                self._run_fingerprint_error = snap["reason"]
+                return
+        try:
+            mapping = self._build_yaml_sub_mapping()
+            for side in ("meas", "sim"):
+                for k in (f"{side}_path", f"{side}_load_kwargs", f"{side}_prep"):
+                    mapping.pop(k, None)
+                mapping.update(copy.deepcopy(self._load_snapshots[side]["keys"]))
+            digest = hashlib.sha256(canonical_json(mapping).encode("utf-8")).hexdigest()
+        except (TypeError, ValueError, KeyError) as exc:
+            self._run_fingerprint_error = (
+                f"the test mapping cannot be canonicalised: {exc}"
+            )
+            return
+        # Provenance boundary: anything else (a __deepcopy__ or encoder that
+        # raises) must not turn a completed run into an exception. Recorded.
+        except Exception as exc:  # noqa: BLE001 - recorded in run_fingerprint_error
+            self._run_fingerprint_error = (
+                f"the run fingerprint could not be computed: "
+                f"{type(exc).__name__}: {exc}"
+            )
+            return
+        self._run_fingerprint = digest
+        self._run_fingerprint_error = None
 
     @property
     def loader_implementations(self):
@@ -2849,7 +2995,9 @@ class CapTest(param.Parameterized):
             print(results)
         return results
 
-    def run_test(self, side="both", check_pvalues=False, pval=0.05, print_res=False):
+    def run_test(
+        self, side="both", check_pvalues=False, pval=_DEFAULT_PVAL, print_res=False
+    ):
         """Run the full capacity test (or one side of it) end to end.
 
         Canonical sequence: (1) ``setup(side=side)``; (2) replay each side's
@@ -2899,9 +3047,22 @@ class CapTest(param.Parameterized):
             with no reporting conditions set. Exceptions raised in any
             stage carry a ``[CapTest.run_test stage: ...]`` note on
             Python 3.11+.
+
+        Notes
+        -----
+        A completed ``side='both'`` run sets :attr:`last_results` to the
+        returned :class:`CapTestResults` and, when the mapping can reproduce
+        it, :attr:`run_fingerprint`. Any other outcome — a per-side run, a
+        raised exception, or a run whose configuration cannot be reproduced
+        from the mapping — clears both; see :attr:`run_fingerprint_error`.
         """
         if side not in ("meas", "sim", "both"):
             raise ValueError(f"side must be 'meas', 'sim', or 'both', got {side!r}.")
+        self._invalidate_run(
+            "the last run_test did not complete"
+            if side == "both"
+            else f"the last run_test was single-side (side={side!r})"
+        )
         run_sides = ["meas", "sim"] if side == "both" else [side]
         if side == "both" and self.rc_source == "sim":
             run_sides = ["sim", "meas"]
@@ -3021,9 +3182,12 @@ class CapTest(param.Parameterized):
                 )
 
             stage = "results"
-            return self.captest_results(
+            results = self.captest_results(
                 check_pvalues=check_pvalues, pval=pval, print_res=print_res
             )
+            self._last_results = results
+            self._set_run_fingerprint(check_pvalues, pval)
+            return results
         except Exception as e:
             # add_note exists on 3.11+; the project floor is 3.10.
             if hasattr(e, "add_note"):
