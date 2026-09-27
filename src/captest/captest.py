@@ -1854,6 +1854,12 @@ class CapTest(param.Parameterized):
         ``reload`` calls and ``to_yaml``/``to_mapping`` use it. Relative
         paths resolve against the current working directory.
 
+        Clears :attr:`last_results` and :attr:`run_fingerprint` immediately,
+        before the ``side`` is re-loaded: a reload that fails partway (the
+        loader or the prep replay raising) still leaves both unset, since
+        whatever data and setup ``side`` was left in no longer matches the
+        last completed run.
+
         The outgoing side's applied filter chain is preserved: its config is
         snapshot into ``<side>_filters_pending`` before the data is
         replaced, so a follow-up ``run_test(side=side)`` re-applies the same
@@ -1896,6 +1902,9 @@ class CapTest(param.Parameterized):
         """
         if side not in ("meas", "sim"):
             raise ValueError(f"side must be 'meas' or 'sim', got {side!r}.")
+        self._invalidate_run(
+            f"side {side} was reloaded after the last run; re-run run_test()"
+        )
         if path is not None:
             if side == "meas":
                 self._meas_path = str(path)
@@ -1921,9 +1930,6 @@ class CapTest(param.Parameterized):
             self.sim = loader(stored_path, **(self.sim_load_kwargs or {}))
         self._replay_prep(side)
         self._record_load_snapshot(side, loader)
-        self._invalidate_run(
-            f"side {side} was reloaded after the last run; re-run run_test()"
-        )
         self.setup(verbose=verbose, side=side)
         return self
 
@@ -2182,8 +2188,9 @@ class CapTest(param.Parameterized):
         self._run_fingerprint_error = reason
 
     def mapping_fingerprint(self):
-        """sha256 hex of ``canonical_json(self.to_mapping())``.
+        """sha256 hex of ``canonical_json`` of the mapping ``to_mapping()`` returns.
 
+        Computed without ``to_mapping()``'s unserializable-loader warning.
         Compare with :attr:`run_fingerprint` to check that the last results
         still describe the current configuration.
 
@@ -2211,7 +2218,8 @@ class CapTest(param.Parameterized):
         if check_pvalues:
             self._run_fingerprint_error = (
                 "the last run used check_pvalues=True, an execution option the "
-                "mapping does not carry; re-run with run_test() to store results"
+                "mapping does not carry; re-run with check_pvalues=False to "
+                "store results"
             )
             return
         if pval != _DEFAULT_PVAL:

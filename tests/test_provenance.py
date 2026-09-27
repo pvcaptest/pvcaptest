@@ -76,7 +76,8 @@ class TestLoadSnapshots:
             meas_load_kwargs={"period": {"start_day": "2019-01-01"}},
         )
         keys = tst._load_snapshots["meas"]["keys"]
-        mapping = tst.to_mapping()
+        with pytest.warns(UserWarning, match="programmatic-only"):
+            mapping = tst.to_mapping()
         for k in ("meas_path", "meas_load_kwargs", "meas_prep"):
             assert keys[k] == mapping[k]
         assert "offset" in keys["meas_prep"][0]  # expanded by to_config()
@@ -105,12 +106,14 @@ class TestLoadSnapshots:
         assert tst._load_snapshots["sim"]["capdata"] is tst.sim
 
     def test_from_mapping_relative_paths_snapshot_raw_spelling(self, tmp_path):
-        sub = build_loaded().to_mapping()
+        with pytest.warns(UserWarning, match="programmatic-only"):
+            sub = build_loaded().to_mapping()
         tst = CapTest.from_mapping(
             sub, base_dir=tmp_path, meas_loader=meas_loader, sim_loader=sim_loader
         )
         assert tst._load_snapshots["meas"]["keys"]["meas_path"] == "meas.csv"
-        assert tst.to_mapping()["meas_path"] == "meas.csv"
+        with pytest.warns(UserWarning, match="programmatic-only"):
+            assert tst.to_mapping()["meas_path"] == "meas.csv"
 
     def test_replaced_side_has_no_provenance(self):
         tst = build_loaded()
@@ -191,7 +194,8 @@ class TestRunFingerprint:
         assert len(tst.run_fingerprint) == 64
 
     def test_from_mapping_untouched_matches(self, tmp_path):
-        sub = build_loaded().to_mapping()
+        with pytest.warns(UserWarning, match="programmatic-only"):
+            sub = build_loaded().to_mapping()
         tst = CapTest.from_mapping(
             sub, base_dir=tmp_path, meas_loader=meas_loader, sim_loader=sim_loader
         )
@@ -269,6 +273,19 @@ class TestRunFingerprint:
         tst.run_test()
         assert tst.run_fingerprint == tst.mapping_fingerprint()
 
+    def test_reload_failure_partway_still_clears(self, monkeypatch):
+        tst = build_loaded()
+        filter_and_run(tst)
+
+        def broken_replay_prep(side):
+            raise RuntimeError("boom")
+
+        monkeypatch.setattr(tst, "_replay_prep", broken_replay_prep)
+        with pytest.raises(RuntimeError):
+            tst.reload("meas", verbose=False)
+        assert tst.last_results is None
+        assert tst.run_fingerprint is None
+
     def test_fingerprint_failure_is_recorded_not_raised(self, monkeypatch):
         import captest.captest as cc
 
@@ -345,4 +362,6 @@ class TestRunFingerprint:
         b = build_loaded(meas_loader=other)
         filter_and_run(b)
         assert a.run_fingerprint == b.run_fingerprint
-        assert "loader_id" not in str(a.to_mapping())
+        with pytest.warns(UserWarning, match="programmatic-only"):
+            mapping_str = str(a.to_mapping())
+        assert "loader_id" not in mapping_str
