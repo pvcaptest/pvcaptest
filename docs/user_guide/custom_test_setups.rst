@@ -451,6 +451,13 @@ overrides applied. ``tst.resolved_setup.to_dict()`` is the full document and
 ``tst.resolved_setup.content_digest()`` its identity, which is equal for two tests
 that use the same setup.
 
+``tst.resolved_setup.semantic_digest()`` hashes only what the setup *means* —
+``reg_fml``, both sides, ``params``, ``rep_conditions`` and ``scatter_plots``
+— and ignores ``name``, ``description`` and ``derived_from``. Two setups that
+differ only in their labels share a semantic digest, so use it to recognise
+the same setup across renames; use ``content_digest()`` to identify the exact
+document.
+
 In Python, :py:func:`TestSetup.derive <captest.setup.derive>` makes the same
 kind of variant from any setup, merging ``reg_cols_meas`` / ``reg_cols_sim`` key
 by key and replacing the other fields you pass:

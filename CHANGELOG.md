@@ -23,6 +23,9 @@ semantics as the Overlay plot's columns filter), where `group_regex` matches
 and tier-2 `check_project_fit`; `CapTest.check_fit()`; `CapTest.params` and
 `CapTest.scatter_plots_name` overrides; `calcparams.register_calc` /
 `CALC_REGISTRY`; `captest.captest.SCATTER_REGISTRY`.
+- `TestSetup.semantic_digest()` and `captest.setup.SEMANTIC_FIELDS`: a digest of
+  a setup's meaning (`reg_fml`, sides, `params`, `rep_conditions`,
+  `scatter_plots`) that ignores `name`, `description` and `derived_from`.
 - `calcparams.register_calc` accepts a redefinition of a registered
 function (same `__module__` and `__qualname__`, e.g. a re-run notebook cell)
 and replaces the entry; registering a different function under a taken name

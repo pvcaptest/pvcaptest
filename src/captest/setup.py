@@ -331,6 +331,20 @@ class RepConditions(_Frozen):
         return func
 
 
+#: The fields that carry a setup's meaning. ``semantic_digest`` hashes these
+#: and nothing else; ``name``, ``description`` and ``derived_from`` are
+#: labels. A new ``TestSetup`` field must be added here or to the label set
+#: deliberately (``tests/test_setup.py`` pins the split).
+SEMANTIC_FIELDS = (
+    "reg_fml",
+    "meas",
+    "sim",
+    "params",
+    "rep_conditions",
+    "scatter_plots",
+)
+
+
 class TestSetup(_Frozen):
     """A complete capacity-test setup document.
 
@@ -422,6 +436,25 @@ class TestSetup(_Frozen):
         """sha256 of ``canonical_json(self.to_dict())``; the setup's identity."""
         return hashlib.sha256(
             canonical_json(self.to_dict()).encode("utf-8")
+        ).hexdigest()
+
+    def semantic_digest(self):
+        """sha256 of the setup's meaning, ignoring its labels.
+
+        Hashes ``canonical_json`` of the :data:`SEMANTIC_FIELDS` of
+        :meth:`to_dict` only, so two setups that differ in nothing but
+        ``name``, ``description`` or ``derived_from`` share a digest. Use it
+        to identify a setup across renames and rewordings;
+        :meth:`content_digest` still identifies the exact document.
+
+        Returns
+        -------
+        str
+            64-character lowercase hex digest.
+        """
+        doc = self.to_dict()
+        return hashlib.sha256(
+            canonical_json({k: doc[k] for k in SEMANTIC_FIELDS}).encode("utf-8")
         ).hexdigest()
 
     @classmethod

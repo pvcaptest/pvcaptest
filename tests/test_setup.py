@@ -7,6 +7,7 @@ import yaml
 from pydantic import ValidationError
 
 from captest import setup
+from captest.captest import TEST_SETUPS
 from captest.setup import Calc, Column, Group, Side, TestSetup
 
 E2848_FML = "power ~ poa + I(poa * poa) + I(poa * t_amb) + I(poa * w_vel) - 1"
@@ -747,3 +748,49 @@ class TestCheckProjectFit:
         exc = setup.SetupFitError(errors)
         assert exc.errors == errors
         assert "a: x" in str(exc) and "b: y" in str(exc)
+
+
+class TestSemanticDigest:
+    def test_fields_are_everything_but_metadata(self):
+        assert set(TestSetup.model_fields) - set(setup.SEMANTIC_FIELDS) == {
+            "name",
+            "description",
+            "derived_from",
+        }
+
+    def test_ignores_name_description_derived_from(self):
+        base = TEST_SETUPS["e2848_default"]
+        renamed = base.model_copy(
+            update={"name": "x", "description": "y", "derived_from": "z"}
+        )
+        assert renamed.semantic_digest() == base.semantic_digest()
+        assert renamed.content_digest() != base.content_digest()
+
+    def test_changes_with_meaning(self):
+        base = TEST_SETUPS["e2848_default"]
+        doc = base.to_dict()
+        doc["rep_conditions"]["func"]["poa"] = "perc_50"
+        assert TestSetup.load(doc).semantic_digest() != base.semantic_digest()
+
+    def test_stable_across_yaml_round_trip(self, tmp_path):
+        base = TEST_SETUPS["bifi_e2848_etotal_rear_shade_sim"]
+        path = tmp_path / "s.yaml"
+        base.to_yaml(path)
+        assert TestSetup.load(path).semantic_digest() == base.semantic_digest()
+
+    @pytest.mark.parametrize(
+        ("name", "digest"),
+        [
+            (
+                "e2848_default",
+                "387b8cd29816d3352183027e1e5e6eedc1d85d18b58463a1a569414e224f6bd8",
+            ),
+            (
+                "bifi_e2848_etotal_rear_shade_sim",
+                "6cb5f6ec0e778c725cae747844b7c442e56638fce24745c219615a16de2bc0b0",
+            ),
+        ],
+    )
+    def test_golden(self, name, digest):
+        # Pinned: ctsweep stores these as setup_versions keys (spec §4, §9).
+        assert TEST_SETUPS[name].semantic_digest() == digest
