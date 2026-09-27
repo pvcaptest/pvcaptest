@@ -1575,20 +1575,13 @@ class CapTest(param.Parameterized):
             return inst.sim_loader or _default_sim_loader()
 
         # Wire up meas.
-        if meas is not None and meas_path is not None:
-            warnings.warn(
-                "Both 'meas' and 'meas_path' supplied; using the pre-built "
-                "meas CapData and ignoring meas_path.",
-                stacklevel=2,
-            )
-            inst.meas = meas
-            inst._warn_prep_not_applied("meas")
-            inst._record_load_snapshot(
-                "meas",
-                reason="side meas was built from a prebuilt CapData; "
-                "load provenance unknown",
-            )
-        elif meas is not None:
+        if meas is not None:
+            if meas_path is not None:
+                warnings.warn(
+                    "Both 'meas' and 'meas_path' supplied; using the pre-built "
+                    "meas CapData and ignoring meas_path.",
+                    stacklevel=2,
+                )
             inst.meas = meas
             inst._warn_prep_not_applied("meas")
             inst._record_load_snapshot(
@@ -1604,20 +1597,13 @@ class CapTest(param.Parameterized):
             inst._record_load_snapshot("meas", loader)
 
         # Wire up sim.
-        if sim is not None and sim_path is not None:
-            warnings.warn(
-                "Both 'sim' and 'sim_path' supplied; using the pre-built "
-                "sim CapData and ignoring sim_path.",
-                stacklevel=2,
-            )
-            inst.sim = sim
-            inst._warn_prep_not_applied("sim")
-            inst._record_load_snapshot(
-                "sim",
-                reason="side sim was built from a prebuilt CapData; "
-                "load provenance unknown",
-            )
-        elif sim is not None:
+        if sim is not None:
+            if sim_path is not None:
+                warnings.warn(
+                    "Both 'sim' and 'sim_path' supplied; using the pre-built "
+                    "sim CapData and ignoring sim_path.",
+                    stacklevel=2,
+                )
             inst.sim = sim
             inst._warn_prep_not_applied("sim")
             inst._record_load_snapshot(
