@@ -8,6 +8,7 @@ plan).
 
 from __future__ import annotations
 
+import os
 import sys
 import warnings
 from pathlib import Path
@@ -1295,7 +1296,12 @@ class TestReload:
         ct_default.sim_load_kwargs = {"encoding": "latin1"}
         out = ct_default.reload("sim", verbose=False)
         assert out is ct_default
-        assert calls == {"path": "sentinel.csv", "kwargs": {"encoding": "latin1"}}
+        # A relative stored path is anchored to the directory it was read in.
+        assert calls == {
+            "path": os.path.abspath("sentinel.csv"),
+            "kwargs": {"encoding": "latin1"},
+        }
+        assert ct_default._sim_path == "sentinel.csv"
         assert ct_default.sim._captest is ct_default
 
     def test_reload_path_kwarg_replaces_stored_path(self, ct_default):

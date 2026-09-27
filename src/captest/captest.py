@@ -22,6 +22,7 @@ import difflib
 import hashlib
 import importlib.util
 import inspect
+import os
 import textwrap
 import warnings
 import weakref
@@ -804,8 +805,11 @@ def _own_loader_id(loader):
     as its target. A label copied elsewhere (``functools.wraps``,
     ``functools.update_wrapper``, ``functools.lru_cache``) still points at
     the original, and a hand-set class attribute has no target, so neither
-    counts. A bound method reads its function's attributes, so a method
-    whose function was decorated keeps its label.
+    counts. A bound method reads its function's attributes; it keeps the
+    label only when the decorated function is the plain method its
+    instance's class defines under that name (decorated in the class body).
+    A function bound to an arbitrary object with ``types.MethodType``, or a
+    ``classmethod``, reads as unlabelled.
     """
     lid = getattr(loader, "loader_id", None)
     if lid is None:
@@ -814,7 +818,12 @@ def _own_loader_id(loader):
     if target is loader:
         return lid
     if inspect.ismethod(loader) and target is loader.__func__:
-        return lid
+        func = loader.__func__
+        defined = inspect.getattr_static(
+            type(loader.__self__), getattr(func, "__name__", ""), None
+        )
+        if defined is func:
+            return lid
     return None
 
 
@@ -1603,6 +1612,9 @@ class CapTest(param.Parameterized):
         inst = cls(**kwargs)
         inst._meas_path = meas_path
         inst._sim_path = sim_path
+        # A relative local path is loaded against the current directory now;
+        # anchor it so reload() reads the same file after a chdir.
+        inst._anchor_relative_paths()
 
         # Resolve loaders lazily so tests don't need the io module unless
         # they actually load data from paths.
@@ -1819,7 +1831,13 @@ class CapTest(param.Parameterized):
         inst = cls.from_params(run_setup=run_setup, **kwargs)
         # reload() resolves the raw relative paths restored below against
         # the same base_dir the construction-time load used.
-        inst._base_dir = base_dir
+        if base_dir is not None:
+            base_str = str(base_dir)
+            inst._base_dir = (
+                base_str
+                if _is_uri_or_absolute_path(base_str)
+                else os.path.abspath(base_str)
+            )
         # Preserve the raw relative-or-absolute paths the user wrote in
         # the sub-mapping so a later ``to_yaml`` round-trips them.
         # ``from_params`` overwrites ``_meas_path`` / ``_sim_path`` with
@@ -1884,12 +1902,14 @@ class CapTest(param.Parameterized):
         ``setup(side=side)``. Pass ``path`` to point the side at a new data
         file first — the new path replaces the stored one, so later
         ``reload`` calls and ``to_yaml``/``to_mapping`` use it. A relative
-        path (stored or passed) resolves against the ``base_dir`` the
-        instance was built with by :meth:`from_mapping` / :meth:`from_yaml`
-        (the yaml file's directory), the same way the construction-time load
-        resolved it; on an instance built by :meth:`from_params` directly it
-        resolves against the current working directory. The stored path
-        keeps the spelling it was written with.
+        local path (stored or passed) resolves against the directory the
+        test was built in, not the current working directory: the
+        ``base_dir`` given to :meth:`from_mapping` / :meth:`from_yaml` (the
+        yaml file's directory; a relative ``base_dir`` is made absolute at
+        construction), else the working directory at the time
+        :meth:`from_params` (or the first ``reload`` given a relative path)
+        read it. A later ``chdir`` therefore never changes which file a
+        reload reads. The stored path keeps the spelling it was written with.
 
         Clears :attr:`last_results` and :attr:`run_fingerprint` once the
         arguments are validated, before the ``side`` is re-loaded: a reload
@@ -1955,7 +1975,9 @@ class CapTest(param.Parameterized):
             setattr(self, f"_{side}_path", str(path))
         stored_path = getattr(self, f"_{side}_path")
         # The stored spelling is kept as written (snapshot and to_mapping use
-        # it); a relative one is read against the from_mapping base_dir.
+        # it); a relative one is read against the directory the test was
+        # built in (anchored now if nothing anchored it yet).
+        self._anchor_relative_paths()
         if self._base_dir is not None and not _is_uri_or_absolute_path(stored_path):
             load_path = _join_base_and_relative(self._base_dir, stored_path)
         else:
@@ -1975,6 +1997,20 @@ class CapTest(param.Parameterized):
         self._record_load_snapshot(side, loader)
         self.setup(verbose=verbose, side=side)
         return self
+
+    def _anchor_relative_paths(self):
+        """Pin ``_base_dir`` to the current directory for relative paths.
+
+        Only when no ``base_dir`` is set yet (``from_mapping`` sets its own)
+        and a stored ``meas`` / ``sim`` path is a relative local path, so
+        :meth:`reload` reads the file that path meant when it was given.
+        """
+        if self._base_dir is not None:
+            return
+        for stored in (self._meas_path, self._sim_path):
+            if stored is not None and not _is_uri_or_absolute_path(stored):
+                self._base_dir = os.getcwd()
+                return
 
     def to_yaml(self, path, key="captest", merge_into_existing=True):
         """Serialize the curated CapTest configuration to a yaml file.
@@ -2221,7 +2257,7 @@ class CapTest(param.Parameterized):
         str or None
         """
         replaced = self._replaced_since_run()
-        if replaced is not None and self._run_fingerprint is not None:
+        if replaced is not None:
             return replaced
         return self._run_fingerprint_error
 
@@ -2233,7 +2269,8 @@ class CapTest(param.Parameterized):
         starts and on :meth:`reload`, and reads ``None`` while ``meas`` or
         ``sim`` is a different ``CapData`` from the one the run used, so it
         always describes the current data. ``None`` after a single-side or
-        failed run.
+        failed run. A copied ``CapTest`` (``copy.deepcopy``) does not carry
+        the run over; re-run ``run_test()`` on the copy.
 
         Returns
         -------
@@ -2250,18 +2287,27 @@ class CapTest(param.Parameterized):
         self._run_fingerprint = None
         self._run_fingerprint_error = reason
 
+    @staticmethod
+    def _replaced_message(side):
+        """The reason recorded when ``side`` no longer holds its loaded data."""
+        return f"side {side} was replaced after it was loaded; load provenance unknown"
+
     def _side_replaced_error(self, side, expected):
         """Message when ``side`` no longer holds ``expected``, else ``None``."""
         if expected is getattr(self, side):
             return None
-        return f"side {side} was replaced after it was loaded; load provenance unknown"
+        return self._replaced_message(side)
 
     def _replaced_since_run(self):
         """Why the last run no longer describes the live sides, else ``None``."""
         if self._run_capdata is None:
             return None
         for side in ("meas", "sim"):
-            error = self._side_replaced_error(side, self._run_capdata[side]())
+            used = self._run_capdata[side]()
+            if used is None:
+                # The run's CapData is gone, so the side cannot still hold it.
+                return self._replaced_message(side)
+            error = self._side_replaced_error(side, used)
             if error is not None:
                 return error
         return None

@@ -501,18 +501,6 @@ class TestReloadBaseDir:
         filter_and_run(tst)
         assert tst.run_fingerprint == tst.mapping_fingerprint()
 
-    def test_reload_keeps_cwd_resolution_without_base_dir(self):
-        calls = []
-
-        @loader_id("test.recording_meas")
-        def recording(path, **kwargs):
-            calls.append(str(path))
-            return build_meas_default()
-
-        tst = build_loaded(meas_loader=recording)
-        tst.reload("meas", verbose=False)
-        assert calls == ["meas.csv", "meas.csv"]
-
 
 class TestReloadValidationKeepsRun:
     def test_no_stored_path_error_leaves_the_run(self, ct_default):
@@ -530,3 +518,121 @@ class TestReloadValidationKeepsRun:
             tst.reload("both", verbose=False)
         assert tst.last_results is results
         assert tst.run_fingerprint == tst.mapping_fingerprint()
+
+
+class TestBoundMethodLabels:
+    def test_method_type_rebinding_is_unlabelled(self):
+        import types
+
+        @loader_id("test.flex_meas")
+        def flex(path, *args, **kwargs):
+            return build_meas_default()
+
+        rebound = types.MethodType(flex, "OTHER.csv")
+        tst = build_loaded(meas_loader=rebound)
+        assert tst.load_provenance["meas"] is None
+        assert "without a loader_id" in tst._load_snapshots["meas"]["reason"]
+        filter_and_run(tst)
+        assert tst.run_fingerprint is None
+
+    def test_class_body_method_on_another_instance_type_is_unlabelled(self):
+        import types
+
+        class Source:
+            @loader_id("test.method_meas")
+            def load(self, path, **kwargs):
+                return build_meas_default()
+
+        class Other:
+            pass
+
+        rebound = types.MethodType(Source.load, Other())
+        tst = build_loaded(meas_loader=rebound)
+        assert tst.load_provenance["meas"] is None
+
+
+class TestRunIdentityEdges:
+    def test_dead_side_reference_counts_as_replaced(self):
+        import gc
+
+        # No load snapshot holds the meas CapData, so the run's is the only
+        # reference to it and it dies with the assignment below.
+        tst = build_loaded(meas_path=None)
+        tst.meas = build_meas_default()
+        tst.setup(verbose=False)
+        filter_and_run(tst)
+        assert tst.last_results is not None
+        tst.meas = None
+        gc.collect()
+        assert tst.last_results is None
+        assert tst.run_fingerprint is None
+        assert "replaced" in tst.run_fingerprint_error
+
+    def test_replaced_reason_wins_over_unfingerprinted_run(self):
+        tst = build_loaded()
+        filter_and_run(tst, pval=1.0)
+        assert "pval" in tst.run_fingerprint_error
+        tst.sim = tst.sim.copy()
+        assert "replaced" in tst.run_fingerprint_error
+
+
+class TestReloadAnchoring:
+    @staticmethod
+    def _recording():
+        # The fixture data paths are CWD-relative: build before any chdir.
+        calls = []
+        meas = build_meas_default()
+        sim = build_sim_default()
+
+        @loader_id("test.recording_meas")
+        def recording(path, **kwargs):
+            calls.append(str(path))
+            return meas.copy()
+
+        @loader_id("test.sim")
+        def sim_copy(path, **kwargs):
+            return sim.copy()
+
+        return recording, sim_copy, calls
+
+    def test_relative_base_dir_is_anchored(self, tmp_path, monkeypatch):
+        recording, sim_copy, calls = self._recording()
+        with pytest.warns(UserWarning, match="programmatic-only"):
+            sub = build_loaded().to_mapping()
+        (tmp_path / "proj").mkdir()
+        (tmp_path / "elsewhere").mkdir()
+        monkeypatch.chdir(tmp_path)
+        tst = CapTest.from_mapping(
+            sub, base_dir="proj", meas_loader=recording, sim_loader=sim_copy
+        )
+        monkeypatch.chdir(tmp_path / "elsewhere")
+        tst.reload("meas", verbose=False)
+        expected = str(tmp_path / "proj" / "meas.csv")
+        assert calls[-1] == expected
+        assert calls[0] in (expected, "proj/meas.csv")
+        assert tst._load_snapshots["meas"]["keys"]["meas_path"] == "meas.csv"
+
+    def test_uri_base_dir_is_left_alone(self):
+        recording, sim_copy, calls = self._recording()
+        with pytest.warns(UserWarning, match="programmatic-only"):
+            sub = build_loaded().to_mapping()
+        tst = CapTest.from_mapping(
+            sub,
+            base_dir="s3://bucket/proj",
+            meas_loader=recording,
+            sim_loader=sim_copy,
+        )
+        tst.reload("meas", verbose=False)
+        assert calls == ["s3://bucket/proj/meas.csv"] * 2
+
+    def test_from_params_relative_path_is_anchored(self, tmp_path, monkeypatch):
+        recording, sim_copy, calls = self._recording()
+        (tmp_path / "elsewhere").mkdir()
+        monkeypatch.chdir(tmp_path)
+        tst = build_loaded(meas_loader=recording, sim_loader=sim_copy)
+        monkeypatch.chdir(tmp_path / "elsewhere")
+        tst.reload("meas", verbose=False)
+        assert calls == ["meas.csv", str(tmp_path / "meas.csv")]
+        assert tst._load_snapshots["meas"]["keys"]["meas_path"] == "meas.csv"
+        with pytest.warns(UserWarning, match="programmatic-only"):
+            assert tst.to_mapping()["meas_path"] == "meas.csv"
