@@ -611,7 +611,9 @@ class TestReloadAnchoring:
         tst.reload("meas", verbose=False)
         expected = str(tmp_path / "proj" / "meas.csv")
         assert calls[-1] == expected
-        assert calls[0] in (expected, str(Path("proj") / "meas.csv"))
+        # The build-time load joins the relative base_dir as given; only
+        # reload uses the anchored absolute base.
+        assert calls[0] == str(Path("proj") / "meas.csv")
         assert tst._load_snapshots["meas"]["keys"]["meas_path"] == "meas.csv"
 
     def test_uri_base_dir_is_left_alone(self):
