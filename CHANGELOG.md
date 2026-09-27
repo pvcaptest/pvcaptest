@@ -6,6 +6,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Added
+- `captest.io.loader_id(identifier)`: label a data loader; `load_data` and
+  `load_pvsyst` carry `"captest.csv_meas"` and `"captest.pvsyst"`.
+  `CapTest.load_provenance` reports the `loader_id` behind each side's
+  current data (`None` for pre-built, unlabelled or replaced sides), and
+  `CapTest.loader_implementations` the loader callable captured at load time.
 - `captest.resolve_setup_from_mapping(sub)`: resolve the `TestSetup` a captest
   sub-mapping describes without loading data, with exactly the key checks and
   override handling of `CapTest.from_mapping` + `setup()`.

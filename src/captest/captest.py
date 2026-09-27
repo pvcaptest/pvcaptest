@@ -1242,6 +1242,8 @@ class CapTest(param.Parameterized):
         # was built from without cluttering the param surface.
         self._meas_path = None
         self._sim_path = None
+        # One load-provenance snapshot per side; see _record_load_snapshot.
+        self._load_snapshots = {}
         # The single test reporting-conditions DataFrame (or None). Plain attr,
         # not a param.*, so the `rc` property setter can validate and the
         # `_set_rc` write point can manage provenance. `_loading` is True only
@@ -1581,13 +1583,25 @@ class CapTest(param.Parameterized):
             )
             inst.meas = meas
             inst._warn_prep_not_applied("meas")
+            inst._record_load_snapshot(
+                "meas",
+                reason="side meas was built from a prebuilt CapData; "
+                "load provenance unknown",
+            )
         elif meas is not None:
             inst.meas = meas
             inst._warn_prep_not_applied("meas")
+            inst._record_load_snapshot(
+                "meas",
+                reason="side meas was built from a prebuilt CapData; "
+                "load provenance unknown",
+            )
         elif meas_path is not None:
             load_kwargs = inst.meas_load_kwargs or {}
-            inst.meas = _meas_loader()(meas_path, **load_kwargs)
+            loader = _meas_loader()
+            inst.meas = loader(meas_path, **load_kwargs)
             inst._replay_prep("meas")
+            inst._record_load_snapshot("meas", loader)
 
         # Wire up sim.
         if sim is not None and sim_path is not None:
@@ -1598,13 +1612,25 @@ class CapTest(param.Parameterized):
             )
             inst.sim = sim
             inst._warn_prep_not_applied("sim")
+            inst._record_load_snapshot(
+                "sim",
+                reason="side sim was built from a prebuilt CapData; "
+                "load provenance unknown",
+            )
         elif sim is not None:
             inst.sim = sim
             inst._warn_prep_not_applied("sim")
+            inst._record_load_snapshot(
+                "sim",
+                reason="side sim was built from a prebuilt CapData; "
+                "load provenance unknown",
+            )
         elif sim_path is not None:
             load_kwargs = inst.sim_load_kwargs or {}
-            inst.sim = _sim_loader()(sim_path, **load_kwargs)
+            loader = _sim_loader()
+            inst.sim = loader(sim_path, **load_kwargs)
             inst._replay_prep("sim")
+            inst._record_load_snapshot("sim", loader)
 
         if run_setup and inst.meas is not None and inst.sim is not None:
             inst.setup(verbose=verbose)
@@ -1778,6 +1804,12 @@ class CapTest(param.Parameterized):
             inst._meas_path = raw_meas_path
         if raw_sim_path is not None:
             inst._sim_path = raw_sim_path
+        # Re-spell the load snapshot's path the same way, so a later
+        # to_mapping() round-trips the raw spelling too.
+        for side, raw in (("meas", raw_meas_path), ("sim", raw_sim_path)):
+            snap = inst._load_snapshots.get(side)
+            if raw is not None and snap is not None and snap["keys"] is not None:
+                snap["keys"][f"{side}_path"] = str(raw)
         # Serialized filter pipelines are stored pending, never replayed at
         # load; run_test consumes them (spec R2). Manual RC values are seeded
         # by the construction-time setup() when it ran, else stashed for the
@@ -1893,6 +1925,7 @@ class CapTest(param.Parameterized):
             loader = self.sim_loader or _default_sim_loader()
             self.sim = loader(stored_path, **(self.sim_load_kwargs or {}))
         self._replay_prep(side)
+        self._record_load_snapshot(side, loader)
         self.setup(verbose=verbose, side=side)
         return self
 
@@ -2004,6 +2037,123 @@ class CapTest(param.Parameterized):
                 stacklevel=2,
             )
 
+    def _side_load_keys(self, side):
+        """The load keys ``to_mapping()`` writes for ``side``.
+
+        ``<side>_path`` (the remembered raw path), ``<side>_load_kwargs``
+        (when non-empty) and ``<side>_prep`` (the applied prep chain when
+        non-empty, else the stored config, else omitted). Shared by
+        :meth:`_build_yaml_sub_mapping` and the load snapshots so both use
+        one normal form.
+
+        Parameters
+        ----------
+        side : {'meas', 'sim'}
+
+        Returns
+        -------
+        dict
+            A fresh, independent copy.
+        """
+        path = self._meas_path if side == "meas" else self._sim_path
+        load_kwargs = getattr(self, f"{side}_load_kwargs")
+        cd = getattr(self, side)
+        # Deep-copied either way: a step's to_config() may share nested
+        # objects with the live step (prep.Custom shallow-copies its args).
+        prep = copy.deepcopy(
+            cd.prep_to_config()
+            if cd is not None and cd.prep
+            else getattr(self, f"{side}_prep")
+        )
+        keys = {}
+        if path is not None:
+            keys[f"{side}_path"] = str(path)
+        if load_kwargs:
+            keys[f"{side}_load_kwargs"] = copy.deepcopy(load_kwargs)
+        if prep:
+            keys[f"{side}_prep"] = prep
+        return keys
+
+    def _record_load_snapshot(self, side, loader=None, reason=None):
+        """Remember how ``side`` was loaded, for :attr:`run_fingerprint`.
+
+        Parameters
+        ----------
+        side : {'meas', 'sim'}
+        loader : callable or None
+            The loader that produced the side's data. Its ``loader_id``
+            attribute (see :func:`captest.io.loader_id`) is recorded; without
+            one, no load keys are kept.
+        reason : str or None
+            Why provenance is unknown when there is no loader (a pre-built
+            ``CapData``).
+        """
+        # Provenance boundary: nothing here (loader metadata lookups, the
+        # serializer) may fail the load it describes. Recorded, not dropped.
+        try:
+            lid = getattr(loader, "loader_id", None) if loader is not None else None
+            impl = None
+            if loader is not None:
+                impl = (
+                    f"{getattr(loader, '__module__', None)}:"
+                    f"{getattr(loader, '__qualname__', type(loader).__qualname__)}"
+                )
+            if loader is not None and lid is None:
+                reason = f"side {side} was loaded by a loader without a loader_id"
+            keys = self._side_load_keys(side) if lid is not None else None
+        except Exception as exc:  # noqa: BLE001 - recorded in reason
+            lid, impl, keys = None, None, None
+            reason = (
+                f"side {side} load snapshot could not be recorded: "
+                f"{type(exc).__name__}: {exc}"
+            )
+        self._load_snapshots[side] = {
+            "capdata": getattr(self, side),
+            "keys": keys,
+            "loader_id": lid,
+            "implementation": impl if lid is not None else None,
+            "reason": None if lid is not None else reason,
+        }
+
+    @property
+    def load_provenance(self):
+        """``loader_id`` of the loader behind each side's current data.
+
+        ``None`` for a side that was supplied pre-built, loaded by a loader
+        without a ``loader_id``, or replaced after loading.
+
+        Returns
+        -------
+        dict
+            ``{"meas": str | None, "sim": str | None}``.
+        """
+        out = {}
+        for side in ("meas", "sim"):
+            snap = self._load_snapshots.get(side)
+            live = snap is not None and snap["capdata"] is getattr(self, side)
+            out[side] = snap["loader_id"] if live else None
+        return out
+
+    @property
+    def loader_implementations(self):
+        """``"<module>:<qualname>"`` of the loader behind each live side.
+
+        Captured when the side was loaded, so reassigning ``meas_loader`` /
+        ``sim_loader`` afterwards does not change it. ``None`` wherever
+        :attr:`load_provenance` is ``None``.
+
+        Returns
+        -------
+        dict
+            ``{"meas": str | None, "sim": str | None}``.
+        """
+        out = {}
+        for side in ("meas", "sim"):
+            snap = self._load_snapshots.get(side)
+            live = snap is not None and snap["capdata"] is getattr(self, side)
+            out[side] = snap["implementation"] if live else None
+        return out
+
     def _build_yaml_sub_mapping(self):
         """Build the dict written under ``key:`` by :meth:`to_yaml`.
 
@@ -2012,22 +2162,21 @@ class CapTest(param.Parameterized):
         ``meas_filters``/``sim_filters``: the applied filter chain when
         non-empty, else the side's pending config (so a load → save without
         running is lossless), else the key is omitted. Embeds each side's
-        prep pipeline as ``meas_prep``/``sim_prep`` under the same three-way
-        rule (applied prep chain, else the stored ``meas_prep``/``sim_prep``
-        config, else the key is omitted). Writes
-        ``overrides.rep_conditions`` whenever :attr:`rep_conditions` is set,
-        including beside a ``RepCond`` step or a manual ``rc_source``, so the
-        reloaded ``resolved_setup`` keeps the original's ``content_digest``.
+        path, load kwargs and prep pipeline (``meas_prep``/``sim_prep``
+        under the same three-way rule: applied prep chain, else the stored
+        ``meas_prep``/``sim_prep`` config, else the key is omitted) via
+        :meth:`_side_load_keys`, shared with the load snapshots so both use
+        one normal form. Writes ``overrides.rep_conditions`` whenever
+        :attr:`rep_conditions` is set, including beside a ``RepCond`` step or
+        a manual ``rc_source``, so the reloaded ``resolved_setup`` keeps the
+        original's ``content_digest``.
         """
         sub = {"test_setup": self.test_setup}
 
-        # Paths are written only when the instance was constructed from
-        # paths; we remember the raw (possibly relative) string in
-        # ``_meas_path``/``_sim_path``.
-        if self._meas_path is not None:
-            sub["meas_path"] = str(self._meas_path)
-        if self._sim_path is not None:
-            sub["sim_path"] = str(self._sim_path)
+        # Path, load kwargs and prep are written only when present; see
+        # _side_load_keys for the exact rule.
+        sub.update(self._side_load_keys("meas"))
+        sub.update(self._side_load_keys("sim"))
 
         overrides = {}
         # Always resolve from the *current* params, never from the cached
@@ -2064,16 +2213,6 @@ class CapTest(param.Parameterized):
             self.sim.filters_to_config()
             if self.sim is not None and self.sim.filters
             else list(self.sim_filters_pending)
-        )
-        meas_prep = (
-            self.meas.prep_to_config()
-            if self.meas is not None and self.meas.prep
-            else copy.deepcopy(self.meas_prep)
-        )
-        sim_prep = (
-            self.sim.prep_to_config()
-            if self.sim is not None and self.sim.prep
-            else copy.deepcopy(self.sim_prep)
         )
         # Written even beside a RepCond step or a manual rc: it is part of
         # the resolved setup's identity (content_digest), and nothing applies
@@ -2116,22 +2255,10 @@ class CapTest(param.Parameterized):
         for name in scalar_names:
             sub[name] = getattr(self, name)
 
-        # Loader kwargs are plain dicts; only write when non-empty so a
-        # default-constructed CapTest produces a clean yaml.
-        if self.meas_load_kwargs:
-            sub["meas_load_kwargs"] = copy.deepcopy(self.meas_load_kwargs)
-        if self.sim_load_kwargs:
-            sub["sim_load_kwargs"] = copy.deepcopy(self.sim_load_kwargs)
-
         if meas_filters:
             sub["meas_filters"] = meas_filters
         if sim_filters:
             sub["sim_filters"] = sim_filters
-
-        if meas_prep:
-            sub["meas_prep"] = meas_prep
-        if sim_prep:
-            sub["sim_prep"] = sim_prep
 
         # Manual reporting conditions are data, not config: serialize their
         # values so from_yaml can restore them (computed RC is recomputed by

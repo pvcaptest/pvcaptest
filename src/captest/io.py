@@ -16,6 +16,41 @@ from captest.capdata import CapData
 from captest.clearsky import csky
 
 
+def loader_id(identifier):
+    """Decorator that labels a data loader with a stable identifier.
+
+    ``CapTest`` records the ``loader_id`` of the loader that loaded each side
+    (see :attr:`captest.CapTest.load_provenance`), so a stored run can say
+    which loader produced its data. captest only records the label; which
+    identifiers a consumer accepts is that consumer's policy.
+
+    Parameters
+    ----------
+    identifier : str
+        Non-empty, stable name, conventionally ``"<package>.<loader>"``.
+
+    Returns
+    -------
+    callable
+        A decorator that sets ``func.loader_id = identifier`` and returns
+        ``func`` unchanged. Bound methods cannot take attributes; wrap them
+        in a plain function first.
+
+    Raises
+    ------
+    ValueError
+        ``identifier`` is not a non-empty ``str``.
+    """
+    if not isinstance(identifier, str) or not identifier:
+        raise ValueError(f"loader_id needs a non-empty str; got {identifier!r}")
+
+    def decorate(func):
+        func.loader_id = identifier
+        return func
+
+    return decorate
+
+
 def flatten_multi_index(columns):
     return ["_".join(col_name) for col_name in columns.to_list()]
 
@@ -51,6 +86,7 @@ def load_excel_column_groups(path):
     return df.groupby(0)[1].apply(list).to_dict()
 
 
+@loader_id("captest.pvsyst")
 def load_pvsyst(
     path,
     name="pvsyst",
@@ -499,6 +535,7 @@ class DataLoader:
         )
 
 
+@loader_id("captest.csv_meas")
 def load_data(
     path,
     group_columns=cg.group_columns,
