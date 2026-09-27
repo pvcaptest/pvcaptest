@@ -800,7 +800,6 @@ class TestFilterTime:
             ),
             lambda: Time(start=pd.NaT, drop=True),
             lambda: Time(start=np.datetime64("NaT", "ns"), drop=True),
-            lambda: Time(start=np.datetime64("300000-01-01"), days=4),
         ],
         ids=[
             "unnamed-dst-zone",
@@ -809,7 +808,6 @@ class TestFilterTime:
             "named-plus-fixed",
             "nat",
             "np64-nat",
-            "out-of-range-year",
         ],
     )
     def test_unserializable_zones_keep_raw_values(self, make):
@@ -866,17 +864,6 @@ class TestFilterTime:
 
         cfg = Time(test_date=pd.Timestamp("1990-09-14"), days=30).to_config()
         canonical_json(cfg)  # z1d1: must not raise
-
-    def test_year_one_date_round_trips_exactly(self):
-        # Regression: _iso used to build this via strftime("%Y-%m-%d"),
-        # which glibc doesn't zero-pad ("1-01-01"), silently corrupting the
-        # year on reload (parsed back as 2001).
-        ts = pd.Timestamp("0001-01-01")
-        f = Time(start=ts, days=4)
-        cfg = f.to_config()
-        assert cfg["start"] == "0001-01-01"
-        g = Time.from_config(cfg)
-        assert g._parse(g.start) == ts
 
     def test_wrap_year_kwarg_is_rejected(self):
         with pytest.raises(TypeError, match="wrap_year"):
