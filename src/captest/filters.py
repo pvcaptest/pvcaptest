@@ -999,7 +999,10 @@ class Time(BaseFilter):
 
     @staticmethod
     def _iso(ts):
-        """ISO-8601 text; a naive midnight is written as ``YYYY-MM-DD``."""
+        """ISO-8601 text; a naive midnight is written as ``YYYY-MM-DD``.
+
+        Uses ``strftime``, so it is ISO-8601 only for years 1000-9999.
+        """
         if ts.tz is None and ts == ts.normalize():
             return ts.strftime("%Y-%m-%d")
         return ts.isoformat()
@@ -1011,13 +1014,14 @@ class Time(BaseFilter):
         value in a named zone also records that zone in ``tz``, which
         :meth:`_parse` converts back into on reload. Strings pass through.
 
-        Never raises for dates in Python's ``datetime`` range (years
-        1-9999): ``run_test`` snapshots live pipelines through this. When the
-        values cannot be written losslessly as text (a missing value such as
-        ``NaT``, an unnamed DST zone, two named zones, a named zone mixed with
-        a fixed-offset or naive value, or a named zone that conflicts with
-        ``tz``), the raw values are returned unchanged. Replay stays exact,
-        and ``canonical_json`` refuses the config for storage.
+        Assumes capacity-test dates, years 1000-9999: ``strftime`` does not
+        zero-pad earlier years and raises beyond 9999. Within that range it
+        never raises; ``run_test`` snapshots live pipelines through this.
+        When the values cannot be written losslessly as text (a missing value
+        such as ``NaT``, an unnamed DST zone, two named zones, a named zone
+        mixed with a fixed-offset or naive value, or a named zone that
+        conflicts with ``tz``), the raw values are returned unchanged. Replay
+        stays exact, and ``canonical_json`` refuses the config for storage.
 
         Returns
         -------
