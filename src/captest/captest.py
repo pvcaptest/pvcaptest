@@ -21,8 +21,10 @@ import copy
 import difflib
 import hashlib
 import importlib.util
+import inspect
 import textwrap
 import warnings
+import weakref
 from dataclasses import dataclass
 from importlib import resources
 from pathlib import Path
@@ -795,6 +797,27 @@ _CAPTEST_OVERRIDE_KEYS = frozenset(
 _CAPTEST_NONE_MEANINGFUL_KEYS = frozenset({"altitude_override"})
 
 
+def _own_loader_id(loader):
+    """Return the ``loader_id`` label ``loader`` carries as its own, else None.
+
+    A label set by :func:`captest.io.loader_id` records the decorated object
+    as its target. A label copied elsewhere (``functools.wraps``,
+    ``functools.update_wrapper``, ``functools.lru_cache``) still points at
+    the original, and a hand-set class attribute has no target, so neither
+    counts. A bound method reads its function's attributes, so a method
+    whose function was decorated keeps its label.
+    """
+    lid = getattr(loader, "loader_id", None)
+    if lid is None:
+        return None
+    target = getattr(loader, "_loader_id_target", None)
+    if target is loader:
+        return lid
+    if inspect.ismethod(loader) and target is loader.__func__:
+        return lid
+    return None
+
+
 def _default_meas_loader():
     """Return the default measured-data loader (``captest.io.load_data``).
 
@@ -1253,6 +1276,12 @@ class CapTest(param.Parameterized):
         self._run_fingerprint = None
         self._run_fingerprint_error = "no run_test of both sides has completed"
         self._last_results = None
+        # Weak references to the meas / sim CapData the last completed run
+        # used, by side (weak, so a replaced side's data is not kept alive).
+        self._run_capdata = None
+        # Directory from_mapping resolved relative paths against; reload
+        # resolves the stored raw spelling against it too.
+        self._base_dir = None
         # The single test reporting-conditions DataFrame (or None). Plain attr,
         # not a param.*, so the `rc` property setter can validate and the
         # `_set_rc` write point can manage provenance. `_loading` is True only
@@ -1788,6 +1817,9 @@ class CapTest(param.Parameterized):
             kwargs["sim_loader"] = sim_loader
 
         inst = cls.from_params(run_setup=run_setup, **kwargs)
+        # reload() resolves the raw relative paths restored below against
+        # the same base_dir the construction-time load used.
+        inst._base_dir = base_dir
         # Preserve the raw relative-or-absolute paths the user wrote in
         # the sub-mapping so a later ``to_yaml`` round-trips them.
         # ``from_params`` overwrites ``_meas_path`` / ``_sim_path`` with
@@ -1851,14 +1883,20 @@ class CapTest(param.Parameterized):
         ``*_load_kwargs``, replaces that ``CapData``, then runs per-side
         ``setup(side=side)``. Pass ``path`` to point the side at a new data
         file first — the new path replaces the stored one, so later
-        ``reload`` calls and ``to_yaml``/``to_mapping`` use it. Relative
-        paths resolve against the current working directory.
+        ``reload`` calls and ``to_yaml``/``to_mapping`` use it. A relative
+        path (stored or passed) resolves against the ``base_dir`` the
+        instance was built with by :meth:`from_mapping` / :meth:`from_yaml`
+        (the yaml file's directory), the same way the construction-time load
+        resolved it; on an instance built by :meth:`from_params` directly it
+        resolves against the current working directory. The stored path
+        keeps the spelling it was written with.
 
-        Clears :attr:`last_results` and :attr:`run_fingerprint` immediately,
-        before the ``side`` is re-loaded: a reload that fails partway (the
-        loader or the prep replay raising) still leaves both unset, since
-        whatever data and setup ``side`` was left in no longer matches the
-        last completed run.
+        Clears :attr:`last_results` and :attr:`run_fingerprint` once the
+        arguments are validated, before the ``side`` is re-loaded: a reload
+        that fails partway (the loader or the prep replay raising) still
+        leaves both unset, since whatever data and setup ``side`` was left in
+        no longer matches the last completed run. A reload rejected by its
+        argument checks (``ValueError``) changes nothing.
 
         The outgoing side's applied filter chain is preserved: its config is
         snapshot into ``<side>_filters_pending`` before the data is
@@ -1902,21 +1940,26 @@ class CapTest(param.Parameterized):
         """
         if side not in ("meas", "sim"):
             raise ValueError(f"side must be 'meas' or 'sim', got {side!r}.")
-        self._invalidate_run(
-            f"side {side} was reloaded after the last run; re-run run_test()"
-        )
-        if path is not None:
-            if side == "meas":
-                self._meas_path = str(path)
-            else:
-                self._sim_path = str(path)
-        stored_path = self._meas_path if side == "meas" else self._sim_path
-        if stored_path is None:
+        if path is None and getattr(self, f"_{side}_path") is None:
             raise ValueError(
                 f"CapTest holds no stored data path for '{side}'. Pass "
                 "path=... or construct from meas_path/sim_path (from_params, "
                 "from_yaml, or from_mapping)."
             )
+        # From here on the side is changing: forget the last run first, so a
+        # loader or prep-replay failure below still leaves it cleared.
+        self._invalidate_run(
+            f"side {side} was reloaded after the last run; re-run run_test()"
+        )
+        if path is not None:
+            setattr(self, f"_{side}_path", str(path))
+        stored_path = getattr(self, f"_{side}_path")
+        # The stored spelling is kept as written (snapshot and to_mapping use
+        # it); a relative one is read against the from_mapping base_dir.
+        if self._base_dir is not None and not _is_uri_or_absolute_path(stored_path):
+            load_path = _join_base_and_relative(self._base_dir, stored_path)
+        else:
+            load_path = stored_path
         outgoing = getattr(self, side)
         if outgoing is not None and outgoing.filters:
             setattr(self, f"{side}_filters_pending", outgoing.filters_to_config())
@@ -1924,10 +1967,10 @@ class CapTest(param.Parameterized):
             setattr(self, f"{side}_prep", outgoing.prep_to_config())
         if side == "meas":
             loader = self.meas_loader or _default_meas_loader()
-            self.meas = loader(stored_path, **(self.meas_load_kwargs or {}))
+            self.meas = loader(load_path, **(self.meas_load_kwargs or {}))
         else:
             loader = self.sim_loader or _default_sim_loader()
-            self.sim = loader(stored_path, **(self.sim_load_kwargs or {}))
+            self.sim = loader(load_path, **(self.sim_load_kwargs or {}))
         self._replay_prep(side)
         self._record_load_snapshot(side, loader)
         self.setup(verbose=verbose, side=side)
@@ -2085,9 +2128,10 @@ class CapTest(param.Parameterized):
         ----------
         side : {'meas', 'sim'}
         loader : callable or None
-            The loader that produced the side's data. Its ``loader_id``
-            attribute (see :func:`captest.io.loader_id`) is recorded; without
-            one, no load keys are kept.
+            The loader that produced the side's data. Its own ``loader_id``
+            label (see :func:`captest.io.loader_id`) is recorded; without
+            one, no load keys are kept. A label copied onto a wrapper does
+            not count (see :func:`_own_loader_id`).
         reason : str or None
             Why provenance is unknown when there is no loader (a pre-built
             ``CapData``).
@@ -2095,7 +2139,7 @@ class CapTest(param.Parameterized):
         # Provenance boundary: nothing here (loader metadata lookups, the
         # serializer) may fail the load it describes. Recorded, not dropped.
         try:
-            lid = getattr(loader, "loader_id", None) if loader is not None else None
+            lid = _own_loader_id(loader) if loader is not None else None
             impl = None
             if loader is not None:
                 impl = (
@@ -2104,6 +2148,12 @@ class CapTest(param.Parameterized):
                 )
             if loader is not None and lid is None:
                 reason = f"side {side} was loaded by a loader without a loader_id"
+                if getattr(loader, "loader_id", None) is not None:
+                    reason += (
+                        " of its own (a label copied from another object, e.g. "
+                        "by functools.wraps or functools.lru_cache, does not "
+                        "count; decorate the wrapper itself with loader_id)"
+                    )
             keys = self._side_load_keys(side) if lid is not None else None
         except Exception as exc:  # noqa: BLE001 - recorded in reason
             lid, impl, keys = None, None, None
@@ -2124,7 +2174,9 @@ class CapTest(param.Parameterized):
         """``loader_id`` of the loader behind each side's current data.
 
         ``None`` for a side that was supplied pre-built, loaded by a loader
-        without a ``loader_id``, or replaced after loading.
+        without a ``loader_id`` of its own (a label copied onto a wrapper
+        does not count; see :func:`captest.io.loader_id`), or replaced after
+        loading.
 
         Returns
         -------
@@ -2148,13 +2200,16 @@ class CapTest(param.Parameterized):
         replaced by what was in force when that side's data was loaded. It
         equals :meth:`mapping_fingerprint` exactly when nothing that feeds
         the results has changed since, including load settings that need a
-        reload to take effect. ``None`` otherwise; see
-        :attr:`run_fingerprint_error`.
+        reload to take effect. ``None`` otherwise, including once ``meas`` or
+        ``sim`` has been replaced by a different ``CapData`` since the run;
+        see :attr:`run_fingerprint_error`.
 
         Returns
         -------
         str or None
         """
+        if self._replaced_since_run() is not None:
+            return None
         return self._run_fingerprint
 
     @property
@@ -2165,6 +2220,9 @@ class CapTest(param.Parameterized):
         -------
         str or None
         """
+        replaced = self._replaced_since_run()
+        if replaced is not None and self._run_fingerprint is not None:
+            return replaced
         return self._run_fingerprint_error
 
     @property
@@ -2172,20 +2230,41 @@ class CapTest(param.Parameterized):
         """The ``CapTestResults`` the last completed ``run_test()`` returned.
 
         The same object, not a recomputation. Cleared when any ``run_test``
-        starts and on :meth:`reload`, so it always describes the current data.
-        ``None`` after a single-side or failed run.
+        starts and on :meth:`reload`, and reads ``None`` while ``meas`` or
+        ``sim`` is a different ``CapData`` from the one the run used, so it
+        always describes the current data. ``None`` after a single-side or
+        failed run.
 
         Returns
         -------
         CapTestResults or None
         """
+        if self._replaced_since_run() is not None:
+            return None
         return self._last_results
 
     def _invalidate_run(self, reason):
         """Forget the last run's results and fingerprint, recording why."""
         self._last_results = None
+        self._run_capdata = None
         self._run_fingerprint = None
         self._run_fingerprint_error = reason
+
+    def _side_replaced_error(self, side, expected):
+        """Message when ``side`` no longer holds ``expected``, else ``None``."""
+        if expected is getattr(self, side):
+            return None
+        return f"side {side} was replaced after it was loaded; load provenance unknown"
+
+    def _replaced_since_run(self):
+        """Why the last run no longer describes the live sides, else ``None``."""
+        if self._run_capdata is None:
+            return None
+        for side in ("meas", "sim"):
+            error = self._side_replaced_error(side, self._run_capdata[side]())
+            if error is not None:
+                return error
+        return None
 
     def mapping_fingerprint(self):
         """sha256 hex of ``canonical_json`` of the mapping ``to_mapping()`` returns.
@@ -2242,11 +2321,9 @@ class CapTest(param.Parameterized):
                     f"side {side} was never loaded; load provenance unknown"
                 )
                 return
-            if snap["capdata"] is not getattr(self, side):
-                self._run_fingerprint_error = (
-                    f"side {side} was replaced after it was loaded; "
-                    "load provenance unknown"
-                )
+            replaced = self._side_replaced_error(side, snap["capdata"])
+            if replaced is not None:
+                self._run_fingerprint_error = replaced
                 return
             if snap["keys"] is None:
                 self._run_fingerprint_error = snap["reason"]
@@ -3194,6 +3271,10 @@ class CapTest(param.Parameterized):
                 check_pvalues=check_pvalues, pval=pval, print_res=print_res
             )
             self._last_results = results
+            self._run_capdata = {
+                "meas": weakref.ref(self.meas),
+                "sim": weakref.ref(self.sim),
+            }
             self._set_run_fingerprint(check_pvalues, pval)
             return results
         except Exception as e:

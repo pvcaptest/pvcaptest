@@ -10,13 +10,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and `last_results`: bind a completed `run_test()`'s results to the
   configuration that produced them, including load settings as they were at
   load time. Unset after a single-side or failed run, a reload, or a run with
-  a non-default `pval`, `check_pvalues=True` or `auto_wrap_sim=False`.
-  Computing it never makes `run_test` raise.
+  a non-default `pval`, `check_pvalues=True` or `auto_wrap_sim=False`; while
+  `meas` or `sim` is a different `CapData` from the one the run used (e.g.
+  `tst.meas = tst.meas.copy()`), `run_fingerprint` and `last_results` read
+  `None`. Computing it never makes `run_test` raise.
 - `captest.io.loader_id(identifier)`: label a data loader; `load_data` and
   `load_pvsyst` carry `"captest.csv_meas"` and `"captest.pvsyst"`.
   `CapTest.load_provenance` reports the `loader_id` behind each side's
   current data (`None` for pre-built, unlabelled or replaced sides), and
   `CapTest.loader_implementations` the loader callable captured at load time.
+  A label counts only on the object `loader_id` decorated: a wrapper that
+  copies it (`functools.wraps`, `functools.lru_cache`) is an unlabelled
+  loader unless it is decorated itself.
 - `captest.resolve_setup_from_mapping(sub)`: resolve the `TestSetup` a captest
   sub-mapping describes without loading data, with exactly the key checks and
   override handling of `CapTest.from_mapping` + `setup()`.
@@ -99,6 +104,13 @@ incomplete or invalid config (e.g. a `custom` test missing a side or the
 formula) rather than writing a file that cannot be loaded. An override that
 leaves the preset unchanged resolves to the preset itself, so it keeps the
 preset's `content_digest()` across a round trip.
+- `CapTest.to_yaml` / `to_mapping` write each side's `<side>_load_kwargs` and
+`<side>_prep` right after its `<side>_path`, so re-saving an existing yaml
+config may reorder those keys; the content is unchanged.
+- `CapTest.reload` resolves a relative data path against the `base_dir` of
+`from_mapping` (the yaml file's directory for `from_yaml`), as the
+construction-time load did, instead of the current working directory. A
+reload rejected by its argument checks no longer clears `last_results`.
 - `CapTest.to_yaml` / `to_mapping` now write `overrides.rep_conditions` also
 when a `RepCond` step is in a filter pipeline or `rc_source` is `manual`
 (it was dropped before), so the reloaded `resolved_setup` keeps its

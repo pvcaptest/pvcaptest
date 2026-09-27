@@ -156,8 +156,6 @@ class TestLoadSnapshots:
 
     def test_loader_metadata_failure_is_recorded_not_raised(self):
         class Weird:
-            loader_id = "test.weird"
-
             def __getattribute__(self, name):
                 # The class keeps a valid __qualname__; only the instance
                 # lookup the snapshot performs fails.
@@ -168,7 +166,10 @@ class TestLoadSnapshots:
             def __call__(self, path, **kwargs):
                 return build_meas_default()
 
-        tst = build_loaded(meas_loader=Weird())
+        # Labelled on the instance, so the label check passes and the
+        # failure comes from the implementation-name lookup.
+        weird = loader_id("test.weird")(Weird())
+        tst = build_loaded(meas_loader=weird)
         assert tst.meas is not None
         assert tst.load_provenance["meas"] is None
         assert "RuntimeError" in tst._load_snapshots["meas"]["reason"]
@@ -365,3 +366,167 @@ class TestRunFingerprint:
         with pytest.warns(UserWarning, match="programmatic-only"):
             mapping_str = str(a.to_mapping())
         assert "loader_id" not in mapping_str
+
+
+class TestCopiedLoaderLabels:
+    """A ``loader_id`` label counts only on the object it was put on."""
+
+    @staticmethod
+    def _assert_unlabelled(tst):
+        assert tst.load_provenance["meas"] is None
+        assert tst.loader_implementations["meas"] is None
+        assert "without a loader_id" in tst._load_snapshots["meas"]["reason"]
+        filter_and_run(tst)
+        assert tst.run_fingerprint is None
+        assert "without a loader_id" in tst.run_fingerprint_error
+
+    def test_decorator_marks_its_target(self):
+        def f(path):
+            return path
+
+        loader_id("x.y")(f)
+        assert f._loader_id_target is f
+
+    def test_functools_wraps_wrapper_is_unlabelled(self):
+        import functools
+
+        @functools.wraps(meas_loader)
+        def wrapper(path, **kwargs):
+            return build_meas_default()
+
+        assert wrapper.loader_id == "test.meas"  # the copied label
+        self._assert_unlabelled(build_loaded(meas_loader=wrapper))
+
+    def test_lru_cache_wrapper_is_unlabelled(self):
+        import functools
+
+        cached = functools.lru_cache(meas_loader)
+        assert cached.loader_id == "test.meas"  # the copied label
+        self._assert_unlabelled(build_loaded(meas_loader=cached))
+
+    def test_wrapper_decorated_itself_is_accepted(self):
+        import functools
+
+        @loader_id("test.wrapped_meas")
+        @functools.wraps(meas_loader)
+        def wrapper(path, **kwargs):
+            return build_meas_default()
+
+        tst = build_loaded(meas_loader=wrapper)
+        assert tst.load_provenance["meas"] == "test.wrapped_meas"
+        assert tst.loader_implementations["meas"] is not None
+        filter_and_run(tst)
+        assert tst.run_fingerprint == tst.mapping_fingerprint()
+
+    def test_labelled_callable_instance_is_accepted(self):
+        class Loader:
+            def __call__(self, path, **kwargs):
+                return build_meas_default()
+
+        inst = loader_id("test.instance_meas")(Loader())
+        tst = build_loaded(meas_loader=inst)
+        assert tst.load_provenance["meas"] == "test.instance_meas"
+
+    def test_class_level_label_is_unlabelled(self):
+        class Loader:
+            loader_id = "test.class_meas"
+
+            def __call__(self, path, **kwargs):
+                return build_meas_default()
+
+        self._assert_unlabelled(build_loaded(meas_loader=Loader()))
+
+    def test_bound_method_of_labelled_function_is_accepted(self):
+        class Source:
+            @loader_id("test.method_meas")
+            def load(self, path, **kwargs):
+                return build_meas_default()
+
+        tst = build_loaded(meas_loader=Source().load)
+        assert tst.load_provenance["meas"] == "test.method_meas"
+
+
+class TestSideReplacedAfterRun:
+    def test_replacing_a_side_after_the_run_clears_the_run(self):
+        tst = build_loaded()
+        filter_and_run(tst)
+        assert tst.run_fingerprint == tst.mapping_fingerprint()
+        tst.meas = tst.meas.copy()
+        assert tst.run_fingerprint is None
+        assert tst.last_results is None
+        assert "replaced" in tst.run_fingerprint_error
+
+    def test_replacing_a_side_clears_unfingerprinted_results(self):
+        tst = build_loaded()
+        filter_and_run(tst, pval=1.0)
+        assert tst.last_results is not None
+        tst.sim = tst.sim.copy()
+        assert tst.last_results is None
+
+    def test_putting_the_same_side_back_restores_the_run(self):
+        tst = build_loaded()
+        results = filter_and_run(tst)
+        original = tst.meas
+        tst.meas = original.copy()
+        tst.meas = original
+        assert tst.last_results is results
+        assert tst.run_fingerprint == tst.mapping_fingerprint()
+
+
+class TestReloadBaseDir:
+    def test_reload_resolves_relative_path_against_base_dir(
+        self, tmp_path, monkeypatch
+    ):
+        calls = []
+        prebuilt = build_meas_default()  # the fixture data path is CWD-relative
+
+        @loader_id("test.recording_meas")
+        def recording(path, **kwargs):
+            calls.append(str(path))
+            return prebuilt.copy()
+
+        with pytest.warns(UserWarning, match="programmatic-only"):
+            sub = build_loaded().to_mapping()
+        base = tmp_path / "proj"
+        base.mkdir()
+        tst = CapTest.from_mapping(
+            sub, base_dir=base, meas_loader=recording, sim_loader=sim_loader
+        )
+        elsewhere = tmp_path / "elsewhere"
+        elsewhere.mkdir()
+        monkeypatch.chdir(elsewhere)
+        tst.reload("meas", verbose=False)
+        assert calls == [str(base / "meas.csv")] * 2
+        assert tst._load_snapshots["meas"]["keys"]["meas_path"] == "meas.csv"
+        filter_and_run(tst)
+        assert tst.run_fingerprint == tst.mapping_fingerprint()
+
+    def test_reload_keeps_cwd_resolution_without_base_dir(self):
+        calls = []
+
+        @loader_id("test.recording_meas")
+        def recording(path, **kwargs):
+            calls.append(str(path))
+            return build_meas_default()
+
+        tst = build_loaded(meas_loader=recording)
+        tst.reload("meas", verbose=False)
+        assert calls == ["meas.csv", "meas.csv"]
+
+
+class TestReloadValidationKeepsRun:
+    def test_no_stored_path_error_leaves_the_run(self, ct_default):
+        filter_and_run(ct_default)
+        results = ct_default.last_results
+        assert results is not None
+        with pytest.raises(ValueError, match="no stored data path"):
+            ct_default.reload("meas", verbose=False)
+        assert ct_default.last_results is results
+
+    def test_bad_side_error_leaves_the_run(self):
+        tst = build_loaded()
+        results = filter_and_run(tst)
+        with pytest.raises(ValueError):
+            tst.reload("both", verbose=False)
+        assert tst.last_results is results
+        assert tst.run_fingerprint == tst.mapping_fingerprint()
