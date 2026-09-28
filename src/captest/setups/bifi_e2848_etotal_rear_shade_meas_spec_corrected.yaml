@@ -1,0 +1,69 @@
+name: bifi_e2848_etotal_rear_shade_meas_spec_corrected
+description: >-
+  Standard ASTM E2848 regression with total effective irradiance replacing
+  front POA and a First Solar spectral correction applied to front-side
+  POA irradiance used to calculate the total POA irradiance. Requires relative
+  humidity and atmospheric pressure on the measured side and precipitable
+  water from the PVsyst output. The modeled rear irradiance maps directly
+  to PVsyst's unshaded global rear ('GlobBak') instead of rpoa_pvsyst, and
+  rear shading is applied to the measured side through the e_total 'rear_shade'
+  factor (propagated by CapTest to the measured CapData only). This is the
+  variant to select when 'rear_shade' is set to a non-zero value. Total
+  irradiance is E_Total = E_POA + E_Rear * bifaciality * (1 - rear_shade).
+reg_fml: power ~ poa + I(poa * poa) + I(poa * t_amb) + I(poa * w_vel) - 1
+meas:
+  reg_cols:
+    power: {group: real_pwr_mtr, agg: sum}
+    poa:
+      calc: e_total
+      args:
+        poa:
+          calc: poa_spec_corrected
+          args:
+            poa: {group: irr_poa, agg: mean}
+            spectral_correction:
+              calc: spectral_factor_firstsolar
+              args:
+                precipitable_water:
+                  calc: precipitable_water_gueymard
+                  args:
+                    temp_amb: {group: temp_amb, agg: mean}
+                    rel_humidity: {group: humidity, agg: mean}
+                absolute_airmass:
+                  calc: absolute_airmass
+                  args:
+                    apparent_zenith: {calc: apparent_zenith, args: {}}
+                    pressure: {group: pressure, agg: mean}
+        rpoa: {group: irr_rpoa, agg: mean}
+    t_amb: {group: temp_amb, agg: mean}
+    w_vel: {group: wind_speed, agg: mean}
+sim:
+  reg_cols:
+    power: {column: E_Grid}
+    poa:
+      calc: e_total
+      args:
+        poa:
+          calc: poa_spec_corrected
+          args:
+            poa: {column: GlobInc}
+            spectral_correction:
+              calc: spectral_factor_firstsolar
+              args:
+                precipitable_water:
+                  calc: scale
+                  args:
+                    col: {column: PrecWat}
+                    factor: 100
+                absolute_airmass:
+                  calc: absolute_airmass
+                  args:
+                    apparent_zenith: {calc: apparent_zenith_pvsyst, args: {}}
+        rpoa: {column: GlobBak}
+    t_amb: {column: T_Amb}
+    w_vel: {column: WindVel}
+rep_conditions:
+  irr_bal: false
+  percent_filter: 20
+  func: {poa: perc_60, t_amb: mean, w_vel: mean}
+scatter_plots: etotal

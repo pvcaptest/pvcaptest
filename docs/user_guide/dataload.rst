@@ -8,7 +8,7 @@ Conducting a capacity tests with pvcaptest involves the following steps:
 
 1. Load data from the plant DAS / SCADA system (:py:func:`~captest.io.load_data`) or from a PVsyst file (:py:func:`~captest.io.load_pvsyst`), returning an instance of :py:class:`~captest.capdata.CapData`.
 2. Review / modify the :py:attr:`~captest.capdata.CapData.column_groups` attribute as needed.
-3. Use the :py:meth:`~captest.capdata.CapData.set_regression_cols` method to set the columns or group of columns to be used in the regression.
+3. Use the :py:meth:`~captest.capdata.CapData.set_regression_cols` method to set the columns or group of columns to be used in the regression; it records each regression term as a node (a column group to aggregate or a single column).
 4. When there are multiple sensors for a given measurement, use :py:meth:`~captest.capdata.CapData.agg_sensors` to aggregate the data from the sensors.
 5. Use the filtering methods to filter the data.
 6. Calculate reporting conditions.
@@ -195,7 +195,18 @@ By default the ASTM E2848 regression equation is defined in the :py:attr:`~capte
 
         'power ~ poa + I(poa * poa) + I(poa * t_amb) + I(poa * w_vel) - 1'
 
-Patsy and Statsmodels expect to find columns with the `power`, `poa`, `t_amb`, and `w_vel` headings in the DataFrame passed to fit the regression. Rather than requiring those headings to be in the :py:attr:`~captest.capdata.CapData.data` DataFrame, pvcaptest requires the user to specify which columns or *group of columns* are to be used in the regression in :py:attr:`~captest.capdata.CapData.regression_cols`. The :py:meth:`~captest.capdata.CapData.set_regression_cols` method can used to identify column headings or column group ids (:py:attr:`~captest.capdata.CapData.column_groups` keys). Or :py:attr:`~captest.capdata.CapData.regression_cols` can be set to a dictionary mapping the regression terms defined in the :py:attr:`~captest.capdata.CapData.regression_formula` to the column headings or :py:attr:`~captest.capdata.CapData.column_groups` id.
+Patsy and Statsmodels expect to find columns with the `power`, `poa`, `t_amb`, and `w_vel` headings in the DataFrame passed to fit the regression. Rather than requiring those headings to be in the :py:attr:`~captest.capdata.CapData.data` DataFrame, pvcaptest requires the user to specify which columns or *group of columns* are to be used in the regression in :py:attr:`~captest.capdata.CapData.regression_cols`. The :py:meth:`~captest.capdata.CapData.set_regression_cols` method can be used to identify column headings or column group ids (:py:attr:`~captest.capdata.CapData.column_groups` keys); it turns each one into a node. A column group id becomes a group node (``{'group': 'irr_poa', 'agg': 'mean'}``), a column group holding a single column becomes a column node for that column (``{'column': 'meter_power'}``, used as is rather than aggregated), and any other name becomes a column node. Or :py:attr:`~captest.capdata.CapData.regression_cols` can be set directly to a dictionary mapping the regression terms defined in the :py:attr:`~captest.capdata.CapData.regression_formula` to nodes:
+
+.. code-block:: Python
+
+    cd.regression_cols = {
+        'power': {'group': 'real_pwr_mtr', 'agg': 'sum'},
+        'poa': {'group': 'irr_poa', 'agg': 'mean'},
+        't_amb': {'group': 'temp_amb', 'agg': 'mean'},
+        'w_vel': {'column': 'met1_wind_speed'},
+    }
+
+A group node aggregates the columns of a :py:attr:`~captest.capdata.CapData.column_groups` group (``agg`` defaults to ``mean``) into a column named ``<group>_<agg>_agg``, and a column node uses one column of :py:attr:`~captest.capdata.CapData.data` by name. A bare string is not a node. Calculated columns use a third node kind, ``{'calc': ..., 'args': {...}}``; see :ref:`custom_test_setups`. :py:meth:`~captest.capdata.CapData.process_regression_columns` evaluates the nodes and replaces each with the name of the column it produced.
 
 The ability to map a regression term to a group of columns is useful when there are multiple sensors for a given measurement, as described in the next section.
 
@@ -232,26 +243,26 @@ For example, if the :py:attr:`~captest.capdata.CapData.regression_cols` attribut
 .. code-block:: Python
 
     CapData.regression_cols = {
-        'power': 'real_pwr_mtr',
-        'poa': 'irr_poa',
-        't_amb': 'temp_amb',
-        'w_vel': 'wind',
+        'power': {'group': 'real_pwr_mtr'},
+        'poa': {'group': 'irr_poa'},
+        't_amb': {'group': 'temp_amb'},
+        'w_vel': {'group': 'wind'},
     }
 
-Where ``irr_poa``, ``temp_amb``, and ``wind`` are the ids of groups of columns in :py:attr:`~captest.capdata.CapData.column_groups`.
+Where ``real_pwr_mtr``, ``irr_poa``, ``temp_amb``, and ``wind`` are the ids of groups of columns in :py:attr:`~captest.capdata.CapData.column_groups`. The nodes leave ``agg`` unset, so :py:meth:`~captest.capdata.CapData.agg_sensors` applies its defaults; a node that gives ``agg`` explicitly (e.g. ``{'group': 'temp_amb', 'agg': 'median'}``) is aggregated with that function instead.
 
 When agg_sensors is called with the default arguments, :py:attr:`~captest.capdata.CapData.regression_cols` is updated to the following:
 
 .. code-block:: Python
 
     CapData.regression_cols = {
-        'power': 'real_pwr_mtr',
+        'power': 'real_pwr_mtr_sum_agg',
         'poa': 'irr_poa_mean_agg',
         't_amb': 'temp_amb_mean_agg',
-        'w_vel': 'wind_amb_mean_agg',
+        'w_vel': 'wind_mean_agg',
     }
 
-where ``irr_poa_mean_agg``, ``temp_amb_mean_agg``, and ``wind_amb_mean_agg`` are the ids of the aggregated columns in :py:attr:`~captest.capdata.CapData.data` and :py:attr:`~captest.capdata.CapData.data_filtered` and these columns will be used when fitting the regression.
+where ``real_pwr_mtr_sum_agg``, ``irr_poa_mean_agg``, ``temp_amb_mean_agg``, and ``wind_mean_agg`` are the ids of the aggregated columns in :py:attr:`~captest.capdata.CapData.data` and :py:attr:`~captest.capdata.CapData.data_filtered` and these columns will be used when fitting the regression.
 
 Accessing Filtered and Unfiltered Data
 --------------------------------------

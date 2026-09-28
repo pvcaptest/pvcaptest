@@ -1,0 +1,12 @@
+{
+  "bifi_e2848_etotal_rear_shade_meas": "7f1fb61b8850622737412bc08cfd5e68695b46651e4c6162d261c0879a044560",
+  "bifi_e2848_etotal_rear_shade_meas_spec_corrected": "1b0316f4449b33b83791d878854b29500cabd2327ff805d42fae5aa126ef39e2",
+  "bifi_e2848_etotal_rear_shade_sim": "2b6a2087caa2f5ca7f58eca634767724629cc0d71e135df0b392e531f4412893",
+  "bifi_e2848_etotal_rear_shade_sim_spec_corrected": "dc95617f07d140285f1ccaadddcae6b10de4ac428153c2e50d8d537f442ee2f4",
+  "bifi_power_tc_calc_tbom": "8bff9443420367f8b6eae3c199a5f50848fef8a2dd7654f7781bf5aadb366c8b",
+  "bifi_power_tc_etotal_rear_shade_meas": "3cad1caa8cf21a1a62163f74b9bac13e65de58859837319fee921b85104808f5",
+  "bifi_power_tc_etotal_rear_shade_sim": "e173b2ec5a438204641155e5319efac62673a4377bcf4e00f2dd7b0b7947ddd5",
+  "bifi_power_tc_meas_tbom": "4279b17c17ba4f0e42407df0a22f6d342cca2910cdeb74db4c25de24c75623ba",
+  "e2848_default": "9c96e77b342029ca4ae4a48376e92f1b6e8858dea4f2dcfb5183ce3af6021ded",
+  "e2848_spec_corrected_poa": "fcddf42c469130847282d60fe3e3b502c453bcc98f9e8c38d7056f80bb08e7af"
+}

@@ -3,4 +3,4 @@
 
 .. currentmodule:: captest
 
-.. autoproperty:: CapTest.resolved_setup
+.. autoattribute:: CapTest.resolved_setup

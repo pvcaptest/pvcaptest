@@ -16,6 +16,57 @@ from captest.capdata import CapData
 from captest.clearsky import csky
 
 
+def loader_id(identifier):
+    """Decorator that labels a data loader with a stable identifier.
+
+    ``CapTest`` records the ``loader_id`` of the loader that loaded each side
+    (see :attr:`captest.CapTest.load_provenance`), so a stored run can say
+    which loader produced its data. captest only records the label; which
+    identifiers a consumer accepts is that consumer's policy.
+
+    Parameters
+    ----------
+    identifier : str
+        Non-empty, stable name, conventionally ``"<package>.<loader>"``.
+
+    Returns
+    -------
+    callable
+        A decorator that sets ``func.loader_id = identifier``, marks ``func``
+        itself as the object the label belongs to, and returns ``func``
+        unchanged. Bound methods cannot take attributes; decorate the
+        function in the class body (its bound methods then carry the label)
+        or wrap the bound method in a plain function and decorate that.
+
+    Raises
+    ------
+    ValueError
+        ``identifier`` is not a non-empty ``str``.
+
+    Notes
+    -----
+    The label binds to the decorated object, not to copies of its
+    attributes. ``functools.wraps``, ``functools.update_wrapper`` and
+    ``functools.lru_cache`` copy ``loader_id`` onto the wrapper they build,
+    but ``CapTest`` treats such a wrapper as a loader without a
+    ``loader_id``: the wrapper runs its own code, which the label does not
+    vouch for. Decorate the wrapper itself with ``loader_id`` to label it.
+    A ``loader_id`` class attribute set by hand is likewise not a label.
+    """
+    if not isinstance(identifier, str) or not identifier:
+        raise ValueError(f"loader_id needs a non-empty str; got {identifier!r}")
+
+    def decorate(func):
+        func.loader_id = identifier
+        # Wrappers copy __dict__ from what they wrap, so this still points at
+        # the original there; CapTest honours the label only when it points
+        # back at the loader it was read from.
+        func._loader_id_target = func
+        return func
+
+    return decorate
+
+
 def flatten_multi_index(columns):
     return ["_".join(col_name) for col_name in columns.to_list()]
 
@@ -51,6 +102,7 @@ def load_excel_column_groups(path):
     return df.groupby(0)[1].apply(list).to_dict()
 
 
+@loader_id("captest.pvsyst")
 def load_pvsyst(
     path,
     name="pvsyst",
@@ -499,6 +551,7 @@ class DataLoader:
         )
 
 
+@loader_id("captest.csv_meas")
 def load_data(
     path,
     group_columns=cg.group_columns,

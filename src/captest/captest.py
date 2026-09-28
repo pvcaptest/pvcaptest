@@ -19,10 +19,15 @@ anything from this module at import time; the single-CapData helper
 
 import copy
 import difflib
+import hashlib
 import importlib.util
+import inspect
+import os
 import textwrap
 import warnings
+import weakref
 from dataclasses import dataclass
+from importlib import resources
 from pathlib import Path
 
 import numpy as np
@@ -31,29 +36,20 @@ import param
 import yaml
 
 from captest import util
-from captest.calcparams import (
-    absolute_airmass,
-    apparent_zenith,
-    apparent_zenith_pvsyst,
-    bom_temp,
-    cell_temp,
-    e_total,
-    poa_spec_corrected,
-    power_temp_correct,
-    precipitable_water_gueymard,
-    rpoa_pvsyst,
-    scale,
-    spectral_factor_firstsolar,
-)
+from captest.calcparams import DOWNSTREAM_PARAMS
 from captest.capdata import CapData
 from captest.filters import wrap_year_end
 from captest.plotting import ScatterBifiPowerTc, ScatterPlot
-from captest.util import (
-    _perc_wrap_to_string,
-    _resolve_func_strings,
-    perc_wrap,
-    to_native,
+from captest.setup import (
+    DerivationError,
+    RepConditions,
+    SetupFitError,
+    TestSetup,
+    canonical_json,
+    check_project_fit,
+    derive,
 )
+from captest.util import perc_wrap, to_native
 
 _hv_spec = importlib.util.find_spec("holoviews")
 if _hv_spec is not None:
@@ -226,672 +222,64 @@ def scatter_bifi_power_tc(cd, **kwargs):
     return ScatterBifiPowerTc(cd=cd, **kwargs).view()
 
 
-TEST_SETUPS = {
-    "e2848_default": {
-        "description": (
-            "Standard ASTM E2848 regression of AC power against front-side POA irradiance, "
-            "ambient temperature, and wind speed using the full four-term formula. "
-            "This is the default setup for monofacial capacity tests."
-        ),
-        "reg_cols_meas": {
-            "power": ("real_pwr_mtr", "sum"),
-            "poa": ("irr_poa", "mean"),
-            "t_amb": ("temp_amb", "mean"),
-            "w_vel": ("wind_speed", "mean"),
-        },
-        "reg_cols_sim": {
-            "power": "E_Grid",
-            "poa": "GlobInc",
-            "t_amb": "T_Amb",
-            "w_vel": "WindVel",
-        },
-        "reg_fml": "power ~ poa + I(poa * poa) + I(poa * t_amb) + I(poa * w_vel) - 1",
-        "scatter_plots": scatter_default,
-        "rep_conditions": {
-            "irr_bal": False,
-            "percent_filter": 20,
-            "func": {
-                "poa": perc_wrap(60),
-                "t_amb": "mean",
-                "w_vel": "mean",
-            },
-        },
-    },
-    "bifi_e2848_etotal_rear_shade_sim": {
-        "description": (
-            "Standard ASTM E2848 regression form with total effective "
-            "irradiance replacing front-side POA as the independent variable. "
-            "Rear shading and IAM losses are handled in the modeled (PVsyst) "
-            "data: the modeled rear irradiance is rpoa_pvsyst = GlobBak + "
-            "BackShd, while the measured rear sensor (irr_rpoa) is used "
-            "as-measured. Leave CapTest's 'rear_shade' at its default of 0 "
-            "with this setup: the rear shading is already carried by the "
-            "modeled rear irradiance, and a non-zero 'rear_shade' is still "
-            "applied to the measured e_total, double-counting the loss. To "
-            "apply rear shading on the measured side instead, use "
-            "'bifi_e2848_etotal_rear_shade_meas'. Total irradiance is "
-            "E_Total = E_POA + E_Rear * bifaciality, following the NREL "
-            "modified bifacial approach."
-        ),
-        "reg_cols_meas": {
-            "power": ("real_pwr_mtr", "sum"),
-            "poa": (
-                e_total,
-                {
-                    "poa": ("irr_poa", "mean"),
-                    "rpoa": ("irr_rpoa", "mean"),
-                },
-            ),
-            "t_amb": ("temp_amb", "mean"),
-            "w_vel": ("wind_speed", "mean"),
-        },
-        "reg_cols_sim": {
-            "power": "E_Grid",
-            "poa": (
-                e_total,
-                {
-                    "poa": "GlobInc",
-                    "rpoa": (
-                        rpoa_pvsyst,
-                        {"globbak": "GlobBak", "backshd": "BackShd"},
-                    ),
-                },
-            ),
-            "t_amb": "T_Amb",
-            "w_vel": "WindVel",
-        },
-        "reg_fml": "power ~ poa + I(poa * poa) + I(poa * t_amb) + I(poa * w_vel) - 1",
-        "scatter_plots": scatter_etotal,
-        "rep_conditions": {
-            "irr_bal": False,
-            "percent_filter": 20,
-            "func": {
-                "poa": perc_wrap(60),
-                "t_amb": "mean",
-                "w_vel": "mean",
-            },
-        },
-    },
-    "bifi_e2848_etotal_rear_shade_meas": {
-        "description": (
-            "Variant of 'bifi_e2848_etotal_rear_shade_sim' for applying "
-            "rear-shading losses on the measured side. The modeled rear "
-            "irradiance maps directly to PVsyst's unshaded global rear "
-            "('GlobBak') instead of rpoa_pvsyst, and rear shading is applied "
-            "to the measured side through the e_total 'rear_shade' factor "
-            "(propagated by CapTest to the measured CapData only). This is "
-            "the variant to select when 'rear_shade' is set to a non-zero "
-            "value. Total irradiance is E_Total = E_POA + E_Rear * "
-            "bifaciality * (1 - rear_shade)."
-        ),
-        "reg_cols_meas": {
-            "power": ("real_pwr_mtr", "sum"),
-            "poa": (
-                e_total,
-                {
-                    "poa": ("irr_poa", "mean"),
-                    "rpoa": ("irr_rpoa", "mean"),
-                },
-            ),
-            "t_amb": ("temp_amb", "mean"),
-            "w_vel": ("wind_speed", "mean"),
-        },
-        "reg_cols_sim": {
-            "power": "E_Grid",
-            "poa": (
-                e_total,
-                {
-                    "poa": "GlobInc",
-                    "rpoa": "GlobBak",
-                },
-            ),
-            "t_amb": "T_Amb",
-            "w_vel": "WindVel",
-        },
-        "reg_fml": "power ~ poa + I(poa * poa) + I(poa * t_amb) + I(poa * w_vel) - 1",
-        "scatter_plots": scatter_etotal,
-        "rep_conditions": {
-            "irr_bal": False,
-            "percent_filter": 20,
-            "func": {
-                "poa": perc_wrap(60),
-                "t_amb": "mean",
-                "w_vel": "mean",
-            },
-        },
-    },
-    "bifi_power_tc_meas_tbom": {
-        "description": (
-            "The regression equation is temperature corrected power regressed against "
-            "front POA and rear POA. The back of module temperature is from field "
-            "measurements and the cell temperature is calculated using the Sandia PV Array "
-            "Performance Model from the POA irradiance and measured BOM temperature. "
-            "Note that the PVsyst temperature correction uses the 'TArray' output variable."
-        ),
-        "reg_cols_meas": {
-            "power": (
-                power_temp_correct,
-                {
-                    "power": ("real_pwr_mtr", "sum"),
-                    "cell_temp": (
-                        cell_temp,
-                        {
-                            "poa": ("irr_poa", "mean"),
-                            "bom": ("temp_bom", "mean"),
-                        },
-                    ),
-                },
-            ),
-            "poa": ("irr_poa", "mean"),
-            "rpoa": ("irr_rpoa", "mean"),
-        },
-        "reg_cols_sim": {
-            "power": (
-                power_temp_correct,
-                {
-                    "power": "E_Grid",
-                    "cell_temp": "TArray",
-                },
-            ),
-            "poa": "GlobInc",
-            "rpoa": (rpoa_pvsyst, {"globbak": "GlobBak", "backshd": "BackShd"}),
-        },
-        "reg_fml": "power ~ poa + rpoa",
-        "scatter_plots": scatter_bifi_power_tc,
-        "rep_conditions": {
-            "irr_bal": False,
-            "percent_filter": 20,
-            "func": {
-                "poa": perc_wrap(60),
-                "rpoa": "mean",
-            },
-        },
-    },
-    "bifi_power_tc_calc_tbom": {
-        "description": (
-            "The regression equation is temperature corrected power regressed against "
-            "front POA and rear POA. The back of module and cell temperature are "
-            "calculated using the Sandia PV Array Performance Model from the POA "
-            "irradiance, ambient temperature, and wind speed. Note that the PVsyst "
-            "temperature correction uses the 'TArray' output variable."
-        ),
-        "reg_cols_meas": {
-            "power": (
-                power_temp_correct,
-                {
-                    "power": ("real_pwr_mtr", "sum"),
-                    "cell_temp": (
-                        cell_temp,
-                        {
-                            "poa": ("irr_poa", "mean"),
-                            "bom": (
-                                bom_temp,
-                                {
-                                    "poa": ("irr_poa", "mean"),
-                                    "temp_amb": ("temp_amb", "mean"),
-                                    "wind_speed": ("wind_speed", "mean"),
-                                },
-                            ),
-                        },
-                    ),
-                },
-            ),
-            "poa": ("irr_poa", "mean"),
-            "rpoa": ("irr_rpoa", "mean"),
-        },
-        "reg_cols_sim": {
-            "power": (
-                power_temp_correct,
-                {
-                    "power": "E_Grid",
-                    "cell_temp": "TArray",
-                },
-            ),
-            "poa": "GlobInc",
-            "rpoa": (rpoa_pvsyst, {"globbak": "GlobBak", "backshd": "BackShd"}),
-        },
-        "reg_fml": "power ~ poa + rpoa",
-        "scatter_plots": scatter_bifi_power_tc,
-        "rep_conditions": {
-            "irr_bal": False,
-            "percent_filter": 20,
-            "func": {
-                "poa": perc_wrap(60),
-                "rpoa": "mean",
-            },
-        },
-    },
-    "bifi_power_tc_etotal_rear_shade_sim": {
-        "description": (
-            "The regression equation is temperature corrected power regressed against "
-            "total POA irradiance. The back of module temperature is from field "
-            "measurements and the cell temperature is calculated using the Sandia PV Array "
-            "Performance Model from the POA irradiance and measured BOM temperature. "
-            "Note that the PVsyst temperature correction uses the 'TArray' output variable. "
-            "Rear shading and IAM losses are handled in the modeled (PVsyst) "
-            "data: the modeled rear irradiance is rpoa_pvsyst = GlobBak + "
-            "BackShd, while the measured rear sensor (irr_rpoa) is used "
-            "as-measured. Leave CapTest's 'rear_shade' at its default of 0 "
-            "with this setup: the rear shading is already carried by the "
-            "modeled rear irradiance, and a non-zero 'rear_shade' is still "
-            "applied to the measured e_total, double-counting the loss. To "
-            "apply rear shading on the measured side instead, use "
-            "'bifi_power_tc_etotal_rear_shade_meas'. Total irradiance is "
-            "E_Total = E_POA + E_Rear * bifaciality, following the NREL "
-            "modified bifacial approach."
-        ),
-        "reg_cols_meas": {
-            "power": (
-                power_temp_correct,
-                {
-                    "power": ("real_pwr_mtr", "sum"),
-                    "cell_temp": (
-                        cell_temp,
-                        {
-                            "poa": ("irr_poa", "mean"),
-                            "bom": ("temp_bom", "mean"),
-                        },
-                    ),
-                },
-            ),
-            "poa": (
-                e_total,
-                {
-                    "poa": ("irr_poa", "mean"),
-                    "rpoa": ("irr_rpoa", "mean"),
-                },
-            ),
-        },
-        "reg_cols_sim": {
-            "power": (
-                power_temp_correct,
-                {
-                    "power": "E_Grid",
-                    "cell_temp": "TArray",
-                },
-            ),
-            "poa": (
-                e_total,
-                {
-                    "poa": "GlobInc",
-                    "rpoa": (
-                        rpoa_pvsyst,
-                        {"globbak": "GlobBak", "backshd": "BackShd"},
-                    ),
-                },
-            ),
-        },
-        "reg_fml": "power ~ poa",
-        "scatter_plots": scatter_etotal,
-        "rep_conditions": {
-            "irr_bal": False,
-            "percent_filter": 20,
-            "func": {
-                "poa": perc_wrap(60),
-            },
-        },
-    },
-    "bifi_power_tc_etotal_rear_shade_meas": {
-        "description": (
-            "The regression equation is temperature corrected power regressed against "
-            "total POA irradiance. The back of module temperature is from field "
-            "measurements and the cell temperature is calculated using the Sandia PV Array "
-            "Performance Model from the POA irradiance and measured BOM temperature. "
-            "Note that the PVsyst temperature correction uses the 'TArray' output variable. "
-            "Variant of 'bifi_power_tc_etotal_rear_shade_sim' for applying "
-            "rear-shading losses on the measured side. The modeled rear "
-            "irradiance maps directly to PVsyst's unshaded global rear "
-            "('GlobBak') instead of rpoa_pvsyst, and rear shading is applied "
-            "to the measured side through the e_total 'rear_shade' factor "
-            "(propagated by CapTest to the measured CapData only). This is "
-            "the variant to select when 'rear_shade' is set to a non-zero "
-            "value. Total irradiance is E_Total = E_POA + E_Rear * "
-            "bifaciality * (1 - rear_shade)."
-        ),
-        "reg_cols_meas": {
-            "power": (
-                power_temp_correct,
-                {
-                    "power": ("real_pwr_mtr", "sum"),
-                    "cell_temp": (
-                        cell_temp,
-                        {
-                            "poa": ("irr_poa", "mean"),
-                            "bom": ("temp_bom", "mean"),
-                        },
-                    ),
-                },
-            ),
-            "poa": (
-                e_total,
-                {
-                    "poa": ("irr_poa", "mean"),
-                    "rpoa": ("irr_rpoa", "mean"),
-                },
-            ),
-        },
-        "reg_cols_sim": {
-            "power": (
-                power_temp_correct,
-                {
-                    "power": "E_Grid",
-                    "cell_temp": "TArray",
-                },
-            ),
-            "poa": (
-                e_total,
-                {
-                    "poa": "GlobInc",
-                    "rpoa": "GlobBak",
-                },
-            ),
-        },
-        "reg_fml": "power ~ poa",
-        "scatter_plots": scatter_etotal,
-        "rep_conditions": {
-            "irr_bal": False,
-            "percent_filter": 20,
-            "func": {
-                "poa": perc_wrap(60),
-            },
-        },
-    },
-    "e2848_spec_corrected_poa": {
-        "description": (
-            "Standard ASTM E2848 regression with a First Solar spectral correction applied to "
-            "front-side POA irradiance before fitting. Requires relative humidity and atmospheric "
-            "pressure on the measured side and precipitable water from the PVsyst output."
-        ),
-        "reg_cols_meas": {
-            "power": ("real_pwr_mtr", "sum"),
-            "poa": (
-                poa_spec_corrected,
-                {
-                    "poa": ("irr_poa", "mean"),
-                    "spectral_correction": (
-                        spectral_factor_firstsolar,
-                        {
-                            "precipitable_water": (
-                                precipitable_water_gueymard,
-                                {
-                                    "temp_amb": ("temp_amb", "mean"),
-                                    "rel_humidity": ("humidity", "mean"),
-                                },
-                            ),
-                            "absolute_airmass": (
-                                absolute_airmass,
-                                {
-                                    "apparent_zenith": (
-                                        apparent_zenith,
-                                        {},
-                                    ),
-                                    "pressure": ("pressure", "mean"),
-                                },
-                            ),
-                        },
-                    ),
-                },
-            ),
-            "t_amb": ("temp_amb", "mean"),
-            "w_vel": ("wind_speed", "mean"),
-        },
-        "reg_cols_sim": {
-            "power": "E_Grid",
-            "poa": (
-                poa_spec_corrected,
-                {
-                    "poa": "GlobInc",
-                    "spectral_correction": (
-                        spectral_factor_firstsolar,
-                        {
-                            "precipitable_water": (
-                                scale,
-                                {"col": "PrecWat", "factor": 100},
-                            ),
-                            "absolute_airmass": (
-                                absolute_airmass,
-                                {
-                                    "apparent_zenith": (
-                                        apparent_zenith_pvsyst,
-                                        {},
-                                    ),
-                                },
-                            ),
-                        },
-                    ),
-                },
-            ),
-            "t_amb": "T_Amb",
-            "w_vel": "WindVel",
-        },
-        "reg_fml": "power ~ poa + I(poa * poa) + I(poa * t_amb) + I(poa * w_vel) - 1",
-        "scatter_plots": scatter_default,
-        "rep_conditions": {
-            "irr_bal": False,
-            "percent_filter": 20,
-            "func": {
-                "poa": perc_wrap(60),
-                "t_amb": "mean",
-                "w_vel": "mean",
-            },
-        },
-    },
-    "bifi_e2848_etotal_rear_shade_sim_spec_corrected": {
-        "description": (
-            "Standard ASTM E2848 regression with total effective irradiance replacing "
-            "front POA and a First Solar spectral correction applied to "
-            "front-side POA irradiance used to calculate the total POA irradiance. "
-            "Requires relative humidity and atmospheric "
-            "pressure on the measured side and precipitable water from the PVsyst output. "
-            "Rear shading and IAM losses are handled in the modeled (PVsyst) "
-            "data: the modeled rear irradiance is rpoa_pvsyst = GlobBak + "
-            "BackShd, while the measured rear sensor (irr_rpoa) is used "
-            "as-measured. Leave CapTest's 'rear_shade' at its default of 0 "
-            "with this setup: the rear shading is already carried by the "
-            "modeled rear irradiance, and a non-zero 'rear_shade' is still "
-            "applied to the measured e_total, double-counting the loss. To "
-            "apply rear shading on the measured side instead, use "
-            "'bifi_e2848_etotal_rear_shade_meas_spec_corrected'. Total irradiance is "
-            "E_Total = E_POA + E_Rear * bifaciality with the spectral correction "
-            "applied to E_POA. "
-        ),
-        "reg_cols_meas": {
-            "power": ("real_pwr_mtr", "sum"),
-            "poa": (
-                e_total,
-                {
-                    "poa": (  # front POA: spectrally corrected
-                        poa_spec_corrected,
-                        {
-                            "poa": ("irr_poa", "mean"),
-                            "spectral_correction": (
-                                spectral_factor_firstsolar,
-                                {
-                                    "precipitable_water": (
-                                        precipitable_water_gueymard,
-                                        {
-                                            "temp_amb": ("temp_amb", "mean"),
-                                            "rel_humidity": ("humidity", "mean"),
-                                        },
-                                    ),
-                                    "absolute_airmass": (
-                                        absolute_airmass,
-                                        {
-                                            "apparent_zenith": (apparent_zenith, {}),
-                                            "pressure": ("pressure", "mean"),
-                                        },
-                                    ),
-                                },
-                            ),
-                        },
-                    ),
-                    "rpoa": ("irr_rpoa", "mean"),  # rear POA: unchanged
-                },
-            ),
-            "t_amb": ("temp_amb", "mean"),
-            "w_vel": ("wind_speed", "mean"),
-        },
-        "reg_cols_sim": {
-            "power": "E_Grid",
-            "poa": (
-                e_total,
-                {
-                    "poa": (  # front POA: spectrally corrected
-                        poa_spec_corrected,
-                        {
-                            "poa": "GlobInc",
-                            "spectral_correction": (
-                                spectral_factor_firstsolar,
-                                {
-                                    "precipitable_water": (
-                                        scale,
-                                        {"col": "PrecWat", "factor": 100},
-                                    ),
-                                    "absolute_airmass": (
-                                        absolute_airmass,
-                                        {
-                                            "apparent_zenith": (
-                                                apparent_zenith_pvsyst,
-                                                {},
-                                            ),
-                                            # no pressure col: PVsyst uses sea-level default
-                                        },
-                                    ),
-                                },
-                            ),
-                        },
-                    ),
-                    "rpoa": (  # rear POA: unchanged
-                        rpoa_pvsyst,
-                        {"globbak": "GlobBak", "backshd": "BackShd"},
-                    ),
-                },
-            ),
-            "t_amb": "T_Amb",
-            "w_vel": "WindVel",
-        },
-        "reg_fml": "power ~ poa + I(poa * poa) + I(poa * t_amb) + I(poa * w_vel) - 1",
-        "scatter_plots": scatter_etotal,
-        "rep_conditions": {
-            "irr_bal": False,
-            "percent_filter": 20,
-            "func": {
-                "poa": perc_wrap(60),
-                "t_amb": "mean",
-                "w_vel": "mean",
-            },
-        },
-    },
-    "bifi_e2848_etotal_rear_shade_meas_spec_corrected": {
-        "description": (
-            "Standard ASTM E2848 regression with total effective irradiance replacing "
-            "front POA and a First Solar spectral correction applied to "
-            "front-side POA irradiance used to calculate the total POA irradiance. "
-            "Requires relative humidity and atmospheric "
-            "pressure on the measured side and precipitable water from the PVsyst output. "
-            "The modeled rear irradiance maps directly to PVsyst's unshaded global rear "
-            "('GlobBak') instead of rpoa_pvsyst, and rear shading is applied "
-            "to the measured side through the e_total 'rear_shade' factor "
-            "(propagated by CapTest to the measured CapData only). This is the "
-            "variant to select when 'rear_shade' is set to a non-zero value. Total "
-            "irradiance is E_Total = E_POA + E_Rear * bifaciality * (1 - rear_shade)."
-        ),
-        "reg_cols_meas": {
-            "power": ("real_pwr_mtr", "sum"),
-            "poa": (
-                e_total,
-                {
-                    "poa": (
-                        poa_spec_corrected,
-                        {
-                            "poa": ("irr_poa", "mean"),
-                            "spectral_correction": (
-                                spectral_factor_firstsolar,
-                                {
-                                    "precipitable_water": (
-                                        precipitable_water_gueymard,
-                                        {
-                                            "temp_amb": ("temp_amb", "mean"),
-                                            "rel_humidity": ("humidity", "mean"),
-                                        },
-                                    ),
-                                    "absolute_airmass": (
-                                        absolute_airmass,
-                                        {
-                                            "apparent_zenith": (apparent_zenith, {}),
-                                            "pressure": ("pressure", "mean"),
-                                        },
-                                    ),
-                                },
-                            ),
-                        },
-                    ),
-                    "rpoa": ("irr_rpoa", "mean"),
-                },
-            ),
-            "t_amb": ("temp_amb", "mean"),
-            "w_vel": ("wind_speed", "mean"),
-        },
-        "reg_cols_sim": {
-            "power": "E_Grid",
-            "poa": (
-                e_total,
-                {
-                    "poa": (  # front POA: spectrally corrected
-                        poa_spec_corrected,
-                        {
-                            "poa": "GlobInc",
-                            "spectral_correction": (
-                                spectral_factor_firstsolar,
-                                {
-                                    "precipitable_water": (
-                                        scale,
-                                        {"col": "PrecWat", "factor": 100},
-                                    ),
-                                    "absolute_airmass": (
-                                        absolute_airmass,
-                                        {
-                                            "apparent_zenith": (
-                                                apparent_zenith_pvsyst,
-                                                {},
-                                            ),
-                                            # no pressure col: PVsyst uses sea-level default
-                                        },
-                                    ),
-                                },
-                            ),
-                        },
-                    ),
-                    "rpoa": "GlobBak",
-                },
-            ),
-            "t_amb": "T_Amb",
-            "w_vel": "WindVel",
-        },
-        "reg_fml": "power ~ poa + I(poa * poa) + I(poa * t_amb) + I(poa * w_vel) - 1",
-        "scatter_plots": scatter_etotal,
-        "rep_conditions": {
-            "irr_bal": False,
-            "percent_filter": 20,
-            "func": {
-                "poa": perc_wrap(60),
-                "t_amb": "mean",
-                "w_vel": "mean",
-            },
-        },
-    },
+#: Scatter-plot callables a setup may name under ``scatter_plots``.
+SCATTER_REGISTRY = {
+    "default": scatter_default,
+    "etotal": scatter_etotal,
+    "bifi_power_tc": scatter_bifi_power_tc,
 }
 
-_TEST_SETUP_REQUIRED_KEYS = frozenset(
-    {
-        "description",
-        "reg_cols_meas",
-        "reg_cols_sim",
-        "reg_fml",
-        "scatter_plots",
-        "rep_conditions",
-    }
-)
+#: Directory of shipped preset documents.
+SETUPS_DIR = Path(str(resources.files("captest").joinpath("setups")))
+
+
+def _suggest_unknown_key(unknown, known):
+    """Return a 'did you mean X?' hint or empty string."""
+    matches = difflib.get_close_matches(unknown, list(known), n=1)
+    return f" Did you mean {matches[0]!r}?" if matches else ""
+
+
+def _check_scatter_name(name):
+    """Raise ``ValueError`` (with a hint) if ``name`` is not a scatter callable."""
+    if name not in SCATTER_REGISTRY:
+        raise ValueError(
+            f"Unknown scatter_plots {name!r}."
+            f"{_suggest_unknown_key(name, SCATTER_REGISTRY)}"
+        )
+
+
+def load_presets(directory=None):
+    """Load every ``*.yaml`` preset in ``directory`` (default ``SETUPS_DIR``).
+
+    Parameters
+    ----------
+    directory : str or pathlib.Path, optional
+        Directory of preset documents. Defaults to ``SETUPS_DIR``.
+
+    Returns
+    -------
+    dict
+        Preset name -> :class:`captest.setup.TestSetup`, sorted by name.
+
+    Raises
+    ------
+    pydantic.ValidationError, ValueError
+        A preset that fails to validate raises at import; a broken shipped
+        preset must never be silently absent.
+    """
+    directory = Path(directory) if directory is not None else SETUPS_DIR
+    presets = {}
+    for path in sorted(directory.glob("*.yaml")):
+        tsd = TestSetup.load(path)
+        if tsd.name != path.stem:
+            raise ValueError(f"{path.name}: name {tsd.name!r} must equal the file stem")
+        _check_scatter_name(tsd.scatter_plots)
+        presets[tsd.name] = tsd
+    return presets
+
+
+#: Registry of shipped capacity-test presets.
+TEST_SETUPS = load_presets()
 
 
 def test_setups(options=True, descriptions=False):
@@ -924,55 +312,7 @@ def test_setups(options=True, descriptions=False):
             print("\n")
             print(f"{name}")
             print("-" * 60)
-            print(textwrap.fill(setup["description"], 60))
-
-
-def validate_test_setup(entry):
-    """Validate a single ``TEST_SETUPS`` entry dict.
-
-    Raises
-    ------
-    KeyError
-        If required keys are missing or unknown keys are present.
-    ValueError
-        If ``reg_fml`` does not parse, lhs+rhs are not subsets of both
-        ``reg_cols_meas`` and ``reg_cols_sim``, ``scatter_plots`` is not
-        callable, or ``rep_conditions`` / ``rep_conditions['func']`` have an
-        unexpected shape.
-    """
-    keys = set(entry.keys())
-    missing = _TEST_SETUP_REQUIRED_KEYS - keys
-    if missing:
-        raise KeyError(f"TEST_SETUPS entry missing required keys: {sorted(missing)}")
-    extra = keys - _TEST_SETUP_REQUIRED_KEYS
-    if extra:
-        raise KeyError(f"TEST_SETUPS entry has unknown keys: {sorted(extra)}")
-
-    lhs, rhs = util.parse_regression_formula(entry["reg_fml"])
-    formula_vars = set(lhs) | set(rhs)
-    for side in ("reg_cols_meas", "reg_cols_sim"):
-        if not isinstance(entry[side], dict):
-            raise ValueError(f"{side!r} must be a dict.")
-        missing_vars = formula_vars - set(entry[side].keys())
-        if missing_vars:
-            raise ValueError(
-                f"{side!r} is missing keys required by reg_fml: {sorted(missing_vars)}"
-            )
-
-    if not callable(entry["scatter_plots"]):
-        raise ValueError("'scatter_plots' must be callable.")
-
-    rc = entry["rep_conditions"]
-    if not isinstance(rc, dict):
-        raise ValueError("'rep_conditions' must be a dict.")
-    func = rc.get("func")
-    if func is not None and isinstance(func, dict):
-        extra_func = set(func.keys()) - set(rhs)
-        if extra_func:
-            raise ValueError(
-                "'rep_conditions[\"func\"]' has keys that are not rhs "
-                f"variables of reg_fml: {sorted(extra_func)}"
-            )
+            print(textwrap.fill(setup.description, 60))
 
 
 def _merge_rep_conditions(base, override):
@@ -999,57 +339,268 @@ def _merge_rep_conditions(base, override):
     return merged
 
 
+#: Overrides merged onto the preset rather than replacing it; empty is no change.
+_MERGED_OVERRIDES = ("reg_cols_meas", "reg_cols_sim", "rep_conditions")
+
+#: The p-value threshold ``run_test`` / ``captest_results`` default to. A
+#: stored run is only reproducible from its mapping at this value.
+_DEFAULT_PVAL = 0.05
+
+_RESOLVE_KEYS = (
+    "reg_cols_meas",
+    "reg_cols_sim",
+    "reg_fml",
+    "rep_conditions",
+    "params",
+    "scatter_plots",
+)
+
+
 def resolve_test_setup(name, overrides=None):
-    """Resolve a preset by name plus optional overrides.
+    """Resolve a preset by name plus optional overrides into a ``TestSetup``.
 
     Parameters
     ----------
     name : str
         Key into ``TEST_SETUPS`` or the literal ``"custom"``.
     overrides : dict or None
-        Optional dict with any of ``reg_cols_meas``, ``reg_cols_sim``,
-        ``reg_fml``, ``scatter_plots``, ``rep_conditions`` to override the
-        preset. ``rep_conditions`` is partial-merged; other keys replace.
-        When ``name == "custom"``, ``reg_cols_meas``, ``reg_cols_sim``, and
-        ``reg_fml`` are required in ``overrides``.
+        Any of ``reg_cols_meas`` / ``reg_cols_sim`` (merged key by key onto
+        the preset's side; ``None`` removes a term), ``rep_conditions``
+        (partial-merged: top-level keys replace, ``func`` merges one level
+        deep), and ``reg_fml`` / ``params`` / ``scatter_plots`` (replace).
+        ``"custom"`` has no base and requires complete ``reg_cols_meas``,
+        ``reg_cols_sim`` and ``reg_fml``; it also accepts a ``description``.
+
+    Returns
+    -------
+    captest.setup.TestSetup
+        For a named preset whose overrides change nothing but provenance,
+        the ``TEST_SETUPS`` entry itself (``derived_from`` unset, same
+        ``content_digest()``).
+
+    Raises
+    ------
+    KeyError
+        Unknown preset name.
+    ValueError
+        Unknown override key, unknown ``scatter_plots`` name, missing
+        ``custom`` requirements, or a ``reg_cols`` override that cannot be
+        applied (see :class:`captest.setup.DerivationError`).
+    """
+    overrides = dict(overrides or {})
+    allowed = set(_RESOLVE_KEYS) | ({"description"} if name == "custom" else set())
+    unknown = set(overrides) - allowed
+    if unknown:
+        raise ValueError(f"Unknown override key(s) {sorted(unknown)}")
+    if name == "custom":
+        missing = {"reg_cols_meas", "reg_cols_sim", "reg_fml"} - set(overrides)
+        if missing:
+            raise ValueError(
+                "test_setup='custom' requires overrides with keys: "
+                f"['reg_cols_meas', 'reg_cols_sim', 'reg_fml']; missing: {sorted(missing)}"
+            )
+        doc = {
+            "name": "custom",
+            "description": overrides.get("description", ""),
+            "reg_fml": overrides["reg_fml"],
+            "meas": {"reg_cols": overrides["reg_cols_meas"]},
+            "sim": {"reg_cols": overrides["reg_cols_sim"]},
+            "params": overrides.get("params") or {},
+            "rep_conditions": overrides.get("rep_conditions") or {},
+            "scatter_plots": overrides.get("scatter_plots") or "default",
+        }
+        _check_scatter_name(doc["scatter_plots"])
+        return TestSetup.model_validate(doc)
+    if name not in TEST_SETUPS:
+        available = sorted(TEST_SETUPS) + ["custom"]
+        raise KeyError(f"Unknown test_setup={name!r}. Available: {available}")
+    base = TEST_SETUPS[name]
+    if not any(v is not None for v in overrides.values()):
+        return base  # the preset itself, provenance and digest untouched
+    if overrides.get("scatter_plots") is not None:
+        _check_scatter_name(overrides["scatter_plots"])
+    rep_conditions = None
+    if overrides.get("rep_conditions"):
+        rep_conditions = _merge_rep_conditions(
+            base.rep_conditions.model_dump(mode="json"), overrides["rep_conditions"]
+        )
+    try:
+        derived = derive(
+            base,
+            reg_fml=overrides.get("reg_fml"),
+            reg_cols_meas=overrides.get("reg_cols_meas"),
+            reg_cols_sim=overrides.get("reg_cols_sim"),
+            params=overrides.get("params"),
+            rep_conditions=rep_conditions,
+            scatter_plots=overrides.get("scatter_plots"),
+        )
+    except DerivationError as exc:
+        raise ValueError(str(exc)) from exc
+    # Overrides that change nothing keep the preset's identity: to_yaml writes
+    # only the difference, so a reload must resolve to the same setup.
+    if derived.model_copy(update={"derived_from": base.derived_from}) == base:
+        return base
+    return derived
+
+
+def _lift_mapping(sub, key="captest"):
+    """Validate a captest sub-mapping and lift it into constructor kwargs.
+
+    The key checks and override lifting that :meth:`CapTest.from_mapping` and
+    :func:`resolve_setup_from_mapping` share. Paths are left exactly as
+    written (no ``base_dir`` resolution) and ``None`` values are kept.
+
+    Parameters
+    ----------
+    sub : dict
+        Captest sub-mapping. Not mutated.
+    key : str, default 'captest'
+        Used only in error messages.
 
     Returns
     -------
     dict
-        A fully-validated entry dict suitable for ``CapTest._resolved_setup``.
-    """
-    overrides = overrides or {}
-    if name == "custom":
-        required = {"reg_cols_meas", "reg_cols_sim", "reg_fml"}
-        missing = required - set(overrides.keys())
-        if missing:
-            raise ValueError(
-                f"test_setup='custom' requires overrides with keys: {sorted(required)}; "
-                f"missing: {sorted(missing)}"
-            )
-        base = {
-            "description": overrides.get("description", ""),
-            "reg_cols_meas": copy.deepcopy(overrides["reg_cols_meas"]),
-            "reg_cols_sim": copy.deepcopy(overrides["reg_cols_sim"]),
-            "reg_fml": overrides["reg_fml"],
-            "scatter_plots": overrides.get("scatter_plots", scatter_default),
-            "rep_conditions": copy.deepcopy(overrides.get("rep_conditions", {})),
-        }
-    else:
-        if name not in TEST_SETUPS:
-            available = sorted(TEST_SETUPS.keys()) + ["custom"]
-            raise KeyError(f"Unknown test_setup={name!r}. Available: {available}")
-        base = copy.deepcopy(TEST_SETUPS[name])
-        for key in ("reg_cols_meas", "reg_cols_sim", "reg_fml", "scatter_plots"):
-            if overrides.get(key) is not None:
-                base[key] = copy.deepcopy(overrides[key])
-        if overrides.get("rep_conditions"):
-            base["rep_conditions"] = _merge_rep_conditions(
-                base["rep_conditions"], overrides["rep_conditions"]
-            )
+        Keyword arguments for :meth:`CapTest.from_params`, minus the loaders,
+        with ``overrides.*`` lifted to top level (``overrides.scatter_plots``
+        becomes ``scatter_plots_name``) and ``meas_filters`` /
+        ``sim_filters`` / ``reporting_conditions_values`` / ``overrides``
+        removed.
 
-    validate_test_setup(base)
-    return base
+    Raises
+    ------
+    TypeError
+        ``sub`` is not a mapping.
+    ValueError
+        Unknown key, missing ``test_setup``, ``reg_fml`` set twice, or a
+        ``custom`` setup without its three regression overrides.
+    """
+    if not isinstance(sub, dict):
+        raise TypeError(f"'sub' must be a mapping; got {type(sub).__name__}.")
+    # Unknown-key detection with Levenshtein suggestion.
+    for k in sub:
+        if k not in _CAPTEST_YAML_KEYS:
+            suggestion = _suggest_unknown_key(k, _CAPTEST_YAML_KEYS)
+            raise ValueError(
+                f"Unknown key {k!r} under the {key!r} sub-mapping.{suggestion}"
+            )
+    overrides = sub.get("overrides") or {}
+    if not isinstance(overrides, dict):
+        raise ValueError("'overrides' must be a mapping.")
+    for k in overrides:
+        if k not in _CAPTEST_OVERRIDE_KEYS:
+            suggestion = _suggest_unknown_key(k, _CAPTEST_OVERRIDE_KEYS)
+            raise ValueError(f"Unknown key {k!r} under 'overrides'.{suggestion}")
+    if "test_setup" not in sub:
+        raise ValueError(f"'test_setup' is required under the {key!r} sub-mapping.")
+    # Conflicting reg_fml at the top-level and under overrides.
+    if sub.get("reg_fml") is not None and overrides.get("reg_fml") is not None:
+        raise ValueError(
+            "'reg_fml' cannot be set both at the captest top-level and "
+            "under 'overrides'; pick one."
+        )
+    kwargs = {
+        k: v
+        for k, v in sub.items()
+        if k
+        not in (
+            "overrides",
+            "meas_filters",
+            "sim_filters",
+            "reporting_conditions_values",
+        )
+    }
+    # Lift override keys into direct kwargs; values pass straight to the
+    # params and the TestSetup model validates them at setup().
+    # ``overrides.scatter_plots`` is the ``scatter_plots_name`` param.
+    for k in _CAPTEST_OVERRIDE_KEYS:
+        if overrides.get(k) is not None:
+            kwargs["scatter_plots_name" if k == "scatter_plots" else k] = overrides[k]
+    # 'custom' setup requires the three regression overrides.
+    if kwargs.get("test_setup") == "custom":
+        for req in ("reg_cols_meas", "reg_cols_sim", "reg_fml"):
+            if kwargs.get(req) is None:
+                raise ValueError(
+                    f"test_setup='custom' requires overrides.{req} to be set."
+                )
+    return kwargs
+
+
+def _setup_overrides(values):
+    """The :func:`resolve_test_setup` overrides present in ``values``.
+
+    ``None`` values are skipped, and so are empty ``reg_cols_meas`` /
+    ``reg_cols_sim`` / ``rep_conditions`` mappings (merging nothing is no
+    change), so an untouched test resolves to the preset itself. An empty
+    ``params`` is kept: it replaces the preset's constraints wholesale.
+
+    Parameters
+    ----------
+    values : Mapping
+        Holds any of ``reg_cols_meas``, ``reg_cols_sim``, ``reg_fml``,
+        ``rep_conditions``, ``params`` and ``scatter_plots_name``.
+
+    Returns
+    -------
+    dict
+    """
+    overrides = {}
+    for name in (
+        "reg_cols_meas",
+        "reg_cols_sim",
+        "reg_fml",
+        "rep_conditions",
+        "params",
+    ):
+        val = values.get(name)
+        if val is None or (name in _MERGED_OVERRIDES and not val):
+            continue
+        overrides[name] = val
+    if values.get("scatter_plots_name") is not None:
+        overrides["scatter_plots"] = values["scatter_plots_name"]
+    return overrides
+
+
+def resolve_setup_from_mapping(sub, *, key="captest"):
+    """Resolve the ``TestSetup`` a captest sub-mapping describes, without data.
+
+    The data-free equivalent of ``CapTest.from_mapping(sub, ...)`` followed
+    by ``setup()`` as far as the setup document is concerned: the same key
+    checks, the same lifting of top-level and ``overrides`` spellings, the
+    same override filtering, then :func:`resolve_test_setup`. It never builds
+    a ``CapData``, reads a path or applies prep, so it is safe on a mapping
+    whose data is unavailable.
+
+    Parameters
+    ----------
+    sub : dict
+        Captest sub-mapping (a ``to_mapping()`` result or a config section).
+        Not mutated.
+    key : str, default 'captest'
+        Used only in error messages.
+
+    Returns
+    -------
+    captest.setup.TestSetup
+        The preset object itself when the overrides change nothing.
+
+    Raises
+    ------
+    KeyError
+        Unknown preset name.
+    ValueError
+        Anything :func:`_lift_mapping` or :func:`resolve_test_setup` rejects,
+        including an invalid document (``pydantic.ValidationError`` is a
+        ``ValueError``).
+    TypeError
+        ``sub`` is not a mapping.
+    """
+    kwargs = _lift_mapping(sub, key)
+    # from_mapping drops a null test_setup and lets the param default apply;
+    # mirror that so both routes accept the same mappings.
+    name = kwargs.get("test_setup")
+    if name is None:
+        name = CapTest.param["test_setup"].default
+    return resolve_test_setup(name, _setup_overrides(kwargs))
 
 
 # --- yaml loading ---------------------------------------------------------
@@ -1058,20 +609,38 @@ def resolve_test_setup(name, overrides=None):
 def _serialize_rep_conditions(rc):
     """Return a yaml-safe copy of a ``rep_conditions`` dict.
 
-    Recursively walks the dict; ``func`` sub-dict values that are
-    ``perc_wrap(N)`` callables are converted to ``"perc_N"`` strings, and
-    numpy scalars are coerced to native Python types via ``util.to_native``,
-    so the dict survives a yaml.safe_dump round-trip.
+    ``func`` values are already ``"mean"`` / ``"median"`` / ``"perc_N"``
+    strings (the document form); numpy scalars are coerced to native Python
+    types via ``util.to_native`` so the dict survives ``yaml.safe_dump``.
     """
     if not isinstance(rc, dict):
         return rc
-    serialized = {}
-    for key, val in rc.items():
-        if key == "func" and isinstance(val, dict):
-            serialized[key] = {k: _perc_wrap_to_string(v) for k, v in val.items()}
-        else:
-            serialized[key] = to_native(copy.deepcopy(val))
-    return serialized
+    return {key: to_native(copy.deepcopy(val)) for key, val in rc.items()}
+
+
+def _reg_cols_diff(base, resolved):
+    """Overrides that turn ``base`` into ``resolved`` (document form).
+
+    Changed or added terms are written as document nodes; terms ``base``
+    has and ``resolved`` lacks are written as ``None``.
+
+    Parameters
+    ----------
+    base, resolved : dict
+        Formula variable -> node (``Side.reg_cols``).
+
+    Returns
+    -------
+    dict
+    """
+    diff = {}
+    for var, node in resolved.items():
+        if base.get(var) != node:
+            diff[var] = node.model_dump(mode="json")
+    for var in base:
+        if var not in resolved:
+            diff[var] = None
+    return diff
 
 
 _AUTO_WRAP_DAYS = 60
@@ -1091,7 +660,8 @@ def load_config(path, key="captest"):
     Returns
     -------
     dict
-        The sub-mapping at ``key`` with string shorthands resolved. Does NOT
+        The sub-mapping at ``key``, as written. ``rep_conditions.func``
+        values stay ``"perc_N"`` strings (the document form). Does NOT
         validate against ``CapTest`` param types; ``CapTest.from_yaml`` does
         that.
 
@@ -1101,7 +671,7 @@ def load_config(path, key="captest"):
         If ``key`` is not present at the top level of the yaml file.
     """
     path = Path(path)
-    with path.open("r") as fh:
+    with path.open("r", encoding="utf-8") as fh:
         raw = yaml.safe_load(fh) or {}
     if not isinstance(raw, dict):
         raise ValueError(
@@ -1120,25 +690,7 @@ def load_config(path, key="captest"):
         raise ValueError(
             f"Value at {key!r} must be a mapping; got {type(sub).__name__}."
         )
-    # Resolve perc_N shorthand in overrides.rep_conditions.func.
-    overrides = sub.get("overrides") or {}
-    if isinstance(overrides, dict) and isinstance(
-        overrides.get("rep_conditions"), dict
-    ):
-        func_dict = overrides["rep_conditions"].get("func")
-        if isinstance(func_dict, dict):
-            overrides["rep_conditions"]["func"] = _resolve_func_strings(func_dict)
-    # Also resolve top-level rep_conditions.func if someone put it there.
-    rc = sub.get("rep_conditions")
-    if isinstance(rc, dict) and isinstance(rc.get("func"), dict):
-        rc["func"] = _resolve_func_strings(rc["func"])
     return sub
-
-
-def _suggest_unknown_key(unknown, known):
-    """Return a 'did you mean X?' hint or empty string."""
-    matches = difflib.get_close_matches(unknown, list(known), n=1)
-    return f" Did you mean {matches[0]!r}?" if matches else ""
 
 
 def _is_uri_or_absolute_path(val):
@@ -1148,7 +700,9 @@ def _is_uri_or_absolute_path(val):
 
     * carries a URI scheme (e.g. ``s3://bucket/key``, ``gs://...``,
       ``file:///...``) -- ``"://"`` substring check, or
-    * is an absolute filesystem path per :meth:`pathlib.Path.is_absolute`.
+    * is an absolute filesystem path per :meth:`pathlib.Path.is_absolute`,
+      or a rooted path without a drive (``/data/x.csv`` on Windows, which
+      depends only on the current drive).
 
     The scheme check is required because on posix systems
     ``Path("s3://bucket/key").is_absolute()`` returns False (the colon
@@ -1159,7 +713,13 @@ def _is_uri_or_absolute_path(val):
     s = str(val)
     if "://" in s:
         return True
-    return Path(s).is_absolute()
+    # A rooted path without a drive ("/data/x.csv" on Windows) is not
+    # is_absolute() there. It depends only on the current drive, not the
+    # working directory, so it is left as written rather than joined onto a
+    # base directory (a known limitation: a drive change between build and
+    # reload changes which file it names).
+    p = Path(s)
+    return p.is_absolute() or bool(p.root)
 
 
 def _join_base_and_relative(base_dir, relative):
@@ -1227,7 +787,14 @@ _CAPTEST_YAML_KEYS = frozenset(
 
 # Keys that may appear under the ``overrides`` sub-mapping.
 _CAPTEST_OVERRIDE_KEYS = frozenset(
-    {"reg_cols_meas", "reg_cols_sim", "reg_fml", "rep_conditions"}
+    {
+        "reg_cols_meas",
+        "reg_cols_sim",
+        "reg_fml",
+        "rep_conditions",
+        "params",
+        "scatter_plots",
+    }
 )
 
 # Keys whose ``None`` (yaml ``null``) value is a distinct, meaningful value
@@ -1237,6 +804,35 @@ _CAPTEST_OVERRIDE_KEYS = frozenset(
 # default (0, the sea-level convention) but allows ``None`` to mean "respect
 # the site's own altitude".
 _CAPTEST_NONE_MEANINGFUL_KEYS = frozenset({"altitude_override"})
+
+
+def _own_loader_id(loader):
+    """Return the ``loader_id`` label ``loader`` carries as its own, else None.
+
+    A label set by :func:`captest.io.loader_id` records the decorated object
+    as its target. A label copied elsewhere (``functools.wraps``,
+    ``functools.update_wrapper``, ``functools.lru_cache``) still points at
+    the original, and a hand-set class attribute has no target, so neither
+    counts. A bound method reads its function's attributes; it keeps the
+    label only when the decorated function is the plain method its
+    instance's class defines under that name (decorated in the class body).
+    A function bound to an arbitrary object with ``types.MethodType``, or a
+    ``classmethod``, reads as unlabelled.
+    """
+    lid = getattr(loader, "loader_id", None)
+    if lid is None:
+        return None
+    target = getattr(loader, "_loader_id_target", None)
+    if target is loader:
+        return lid
+    if inspect.ismethod(loader) and target is loader.__func__:
+        func = loader.__func__
+        defined = inspect.getattr_static(
+            type(loader.__self__), getattr(func, "__name__", ""), None
+        )
+        if defined is func:
+            return lid
+    return None
 
 
 def _default_meas_loader():
@@ -1308,15 +904,26 @@ class CapTest(param.Parameterized):
         ``"e2848_default"``.
     reg_fml : str or None
         If set, overrides the preset's regression formula at ``setup()``.
-    reg_cols_meas : dict or None
-        If set, overrides the preset's measured ``regression_cols`` dict.
-    reg_cols_sim : dict or None
-        If set, overrides the preset's modeled ``regression_cols`` dict.
+    reg_cols_meas, reg_cols_sim : dict or None
+        Formula variable -> node in document form (see
+        :mod:`captest.setup`), merged key by key onto the preset's measured /
+        modeled regression columns at ``setup()``: a present key replaces
+        that variable's whole node, an absent key keeps the preset's node,
+        and a value of ``None`` removes the variable. Under
+        ``test_setup="custom"`` both sides must be complete.
     rep_conditions : dict or None
         If set, partial-merged onto the preset's ``rep_conditions`` at
         ``setup()``. Top-level keys replace; the nested ``func`` dict is
         merged one level deep so users can override only a single
         variable's aggregation.
+    params : dict or None
+        Required test-level parameter values (see
+        :attr:`captest.setup.TestSetup.params`); replaces the preset's
+        ``params`` wholesale. Checked against the effective value each
+        calculation would receive at ``setup()``.
+    scatter_plots_name : str or None
+        Name in ``SCATTER_REGISTRY`` overriding the preset's scatter plot.
+        Written to yaml as ``overrides.scatter_plots``.
     rc_source : {"meas", "sim"}
         Which ``CapData`` provides reporting conditions. Used by
         ``captest_results`` and wired onto both ``meas`` and ``sim`` at
@@ -1360,9 +967,9 @@ class CapTest(param.Parameterized):
         side handles rear shading through its own ``reg_cols_sim`` definition.
         Belongs with the ``*_rear_shade_meas`` presets. The
         ``*_rear_shade_sim`` presets already carry rear shading in the modeled
-        rear irradiance (``rpoa_pvsyst``) and expect the default ``0``; since
-        no preset overrides the value, a non-zero ``rear_shade`` shades the
-        measured side there too and double-counts the loss.
+        rear irradiance (``rpoa_pvsyst``) and declare ``params: {rear_shade:
+        0}``, so ``setup()`` raises :class:`~captest.setup.SetupFitError` for
+        a non-zero ``rear_shade`` rather than double-counting the loss.
     meas_loader, sim_loader : callable or None
         Programmatic-only data-loader callables. Default resolution when
         ``None``: ``captest.io.load_data`` and ``captest.io.load_pvsyst``
@@ -1380,10 +987,9 @@ class CapTest(param.Parameterized):
 
     Attributes
     ----------
-    _resolved_setup : dict or None
-        The fully-resolved ``TEST_SETUPS`` entry after ``setup()`` has run.
-        Plain instance attribute (not a ``param.*``) so ``setup()`` can be
-        called multiple times.
+    resolved_setup : captest.setup.TestSetup or None
+        The complete setup resolved from ``test_setup`` plus the overrides
+        by the last ``setup()``; ``None`` before ``setup()`` has run.
 
     See Also
     --------
@@ -1420,12 +1026,32 @@ class CapTest(param.Parameterized):
     reg_cols_meas = param.Dict(
         default=None,
         allow_None=True,
-        doc="If set, overrides the preset measured regression_cols dict.",
+        doc="Merged key by key onto the preset's measured regression columns; "
+        "a value of None removes that term.",
     )
     reg_cols_sim = param.Dict(
         default=None,
         allow_None=True,
-        doc="If set, overrides the preset modeled regression_cols dict.",
+        doc="Merged key by key onto the preset's modeled regression columns; "
+        "a value of None removes that term.",
+    )
+    params = param.Dict(
+        default=None,
+        allow_None=True,
+        doc="Required test-level parameter values for this setup (see "
+        "captest.setup.TestSetup.params). Replaces the preset's wholesale.",
+    )
+    scatter_plots_name = param.String(
+        default=None,
+        allow_None=True,
+        doc="Name in SCATTER_REGISTRY overriding the preset's scatter plot. "
+        "Written to yaml as overrides.scatter_plots.",
+    )
+    resolved_setup = param.ClassSelector(
+        class_=TestSetup,
+        default=None,
+        allow_None=True,
+        doc="The complete TestSetup resolved by setup(); None before setup().",
     )
     rep_conditions = param.Dict(
         default=None,
@@ -1544,9 +1170,8 @@ class CapTest(param.Parameterized):
             "instance only (see _downstream_attrs_meas_only). Set a non-zero "
             "value only with the '*_rear_shade_meas' presets; the "
             "'*_rear_shade_sim' presets carry rear shading in the modeled rear "
-            "irradiance and expect the default 0. No preset overrides this "
-            "value, so a non-zero setting reaches the measured e_total "
-            "whichever preset is selected."
+            "irradiance and declare params: {rear_shade: 0}, so setup() raises "
+            "SetupFitError for a non-zero value with them."
         ),
     )
     power_temp_coeff = param.Number(
@@ -1647,36 +1272,33 @@ class CapTest(param.Parameterized):
         ),
     )
 
-    # Class-level tuple of param names to copy onto the CapData instances
-    # during setup(). Names also listed in _downstream_attrs_meas_only are
-    # copied onto meas only; all others are copied onto both meas and sim.
-    # Extending is a one-line edit. Invariant: every name in
-    # _downstream_attrs_meas_only MUST also appear in _downstream_attrs, since
-    # setup() iterates _downstream_attrs (guarded by a subset test).
-    _downstream_attrs = (
-        "bifaciality",
-        "bifacial_frac",
-        "rear_shade",
-        "power_temp_coeff",
-        "base_temp",
-        "module_type",
-        "racking",
-        "spectral_module_type",
-        "airmass_model",
-        "altitude_override",
-    )
+    # Param names copied onto the CapData instances during setup(); the same
+    # list the TestSetup ``params`` tier-1 check uses. Names also listed in
+    # _downstream_attrs_meas_only are copied onto meas only; all others onto
+    # both. Every name in _downstream_attrs_meas_only MUST also appear in
+    # _downstream_attrs (guarded by a subset test).
+    _downstream_attrs = DOWNSTREAM_PARAMS
     _downstream_attrs_meas_only = ("rear_shade",)
 
     def __init__(self, **kwargs):  # noqa: D107
         super().__init__(**kwargs)
-        # Plain instance attr rather than a param.* so setup() can be re-run.
-        self._resolved_setup = None
         # Construction-time paths. Not ``param.*`` because they are strings
         # that only matter for ``to_yaml`` round-trip; tracking them here
         # lets ``from_params``/``from_yaml`` remember what paths the class
         # was built from without cluttering the param surface.
         self._meas_path = None
         self._sim_path = None
+        # One load-provenance snapshot per side; see _record_load_snapshot.
+        self._load_snapshots = {}
+        self._run_fingerprint = None
+        self._run_fingerprint_error = "no run_test of both sides has completed"
+        self._last_results = None
+        # Weak references to the meas / sim CapData the last completed run
+        # used, by side (weak, so a replaced side's data is not kept alive).
+        self._run_capdata = None
+        # Directory from_mapping resolved relative paths against; reload
+        # resolves the stored raw spelling against it too.
+        self._base_dir = None
         # The single test reporting-conditions DataFrame (or None). Plain attr,
         # not a param.*, so the `rc` property setter can validate and the
         # `_set_rc` write point can manage provenance. `_loading` is True only
@@ -1950,7 +1572,7 @@ class CapTest(param.Parameterized):
     # --- constructors ----------------------------------------------------
 
     @classmethod
-    def from_params(cls, run_setup=True, **kwargs):
+    def from_params(cls, run_setup=True, verbose=True, **kwargs):
         """Construct a CapTest from parameter kwargs.
 
         Recognizes the non-param kwargs ``meas``, ``sim``, ``meas_path``,
@@ -1980,6 +1602,8 @@ class CapTest(param.Parameterized):
             derived-parameter calculation, no regression-column
             processing, no ``_captest`` back-references. A later
             ``tst.setup()`` or ``tst.run_test()`` proceeds normally.
+        verbose : bool, default True
+            Forwarded to the automatic ``setup()``.
         **kwargs
             Any declared CapTest parameter, plus ``meas``, ``sim``,
             ``meas_path``, ``sim_path``.
@@ -1996,6 +1620,9 @@ class CapTest(param.Parameterized):
         inst = cls(**kwargs)
         inst._meas_path = meas_path
         inst._sim_path = sim_path
+        # A relative local path is loaded against the current directory now;
+        # anchor it so reload() reads the same file after a chdir.
+        inst._anchor_relative_paths()
 
         # Resolve loaders lazily so tests don't need the io module unless
         # they actually load data from paths.
@@ -2006,41 +1633,51 @@ class CapTest(param.Parameterized):
             return inst.sim_loader or _default_sim_loader()
 
         # Wire up meas.
-        if meas is not None and meas_path is not None:
-            warnings.warn(
-                "Both 'meas' and 'meas_path' supplied; using the pre-built "
-                "meas CapData and ignoring meas_path.",
-                stacklevel=2,
+        if meas is not None:
+            if meas_path is not None:
+                warnings.warn(
+                    "Both 'meas' and 'meas_path' supplied; using the pre-built "
+                    "meas CapData and ignoring meas_path.",
+                    stacklevel=2,
+                )
+            inst.meas = meas
+            inst._warn_prep_not_applied("meas")
+            inst._record_load_snapshot(
+                "meas",
+                reason="side meas was built from a prebuilt CapData; "
+                "load provenance unknown",
             )
-            inst.meas = meas
-            inst._warn_prep_not_applied("meas")
-        elif meas is not None:
-            inst.meas = meas
-            inst._warn_prep_not_applied("meas")
         elif meas_path is not None:
             load_kwargs = inst.meas_load_kwargs or {}
-            inst.meas = _meas_loader()(meas_path, **load_kwargs)
+            loader = _meas_loader()
+            inst.meas = loader(meas_path, **load_kwargs)
             inst._replay_prep("meas")
+            inst._record_load_snapshot("meas", loader)
 
         # Wire up sim.
-        if sim is not None and sim_path is not None:
-            warnings.warn(
-                "Both 'sim' and 'sim_path' supplied; using the pre-built "
-                "sim CapData and ignoring sim_path.",
-                stacklevel=2,
+        if sim is not None:
+            if sim_path is not None:
+                warnings.warn(
+                    "Both 'sim' and 'sim_path' supplied; using the pre-built "
+                    "sim CapData and ignoring sim_path.",
+                    stacklevel=2,
+                )
+            inst.sim = sim
+            inst._warn_prep_not_applied("sim")
+            inst._record_load_snapshot(
+                "sim",
+                reason="side sim was built from a prebuilt CapData; "
+                "load provenance unknown",
             )
-            inst.sim = sim
-            inst._warn_prep_not_applied("sim")
-        elif sim is not None:
-            inst.sim = sim
-            inst._warn_prep_not_applied("sim")
         elif sim_path is not None:
             load_kwargs = inst.sim_load_kwargs or {}
-            inst.sim = _sim_loader()(sim_path, **load_kwargs)
+            loader = _sim_loader()
+            inst.sim = loader(sim_path, **load_kwargs)
             inst._replay_prep("sim")
+            inst._record_load_snapshot("sim", loader)
 
         if run_setup and inst.meas is not None and inst.sim is not None:
-            inst.setup()
+            inst.setup(verbose=verbose)
 
         return inst
 
@@ -2160,58 +1797,7 @@ class CapTest(param.Parameterized):
         -------
         CapTest
         """
-        if not isinstance(sub, dict):
-            raise TypeError(f"'sub' must be a mapping; got {type(sub).__name__}.")
-
-        # Unknown-key detection with Levenshtein suggestion.
-        for k in sub:
-            if k not in _CAPTEST_YAML_KEYS:
-                suggestion = _suggest_unknown_key(k, _CAPTEST_YAML_KEYS)
-                raise ValueError(
-                    f"Unknown key {k!r} under the {key!r} sub-mapping.{suggestion}"
-                )
-        overrides = sub.get("overrides") or {}
-        if not isinstance(overrides, dict):
-            raise ValueError("'overrides' must be a mapping.")
-        for k in overrides:
-            if k not in _CAPTEST_OVERRIDE_KEYS:
-                suggestion = _suggest_unknown_key(k, _CAPTEST_OVERRIDE_KEYS)
-                raise ValueError(f"Unknown key {k!r} under 'overrides'.{suggestion}")
-
-        if "test_setup" not in sub:
-            raise ValueError(f"'test_setup' is required under the {key!r} sub-mapping.")
-
-        # Conflicting reg_fml at the top-level and under overrides.
-        if sub.get("reg_fml") is not None and overrides.get("reg_fml") is not None:
-            raise ValueError(
-                "'reg_fml' cannot be set both at the captest top-level and "
-                "under 'overrides'; pick one."
-            )
-
-        kwargs = {
-            k: v
-            for k, v in sub.items()
-            if k
-            not in (
-                "overrides",
-                "meas_filters",
-                "sim_filters",
-                "reporting_conditions_values",
-            )
-        }
-
-        # Lift override keys into direct kwargs.
-        for k in _CAPTEST_OVERRIDE_KEYS:
-            if overrides.get(k) is not None:
-                kwargs[k] = overrides[k]
-
-        # 'custom' setup requires the three regression overrides.
-        if kwargs.get("test_setup") == "custom":
-            for req in ("reg_cols_meas", "reg_cols_sim", "reg_fml"):
-                if kwargs.get(req) is None:
-                    raise ValueError(
-                        f"test_setup='custom' requires overrides.{req} to be set."
-                    )
+        kwargs = _lift_mapping(sub, key)
 
         # Resolve relative paths. URI-scheme paths (e.g. s3://) are treated
         # as absolute; Path.is_absolute() alone is not enough because on
@@ -2251,6 +1837,15 @@ class CapTest(param.Parameterized):
             kwargs["sim_loader"] = sim_loader
 
         inst = cls.from_params(run_setup=run_setup, **kwargs)
+        # reload() resolves the raw relative paths restored below against
+        # the same base_dir the construction-time load used.
+        if base_dir is not None:
+            base_str = str(base_dir)
+            inst._base_dir = (
+                base_str
+                if _is_uri_or_absolute_path(base_str)
+                else os.path.abspath(base_str)
+            )
         # Preserve the raw relative-or-absolute paths the user wrote in
         # the sub-mapping so a later ``to_yaml`` round-trips them.
         # ``from_params`` overwrites ``_meas_path`` / ``_sim_path`` with
@@ -2262,6 +1857,12 @@ class CapTest(param.Parameterized):
             inst._meas_path = raw_meas_path
         if raw_sim_path is not None:
             inst._sim_path = raw_sim_path
+        # Re-spell the load snapshot's path the same way, so a later
+        # to_mapping() round-trips the raw spelling too.
+        for side, raw in (("meas", raw_meas_path), ("sim", raw_sim_path)):
+            snap = inst._load_snapshots.get(side)
+            if raw is not None and snap is not None and snap["keys"] is not None:
+                snap["keys"][f"{side}_path"] = str(raw)
         # Serialized filter pipelines are stored pending, never replayed at
         # load; run_test consumes them (spec R2). Manual RC values are seeded
         # by the construction-time setup() when it ran, else stashed for the
@@ -2293,7 +1894,7 @@ class CapTest(param.Parameterized):
         inst.meas_filters_pending = list(meas_filters or [])
         inst.sim_filters_pending = list(sim_filters or [])
         if inst.rc_source == "manual" and rc_values is not None:
-            if inst._resolved_setup is not None:
+            if inst.resolved_setup is not None:
                 df = inst._coerce_and_validate_manual_rc(rc_values)
                 inst._set_rc(df, "manual", warn=False)
             else:
@@ -2308,8 +1909,22 @@ class CapTest(param.Parameterized):
         ``*_load_kwargs``, replaces that ``CapData``, then runs per-side
         ``setup(side=side)``. Pass ``path`` to point the side at a new data
         file first — the new path replaces the stored one, so later
-        ``reload`` calls and ``to_yaml``/``to_mapping`` use it. Relative
-        paths resolve against the current working directory.
+        ``reload`` calls and ``to_yaml``/``to_mapping`` use it. A relative
+        local path (stored or passed) resolves against the directory the
+        test was built in, not the current working directory: the
+        ``base_dir`` given to :meth:`from_mapping` / :meth:`from_yaml` (the
+        yaml file's directory; a relative ``base_dir`` is made absolute at
+        construction), else the working directory at the time
+        :meth:`from_params` (or the first ``reload`` given a relative path)
+        read it. A later ``chdir`` therefore never changes which file a
+        reload reads. The stored path keeps the spelling it was written with.
+
+        Clears :attr:`last_results` and :attr:`run_fingerprint` once the
+        arguments are validated, before the ``side`` is re-loaded: a reload
+        that fails partway (the loader or the prep replay raising) still
+        leaves both unset, since whatever data and setup ``side`` was left in
+        no longer matches the last completed run. A reload rejected by its
+        argument checks (``ValueError``) changes nothing.
 
         The outgoing side's applied filter chain is preserved: its config is
         snapshot into ``<side>_filters_pending`` before the data is
@@ -2353,18 +1968,28 @@ class CapTest(param.Parameterized):
         """
         if side not in ("meas", "sim"):
             raise ValueError(f"side must be 'meas' or 'sim', got {side!r}.")
-        if path is not None:
-            if side == "meas":
-                self._meas_path = str(path)
-            else:
-                self._sim_path = str(path)
-        stored_path = self._meas_path if side == "meas" else self._sim_path
-        if stored_path is None:
+        if path is None and getattr(self, f"_{side}_path") is None:
             raise ValueError(
                 f"CapTest holds no stored data path for '{side}'. Pass "
                 "path=... or construct from meas_path/sim_path (from_params, "
                 "from_yaml, or from_mapping)."
             )
+        # From here on the side is changing: forget the last run first, so a
+        # loader or prep-replay failure below still leaves it cleared.
+        self._invalidate_run(
+            f"side {side} was reloaded after the last run; re-run run_test()"
+        )
+        if path is not None:
+            setattr(self, f"_{side}_path", str(path))
+        stored_path = getattr(self, f"_{side}_path")
+        # The stored spelling is kept as written (snapshot and to_mapping use
+        # it); a relative one is read against the directory the test was
+        # built in (anchored now if nothing anchored it yet).
+        self._anchor_relative_paths()
+        if self._base_dir is not None and not _is_uri_or_absolute_path(stored_path):
+            load_path = _join_base_and_relative(self._base_dir, stored_path)
+        else:
+            load_path = stored_path
         outgoing = getattr(self, side)
         if outgoing is not None and outgoing.filters:
             setattr(self, f"{side}_filters_pending", outgoing.filters_to_config())
@@ -2372,13 +1997,28 @@ class CapTest(param.Parameterized):
             setattr(self, f"{side}_prep", outgoing.prep_to_config())
         if side == "meas":
             loader = self.meas_loader or _default_meas_loader()
-            self.meas = loader(stored_path, **(self.meas_load_kwargs or {}))
+            self.meas = loader(load_path, **(self.meas_load_kwargs or {}))
         else:
             loader = self.sim_loader or _default_sim_loader()
-            self.sim = loader(stored_path, **(self.sim_load_kwargs or {}))
+            self.sim = loader(load_path, **(self.sim_load_kwargs or {}))
         self._replay_prep(side)
+        self._record_load_snapshot(side, loader)
         self.setup(verbose=verbose, side=side)
         return self
+
+    def _anchor_relative_paths(self):
+        """Pin ``_base_dir`` to the current directory for relative paths.
+
+        Only when no ``base_dir`` is set yet (``from_mapping`` sets its own)
+        and a stored ``meas`` / ``sim`` path is a relative local path, so
+        :meth:`reload` reads the file that path meant when it was given.
+        """
+        if self._base_dir is not None:
+            return
+        for stored in (self._meas_path, self._sim_path):
+            if stored is not None and not _is_uri_or_absolute_path(stored):
+                self._base_dir = os.getcwd()
+                return
 
     def to_yaml(self, path, key="captest", merge_into_existing=True):
         """Serialize the curated CapTest configuration to a yaml file.
@@ -2386,8 +2026,7 @@ class CapTest(param.Parameterized):
         The written sub-mapping is :meth:`to_mapping`'s return value. It
         lives under the top-level ``key`` (default
         ``"captest"``) and contains every scalar ``param.*`` plus
-        ``test_setup``, any non-None override of ``reg_fml`` /
-        ``reg_cols_meas`` / ``reg_cols_sim`` / ``rep_conditions``,
+        ``test_setup``, an ``overrides`` sub-mapping (see below),
         ``meas_path`` / ``sim_path`` (when the instance was constructed from
         paths), and non-empty ``meas_load_kwargs`` / ``sim_load_kwargs``.
 
@@ -2397,15 +2036,24 @@ class CapTest(param.Parameterized):
         when its chain is empty), each only when non-empty; ``from_yaml``
         stores them as pending pipelines that :meth:`run_test` replays. The
         prep pipelines are written the same way as ``meas_prep`` /
-        ``sim_prep``; ``from_yaml`` applies those at load. When a
-        ``RepCond`` step is present in either pipeline, ``overrides.rep_conditions``
-        is omitted — the step is then the authoritative reporting-conditions
-        source (avoids representing it in two places).
+        ``sim_prep``; ``from_yaml`` applies those at load.
+        ``overrides.rep_conditions`` is written whenever
+        :attr:`rep_conditions` is set, also beside a ``RepCond`` step or a
+        manual ``rc_source``: it is part of the resolved setup's identity,
+        and loading never applies it (a replayed ``RepCond`` step uses its
+        own arguments, and a manual rc is restored from
+        ``reporting_conditions_values``).
 
-        Percentile ``perc_wrap(N)`` callables inside
-        ``rep_conditions['func']`` are written back as ``"perc_N"`` strings
-        so that ``from_yaml`` round-trips them. ``meas``, ``sim``,
-        ``regression_results``, ``_resolved_setup``, and the loader
+        ``overrides`` is written in document form. For a named preset,
+        ``reg_cols_meas`` / ``reg_cols_sim`` hold only the difference from
+        the preset (changed formula variables as nodes, ``null`` for a
+        variable the preset has and the resolved setup lacks) and
+        ``reg_fml`` only when it differs; under ``test_setup: custom`` both
+        sides and the formula are written in full. ``params`` and
+        ``scatter_plots`` (from :attr:`scatter_plots_name`) are written when
+        set. ``from_yaml`` merging the file back onto the same preset
+        reproduces the resolved setup. ``meas``, ``sim``,
+        ``regression_results``, :attr:`resolved_setup`, and the loader
         callables are never serialized.
 
         Parameters
@@ -2435,7 +2083,7 @@ class CapTest(param.Parameterized):
         root_doc = {}
         if merge_into_existing and path.exists():
             try:
-                with path.open("r") as fh:
+                with path.open("r", encoding="utf-8") as fh:
                     existing = yaml.safe_load(fh)
                 if isinstance(existing, dict):
                     root_doc = existing
@@ -2443,7 +2091,7 @@ class CapTest(param.Parameterized):
                 root_doc = {}
         root_doc[key] = sub
 
-        with path.open("w") as fh:
+        with path.open("w", encoding="utf-8") as fh:
             yaml.safe_dump(root_doc, fh, sort_keys=False)
 
     def to_mapping(self):
@@ -2451,7 +2099,7 @@ class CapTest(param.Parameterized):
 
         The public dict counterpart of :meth:`to_yaml` and the symmetric
         inverse of :meth:`from_mapping`. Emits the same programmatic-only
-        attribute warning as ``to_yaml`` (loaders, mutated scatter_plots).
+        attribute warning as ``to_yaml`` (loader callables).
 
         Returns
         -------
@@ -2464,24 +2112,14 @@ class CapTest(param.Parameterized):
     def _warn_unserializable(self):
         """Warn once for any non-yaml-serializable user overrides.
 
-        Loader callables and a user-mutated ``scatter_plots`` entry cannot be
-        represented in the yaml config; name them in a single ``UserWarning``
-        so the omission is visible at export time.
+        Loader callables cannot be represented in the yaml config; name them
+        in a single ``UserWarning`` so the omission is visible at export time.
         """
         unserializable = []
         if self.meas_loader is not None:
             unserializable.append("meas_loader")
         if self.sim_loader is not None:
             unserializable.append("sim_loader")
-        if self._resolved_setup is not None and self.test_setup != "custom":
-            preset_scatter = TEST_SETUPS.get(self.test_setup, {}).get("scatter_plots")
-            current_scatter = self._resolved_setup.get("scatter_plots")
-            if (
-                preset_scatter is not None
-                and current_scatter is not None
-                and current_scatter is not preset_scatter
-            ):
-                unserializable.append("scatter_plots")
         if unserializable:
             warnings.warn(
                 "The following CapTest attributes are programmatic-only and "
@@ -2489,6 +2127,303 @@ class CapTest(param.Parameterized):
                 f"{sorted(unserializable)}",
                 stacklevel=2,
             )
+
+    def _side_load_keys(self, side):
+        """The load keys ``to_mapping()`` writes for ``side``.
+
+        ``<side>_path`` (the remembered raw path), ``<side>_load_kwargs``
+        (when non-empty) and ``<side>_prep`` (the applied prep chain when
+        non-empty, else the stored config, else omitted). Shared by
+        :meth:`_build_yaml_sub_mapping` and the load snapshots so both use
+        one normal form.
+
+        Parameters
+        ----------
+        side : {'meas', 'sim'}
+
+        Returns
+        -------
+        dict
+            A fresh, independent copy.
+        """
+        path = self._meas_path if side == "meas" else self._sim_path
+        load_kwargs = getattr(self, f"{side}_load_kwargs")
+        cd = getattr(self, side)
+        # Deep-copied either way: a step's to_config() may share nested
+        # objects with the live step (prep.Custom shallow-copies its args).
+        prep = copy.deepcopy(
+            cd.prep_to_config()
+            if cd is not None and cd.prep
+            else getattr(self, f"{side}_prep")
+        )
+        keys = {}
+        if path is not None:
+            keys[f"{side}_path"] = str(path)
+        if load_kwargs:
+            keys[f"{side}_load_kwargs"] = copy.deepcopy(load_kwargs)
+        if prep:
+            keys[f"{side}_prep"] = prep
+        return keys
+
+    def _record_load_snapshot(self, side, loader=None, reason=None):
+        """Remember how ``side`` was loaded, for :attr:`run_fingerprint`.
+
+        Parameters
+        ----------
+        side : {'meas', 'sim'}
+        loader : callable or None
+            The loader that produced the side's data. Its own ``loader_id``
+            label (see :func:`captest.io.loader_id`) is recorded; without
+            one, no load keys are kept. A label copied onto a wrapper does
+            not count (see :func:`_own_loader_id`).
+        reason : str or None
+            Why provenance is unknown when there is no loader (a pre-built
+            ``CapData``).
+        """
+        # Provenance boundary: nothing here (loader metadata lookups, the
+        # serializer) may fail the load it describes. Recorded, not dropped.
+        try:
+            lid = _own_loader_id(loader) if loader is not None else None
+            impl = None
+            if loader is not None:
+                impl = (
+                    f"{getattr(loader, '__module__', None)}:"
+                    f"{getattr(loader, '__qualname__', type(loader).__qualname__)}"
+                )
+            if loader is not None and lid is None:
+                reason = f"side {side} was loaded by a loader without a loader_id"
+                if getattr(loader, "loader_id", None) is not None:
+                    reason += (
+                        " of its own (a label copied from another object, e.g. "
+                        "by functools.wraps or functools.lru_cache, does not "
+                        "count; decorate the wrapper itself with loader_id)"
+                    )
+            keys = self._side_load_keys(side) if lid is not None else None
+        except Exception as exc:  # noqa: BLE001 - recorded in reason
+            lid, impl, keys = None, None, None
+            reason = (
+                f"side {side} load snapshot could not be recorded: "
+                f"{type(exc).__name__}: {exc}"
+            )
+        self._load_snapshots[side] = {
+            "capdata": getattr(self, side),
+            "keys": keys,
+            "loader_id": lid,
+            "implementation": impl if lid is not None else None,
+            "reason": None if lid is not None else reason,
+        }
+
+    @property
+    def load_provenance(self):
+        """``loader_id`` of the loader behind each side's current data.
+
+        ``None`` for a side that was supplied pre-built, loaded by a loader
+        without a ``loader_id`` of its own (a label copied onto a wrapper
+        does not count; see :func:`captest.io.loader_id`), or replaced after
+        loading.
+
+        Returns
+        -------
+        dict
+            ``{"meas": str | None, "sim": str | None}``.
+        """
+        out = {}
+        for side in ("meas", "sim"):
+            snap = self._load_snapshots.get(side)
+            live = snap is not None and snap["capdata"] is getattr(self, side)
+            out[side] = snap["loader_id"] if live else None
+        return out
+
+    @property
+    def run_fingerprint(self):
+        """Fingerprint of the configuration that produced the last results.
+
+        Set only by a ``run_test()`` of both sides that completes: the sha256
+        hex of ``canonical_json`` of ``to_mapping()`` taken at the end of that
+        run, with each side's load keys (path, ``*_load_kwargs``, ``*_prep``)
+        replaced by what was in force when that side's data was loaded. It
+        equals :meth:`mapping_fingerprint` exactly when nothing that feeds
+        the results has changed since, including load settings that need a
+        reload to take effect. ``None`` otherwise, including once ``meas`` or
+        ``sim`` has been replaced by a different ``CapData`` since the run;
+        see :attr:`run_fingerprint_error`.
+
+        Returns
+        -------
+        str or None
+        """
+        if self._replaced_since_run() is not None:
+            return None
+        return self._run_fingerprint
+
+    @property
+    def run_fingerprint_error(self):
+        """Why :attr:`run_fingerprint` is ``None``, else ``None``.
+
+        Returns
+        -------
+        str or None
+        """
+        replaced = self._replaced_since_run()
+        if replaced is not None:
+            return replaced
+        return self._run_fingerprint_error
+
+    @property
+    def last_results(self):
+        """The ``CapTestResults`` the last completed ``run_test()`` returned.
+
+        The same object, not a recomputation. Cleared when any ``run_test``
+        starts and on :meth:`reload`, and reads ``None`` while ``meas`` or
+        ``sim`` is a different ``CapData`` from the one the run used, so it
+        always describes the current data. ``None`` after a single-side or
+        failed run. A copied ``CapTest`` (``copy.deepcopy``) does not carry
+        the run over; re-run ``run_test()`` on the copy.
+
+        Returns
+        -------
+        CapTestResults or None
+        """
+        if self._replaced_since_run() is not None:
+            return None
+        return self._last_results
+
+    def _invalidate_run(self, reason):
+        """Forget the last run's results and fingerprint, recording why."""
+        self._last_results = None
+        self._run_capdata = None
+        self._run_fingerprint = None
+        self._run_fingerprint_error = reason
+
+    @staticmethod
+    def _replaced_message(side):
+        """The reason recorded when ``side`` no longer holds its loaded data."""
+        return f"side {side} was replaced after it was loaded; load provenance unknown"
+
+    def _side_replaced_error(self, side, expected):
+        """Message when ``side`` no longer holds ``expected``, else ``None``."""
+        if expected is getattr(self, side):
+            return None
+        return self._replaced_message(side)
+
+    def _replaced_since_run(self):
+        """Why the last run no longer describes the live sides, else ``None``."""
+        if self._run_capdata is None:
+            return None
+        for side in ("meas", "sim"):
+            used = self._run_capdata[side]()
+            if used is None:
+                # The run's CapData is gone, so the side cannot still hold it.
+                return self._replaced_message(side)
+            error = self._side_replaced_error(side, used)
+            if error is not None:
+                return error
+        return None
+
+    def mapping_fingerprint(self):
+        """sha256 hex of ``canonical_json`` of the mapping ``to_mapping()`` returns.
+
+        Computed without ``to_mapping()``'s unserializable-loader warning.
+        Compare with :attr:`run_fingerprint` to check that the last results
+        still describe the current configuration.
+
+        Returns
+        -------
+        str
+
+        Raises
+        ------
+        TypeError, ValueError
+            The mapping holds a value canonical JSON cannot represent.
+        """
+        return hashlib.sha256(
+            canonical_json(self._build_yaml_sub_mapping()).encode("utf-8")
+        ).hexdigest()
+
+    def _set_run_fingerprint(self, check_pvalues, pval):
+        """Compute :attr:`run_fingerprint` after a completed both-side run.
+
+        Never raises: an unknown provenance, an execution option the mapping
+        cannot carry, or a mapping that cannot be canonicalised leaves the
+        fingerprint ``None`` with the reason in :attr:`run_fingerprint_error`.
+        """
+        self._run_fingerprint = None
+        if check_pvalues:
+            self._run_fingerprint_error = (
+                "the last run used check_pvalues=True, an execution option the "
+                "mapping does not carry; re-run with check_pvalues=False to "
+                "store results"
+            )
+            return
+        if pval != _DEFAULT_PVAL:
+            self._run_fingerprint_error = (
+                f"the last run used pval={pval}; cap_ratio_pval_check depends "
+                "on it and the mapping does not carry it. Re-run with the "
+                f"default pval={_DEFAULT_PVAL} to store results"
+            )
+            return
+        if not self.auto_wrap_sim:
+            self._run_fingerprint_error = (
+                "auto_wrap_sim=False is not serialized by to_mapping(), so the "
+                "results cannot be reproduced from the mapping"
+            )
+            return
+        for side in ("meas", "sim"):
+            snap = self._load_snapshots.get(side)
+            if snap is None:
+                self._run_fingerprint_error = (
+                    f"side {side} was never loaded; load provenance unknown"
+                )
+                return
+            replaced = self._side_replaced_error(side, snap["capdata"])
+            if replaced is not None:
+                self._run_fingerprint_error = replaced
+                return
+            if snap["keys"] is None:
+                self._run_fingerprint_error = snap["reason"]
+                return
+        try:
+            mapping = self._build_yaml_sub_mapping()
+            for side in ("meas", "sim"):
+                for k in (f"{side}_path", f"{side}_load_kwargs", f"{side}_prep"):
+                    mapping.pop(k, None)
+                mapping.update(copy.deepcopy(self._load_snapshots[side]["keys"]))
+            digest = hashlib.sha256(canonical_json(mapping).encode("utf-8")).hexdigest()
+        except (TypeError, ValueError, KeyError) as exc:
+            self._run_fingerprint_error = (
+                f"the test mapping cannot be canonicalised: {exc}"
+            )
+            return
+        # Provenance boundary: anything else (a __deepcopy__ or encoder that
+        # raises) must not turn a completed run into an exception. Recorded.
+        except Exception as exc:  # noqa: BLE001 - recorded in run_fingerprint_error
+            self._run_fingerprint_error = (
+                f"the run fingerprint could not be computed: "
+                f"{type(exc).__name__}: {exc}"
+            )
+            return
+        self._run_fingerprint = digest
+        self._run_fingerprint_error = None
+
+    @property
+    def loader_implementations(self):
+        """``"<module>:<qualname>"`` of the loader behind each live side.
+
+        Captured when the side was loaded, so reassigning ``meas_loader`` /
+        ``sim_loader`` afterwards does not change it. ``None`` wherever
+        :attr:`load_provenance` is ``None``.
+
+        Returns
+        -------
+        dict
+            ``{"meas": str | None, "sim": str | None}``.
+        """
+        out = {}
+        for side in ("meas", "sim"):
+            snap = self._load_snapshots.get(side)
+            live = snap is not None and snap["capdata"] is getattr(self, side)
+            out[side] = snap["implementation"] if live else None
+        return out
 
     def _build_yaml_sub_mapping(self):
         """Build the dict written under ``key:`` by :meth:`to_yaml`.
@@ -2498,37 +2433,48 @@ class CapTest(param.Parameterized):
         ``meas_filters``/``sim_filters``: the applied filter chain when
         non-empty, else the side's pending config (so a load → save without
         running is lossless), else the key is omitted. Embeds each side's
-        prep pipeline as ``meas_prep``/``sim_prep`` under the same three-way
-        rule (applied prep chain, else the stored ``meas_prep``/``sim_prep``
-        config, else the key is omitted). Omits
-        ``overrides.rep_conditions`` when a ``RepCond`` step is present in
-        either pipeline (the step is then the single source of reporting
-        conditions).
+        path, load kwargs and prep pipeline (``meas_prep``/``sim_prep``
+        under the same three-way rule: applied prep chain, else the stored
+        ``meas_prep``/``sim_prep`` config, else the key is omitted) via
+        :meth:`_side_load_keys`, shared with the load snapshots so both use
+        one normal form. Writes ``overrides.rep_conditions`` whenever
+        :attr:`rep_conditions` is set, including beside a ``RepCond`` step or
+        a manual ``rc_source``, so the reloaded ``resolved_setup`` keeps the
+        original's ``content_digest``.
         """
         sub = {"test_setup": self.test_setup}
 
-        # Paths are written only when the instance was constructed from
-        # paths; we remember the raw (possibly relative) string in
-        # ``_meas_path``/``_sim_path``.
-        if self._meas_path is not None:
-            sub["meas_path"] = str(self._meas_path)
-        if self._sim_path is not None:
-            sub["sim_path"] = str(self._sim_path)
+        # Path, load kwargs and prep are written only when present; see
+        # _side_load_keys for the exact rule.
+        sub.update(self._side_load_keys("meas"))
+        sub.update(self._side_load_keys("sim"))
 
-        # Overrides sub-mapping.
-        preset = TEST_SETUPS.get(self.test_setup, {})
         overrides = {}
+        # Always resolve from the *current* params, never from the cached
+        # ``resolved_setup``: an override edited after setup() must be what
+        # gets written, and a changed ``test_setup`` must not be paired with
+        # the previous preset's document.
+        resolved = resolve_test_setup(self.test_setup, self._collect_overrides())
         if self.test_setup == "custom":
-            # ``custom`` has no preset; always include whatever the user set.
-            for name in ("reg_cols_meas", "reg_cols_sim", "reg_fml"):
-                val = getattr(self, name)
-                if val is not None:
-                    overrides[name] = copy.deepcopy(val)
+            overrides["reg_cols_meas"] = resolved.meas.model_dump(mode="json")[
+                "reg_cols"
+            ]
+            overrides["reg_cols_sim"] = resolved.sim.model_dump(mode="json")["reg_cols"]
+            overrides["reg_fml"] = resolved.reg_fml
         else:
-            for name in ("reg_cols_meas", "reg_cols_sim", "reg_fml"):
-                val = getattr(self, name)
-                if val is not None and val != preset.get(name):
-                    overrides[name] = copy.deepcopy(val)
+            preset = TEST_SETUPS[self.test_setup]
+            for side in ("meas", "sim"):
+                diff = _reg_cols_diff(
+                    getattr(preset, side).reg_cols, getattr(resolved, side).reg_cols
+                )
+                if diff:
+                    overrides[f"reg_cols_{side}"] = diff
+            if resolved.reg_fml != preset.reg_fml:
+                overrides["reg_fml"] = resolved.reg_fml
+        if self.params is not None:
+            overrides["params"] = {k: to_native(v) for k, v in self.params.items()}
+        if self.scatter_plots_name is not None:
+            overrides["scatter_plots"] = self.scatter_plots_name
         meas_filters = (
             self.meas.filters_to_config()
             if self.meas is not None and self.meas.filters
@@ -2539,30 +2485,12 @@ class CapTest(param.Parameterized):
             if self.sim is not None and self.sim.filters
             else list(self.sim_filters_pending)
         )
-        meas_prep = (
-            self.meas.prep_to_config()
-            if self.meas is not None and self.meas.prep
-            else copy.deepcopy(self.meas_prep)
-        )
-        sim_prep = (
-            self.sim.prep_to_config()
-            if self.sim is not None and self.sim.prep
-            else copy.deepcopy(self.sim_prep)
-        )
-        has_rep_cond_step = any(
-            d["type"] == "RepCond" for d in (meas_filters + sim_filters)
-        )
-        # Decision B: when a RepCond step is in either pipeline, it is the
-        # unambiguous source of reporting conditions — drop the redundant
-        # overrides.rep_conditions.
-        # For a manual rc_source, reporting_conditions_values (written below) is
-        # the authoritative RC; do not also serialize overrides.rep_conditions,
-        # which is only aggregation config and would read as a second RC source.
-        if (
-            self.rep_conditions is not None
-            and not has_rep_cond_step
-            and self.rc_source != "manual"
-        ):
+        # Written even beside a RepCond step or a manual rc: it is part of
+        # the resolved setup's identity (content_digest), and nothing applies
+        # it on load. Replayed RepCond steps carry their own kwargs and a
+        # manual rc is restored from reporting_conditions_values, so it only
+        # feeds resolved_setup and the defaults of a later tst.rep_cond().
+        if self.rep_conditions is not None:
             overrides["rep_conditions"] = _serialize_rep_conditions(self.rep_conditions)
         if overrides:
             sub["overrides"] = overrides
@@ -2598,22 +2526,10 @@ class CapTest(param.Parameterized):
         for name in scalar_names:
             sub[name] = getattr(self, name)
 
-        # Loader kwargs are plain dicts; only write when non-empty so a
-        # default-constructed CapTest produces a clean yaml.
-        if self.meas_load_kwargs:
-            sub["meas_load_kwargs"] = copy.deepcopy(self.meas_load_kwargs)
-        if self.sim_load_kwargs:
-            sub["sim_load_kwargs"] = copy.deepcopy(self.sim_load_kwargs)
-
         if meas_filters:
             sub["meas_filters"] = meas_filters
         if sim_filters:
             sub["sim_filters"] = sim_filters
-
-        if meas_prep:
-            sub["meas_prep"] = meas_prep
-        if sim_prep:
-            sub["sim_prep"] = sim_prep
 
         # Manual reporting conditions are data, not config: serialize their
         # values so from_yaml can restore them (computed RC is recomputed by
@@ -2740,12 +2656,98 @@ class CapTest(param.Parameterized):
         self.sim.data = wrapped
         self.sim.filters = []
 
-    def setup(self, verbose=True, side="both"):
-        """Resolve TEST_SETUPS, propagate scalars, process regression cols.
+    def _collect_overrides(self):
+        """The setup overrides currently set on this instance.
 
-        Raises ``RuntimeError`` if any ``CapData`` targeted by ``side`` is
-        unset. Assigns the resolved TEST_SETUPS entry to
-        ``self._resolved_setup`` and returns ``self`` for fluent chaining.
+        ``None`` values are skipped, and so are empty ``reg_cols_meas`` /
+        ``reg_cols_sim`` / ``rep_conditions`` mappings (merging nothing is
+        no change), so an untouched test resolves to the preset itself (same
+        provenance and digest). An empty ``params`` is kept: it replaces the
+        preset's constraints wholesale, removing them.
+
+        Returns
+        -------
+        dict
+            Keyword overrides for :func:`resolve_test_setup`.
+        """
+        names = (
+            "reg_cols_meas",
+            "reg_cols_sim",
+            "reg_fml",
+            "rep_conditions",
+            "params",
+            "scatter_plots_name",
+        )
+        return _setup_overrides({n: getattr(self, n) for n in names})
+
+    def _prepare_sides(self, sides):
+        """Propagate downstream params and ``meas.site`` onto ``sides``.
+
+        The preparation :meth:`setup` performs before tier 2 and evaluation:
+        names in ``_downstream_attrs`` are copied onto each targeted
+        ``CapData`` (``_downstream_attrs_meas_only`` onto meas only), and for
+        sim-side setup ``meas.site`` is copied onto ``sim`` with a fixed-offset
+        tz for PVsyst. Neither touches ``data``.
+        """
+        for name in self._downstream_attrs:
+            if "meas" in sides:
+                setattr(self.meas, name, getattr(self, name))
+            if "sim" in sides and name not in self._downstream_attrs_meas_only:
+                setattr(self.sim, name, getattr(self, name))
+        # Reads meas.site but mutates only sim, so it runs for sim-side setup.
+        if "sim" in sides and self.meas is not None:
+            self._propagate_sim_site()
+
+    def check_fit(self, side="both"):
+        """Tier-2 project-fit findings for the resolved setup, without running setup.
+
+        Resolves the preset and overrides, propagates the downstream
+        parameters onto the targeted ``CapData`` instances exactly as
+        :meth:`setup` would, and returns
+        :func:`captest.setup.check_project_fit`'s findings for each side.
+        Nothing is written to ``data`` and ``resolved_setup`` is untouched.
+
+        Parameters
+        ----------
+        side : {"both", "meas", "sim"}
+            Which side(s) to check.
+
+        Returns
+        -------
+        list of captest.setup.FitError
+            Empty when every checked side fits.
+
+        Raises
+        ------
+        ValueError
+            If ``side`` is invalid, or the setup cannot be resolved.
+        RuntimeError
+            If a ``CapData`` targeted by ``side`` is unset.
+        """
+        if side not in ("meas", "sim", "both"):
+            raise ValueError(f"side must be 'meas', 'sim', or 'both', got {side!r}.")
+        sides = ("meas", "sim") if side == "both" else (side,)
+        resolved = resolve_test_setup(self.test_setup, self._collect_overrides())
+        for s in sides:
+            if getattr(self, s) is None:
+                raise RuntimeError(f"CapTest.{s} must be set before check_fit().")
+        self._prepare_sides(sides)
+        errors = []
+        for s in sides:
+            errors.extend(check_project_fit(resolved, s, getattr(self, s)))
+        return errors
+
+    def setup(self, verbose=True, side="both"):
+        """Resolve the setup, propagate scalars, check fit, process regression cols.
+
+        Resolves ``test_setup`` plus the overrides (``reg_cols_meas`` /
+        ``reg_cols_sim`` merged key by key, ``reg_fml``, ``rep_conditions``,
+        ``params``, ``scatter_plots_name``) to a
+        :class:`captest.setup.TestSetup`, propagates the downstream params,
+        runs the tier-2 project-fit check on each targeted side, then
+        evaluates the regression columns. Raises ``RuntimeError`` if any
+        ``CapData`` targeted by ``side`` is unset. Assigns the resolved setup
+        to :attr:`resolved_setup` and returns ``self`` for fluent chaining.
 
         A full setup (``side='both'``) also consumes manual
         reporting-conditions values stashed by a load-only
@@ -2760,6 +2762,17 @@ class CapTest(param.Parameterized):
         meas-side setup never touches sim — in particular the year-end
         auto-wrap (``_maybe_wrap_sim_year_end``), which mutates ``sim.data``
         while reading the meas span, is skipped for ``side='meas'``.
+        :attr:`resolved_setup` is still replaced by the setup resolved from
+        the current overrides, which describes both sides: if the overrides
+        changed since the other side was wired, that side's
+        ``regression_cols`` / ``regression_formula`` no longer match
+        ``resolved_setup`` until it is set up again (``setup()`` or
+        ``setup(side=<other side>)``).
+
+        When the tier-2 check fails, nothing is evaluated: ``resolved_setup``
+        and each side's regression state stay those of the last successful
+        ``setup()``, so the pair remains consistent (the downstream params
+        and the year-end wrap have already been applied).
 
         Parameters
         ----------
@@ -2776,7 +2789,11 @@ class CapTest(param.Parameterized):
         Raises
         ------
         ValueError
-            If ``side`` is not ``'meas'``, ``'sim'``, or ``'both'``.
+            If ``side`` is not ``'meas'``, ``'sim'``, or ``'both'``, or the
+            setup cannot be resolved.
+        captest.setup.SetupFitError
+            If the resolved setup does not fit a targeted side's project
+            (tier 2); raised before any column is written.
         RuntimeError
             If a ``CapData`` targeted by ``side`` is unset.
         """
@@ -2787,6 +2804,9 @@ class CapTest(param.Parameterized):
             if getattr(self, s) is None:
                 raise RuntimeError(f"CapTest.{s} must be set before setup().")
 
+        # Resolve first: a resolution error must leave sim.data untouched.
+        resolved = resolve_test_setup(self.test_setup, self._collect_overrides())
+
         # Auto-wrap sim.data when measured spans (within 60 days of) a year
         # boundary. Idempotent and reversible — re-running setup() or toggling
         # auto_wrap_sim restores the appropriate state. The wrap mutates
@@ -2795,41 +2815,24 @@ class CapTest(param.Parameterized):
         if "sim" in sides and self.meas is not None:
             self._maybe_wrap_sim_year_end()
 
-        # Build the overrides dict for resolve_test_setup. Only non-None
-        # values are passed through so named-preset resolution falls back to
-        # the preset's defaults for keys the user hasn't overridden.
-        overrides = {}
-        for name in ("reg_cols_meas", "reg_cols_sim", "reg_fml", "rep_conditions"):
-            val = getattr(self, name)
-            if val is not None:
-                overrides[name] = val
+        self._prepare_sides(sides)
 
-        resolved = resolve_test_setup(self.test_setup, overrides=overrides)
-        self._resolved_setup = resolved
+        # Tier 2 runs against the prepared CapData and before any column is
+        # written, so a setup that does not fit leaves ``data`` untouched.
+        fit_errors = []
+        for s in sides:
+            fit_errors.extend(check_project_fit(resolved, s, getattr(self, s)))
+        if fit_errors:
+            raise SetupFitError(fit_errors)
+        self.resolved_setup = resolved
 
-        # Propagate scalar calc-params onto the targeted CapData instances.
-        # Names in _downstream_attrs_meas_only are copied onto meas only;
-        # all others are copied onto both meas and sim.
-        for name in self._downstream_attrs:
-            if "meas" in sides:
-                setattr(self.meas, name, getattr(self, name))
-            if "sim" in sides and name not in self._downstream_attrs_meas_only:
-                setattr(self.sim, name, getattr(self, name))
-
-        # Propagate site from meas -> sim with Etc/GMT±N tz for PVsyst.
-        # Reads meas.site but mutates only sim, so it runs for sim-side setup.
-        if "sim" in sides and self.meas is not None:
-            self._propagate_sim_site()
-
-        # Wire per-CapData regression state on each targeted side. Deepcopy
-        # the regression_cols dict because process_regression_columns mutates
-        # it in place. process_regression_columns also resets data_filtered
-        # to data.copy() so any prior filter state on that side is dropped
-        # (intended behavior per the design spec).
+        # Wire per-CapData regression state on each targeted side. A shallow
+        # copy suffices: the node tree is immutable, and
+        # process_regression_columns replaces (never mutates) the values.
         for s in sides:
             cd = getattr(self, s)
-            cd.regression_cols = copy.deepcopy(resolved[f"reg_cols_{s}"])
-            cd.regression_formula = resolved["reg_fml"]
+            cd.regression_cols = dict(getattr(resolved, s).reg_cols)
+            cd.regression_formula = resolved.reg_fml
             cd.tolerance = self.test_tolerance
             cd.process_regression_columns(verbose=verbose)
             # Wire the CapData back to this CapTest so
@@ -2865,10 +2868,10 @@ class CapTest(param.Parameterized):
 
         The selected ``test_setup`` controls which plotting function is used.
         During :meth:`setup`, the named setup is resolved from ``TEST_SETUPS``;
-        that resolved setup includes a ``scatter_plots`` callable matched to
-        the setup's regression formula. This method picks ``self.meas`` or
-        ``self.sim`` and forwards it, plus any keyword arguments, to that
-        callable.
+        that resolved setup's ``scatter_plots`` field names a function in
+        :data:`SCATTER_REGISTRY` matched to the setup's regression formula.
+        This method picks ``self.meas`` or ``self.sim`` and forwards it, plus
+        any keyword arguments, to that registered function.
 
         Built-in setup behavior:
 
@@ -2902,7 +2905,7 @@ class CapTest(param.Parameterized):
         which : {'meas', 'sim'}
             Which :class:`captest.capdata.CapData` instance to plot.
         **kwargs
-            Plotting options forwarded to the preset's scatter callable.
+            Plotting options forwarded to the registered scatter function.
 
         Returns
         -------
@@ -2913,29 +2916,31 @@ class CapTest(param.Parameterized):
         --------
         Plot measured data with the default options::
 
-            ct.scatter_plots()
+            tst.scatter_plots()
 
         Plot modeled data, split points into AM and PM groups, and add a
         linked timeseries panel::
 
-            ct.scatter_plots(which="sim", split_day=True, timeseries=True)
+            tst.scatter_plots(which="sim", split_day=True, timeseries=True)
 
         Add a temperature-corrected power panel for a setup that uses raw
         power in the regression::
 
-            ct.scatter_plots(tc_power=True, tc_mode="add_panel")
+            tst.scatter_plots(tc_power=True, tc_mode="add_panel")
         """
         cd = self._pick_cd(which)
         self._require_setup()
-        return self._resolved_setup["scatter_plots"](cd, **kwargs)
+        return SCATTER_REGISTRY[self.resolved_setup.scatter_plots](cd, **kwargs)
 
     def rep_cond(self, which=None, **overrides):
         """Call ``cd.rep_cond`` with the resolved preset's rep_conditions.
 
-        The preset's ``rep_conditions`` dict (after any ``self.rep_conditions``
-        overrides from ``setup()``) is used as the default kwargs. ``overrides``
-        is partial-merged on top: top-level keys replace, the nested ``func``
-        dict merges one level deep.
+        The resolved setup's ``rep_conditions`` (after any
+        ``self.rep_conditions`` overrides from ``setup()``) is used as the
+        default kwargs. ``overrides`` is partial-merged on top: top-level keys
+        replace, the nested ``func`` dict merges one level deep. ``func``
+        values may be ``"mean"``, ``"median"`` or ``"perc_N"`` strings;
+        ``"perc_N"`` is resolved to ``perc_wrap(N)`` before the call.
 
         See :meth:`~captest.capdata.CapData.rep_cond` for details on the reporting conditions calculation
         options.
@@ -2948,20 +2953,37 @@ class CapTest(param.Parameterized):
             ``'meas'``. The computed conditions become the test ``rc`` (and set
             ``rc_source`` to ``which``) via the last-writer-wins sync.
         **overrides
-            Partial-merged onto the resolved ``rep_conditions`` dict.
+            Partial-merged onto the resolved ``rep_conditions`` dict. Keys are
+            the :class:`captest.setup.RepConditions` fields plus
+            ``custom_name``.
 
         Returns
         -------
         None
             ``cd.rep_cond`` writes to ``cd.rc``.
+
+        Raises
+        ------
+        ValueError
+            If an override key is not a ``CapData.rep_cond`` option.
         """
         if which is None:
             which = self.rc_source if self.rc_source in ("meas", "sim") else "meas"
         cd = self._pick_cd(which)
         self._require_setup()
+        allowed = set(RepConditions.model_fields) | {"custom_name"}
+        for key in overrides:
+            if key not in allowed:
+                raise ValueError(
+                    f"Unknown rep_cond override {key!r}."
+                    f"{_suggest_unknown_key(key, allowed)}"
+                )
         resolved_rc = _merge_rep_conditions(
-            self._resolved_setup["rep_conditions"], overrides
+            self.resolved_setup.rep_conditions.model_dump(mode="json"), overrides
         )
+        # An empty func mapping means "mean of every rhs variable", which
+        # CapData.rep_cond spells func=None.
+        resolved_rc["func"] = util._resolve_func_strings(resolved_rc["func"]) or None
         return cd.rep_cond(**resolved_rc)
 
     # --- ported cross-CapData methods ------------------------------------
@@ -3112,7 +3134,9 @@ class CapTest(param.Parameterized):
             print(results)
         return results
 
-    def run_test(self, side="both", check_pvalues=False, pval=0.05, print_res=False):
+    def run_test(
+        self, side="both", check_pvalues=False, pval=_DEFAULT_PVAL, print_res=False
+    ):
         """Run the full capacity test (or one side of it) end to end.
 
         Canonical sequence: (1) ``setup(side=side)``; (2) replay each side's
@@ -3162,9 +3186,22 @@ class CapTest(param.Parameterized):
             with no reporting conditions set. Exceptions raised in any
             stage carry a ``[CapTest.run_test stage: ...]`` note on
             Python 3.11+.
+
+        Notes
+        -----
+        A completed ``side='both'`` run sets :attr:`last_results` to the
+        returned :class:`CapTestResults` and, when the mapping can reproduce
+        it, :attr:`run_fingerprint`. Any other outcome — a per-side run, a
+        raised exception, or a run whose configuration cannot be reproduced
+        from the mapping — clears both; see :attr:`run_fingerprint_error`.
         """
         if side not in ("meas", "sim", "both"):
             raise ValueError(f"side must be 'meas', 'sim', or 'both', got {side!r}.")
+        self._invalidate_run(
+            "the last run_test did not complete"
+            if side == "both"
+            else f"the last run_test was single-side (side={side!r})"
+        )
         run_sides = ["meas", "sim"] if side == "both" else [side]
         if side == "both" and self.rc_source == "sim":
             run_sides = ["sim", "meas"]
@@ -3284,9 +3321,16 @@ class CapTest(param.Parameterized):
                 )
 
             stage = "results"
-            return self.captest_results(
+            results = self.captest_results(
                 check_pvalues=check_pvalues, pval=pval, print_res=print_res
             )
+            self._last_results = results
+            self._run_capdata = {
+                "meas": weakref.ref(self.meas),
+                "sim": weakref.ref(self.sim),
+            }
+            self._set_run_fingerprint(check_pvalues, pval)
+            return results
         except Exception as e:
             # add_note exists on 3.11+; the project floor is 3.10.
             if hasattr(e, "add_note"):
@@ -3340,8 +3384,9 @@ class CapTest(param.Parameterized):
     def overlay_scatters(self, expected_label="PVsyst"):
         """Overlay the final scatter plot from ``self.meas`` and ``self.sim``.
 
-        Builds the scatter plot for each CapData instance via the resolved
-        preset's ``scatter_plots`` callable, then overlays the two first-panel
+        Builds the scatter plot for each CapData instance via the
+        :data:`SCATTER_REGISTRY` function the resolved setup's
+        ``scatter_plots`` names, then overlays the two first-panel
         scatters with labels.
 
         Parameters
@@ -3359,7 +3404,7 @@ class CapTest(param.Parameterized):
                 "`uv add holoviews` or equivalent."
             )
         self._require_setup()
-        scatter_fn = self._resolved_setup["scatter_plots"]
+        scatter_fn = SCATTER_REGISTRY[self.resolved_setup.scatter_plots]
         meas_layout = scatter_fn(self.meas)
         sim_layout = scatter_fn(self.sim)
         # scatter_fn returns an hv.Layout whose first element is an hv.Scatter.
@@ -3440,7 +3485,7 @@ class CapTest(param.Parameterized):
     # --- internal helpers ------------------------------------------------
 
     def _require_setup(self):
-        if self._resolved_setup is None:
+        if self.resolved_setup is None:
             raise RuntimeError("CapTest.setup() must be called first.")
 
     def _require_meas_and_sim(self):
@@ -3473,25 +3518,21 @@ class CapTest(param.Parameterized):
             return self.sim
         raise ValueError(f"which must be 'meas' or 'sim'; got {which!r}.")
 
-    @property
-    def resolved_setup(self):
-        """Return the resolved TEST_SETUPS entry or raise if setup() not run."""
-        self._require_setup()
-        return self._resolved_setup
-
 
 # Silence ruff F401: these are public API; re-imported by `capdata.py`.
 __all__ = [
     "CapTest",
     "CapTestResults",
+    "SCATTER_REGISTRY",
+    "SETUPS_DIR",
     "TEST_SETUPS",
     "highlight_pvals",
     "load_config",
+    "load_presets",
     "perc_wrap",
     "resolve_test_setup",
     "scatter_bifi_power_tc",
     "scatter_default",
     "scatter_etotal",
     "test_setups",
-    "validate_test_setup",
 ]

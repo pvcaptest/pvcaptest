@@ -6,6 +6,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Added
+- `CapTest.run_fingerprint`, `run_fingerprint_error`, `mapping_fingerprint()`
+  and `last_results`: bind a completed `run_test()`'s results to the
+  configuration that produced them, including load settings as they were at
+  load time. Unset after a single-side or failed run, a reload, or a run with
+  a non-default `pval`, `check_pvalues=True` or `auto_wrap_sim=False`; while
+  `meas` or `sim` is a different `CapData` from the one the run used (e.g.
+  `tst.meas = tst.meas.copy()`), `run_fingerprint` and `last_results` read
+  `None` and `run_fingerprint_error` says the side was replaced. A copied
+  `CapTest` does not carry the run over. Computing it never makes `run_test`
+  raise.
+- `captest.io.loader_id(identifier)`: label a data loader; `load_data` and
+  `load_pvsyst` carry `"captest.csv_meas"` and `"captest.pvsyst"`.
+  `CapTest.load_provenance` reports the `loader_id` behind each side's
+  current data (`None` for pre-built, unlabelled or replaced sides), and
+  `CapTest.loader_implementations` the loader callable captured at load time.
+  A label counts only on the object `loader_id` decorated: a wrapper that
+  copies it (`functools.wraps`, `functools.lru_cache`) is an unlabelled
+  loader unless it is decorated itself. A bound method keeps its function's
+  label only when that function is the method its instance's class defines
+  (decorated in the class body).
+- `captest.resolve_setup_from_mapping(sub)`: resolve the `TestSetup` a captest
+  sub-mapping describes without loading data, with exactly the key checks and
+  override handling of `CapTest.from_mapping` + `setup()`.
 - New `TimeOfDay` filter step (and `CapData.filter_time_of_day()` wrapper) —
 keep or drop a daily clock-time window via `DataFrame.between_time`. The
 first-class, serializable replacement for
@@ -18,6 +41,112 @@ semantics as the Overlay plot's columns filter), where `group_regex` matches
 `column_groups` ids. Accepted by `prep_convert_units`, `prep_scale`, and
 `prep_astype`; `RenameColumns` continues to reject all selectors in favor of
 `column_map`.
+- `captest.setup`: `TestSetup` documents with tier-1 validation, `derive`,
+`content_digest`, `TestSetup.load` / `to_yaml` / `to_json` / `json_schema`,
+and tier-2 `check_project_fit`; `CapTest.check_fit()`; `CapTest.params` and
+`CapTest.scatter_plots_name` overrides; `calcparams.register_calc` /
+`CALC_REGISTRY`; `captest.captest.SCATTER_REGISTRY`.
+- `TestSetup.semantic_digest()` and `captest.setup.SEMANTIC_FIELDS`: a digest of
+  a setup's meaning (`reg_fml`, sides, `params`, `rep_conditions`,
+  `scatter_plots`) that ignores `name`, `description` and `derived_from`.
+- `calcparams.register_calc` accepts a redefinition of a registered
+function (same `__module__` and `__qualname__`, e.g. a re-run notebook cell)
+and replaces the entry; registering a different function under a taken name
+raises `ValueError`.
+- `TestSetup.derive(base, **changes)` is a static alias of `setup.derive`;
+`TestSetup.load` accepts a path (`str` or `Path`) or a mapping and
+`TestSetup.loads` accepts yaml or json document text.
+- `CapTest.resolved_setup` holds the complete `TestSetup` that `setup()`
+resolved (`None` before `setup()`); read `resolved_setup.to_dict()` /
+`content_digest()` for the normalised setup and its identity.
+- `captest.captest.load_presets` and `SETUPS_DIR` (the shipped preset
+directory); `util.canonical_json` and `util.reg_col_label`.
+
+### Changed
+- `statsmodels` is capped below 0.15 (`statsmodels>=0.8,<0.15`). statsmodels
+  0.15 fits formulas with formulaic instead of patsy, so
+  `model.data.design_info` no longer exists and regression fitting fails.
+  Remove the cap once captest supports the formulaic model data.
+- `patsy>=0.5.6` is now a declared dependency. captest imports it directly
+  (`capdata`, `setup`); it was previously only pulled in by statsmodels.
+- **Breaking:** test setups are now pure-data documents. `regression_cols`
+trees use tagged nodes — `{group: irr_poa, agg: mean}`, `{column: E_Grid}`,
+`{calc: e_total, args: {...}}` — instead of `(group, agg)` / `(callable,
+kwargs)` tuples, and every calculation is referenced by its registry name.
+The tuple grammar is not accepted anywhere. Presets ship as
+`src/captest/setups/<name>.yaml` and `TEST_SETUPS` holds
+`captest.setup.TestSetup` models. `reg_cols_meas` / `reg_cols_sim` overrides
+merge key by key onto the preset (`null` removes a term) and `to_yaml` writes
+only the changed terms. `rep_conditions.func` values are the strings `mean`,
+`median` or `perc_N`; `perc_wrap(...)` callables are no longer accepted in a
+setup or override. `CapData.custom_param` gains `output=` and injects
+`CapData` attributes only for absent keyword arguments (an explicit `None`
+now reaches the function); it no longer takes `*args`, so every argument after
+`func` must be passed by keyword. New dependency: `pydantic>=2.5,<3`.
+- **Breaking:** a bare string is no longer a column or column-group reference
+in `regression_cols`; it is a literal, and a literal as a formula variable's
+value fails validation. Rewrite `cd.regression_cols = {'power':
+'real_pwr_mtr', ...}` assignments and `reg_cols_meas` / `reg_cols_sim`
+overrides in existing yaml configs (`power: real_pwr_mtr`, `poa: irr_poa`) as
+`{column: <name>}` or `{group: <id>, agg: <fn>}` nodes.
+`CapData.set_regression_cols` still accepts plain column names and group ids
+and builds the nodes.
+- **Breaking:** `TEST_SETUPS` values and the return value of
+`resolve_test_setup` are `captest.setup.TestSetup` objects, not dicts, so
+subscripting them (`TEST_SETUPS[name]["reg_fml"]`) fails; use attributes
+(`TEST_SETUPS[name].reg_fml`) or `.to_dict()`. A `scatter_plots` override is
+now a name in `captest.captest.SCATTER_REGISTRY` (`default`, `etotal`,
+`bifi_power_tc`), not a callable.
+- When `TestSetup.derive` (and so a named preset's overrides) drops a
+formula term, the term's `rep_conditions.func` entry is pruned; only entries
+for variables on the base formula's right-hand side and absent from the new
+one are pruned, so a misspelled `func` key is rejected by validation rather
+than silently dropped.
+- `pyyaml>=6` is now a declared core dependency alongside `pydantic` (setup
+documents are read with `yaml.safe_load`).
+- `CapTest.setup()` runs the tier-2 project-fit check before writing any
+column and raises `setup.SetupFitError` listing every finding. The
+`*_rear_shade_sim` presets declare `params: {rear_shade: 0}`, so they now
+refuse a non-zero `CapTest.rear_shade` instead of double-counting the rear
+shading loss.
+- `CapTest.to_yaml` / `to_mapping` now resolve the setup and raise for an
+incomplete or invalid config (e.g. a `custom` test missing a side or the
+formula) rather than writing a file that cannot be loaded. An override that
+leaves the preset unchanged resolves to the preset itself, so it keeps the
+preset's `content_digest()` across a round trip.
+- `CapTest.to_yaml` / `to_mapping` write each side's `<side>_load_kwargs` and
+`<side>_prep` right after its `<side>_path`, so re-saving an existing yaml
+config may reorder those keys; the content is unchanged.
+- `CapTest.reload` resolves a relative data path against the directory the
+test was built in instead of the current working directory at reload time:
+the `base_dir` of `from_mapping` (the yaml file's directory for `from_yaml`;
+a relative `base_dir` is made absolute at construction), else the working
+directory when `from_params` read the path. A later `chdir` no longer
+changes which file a reload reads; the stored and serialized path keeps its
+relative spelling. A reload rejected by its argument checks no longer clears
+`last_results`.
+- `CapTest.to_yaml` / `to_mapping` now write `overrides.rep_conditions` also
+when a `RepCond` step is in a filter pipeline or `rc_source` is `manual`
+(it was dropped before), so the reloaded `resolved_setup` keeps its
+`content_digest()`. Loading does not apply it: a replayed `RepCond` step
+uses its own arguments and a manual rc is restored from
+`reporting_conditions_values`.
+- `CapData.set_regression_cols` builds nodes: a column group id becomes a
+`Group` node, a single-column group becomes a `Column` node for its one
+column (used as is, not aggregated), and any other name a `Column` node.
+- `CapData.agg_sensors` honours an explicitly given `Group.agg` in
+`regression_cols` and falls back to its per-variable default (sum for
+power, mean otherwise) only when `agg` is unset.
+- `CapData.process_regression_columns` can be re-run on already flattened
+`regression_cols`: each string equal to the column its stored node produced
+is evaluated again from that node; any other plain string raises
+`ValueError`.
+- `CapData.agg_sensors` records the node behind each flattened value (with
+the aggregation it applied) in `regression_cols_preprocess`, so
+`agg_sensors()` followed by `process_regression_columns()` keeps working.
+
+### Removed
+- `util.update_by_path` and `captest.captest.validate_test_setup`.
 
 ### Fixed
 - `CapData.copy()` now carries over the `site` and `tolerance` attributes,
@@ -26,6 +155,14 @@ copy-per-run pattern, and a dropped `site` made `filter_backtracking` (and the
 solar-position `calcparams` helpers) silently degrade to a no-op on the copy,
 while a dropped `tolerance` broke `predict_capacities`. A copy now always
 exposes `site`, set to `None` when the source has none.
+- `Time.to_config()` writes `start` / `end` / `test_date` as ISO-8601 strings,
+  so a test that used `filter_time(test_date=pd.Timestamp(...))` serializes to
+  plain JSON and can be stored and reloaded. A zone-aware value is written as
+  its full instant; a named zone is also kept in the new `Time.tz` param, so
+  day-window arithmetic across DST, and the occurrence of a repeated hour, are
+  unchanged on reload. A zone that cannot be named (e.g. `dateutil.tz.gettz`)
+  is kept as the raw value: replay is exact, and storage refuses it rather
+  than degrading it to a fixed offset.
 
 [0.17.0]: https://github.com/pvcaptest/pvcaptest/compare/v0.16.0...v0.17.0
 ## [0.17.0] - 2026-07-30

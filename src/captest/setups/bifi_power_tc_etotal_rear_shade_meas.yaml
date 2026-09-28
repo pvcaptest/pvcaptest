@@ -1,0 +1,48 @@
+name: bifi_power_tc_etotal_rear_shade_meas
+description: >-
+  The regression equation is temperature corrected power regressed against
+  total POA irradiance. The back of module temperature is from field measurements
+  and the cell temperature is calculated using the Sandia PV Array Performance
+  Model from the POA irradiance and measured BOM temperature. Note that
+  the PVsyst temperature correction uses the 'TArray' output variable. Variant
+  of 'bifi_power_tc_etotal_rear_shade_sim' for applying rear-shading losses
+  on the measured side. The modeled rear irradiance maps directly to PVsyst's
+  unshaded global rear ('GlobBak') instead of rpoa_pvsyst, and rear shading
+  is applied to the measured side through the e_total 'rear_shade' factor
+  (propagated by CapTest to the measured CapData only). This is the variant
+  to select when 'rear_shade' is set to a non-zero value. Total irradiance
+  is E_Total = E_POA + E_Rear * bifaciality * (1 - rear_shade).
+reg_fml: power ~ poa
+meas:
+  reg_cols:
+    power:
+      calc: power_temp_correct
+      args:
+        power: {group: real_pwr_mtr, agg: sum}
+        cell_temp:
+          calc: cell_temp
+          args:
+            poa: {group: irr_poa, agg: mean}
+            bom: {group: temp_bom, agg: mean}
+    poa:
+      calc: e_total
+      args:
+        poa: {group: irr_poa, agg: mean}
+        rpoa: {group: irr_rpoa, agg: mean}
+sim:
+  reg_cols:
+    power:
+      calc: power_temp_correct
+      args:
+        power: {column: E_Grid}
+        cell_temp: {column: TArray}
+    poa:
+      calc: e_total
+      args:
+        poa: {column: GlobInc}
+        rpoa: {column: GlobBak}
+rep_conditions:
+  irr_bal: false
+  percent_filter: 20
+  func: {poa: perc_60}
+scatter_plots: etotal

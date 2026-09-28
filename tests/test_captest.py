@@ -1,13 +1,14 @@
 """Tests for captest.captest module.
 
-Covers the TEST_SETUPS registry, the validate_test_setup / resolve_test_setup
-/ load_config helpers, the three shipped scatter-plot callables, and the
+Covers the TEST_SETUPS registry, the resolve_test_setup / load_config
+helpers, the three shipped scatter-plot callables, and the
 ``CapTest`` orchestrator class itself (Units 4 and 6 of the implementation
 plan).
 """
 
 from __future__ import annotations
 
+import os
 import sys
 import warnings
 from pathlib import Path
@@ -19,16 +20,6 @@ import pytest
 import yaml
 
 from captest import CapTest, captest as ct, columngroups as cg, load_pvsyst, util
-from captest.calcparams import (
-    apparent_zenith_pvsyst,
-    cell_temp,
-    e_total,
-    poa_spec_corrected,
-    power_temp_correct,
-    rpoa_pvsyst,
-    scale,
-    spectral_factor_firstsolar,
-)
 from captest.capdata import CapData
 from captest.captest import CapTestResults
 from captest.filters import Irradiance
@@ -69,263 +60,467 @@ def other_pvsyst_file():
 
 
 class TestTestSetupsRegistry:
-    @pytest.mark.parametrize("preset", list(ct.TEST_SETUPS.keys()))
-    def test_each_shipped_preset_validates(self, preset):
-        """Each shipped preset dict passes validate_test_setup as-is."""
-        ct.validate_test_setup(ct.TEST_SETUPS[preset])
+    @pytest.mark.parametrize("preset", sorted(ct.TEST_SETUPS))
+    def test_each_preset_is_a_test_setup(self, preset):
+        from captest.setup import TestSetup
 
-    @pytest.mark.parametrize("preset", list(ct.TEST_SETUPS.keys()))
+        assert isinstance(ct.TEST_SETUPS[preset], TestSetup)
+        assert ct.TEST_SETUPS[preset].name == preset
+
+    @pytest.mark.parametrize("preset", sorted(ct.TEST_SETUPS))
     def test_each_preset_lhs_is_power(self, preset):
-        """Naming convention: lhs regression variable is always 'power'."""
-        entry = ct.TEST_SETUPS[preset]
-        lhs = entry["reg_fml"].split("~")[0].strip()
-        assert lhs == "power", f"preset {preset!r} lhs is {lhs!r}, expected 'power'"
+        assert ct.TEST_SETUPS[preset].reg_fml.split("~")[0].strip() == "power"
 
-    @pytest.mark.parametrize("preset", list(ct.TEST_SETUPS.keys()))
-    def test_each_preset_has_rep_conditions_dict(self, preset):
-        rc = ct.TEST_SETUPS[preset]["rep_conditions"]
-        assert isinstance(rc, dict)
-        assert "func" in rc
-        assert isinstance(rc["func"], dict)
+    @pytest.mark.parametrize("preset", sorted(ct.TEST_SETUPS))
+    def test_each_preset_scatter_name_is_registered(self, preset):
+        assert ct.TEST_SETUPS[preset].scatter_plots in ct.SCATTER_REGISTRY
+
+    def test_registry_matches_the_files_on_disk(self):
+        names = {p.stem for p in ct.SETUPS_DIR.glob("*.yaml")}
+        assert names == set(ct.TEST_SETUPS)
 
     def test_e2848_default_shape(self):
-        """Sanity-check the default preset's reg_cols keys."""
         entry = ct.TEST_SETUPS["e2848_default"]
-        assert set(entry["reg_cols_meas"].keys()) == {"power", "poa", "t_amb", "w_vel"}
-        assert set(entry["reg_cols_sim"].keys()) == {"power", "poa", "t_amb", "w_vel"}
+        assert set(entry.meas.reg_cols) == {"power", "poa", "t_amb", "w_vel"}
+        assert set(entry.sim.reg_cols) == {"power", "poa", "t_amb", "w_vel"}
 
     def test_bifi_e2848_etotal_rear_shade_sim_uses_e_total(self):
-        """bifi_e2848_etotal_rear_shade_sim preset wraps poa in an e_total calc-tuple."""
-        entry = ct.TEST_SETUPS["bifi_e2848_etotal_rear_shade_sim"]
-        meas_poa = entry["reg_cols_meas"]["poa"]
-        assert isinstance(meas_poa, tuple)
-        assert meas_poa[0] is e_total
+        from captest.setup import Calc
 
-    def test_bifi_power_tc_calc_tbom_uses_power_temp_correct(self):
-        entry = ct.TEST_SETUPS["bifi_power_tc_calc_tbom"]
-        meas_power = entry["reg_cols_meas"]["power"]
-        assert isinstance(meas_power, tuple)
-        assert meas_power[0] is power_temp_correct
+        node = ct.TEST_SETUPS["bifi_e2848_etotal_rear_shade_sim"].meas.reg_cols["poa"]
+        assert isinstance(node, Calc) and node.calc == "e_total"
 
-    def test_bifi_power_tc_meas_tbom_uses_measured_bom(self):
-        """meas-side BOM temp is a direct column-group ref, not a calc tuple."""
-        entry = ct.TEST_SETUPS["bifi_power_tc_meas_tbom"]
-        meas_power = entry["reg_cols_meas"]["power"]
-        assert isinstance(meas_power, tuple)
-        assert meas_power[0] is power_temp_correct
-        cell_temp_node = meas_power[1]["cell_temp"]
-        assert isinstance(cell_temp_node, tuple)
-        assert cell_temp_node[0] is cell_temp
-        # BOM temperature comes from field measurements (direct column-group ref).
-        bom_spec = cell_temp_node[1]["bom"]
-        assert bom_spec == ("temp_bom", "mean")
+    def test_rear_shade_sim_presets_constrain_rear_shade(self):
+        for name in (
+            "bifi_e2848_etotal_rear_shade_sim",
+            "bifi_power_tc_etotal_rear_shade_sim",
+            "bifi_e2848_etotal_rear_shade_sim_spec_corrected",
+        ):
+            assert ct.TEST_SETUPS[name].params == {"rear_shade": 0}, name
+
+    def test_rear_shade_meas_presets_are_unconstrained(self):
+        assert ct.TEST_SETUPS["bifi_e2848_etotal_rear_shade_meas"].params == {}
 
     def test_e2848_spec_corrected_poa_meas_tree_uses_spectral_factor(self):
-        """The meas-side poa tree ends with spectral_factor_firstsolar."""
-        entry = ct.TEST_SETUPS["e2848_spec_corrected_poa"]
-        meas_poa = entry["reg_cols_meas"]["poa"]
-        assert isinstance(meas_poa, tuple)
-        assert meas_poa[0] is poa_spec_corrected
-        spec_node = meas_poa[1]["spectral_correction"]
-        assert isinstance(spec_node, tuple)
-        assert spec_node[0] is spectral_factor_firstsolar
+        poa = ct.TEST_SETUPS["e2848_spec_corrected_poa"].meas.reg_cols["poa"]
+        assert poa.calc == "poa_spec_corrected"
+        assert poa.args["spectral_correction"].calc == "spectral_factor_firstsolar"
 
     def test_e2848_spec_corrected_poa_sim_uses_apparent_zenith_pvsyst(self):
-        """The sim-side tree routes through apparent_zenith_pvsyst."""
-        entry = ct.TEST_SETUPS["e2848_spec_corrected_poa"]
-        sim_poa = entry["reg_cols_sim"]["poa"]
-        abs_airmass_node = sim_poa[1]["spectral_correction"][1]["absolute_airmass"]
-        zenith_node = abs_airmass_node[1]["apparent_zenith"]
-        assert isinstance(zenith_node, tuple)
-        assert zenith_node[0] is apparent_zenith_pvsyst
-
-    def test_spec_corrected_etotal_sim_front_spec_corrected_rear_raw(self):
-        """_sim meas poa = e_total(front=poa_spec_corrected, rear=raw irr_rpoa)."""
-        entry = ct.TEST_SETUPS["bifi_e2848_etotal_rear_shade_sim_spec_corrected"]
-        meas_poa = entry["reg_cols_meas"]["poa"]
-        assert isinstance(meas_poa, tuple)
-        assert meas_poa[0] is e_total
-        assert meas_poa[1]["poa"][0] is poa_spec_corrected
-        assert meas_poa[1]["rpoa"] == ("irr_rpoa", "mean")
-
-    def test_spec_corrected_etotal_sim_rear_uses_rpoa_pvsyst(self):
-        """_sim sim-side rear routes through rpoa_pvsyst (shading in model)."""
-        entry = ct.TEST_SETUPS["bifi_e2848_etotal_rear_shade_sim_spec_corrected"]
-        sim_rear = entry["reg_cols_sim"]["poa"][1]["rpoa"]
-        assert isinstance(sim_rear, tuple)
-        assert sim_rear[0] is rpoa_pvsyst
-
-    def test_spec_corrected_etotal_meas_rear_maps_to_globbak(self):
-        """_meas sim-side rear maps directly to GlobBak; meas side matches _sim."""
-        entry = ct.TEST_SETUPS["bifi_e2848_etotal_rear_shade_meas_spec_corrected"]
-        assert entry["reg_cols_sim"]["poa"][1]["rpoa"] == "GlobBak"
-        meas_poa = entry["reg_cols_meas"]["poa"]
-        assert meas_poa[0] is e_total
-        assert meas_poa[1]["poa"][0] is poa_spec_corrected
-        assert meas_poa[1]["rpoa"] == ("irr_rpoa", "mean")
-
-    def test_spec_corrected_etotal_sim_routes_through_pvsyst_zenith_and_scale(self):
-        """_sim sim-side spectral tree uses apparent_zenith_pvsyst + scale(PrecWat)."""
-        entry = ct.TEST_SETUPS["bifi_e2848_etotal_rear_shade_sim_spec_corrected"]
-        front = entry["reg_cols_sim"]["poa"][1]["poa"]  # poa_spec_corrected tuple
-        assert front[0] is poa_spec_corrected
-        spec_node = front[1]["spectral_correction"]
-        assert spec_node[0] is spectral_factor_firstsolar
-        zenith = spec_node[1]["absolute_airmass"][1]["apparent_zenith"]
-        assert zenith[0] is apparent_zenith_pvsyst
-        assert spec_node[1]["precipitable_water"][0] is scale
-
-    def test_spec_corrected_etotal_presets_use_scatter_etotal(self):
-        """Both presets use scatter_etotal, matching the other e_total presets."""
-        for name in (
-            "bifi_e2848_etotal_rear_shade_sim_spec_corrected",
-            "bifi_e2848_etotal_rear_shade_meas_spec_corrected",
-        ):
-            assert ct.TEST_SETUPS[name]["scatter_plots"] is ct.scatter_etotal
-
-    def test_power_tc_etotal_power_is_temp_corrected_with_measured_bom(self):
-        """power_tc_etotal meas power is power_temp_correct over measured BOM."""
-        entry = ct.TEST_SETUPS["bifi_power_tc_etotal_rear_shade_sim"]
-        meas_power = entry["reg_cols_meas"]["power"]
-        assert meas_power[0] is power_temp_correct
-        bom_spec = meas_power[1]["cell_temp"][1]["bom"]
-        assert bom_spec == ("temp_bom", "mean")
-
-    def test_power_tc_etotal_poa_is_e_total_over_front_and_rear(self):
-        """power_tc_etotal meas poa is an e_total calc-tuple over front + rear."""
-        entry = ct.TEST_SETUPS["bifi_power_tc_etotal_rear_shade_sim"]
-        meas_poa = entry["reg_cols_meas"]["poa"]
-        assert meas_poa[0] is e_total
-        assert meas_poa[1]["poa"] == ("irr_poa", "mean")
-        assert meas_poa[1]["rpoa"] == ("irr_rpoa", "mean")
-
-    def test_power_tc_etotal_sim_rear_uses_rpoa_pvsyst(self):
-        """_sim sim-side e_total rear routes through rpoa_pvsyst (shading in model)."""
-        entry = ct.TEST_SETUPS["bifi_power_tc_etotal_rear_shade_sim"]
-        sim_rear = entry["reg_cols_sim"]["poa"][1]["rpoa"]
-        assert isinstance(sim_rear, tuple)
-        assert sim_rear[0] is rpoa_pvsyst
-
-    def test_power_tc_etotal_meas_rear_maps_to_globbak(self):
-        """_meas sim-side e_total rear maps directly to GlobBak (no rpoa_pvsyst)."""
-        entry = ct.TEST_SETUPS["bifi_power_tc_etotal_rear_shade_meas"]
-        assert entry["reg_cols_sim"]["poa"][1]["rpoa"] == "GlobBak"
-
-    def test_power_tc_etotal_presets_use_scatter_etotal_and_single_term_formula(self):
-        """Both presets use scatter_etotal and the single-term 'power ~ poa' formula."""
-        for name in (
-            "bifi_power_tc_etotal_rear_shade_sim",
-            "bifi_power_tc_etotal_rear_shade_meas",
-        ):
-            assert ct.TEST_SETUPS[name]["scatter_plots"] is ct.scatter_etotal
-            assert ct.TEST_SETUPS[name]["reg_fml"] == "power ~ poa"
-
-    def test_validate_rejects_unknown_keys(self):
-        bad = dict(ct.TEST_SETUPS["e2848_default"])
-        bad["bogus"] = 42
-        with pytest.raises(KeyError, match="unknown keys"):
-            ct.validate_test_setup(bad)
-
-    def test_validate_rejects_missing_keys(self):
-        bad = dict(ct.TEST_SETUPS["e2848_default"])
-        bad.pop("rep_conditions")
-        with pytest.raises(KeyError, match="missing required keys"):
-            ct.validate_test_setup(bad)
-
-    def test_validate_rejects_non_callable_scatter_plots(self):
-        bad = dict(ct.TEST_SETUPS["e2848_default"])
-        bad["scatter_plots"] = "not-a-callable"
-        with pytest.raises(ValueError, match="scatter_plots"):
-            ct.validate_test_setup(bad)
-
-    def test_validate_rejects_formula_vars_missing_from_reg_cols(self):
-        bad = dict(ct.TEST_SETUPS["e2848_default"])
-        bad["reg_cols_meas"] = {
-            k: v for k, v in bad["reg_cols_meas"].items() if k != "w_vel"
-        }
-        with pytest.raises(ValueError, match="missing keys required by reg_fml"):
-            ct.validate_test_setup(bad)
-
-    def test_validate_rejects_non_dict_rep_conditions(self):
-        bad = dict(ct.TEST_SETUPS["e2848_default"])
-        bad["rep_conditions"] = "not-a-dict"
-        with pytest.raises(ValueError, match="'rep_conditions' must be a dict"):
-            ct.validate_test_setup(bad)
-
-    def test_validate_rejects_func_with_non_rhs_keys(self):
-        bad = dict(ct.TEST_SETUPS["e2848_default"])
-        # Reconstruct rep_conditions with an extra func key.
-        rc = dict(bad["rep_conditions"])
-        rc["func"] = dict(rc["func"])
-        rc["func"]["bogus"] = "mean"
-        bad["rep_conditions"] = rc
-        with pytest.raises(ValueError, match="rhs variables"):
-            ct.validate_test_setup(bad)
+        poa = ct.TEST_SETUPS["e2848_spec_corrected_poa"].sim.reg_cols["poa"]
+        zenith = (
+            poa.args["spectral_correction"]
+            .args["absolute_airmass"]
+            .args["apparent_zenith"]
+        )
+        assert zenith.calc == "apparent_zenith_pvsyst"
 
 
 class TestResolveTestSetup:
     def test_named_preset_no_overrides(self):
-        resolved = ct.resolve_test_setup("e2848_default")
-        assert resolved["reg_fml"] == ct.TEST_SETUPS["e2848_default"]["reg_fml"]
+        assert ct.resolve_test_setup("e2848_default") == ct.TEST_SETUPS["e2848_default"]
 
-    def test_named_preset_with_reg_fml_override(self):
-        # Keep the same rhs variables (otherwise rep_conditions.func keys no
-        # longer align with rhs and validate_test_setup rejects the result).
-        resolved = ct.resolve_test_setup(
-            "e2848_default",
-            overrides={
-                "reg_fml": "power ~ poa + I(poa * poa) + I(poa * t_amb) + I(poa * w_vel)"
-            },
-        )
-        assert resolved["reg_fml"].startswith("power ~ poa")
+    def test_reg_fml_override(self):
+        fml = "power ~ poa + I(poa * poa) + I(poa * t_amb) + I(poa * w_vel)"
+        assert ct.resolve_test_setup("e2848_default", {"reg_fml": fml}).reg_fml == fml
 
-    def test_named_preset_with_rep_conditions_partial_merge(self):
-        resolved = ct.resolve_test_setup(
-            "e2848_default",
-            overrides={"rep_conditions": {"percent_filter": 10}},
+    def test_rep_conditions_partial_merge(self):
+        out = ct.resolve_test_setup(
+            "e2848_default", {"rep_conditions": {"percent_filter": 10}}
         )
-        # Top-level percent_filter replaced, other keys preserved.
-        assert resolved["rep_conditions"]["percent_filter"] == 10
-        assert resolved["rep_conditions"]["irr_bal"] is False
-        # func dict untouched.
-        assert set(resolved["rep_conditions"]["func"].keys()) == {
-            "poa",
-            "t_amb",
-            "w_vel",
+        assert out.rep_conditions.percent_filter == 10
+        assert out.rep_conditions.irr_bal is False
+        assert set(out.rep_conditions.func) == {"poa", "t_amb", "w_vel"}
+
+    def test_rep_conditions_func_partial_merge_takes_strings(self):
+        out = ct.resolve_test_setup(
+            "e2848_default", {"rep_conditions": {"func": {"poa": "perc_55"}}}
+        )
+        assert out.rep_conditions.func == {
+            "poa": "perc_55",
+            "t_amb": "mean",
+            "w_vel": "mean",
         }
 
-    def test_named_preset_with_rep_conditions_func_partial_merge(self):
-        resolved = ct.resolve_test_setup(
-            "e2848_default",
-            overrides={"rep_conditions": {"func": {"poa": ct.perc_wrap(55)}}},
+    def test_reg_cols_override_merges_one_term(self):
+        out = ct.resolve_test_setup(
+            "e2848_default", {"reg_cols_meas": {"poa": {"group": "irr_ghi"}}}
         )
-        # POA entry swapped; others preserved.
-        assert resolved["rep_conditions"]["func"]["t_amb"] == "mean"
-        assert resolved["rep_conditions"]["func"]["w_vel"] == "mean"
-        assert callable(resolved["rep_conditions"]["func"]["poa"])
+        assert out.meas.reg_cols["poa"].group == "irr_ghi"
+        assert (
+            out.meas.reg_cols["power"]
+            == ct.TEST_SETUPS["e2848_default"].meas.reg_cols["power"]
+        )
+        assert out.derived_from == "e2848_default"
 
     def test_unknown_preset_raises(self):
         with pytest.raises(KeyError, match="Unknown test_setup"):
             ct.resolve_test_setup("nonexistent")
+
+    def test_unknown_scatter_name_raises_with_hint(self):
+        with pytest.raises(ValueError, match="etotal"):
+            ct.resolve_test_setup("e2848_default", {"scatter_plots": "etotl"})
 
     def test_custom_requires_all_three_overrides(self):
         with pytest.raises(ValueError, match="test_setup='custom'"):
             ct.resolve_test_setup("custom", overrides={"reg_fml": "y ~ x"})
 
     def test_custom_with_minimal_overrides(self):
-        resolved = ct.resolve_test_setup(
+        out = ct.resolve_test_setup(
             "custom",
             overrides={
-                "reg_cols_meas": {"power": "p", "poa": "i"},
-                "reg_cols_sim": {"power": "p", "poa": "i"},
+                "reg_cols_meas": {"power": {"column": "p"}, "poa": {"column": "i"}},
+                "reg_cols_sim": {"power": {"column": "p"}, "poa": {"column": "i"}},
                 "reg_fml": "power ~ poa",
             },
         )
-        assert resolved["reg_fml"] == "power ~ poa"
-        # scatter_plots falls back to scatter_default.
-        assert resolved["scatter_plots"] is ct.scatter_default
-        # rep_conditions defaults to empty dict.
-        assert resolved["rep_conditions"] == {}
+        assert out.name == "custom"
+        assert out.scatter_plots == "default"
+        assert out.rep_conditions.func == {}
+
+    def test_custom_accepts_a_description(self):
+        side = {"power": {"column": "p"}, "poa": {"column": "i"}}
+        out = ct.resolve_test_setup(
+            "custom",
+            overrides={
+                "reg_cols_meas": side,
+                "reg_cols_sim": side,
+                "reg_fml": "power ~ poa",
+                "description": "site-specific form",
+            },
+        )
+        assert out.description == "site-specific form"
+
+    def test_description_is_not_an_override_of_a_named_preset(self):
+        with pytest.raises(ValueError, match="Unknown override key"):
+            ct.resolve_test_setup("e2848_default", {"description": "x"})
+
+    def test_unknown_override_key_raises(self):
+        with pytest.raises(ValueError, match="reg_fmll"):
+            ct.resolve_test_setup("e2848_default", {"reg_fmll": "power ~ poa"})
+
+
+class TestSetupWiring:
+    def test_resolved_setup_is_a_test_setup(self, ct_default):
+        from captest.setup import TestSetup
+
+        assert isinstance(ct_default.resolved_setup, TestSetup)
+
+    def test_untouched_test_resolves_to_the_preset_itself(
+        self, meas_cd_default, sim_cd_default
+    ):
+        tst = CapTest(test_setup="e2848_default", rep_conditions={}, reg_cols_meas={})
+        tst.meas, tst.sim = meas_cd_default, sim_cd_default
+        tst.setup(verbose=False)
+        preset = ct.TEST_SETUPS["e2848_default"]
+        assert tst.resolved_setup == preset
+        assert tst.resolved_setup.derived_from is None
+        assert tst.resolved_setup.content_digest() == preset.content_digest()
+
+    def test_params_numpy_scalars_write_as_native_yaml(self, tmp_path):
+        tst = CapTest(
+            test_setup="e2848_default", params={"bifaciality": np.float64(0.7)}
+        )
+        tst.to_yaml(tmp_path / "c.yaml", merge_into_existing=False)
+        with open(tmp_path / "c.yaml") as fh:
+            sub = yaml.safe_load(fh)["captest"]
+        assert sub["overrides"]["params"] == {"bifaciality": 0.7}
+
+    def test_resolution_error_leaves_sim_data_untouched(self):
+        meas_idx = pd.date_range("2023-11-01", "2023-12-15", freq="h")
+        tst = _ct_with(meas_idx, _hourly_typical_year(1990).index)
+        tst.test_setup = "custom"
+        tst.reg_fml = "poa ~ poa - 1"
+        sim_before = tst.sim.data.copy()
+        with pytest.raises(ValueError, match="custom"):
+            tst.setup(verbose=False)
+        pd.testing.assert_frame_equal(tst.sim.data, sim_before)
+        assert getattr(tst.sim, "_pre_wrap_data", None) is None
+
+    def test_resolved_setup_is_none_before_setup(self):
+        tst = CapTest(test_setup="e2848_default")
+        assert tst.resolved_setup is None
+        with pytest.raises(RuntimeError):
+            tst.scatter_plots()
+
+    def test_second_setup_on_the_same_instance(self, ct_default):
+        first = ct_default.meas.regression_cols.copy()
+        ct_default.setup(verbose=False)
+        assert ct_default.meas.regression_cols == first
+        assert ct_default.resolved_setup == ct.TEST_SETUPS["e2848_default"]
+
+    def test_rerun_with_a_different_setup_overwrites_calc_output(
+        self, meas_cd_default, sim_cd_default
+    ):
+        tst = CapTest.from_params(
+            test_setup="bifi_e2848_etotal_rear_shade_sim",
+            meas=meas_cd_default,
+            sim=sim_cd_default,
+            bifaciality=0.15,
+            verbose=False,
+        )
+        before = tst.meas.data["e_total"].copy()
+        tst.reg_cols_meas = {
+            "poa": {
+                "calc": "e_total",
+                "args": {
+                    "poa": {"group": "irr_poa", "agg": "mean"},
+                    "rpoa": {"group": "irr_rpoa", "agg": "mean"},
+                    "bifaciality": 0.5,
+                },
+            }
+        }
+        tst.setup(verbose=False)
+        after = tst.meas.data["e_total"]
+        assert tst.resolved_setup.derived_from == "bifi_e2848_etotal_rear_shade_sim"
+        assert not np.allclose(before.dropna(), after.dropna())
+        poa = tst.meas.data["irr_poa_mean_agg"]
+        rpoa = tst.meas.data["irr_rpoa_mean_agg"]
+        pd.testing.assert_series_equal(after, poa + rpoa * 0.5, check_names=False)
+
+    def test_reg_cols_override_merges_one_term(self, meas_cd_default, sim_cd_default):
+        tst = CapTest.from_params(
+            test_setup="e2848_default",
+            meas=meas_cd_default,
+            sim=sim_cd_default,
+            reg_cols_meas={"poa": {"group": "irr_rpoa"}},
+            ac_nameplate=6_000_000,
+            verbose=False,
+        )
+        assert tst.meas.regression_cols["poa"] == "irr_rpoa_mean_agg"
+        assert tst.meas.regression_cols["power"] == "real_pwr_mtr_sum_agg"
+
+    def test_tier_two_runs_before_evaluation(self, meas_cd_default, sim_cd_default):
+        from captest.setup import SetupFitError
+
+        with pytest.raises(SetupFitError, match="meas.reg_cols.poa.group"):
+            CapTest.from_params(
+                test_setup="e2848_default",
+                meas=meas_cd_default,
+                sim=sim_cd_default,
+                reg_cols_meas={"poa": {"group": "irr_ghi"}},
+                verbose=False,
+            )
+        assert "irr_ghi_mean_agg" not in meas_cd_default.data.columns
+
+    def test_params_constraint_is_enforced(self, meas_cd_default, sim_cd_default):
+        from captest.setup import SetupFitError
+
+        with pytest.raises(SetupFitError, match="rear_shade"):
+            CapTest.from_params(
+                test_setup="bifi_e2848_etotal_rear_shade_sim",
+                meas=meas_cd_default,
+                sim=sim_cd_default,
+                bifaciality=0.15,
+                rear_shade=0.2,
+                verbose=False,
+            )
+
+    def test_check_fit_lists_errors_without_running_setup(
+        self, meas_cd_default, sim_cd_default
+    ):
+        tst = CapTest.from_params(
+            test_setup="e2848_default",
+            meas=meas_cd_default,
+            sim=sim_cd_default,
+            reg_cols_meas={"poa": {"group": "irr_ghi"}},
+            run_setup=False,
+        )
+        errors = tst.check_fit()
+        assert [e.path for e in errors] == ["meas.reg_cols.poa.group"]
+        assert tst.resolved_setup is None
+
+    def test_rep_cond_resolves_func_strings(self, ct_default):
+        ct_default.rep_cond()
+        assert ct_default.rc is not None
+
+    def test_rep_cond_rejects_an_unknown_override_key(self, ct_default):
+        with pytest.raises(ValueError, match="Did you mean 'percent_filter'"):
+            ct_default.rep_cond(percent_filt=10)
+
+    def test_failed_rerun_keeps_the_previous_setup(self, ct_default):
+        from captest.setup import SetupFitError
+
+        wired = dict(ct_default.meas.regression_cols)
+        ct_default.reg_cols_meas = {"poa": {"group": "irr_ghi"}}
+        with pytest.raises(SetupFitError):
+            ct_default.setup(verbose=False)
+        assert ct_default.resolved_setup == ct.TEST_SETUPS["e2848_default"]
+        assert ct_default.meas.regression_cols == wired
+
+    def test_rep_cond_override_takes_perc_string(self, ct_default):
+        ct_default.rep_cond(func={"poa": "perc_55"})
+        assert ct_default.rc is not None
+
+    def test_scatter_plots_uses_the_registry(self, ct_default, monkeypatch):
+        called = {}
+        monkeypatch.setitem(
+            ct.SCATTER_REGISTRY, "default", lambda cd, **kw: called.update(cd=cd)
+        )
+        ct_default.scatter_plots()
+        assert called["cd"] is ct_default.meas
+
+    def test_rep_cond_then_yaml_round_trip(self, ct_default, tmp_path):
+        """The RepCond step's perc_wrap callable still serializes and reloads."""
+        ct_default.meas.filter_irr(200, 2000)
+        ct_default.rep_cond()
+        ct_default.to_yaml(tmp_path / "c.yaml", merge_into_existing=False)
+        with open(tmp_path / "c.yaml") as fh:
+            sub = yaml.safe_load(fh)["captest"]
+        rep_steps = [d for d in sub["meas_filters"] if d["type"] == "RepCond"]
+        assert rep_steps and rep_steps[0]["func"]["poa"] == "perc_60"
+        CapTest.from_yaml(tmp_path / "c.yaml", run_setup=False)
+
+    def test_edit_after_setup_is_what_gets_written(self, ct_default, tmp_path):
+        ct_default.reg_cols_meas = {"poa": {"group": "irr_rpoa", "agg": "mean"}}
+        ct_default.to_yaml(tmp_path / "c.yaml", merge_into_existing=False)
+        with open(tmp_path / "c.yaml") as fh:
+            sub = yaml.safe_load(fh)["captest"]
+        assert sub["overrides"]["reg_cols_meas"] == {
+            "poa": {"group": "irr_rpoa", "agg": "mean"}
+        }
+
+
+class TestRegColsYamlRoundTrip:
+    def _load(self, path):
+        with open(path) as fh:
+            return yaml.safe_load(fh)["captest"]
+
+    def _assert_round_trip_keeps_identity(self, tst, path):
+        """Reloaded test resolves to the original setup by value and digest."""
+        original = ct.resolve_test_setup(tst.test_setup, tst._collect_overrides())
+        again = CapTest.from_yaml(path, run_setup=False)
+        reloaded = ct.resolve_test_setup(again.test_setup, again._collect_overrides())
+        assert reloaded == original
+        assert reloaded.content_digest() == original.content_digest()
+        return original
+
+    @pytest.mark.parametrize(
+        "override",
+        [
+            {"reg_fml": ct.TEST_SETUPS["e2848_default"].reg_fml},
+            {"reg_cols_meas": {"poa": {"group": "irr_poa", "agg": "mean"}}},
+            {"rep_conditions": {"percent_filter": 20}},
+        ],
+        ids=["reg_fml", "reg_cols_term", "rep_conditions"],
+    )
+    def test_redundant_override_keeps_the_preset_identity(self, tmp_path, override):
+        tst = CapTest(test_setup="e2848_default", **override)
+        tst.to_yaml(tmp_path / "c.yaml", merge_into_existing=False)
+        original = self._assert_round_trip_keeps_identity(tst, tmp_path / "c.yaml")
+        assert original is ct.TEST_SETUPS["e2848_default"]
+
+    def test_one_overridden_term_writes_only_that_term(self, tmp_path):
+        tst = CapTest(
+            test_setup="e2848_default",
+            reg_cols_meas={"poa": {"group": "irr_ghi", "agg": "mean"}},
+        )
+        tst.to_yaml(tmp_path / "c.yaml", merge_into_existing=False)
+        sub = self._load(tmp_path / "c.yaml")
+        assert sub["overrides"]["reg_cols_meas"] == {
+            "poa": {"group": "irr_ghi", "agg": "mean"}
+        }
+        assert "reg_cols_sim" not in sub["overrides"]
+        self._assert_round_trip_keeps_identity(tst, tmp_path / "c.yaml")
+
+    def test_removed_term_writes_null_and_reloads_pruned(
+        self, tmp_path, meas_cd_default, sim_cd_default
+    ):
+        fml = "power ~ poa + I(poa * poa) + I(poa * t_amb) - 1"
+        tst = CapTest.from_params(
+            test_setup="e2848_default",
+            meas=meas_cd_default,
+            sim=sim_cd_default,
+            reg_fml=fml,
+            reg_cols_meas={"w_vel": None},
+            reg_cols_sim={"w_vel": None},
+            verbose=False,
+        )
+        assert "w_vel" not in tst.resolved_setup.rep_conditions.func
+        tst.to_yaml(tmp_path / "c.yaml", merge_into_existing=False)
+        sub = self._load(tmp_path / "c.yaml")
+        assert sub["overrides"]["reg_cols_meas"] == {"w_vel": None}
+        again = CapTest.from_yaml(tmp_path / "c.yaml", run_setup=False)
+        again.meas, again.sim = meas_cd_default, sim_cd_default
+        again.setup(verbose=False)
+        assert again.resolved_setup == tst.resolved_setup
+        assert (
+            again.resolved_setup.content_digest() == tst.resolved_setup.content_digest()
+        )
+
+    def test_custom_writes_both_sides_in_full(self, tmp_path):
+        tst = CapTest(
+            test_setup="custom",
+            reg_fml="power ~ poa",
+            reg_cols_meas={"power": {"column": "p"}, "poa": {"column": "i"}},
+            reg_cols_sim={"power": {"column": "p"}, "poa": {"column": "i"}},
+        )
+        tst.to_yaml(tmp_path / "c.yaml", merge_into_existing=False)
+        sub = self._load(tmp_path / "c.yaml")
+        assert set(sub["overrides"]["reg_cols_meas"]) == {"power", "poa"}
+        self._assert_round_trip_keeps_identity(tst, tmp_path / "c.yaml")
+
+    def test_custom_registered_calculation_round_trips(self, tmp_path, monkeypatch):
+        from captest.calcparams import CALC_REGISTRY, CalcEntry
+
+        def double(data, col=None):
+            return data[col] * 2
+
+        monkeypatch.setitem(CALC_REGISTRY, "double", CalcEntry(double, (), ()))
+        tst = CapTest(
+            test_setup="e2848_default",
+            reg_cols_meas={
+                "power": {"calc": "double", "args": {"col": {"column": "meter_power"}}}
+            },
+        )
+        tst.to_yaml(tmp_path / "c.yaml", merge_into_existing=False)
+        again = CapTest.from_yaml(tmp_path / "c.yaml", run_setup=False)
+        assert again.reg_cols_meas["power"]["calc"] == "double"
+        self._assert_round_trip_keeps_identity(tst, tmp_path / "c.yaml")
+
+    def test_params_and_scatter_overrides_round_trip(self, tmp_path):
+        tst = CapTest(
+            test_setup="e2848_default",
+            params={"rear_shade": 0},
+            scatter_plots_name="etotal",
+        )
+        tst.to_yaml(tmp_path / "c.yaml", merge_into_existing=False)
+        sub = self._load(tmp_path / "c.yaml")
+        assert sub["overrides"]["params"] == {"rear_shade": 0}
+        assert sub["overrides"]["scatter_plots"] == "etotal"
+        again = CapTest.from_yaml(tmp_path / "c.yaml", run_setup=False)
+        assert again.params == {"rear_shade": 0}
+        assert again.scatter_plots_name == "etotal"
+
+
+class TestLoadPresetsErrors:
+    _DOC = (
+        "name: {name}\n"
+        "reg_fml: power ~ poa\n"
+        "meas: {{reg_cols: {{power: {{column: p}}, poa: {{column: i}}}}}}\n"
+        "sim: {{reg_cols: {{power: {{column: p}}, poa: {{column: i}}}}}}\n"
+        "scatter_plots: {scatter}\n"
+    )
+
+    def test_name_must_equal_file_stem(self, tmp_path):
+        (tmp_path / "one.yaml").write_text(
+            self._DOC.format(name="two", scatter="default")
+        )
+        with pytest.raises(ValueError, match="must equal the file stem"):
+            ct.load_presets(tmp_path)
+
+    def test_unknown_scatter_plots_name(self, tmp_path):
+        (tmp_path / "one.yaml").write_text(
+            self._DOC.format(name="one", scatter="etotl")
+        )
+        with pytest.raises(ValueError, match="Did you mean 'etotal'"):
+            ct.load_presets(tmp_path)
+
+    def test_valid_directory_loads(self, tmp_path):
+        (tmp_path / "one.yaml").write_text(
+            self._DOC.format(name="one", scatter="default")
+        )
+        assert list(ct.load_presets(tmp_path)) == ["one"]
 
 
 class TestLoadConfig:
@@ -357,7 +552,7 @@ class TestLoadConfig:
         with pytest.raises(ValueError, match="must be a mapping"):
             ct.load_config(p)
 
-    def test_perc_N_string_resolved_in_overrides(self, tmp_path):
+    def test_perc_N_string_stays_a_string_in_overrides(self, tmp_path):
         yaml_text = (
             "captest:\n"
             "  test_setup: e2848_default\n"
@@ -371,15 +566,9 @@ class TestLoadConfig:
         p.write_text(yaml_text)
         sub = ct.load_config(p)
         func = sub["overrides"]["rep_conditions"]["func"]
-        # 'mean' passes through.
-        assert func["t_amb"] == "mean"
-        # 'perc_55' resolves to perc_wrap(55).
-        sample = pd.Series(np.arange(100))
-        expected = ct.perc_wrap(55)(sample)
-        actual = func["poa"](sample)
-        assert actual == expected
+        assert func == {"poa": "perc_55", "t_amb": "mean"}
 
-    def test_malformed_perc_string_raises(self, tmp_path):
+    def test_malformed_perc_string_raises_at_resolution(self, tmp_path):
         yaml_text = (
             "captest:\n"
             "  overrides:\n"
@@ -389,8 +578,9 @@ class TestLoadConfig:
         )
         p = tmp_path / "cfg.yaml"
         p.write_text(yaml_text)
-        with pytest.raises(ValueError, match="perc_<int>"):
-            ct.load_config(p)
+        sub = ct.load_config(p)
+        with pytest.raises(ValueError, match="perc_N"):
+            ct.resolve_test_setup("e2848_default", sub["overrides"])
 
 
 class TestPercWrap:
@@ -467,7 +657,7 @@ class TestConstruction:
         assert capt.racking == "open_rack"
         assert capt.airmass_model == "kastenyoung1989"
         assert capt.altitude_override == 0
-        assert capt._resolved_setup is None
+        assert capt.resolved_setup is None
 
     def test_bare_init_accepts_kwargs(self):
         capt = CapTest(
@@ -515,7 +705,7 @@ class TestConstruction:
             sim=sim_cd_default,
             ac_nameplate=6_000_000,
         )
-        assert capt._resolved_setup is not None
+        assert capt.resolved_setup is not None
         # process_regression_columns should have resolved the aggregated poa
         # column name on both CapData instances.
         assert capt.meas.regression_cols["poa"] == "irr_poa_mean_agg"
@@ -526,7 +716,7 @@ class TestConstruction:
             test_setup="e2848_default",
             meas=meas_cd_default,
         )
-        assert capt._resolved_setup is None
+        assert capt.resolved_setup is None
         assert capt.meas is meas_cd_default
         assert capt.sim is None
 
@@ -992,7 +1182,7 @@ class TestSetup:
             sim=sim_cd_default,
             bifaciality=0.15,
         )
-        expected_fml = ct.TEST_SETUPS[preset]["reg_fml"]
+        expected_fml = ct.TEST_SETUPS[preset].reg_fml
         assert capt.meas.regression_formula == expected_fml
         assert capt.sim.regression_formula == expected_fml
 
@@ -1006,16 +1196,7 @@ class TestSetup:
         assert ct_default.sim._captest is ct_default
 
     def test_setup_assigns_resolved_setup(self, ct_default):
-        resolved = ct_default._resolved_setup
-        assert resolved is not None
-        assert set(resolved.keys()) == {
-            "description",
-            "reg_cols_meas",
-            "reg_cols_sim",
-            "reg_fml",
-            "scatter_plots",
-            "rep_conditions",
-        }
+        assert ct_default.resolved_setup == ct.TEST_SETUPS["e2848_default"]
 
     def test_setup_rerun_resets_data_filtered(self, meas_cd_default, sim_cd_default):
         capt = CapTest.from_params(
@@ -1061,11 +1242,11 @@ class TestSetup:
             sim=sim_cd_default,
             rep_conditions={"percent_filter": 10},
         )
-        resolved_rc = capt._resolved_setup["rep_conditions"]
-        assert resolved_rc["percent_filter"] == 10
+        resolved_rc = capt.resolved_setup.rep_conditions
+        assert resolved_rc.percent_filter == 10
         # Non-overridden preset keys are preserved.
-        assert resolved_rc["irr_bal"] is False
-        assert set(resolved_rc["func"].keys()) == {"poa", "t_amb", "w_vel"}
+        assert resolved_rc.irr_bal is False
+        assert set(resolved_rc.func) == {"poa", "t_amb", "w_vel"}
 
     def test_setup_side_meas_leaves_sim_untouched(self, ct_default):
         sim_data_before = ct_default.sim.data.copy()
@@ -1115,7 +1296,12 @@ class TestReload:
         ct_default.sim_load_kwargs = {"encoding": "latin1"}
         out = ct_default.reload("sim", verbose=False)
         assert out is ct_default
-        assert calls == {"path": "sentinel.csv", "kwargs": {"encoding": "latin1"}}
+        # A relative stored path is anchored to the directory it was read in.
+        assert calls == {
+            "path": os.path.abspath("sentinel.csv"),
+            "kwargs": {"encoding": "latin1"},
+        }
+        assert ct_default._sim_path == "sentinel.csv"
         assert ct_default.sim._captest is ct_default
 
     def test_reload_path_kwarg_replaces_stored_path(self, ct_default):
@@ -1236,6 +1422,7 @@ class TestDownstreamPropagation:
             sim=sim_cd_default,
             bifaciality=0.5,
             rear_shade=0.12,
+            params={},  # lift the preset's rear_shade=0 constraint
         )
         # Sanity: e_total = poa + rpoa * bifaciality * (1 - rear_shade)
         meas_df = capt.meas.data
@@ -1254,6 +1441,7 @@ class TestDownstreamPropagation:
             sim=sim_cd_default,
             bifaciality=0.5,
             rear_shade=0.12,
+            params={},  # lift the preset's rear_shade=0 constraint
         )
         assert capt.meas.rear_shade == 0.12
         assert not hasattr(capt.sim, "rear_shade")
@@ -1675,10 +1863,12 @@ class TestRepCondConvenience:
 
         ct_default.meas.rep_cond = fake_rep_cond
         ct_default.rep_cond()
-        preset_rc = ct.TEST_SETUPS["e2848_default"]["rep_conditions"]
-        assert received["percent_filter"] == preset_rc["percent_filter"]
-        assert received["irr_bal"] == preset_rc["irr_bal"]
-        assert set(received["func"].keys()) == set(preset_rc["func"].keys())
+        preset_rc = ct.TEST_SETUPS["e2848_default"].rep_conditions
+        assert received["percent_filter"] == preset_rc.percent_filter
+        assert received["irr_bal"] == preset_rc.irr_bal
+        assert set(received["func"].keys()) == set(preset_rc.func)
+        # The document's "perc_60" string reaches CapData as perc_wrap(60).
+        assert received["func"]["poa"].__name__ == "perc_wrap(60)"
 
     def test_rep_cond_partial_merge_overrides(self, ct_default):
         received = {}
@@ -1736,10 +1926,10 @@ class TestRepCondConvenience:
             sim=sim_cd_default,
             rep_conditions={"percent_filter": 10},
         )
-        resolved_rc = capt._resolved_setup["rep_conditions"]
-        assert resolved_rc["percent_filter"] == 10
-        assert resolved_rc["irr_bal"] is False
-        assert "func" in resolved_rc
+        resolved_rc = capt.resolved_setup.rep_conditions
+        assert resolved_rc.percent_filter == 10
+        assert resolved_rc.irr_bal is False
+        assert resolved_rc.func == {"poa": "perc_60", "t_amb": "mean", "w_vel": "mean"}
 
     @pytest.mark.parametrize("preset", _DEFAULT_FIXTURE_PRESETS)
     def test_each_preset_rep_conditions_round_trips_through_rep_cond(
@@ -1774,14 +1964,14 @@ class TestRepCondConvenience:
 
 
 class TestResolvedSetupProperty:
-    def test_property_requires_setup(self):
-        capt = CapTest()
-        with pytest.raises(RuntimeError, match="setup"):
-            capt.resolved_setup
+    def test_param_is_none_before_setup(self):
+        assert CapTest().resolved_setup is None
 
-    def test_property_returns_resolved_dict(self, ct_default):
-        resolved = ct_default.resolved_setup
-        assert resolved is ct_default._resolved_setup
+    def test_param_holds_the_resolved_test_setup(self, ct_default):
+        from captest.setup import TestSetup
+
+        assert isinstance(ct_default.resolved_setup, TestSetup)
+        assert ct_default.resolved_setup.name == "e2848_default"
 
 
 # --- Cross-CapData methods ported from capdata module-level functions ----
@@ -2167,18 +2357,15 @@ class TestToYamlAndRoundTrip:
     def test_to_yaml_writes_paths_when_constructed_from_paths(
         self, tmp_path, meas_cd_default, sim_cd_default
     ):
-        def fake_loader(path, **kwargs):
-            # Any pre-built CapData is fine; we're only testing path
-            # round-trip.
-            return meas_cd_default
-
+        # Pre-built CapData stand in for the loaded files; we're only testing
+        # path round-trip.
         p = tmp_path / "cfg.yaml"
         capt = CapTest.from_params(
             test_setup="e2848_default",
             meas_path="/some/meas/path.csv",
-            meas_loader=fake_loader,
+            meas_loader=lambda path, **kwargs: meas_cd_default,
             sim_path="/some/sim/path.csv",
-            sim_loader=fake_loader,
+            sim_loader=lambda path, **kwargs: sim_cd_default,
         )
         with pytest.warns(UserWarning, match=r"meas_loader"):
             capt.to_yaml(p, merge_into_existing=False)
@@ -2206,11 +2393,53 @@ class TestToYamlAndRoundTrip:
 
     def test_to_yaml_omits_reg_fml_override_equal_to_preset(self, tmp_path):
         p = tmp_path / "cfg.yaml"
-        preset_fml = ct.TEST_SETUPS["e2848_default"]["reg_fml"]
+        preset_fml = ct.TEST_SETUPS["e2848_default"].reg_fml
         capt = CapTest(test_setup="e2848_default", reg_fml=preset_fml)
         capt.to_yaml(p, merge_into_existing=False)
         sub = self._load(p)["captest"]
         assert "overrides" not in sub
+
+    def test_nested_calc_override_round_trips_in_document_form(self, tmp_path):
+        """A changed nested calc tree is written as document nodes, no code."""
+        p = tmp_path / "cfg.yaml"
+        preset = ct.TEST_SETUPS["e2848_spec_corrected_poa"]
+        poa = preset.meas.reg_cols["poa"].model_dump(mode="json")
+        poa["args"]["poa"] = {"group": "irr_poa", "agg": "median"}
+        capt = CapTest(
+            test_setup="e2848_spec_corrected_poa", reg_cols_meas={"poa": poa}
+        )
+        capt.to_yaml(p, merge_into_existing=False)
+
+        written = self._load(p)["captest"]["overrides"]["reg_cols_meas"]
+        assert set(written) == {"poa"}
+        assert written["poa"]["calc"] == "poa_spec_corrected"
+        assert (
+            written["poa"]["args"]["spectral_correction"]["calc"]
+            == "spectral_factor_firstsolar"
+        )
+        capt2 = CapTest.from_yaml(p, run_setup=False)
+        assert capt2.reg_cols_meas == written
+
+    def test_tuple_grammar_reg_cols_is_rejected(self):
+        """The retired ``(group, agg)`` pair form is a literal, not a node."""
+        sub = {
+            "test_setup": "e2848_default",
+            "overrides": {"reg_cols_meas": {"power": ["real_pwr_mtr", "max"]}},
+        }
+        capt = CapTest.from_mapping(sub)
+        with pytest.raises(ValueError, match="not a literal"):
+            capt.to_mapping()
+
+    def test_python_callable_in_reg_cols_is_rejected(self, tmp_path):
+        def local_calc(data, poa=None, verbose=True):
+            return data[poa]
+
+        capt = CapTest(
+            test_setup="e2848_default",
+            reg_cols_meas={"poa": (local_calc, {"poa": "irr_poa"})},
+        )
+        with pytest.raises(ValueError, match="meas.reg_cols.poa"):
+            capt.to_yaml(tmp_path / "cfg.yaml", merge_into_existing=False)
 
     def test_to_yaml_writes_load_kwargs_only_when_non_empty(self, tmp_path):
         p_empty = tmp_path / "empty.yaml"
@@ -2256,7 +2485,7 @@ class TestToYamlAndRoundTrip:
         assert doc2["test_setup"] == doc1["test_setup"]
         assert doc2["ac_nameplate"] == doc1["ac_nameplate"]
         assert doc2["test_tolerance"] == doc1["test_tolerance"]
-        # Override rep_conditions round-trips; perc_wrap(55) -> 'perc_55'.
+        # Override rep_conditions round-trips; 'perc_55' stays a string.
         assert (
             doc2["overrides"]["rep_conditions"]["percent_filter"]
             == doc1["overrides"]["rep_conditions"]["percent_filter"]
@@ -2315,22 +2544,6 @@ class TestToYamlAndRoundTrip:
         loaded = CapTest.from_yaml(p)
         assert loaded.altitude_override is None
 
-    def test_to_yaml_warns_when_scatter_plots_is_user_mutated(
-        self, tmp_path, ct_default
-    ):
-        p = tmp_path / "cfg.yaml"
-
-        def my_custom_scatter(cd, **kwargs):
-            return None
-
-        ct_default._resolved_setup["scatter_plots"] = my_custom_scatter
-        with pytest.warns(UserWarning, match="scatter_plots"):
-            ct_default.to_yaml(p, merge_into_existing=False)
-        # Written yaml contains no scatter_plots key.
-        sub = self._load(p)["captest"]
-        assert "scatter_plots" not in sub
-        assert "overrides" not in sub or "scatter_plots" not in sub.get("overrides", {})
-
     def test_to_yaml_warns_when_loader_callable_set(self, tmp_path):
         p = tmp_path / "cfg.yaml"
 
@@ -2368,9 +2581,9 @@ class TestToMapping:
 
 
 class TestYamlPercShorthand:
-    """perc_N string shorthand round-trips through from_yaml / to_yaml."""
+    """perc_N strings are the document form: kept as strings through yaml."""
 
-    def test_perc_N_string_converts_to_perc_wrap_on_from_yaml(self, tmp_path):
+    def test_perc_N_string_stays_a_string_on_from_yaml(self, tmp_path):
         yaml_src = (
             "captest:\n"
             "  test_setup: e2848_default\n"
@@ -2384,20 +2597,22 @@ class TestYamlPercShorthand:
         p = tmp_path / "cfg.yaml"
         p.write_text(yaml_src)
         capt = CapTest.from_yaml(p)
-        func = capt.rep_conditions["func"]
-        assert func["t_amb"] == "mean"
-        # The resolved poa value is a callable equivalent to perc_wrap(55).
-        sample = pd.Series(np.arange(100))
-        assert func["poa"](sample) == ct.perc_wrap(55)(sample)
+        assert capt.rep_conditions["func"] == {
+            "poa": "perc_55",
+            "t_amb": "mean",
+            "w_vel": "mean",
+        }
+        resolved = ct.resolve_test_setup("e2848_default", capt._collect_overrides())
+        assert resolved.rep_conditions.func["poa"] == "perc_55"
 
-    def test_to_yaml_emits_perc_N_for_perc_wrap(self, tmp_path):
+    def test_to_yaml_writes_perc_N_strings(self, tmp_path):
         p = tmp_path / "cfg.yaml"
         capt = CapTest(
             test_setup="e2848_default",
             rep_conditions={
                 "percent_filter": 20,
                 "func": {
-                    "poa": ct.perc_wrap(65),
+                    "poa": "perc_65",
                     "t_amb": "mean",
                     "w_vel": "mean",
                 },
@@ -2410,7 +2625,7 @@ class TestYamlPercShorthand:
         assert func_dict["t_amb"] == "mean"
         assert func_dict["w_vel"] == "mean"
 
-    def test_invalid_perc_string_raises_on_from_yaml(self, tmp_path):
+    def test_invalid_perc_string_raises_at_resolution(self, tmp_path):
         yaml_src = (
             "captest:\n"
             "  test_setup: e2848_default\n"
@@ -2421,8 +2636,9 @@ class TestYamlPercShorthand:
         )
         p = tmp_path / "cfg.yaml"
         p.write_text(yaml_src)
-        with pytest.raises(ValueError, match="perc_<int>"):
-            CapTest.from_yaml(p)
+        capt = CapTest.from_yaml(p)
+        with pytest.raises(ValueError, match="perc_N"):
+            capt.to_mapping()
 
 
 class TestYamlKeyParametrization:
@@ -2923,11 +3139,9 @@ class TestAutoWrapSim:
 class TestSetupAutoWrap:
     def _make_ct(self, meas_idx, sim_idx, **kwargs):
         ct = _ct_with(meas_idx, sim_idx, **kwargs)
-        ct.meas.regression_cols = {"poa": "poa"}
-        ct.sim.regression_cols = {"poa": "poa"}
         ct.test_setup = "custom"
-        ct.reg_cols_meas = {"poa": "poa"}
-        ct.reg_cols_sim = {"poa": "poa"}
+        ct.reg_cols_meas = {"poa": {"column": "poa"}}
+        ct.reg_cols_sim = {"poa": {"column": "poa"}}
         ct.reg_fml = "poa ~ poa - 1"
         return ct
 
@@ -2974,15 +3188,17 @@ class TestPipelineYaml:
         assert "meas_filters" not in sub
         assert "sim_filters" not in sub
 
-    def test_rep_cond_step_omits_overrides_rep_conditions(
+    def test_rep_cond_step_keeps_overrides_rep_conditions(
         self, meas_cd_default, sim_cd_default
     ):
+        """The override is part of the setup's identity, so it is written
+        even when a RepCond step carries the reporting-condition arguments."""
         capt = self._capt(meas_cd_default, sim_cd_default)
-        capt.rep_conditions = {"func": {"poa": "mean"}}  # non-None -> would serialize
+        capt.rep_conditions = {"func": {"poa": "mean"}}
         capt.rep_cond(which="meas")  # creates a RepCond step in meas.filters
         sub = capt._build_yaml_sub_mapping()
         assert any(d["type"] == "RepCond" for d in sub["meas_filters"])
-        assert "rep_conditions" not in sub.get("overrides", {})
+        assert sub["overrides"]["rep_conditions"]["func"]["poa"] == "mean"
 
     def test_rep_conditions_kept_without_rep_cond_step(
         self, meas_cd_default, sim_cd_default
@@ -3071,8 +3287,8 @@ class TestPipelineYaml:
         self, tmp_path, meas_cd_default, sim_cd_default
     ):
         """A RepCond step round-trips and recomputes rc when run_test replays
-        the pending pipeline, even though overrides.rep_conditions is omitted
-        from the file (decision B)."""
+        the pending pipeline; overrides.rep_conditions in the file is not
+        applied on top of it."""
         capt = self._capt(meas_cd_default, sim_cd_default)
         clean_meas, clean_sim = capt.meas.copy(), capt.sim.copy()
         capt.rep_conditions = {"func": {"poa": "mean"}}
@@ -3119,7 +3335,7 @@ class TestPipelineYaml:
         capt = CapTest.from_mapping(
             sub, meas_loader=MagicMock(return_value=meas_cd_default)
         )
-        assert capt._resolved_setup is None
+        assert capt.resolved_setup is None
         assert [d["type"] for d in capt.meas_filters_pending] == ["Irradiance"]
         assert not any("were not applied" in str(w.message) for w in recwarn)
 
@@ -3242,7 +3458,7 @@ class TestManualRc:
         """ts.rc = df works on a bare CapTest (no setup) when meas/sim carry a
         regression formula — the 'prepare each CapData, then wrap them' flow."""
         ct = CapTest(meas=meas_cd_default, sim=sim_cd_default)
-        assert ct._resolved_setup is None  # setup() not run
+        assert ct.resolved_setup is None  # setup() not run
         ct.rc = pd.DataFrame({"poa": [805.0], "t_amb": [25.0], "w_vel": [2.0]})
         assert ct.rc_source == "manual"
         assert ct.rc["poa"].iloc[0] == pytest.approx(805.0)
@@ -3385,18 +3601,18 @@ class TestManualRcSerialization:
         sub = capt._build_yaml_sub_mapping()
         assert "reporting_conditions_values" not in sub
 
-    def test_manual_rc_omits_overrides_rep_conditions(
+    def test_manual_rc_keeps_overrides_rep_conditions(
         self, meas_cd_default, sim_cd_default
     ):
         """A manual rc_source serializes reporting_conditions_values as the
-        authoritative RC and does NOT also write overrides.rep_conditions, so
-        the file never carries two RC-bearing keys."""
+        authoritative RC and still writes overrides.rep_conditions, which is
+        part of the resolved setup's identity."""
         capt = self._capt(meas_cd_default, sim_cd_default)
-        capt.rep_conditions = {"func": {"poa": "mean"}}  # would normally serialize
+        capt.rep_conditions = {"func": {"poa": "mean"}}
         capt.rc = pd.DataFrame({"poa": [805.0], "t_amb": [25.0], "w_vel": [2.0]})
         sub = capt._build_yaml_sub_mapping()
         assert "reporting_conditions_values" in sub
-        assert "rep_conditions" not in sub.get("overrides", {})
+        assert sub["overrides"]["rep_conditions"]["func"]["poa"] == "mean"
 
 
 class TestRcOwnershipRoundTrip:
@@ -3450,6 +3666,55 @@ class TestRcOwnershipRoundTrip:
 
         assert reloaded.rc_source == "manual"
         assert reloaded.rc["poa"].iloc[0] == pytest.approx(805.0)
+
+    def test_roundtrip_rep_cond_step_keeps_setup_identity(
+        self, tmp_path, meas_cd_default, sim_cd_default
+    ):
+        """A rep_conditions override beside a RepCond step survives the round
+        trip (same resolved setup and digest) and is not applied a second
+        time: replay yields one RepCond step and the same rc."""
+        capt = self._capt(
+            meas_cd_default, sim_cd_default, rep_conditions={"func": {"poa": "perc_50"}}
+        )
+        clean_meas, clean_sim = capt.meas.copy(), capt.sim.copy()
+        capt.rep_cond(which="meas")
+        expected_rc = capt.rc.copy()
+
+        reloaded = self._roundtrip(capt, tmp_path, clean_meas, clean_sim)
+        assert reloaded.resolved_setup.rep_conditions.func["poa"] == "perc_50"
+        assert reloaded.resolved_setup == capt.resolved_setup
+        assert (
+            reloaded.resolved_setup.content_digest()
+            == capt.resolved_setup.content_digest()
+        )
+        assert reloaded.rc is None
+        reloaded.run_test()
+        rep_cond_steps = [
+            s for s in reloaded.meas.filters if type(s).__name__ == "RepCond"
+        ]
+        assert len(rep_cond_steps) == 1
+        pd.testing.assert_frame_equal(reloaded.rc, expected_rc)
+
+    def test_roundtrip_manual_rc_keeps_setup_identity(
+        self, tmp_path, meas_cd_default, sim_cd_default
+    ):
+        """A rep_conditions override beside a manual rc survives the round
+        trip, and the manual rc (not a recomputed one) is restored."""
+        capt = self._capt(
+            meas_cd_default, sim_cd_default, rep_conditions={"func": {"poa": "perc_50"}}
+        )
+        clean_meas, clean_sim = capt.meas.copy(), capt.sim.copy()
+        capt.rc = pd.DataFrame({"poa": [805.0], "t_amb": [25.0], "w_vel": [2.0]})
+
+        reloaded = self._roundtrip(capt, tmp_path, clean_meas, clean_sim)
+        assert reloaded.resolved_setup == capt.resolved_setup
+        assert (
+            reloaded.resolved_setup.content_digest()
+            == capt.resolved_setup.content_digest()
+        )
+        assert reloaded.rc_source == "manual"
+        assert reloaded.rc["poa"].iloc[0] == pytest.approx(805.0)
+        assert reloaded.meas.filters == [] and reloaded.sim.filters == []
 
     def test_roundtrip_rc_source_sim_replays_sim_first(
         self, tmp_path, meas_cd_default, sim_cd_default
@@ -3647,7 +3912,7 @@ class TestDualRepCondLoadWarning:
             capt = CapTest.from_mapping(
                 sub, meas_loader=MagicMock(return_value=meas_cd_default)
             )
-        assert capt._resolved_setup is None
+        assert capt.resolved_setup is None
 
 
 class TestLifecycleStaging:
@@ -3689,14 +3954,14 @@ class TestLifecycleStaging:
             d["type"] for d in sub["sim_filters"]
         ]
         assert ct2.rc is None  # computed source
-        assert ct2._resolved_setup is not None  # setup DID run
+        assert ct2.resolved_setup is not None  # setup DID run
 
     def test_run_setup_false_loads_only(
         self, meas_cd_default, sim_cd_default, tmp_path
     ):
         sub, loaders = self._build(meas_cd_default, sim_cd_default, tmp_path)
         ct2 = CapTest.from_mapping(sub, run_setup=False, **loaders)
-        assert ct2._resolved_setup is None
+        assert ct2.resolved_setup is None
         assert ct2.meas.regression_cols in (None, {})
         assert ct2.meas._captest is None
         assert ct2.meas_filters_pending  # still stored
@@ -4007,7 +4272,7 @@ class TestCapTestPrep:
             sim_prep=self.scale_config,
             ac_nameplate=6_000_000,
         )
-        assert tst._resolved_setup is not None  # setup() ran
+        assert tst.resolved_setup is not None  # setup() ran
         assert len(tst.meas.prep) == 1 and len(tst.sim.prep) == 1
         assert tst.meas.data["meter_power"].max() == pytest.approx(meas_raw_max * 0.001)
         assert tst.sim.data["E_Grid"].max() == pytest.approx(sim_raw_max * 0.001)

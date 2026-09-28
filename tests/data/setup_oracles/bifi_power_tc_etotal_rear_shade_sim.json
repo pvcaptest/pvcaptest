@@ -1,0 +1,46 @@
+{
+  "meas": {
+    "params": {
+      "Intercept": -28861.394170607688,
+      "poa": 6372.47760164578
+    },
+    "pvalues": {
+      "Intercept": 3.4185562321206484e-05,
+      "poa": 0.0
+    },
+    "regression_cols": {
+      "poa": {
+        "column": "e_total",
+        "mean": 261.03656775422417,
+        "sum": 375892.6575660828
+      },
+      "power": {
+        "column": "power_temp_correct",
+        "mean": 1634588.287053676,
+        "sum": 2353807133.3572936
+      }
+    }
+  },
+  "sim": {
+    "params": {
+      "Intercept": -26337.915830390564,
+      "poa": 6690.224082849118
+    },
+    "pvalues": {
+      "Intercept": 9.019386437914486e-284,
+      "poa": 0.0
+    },
+    "regression_cols": {
+      "poa": {
+        "column": "e_total",
+        "mean": 209.00672973567634,
+        "sum": 1830898.9524845248
+      },
+      "power": {
+        "column": "power_temp_correct",
+        "mean": 1371963.9409247676,
+        "sum": 12018404122.500965
+      }
+    }
+  }
+}

@@ -14,7 +14,7 @@ import param
 from bokeh.models import NumeralTickFormatter
 
 from captest import util
-from captest.calcparams import cell_temp, power_temp_correct
+from captest.setup import Calc, Group, Side
 
 from .util import read_json, tags_by_regex
 
@@ -59,19 +59,19 @@ TC_POWER_PLOT_COL = "power_tc_plot"
 # back-of-module temperature group ``temp_bom`` is available. Sim users
 # must pass an explicit ``tc_power_calc``.
 DEFAULT_TC_POWER_CALC = {
-    "power": (
-        power_temp_correct,
-        {
-            "power": ("real_pwr_mtr", "sum"),
-            "cell_temp": (
-                cell_temp,
-                {
-                    "poa": ("irr_poa", "mean"),
-                    "bom": ("temp_bom", "mean"),
+    "power": {
+        "calc": "power_temp_correct",
+        "args": {
+            "power": {"group": "real_pwr_mtr", "agg": "sum"},
+            "cell_temp": {
+                "calc": "cell_temp",
+                "args": {
+                    "poa": {"group": "irr_poa"},
+                    "bom": {"group": "temp_bom"},
                 },
-            ),
+            },
         },
-    ),
+    },
 }
 
 COMBINE = {
@@ -621,33 +621,47 @@ _SPLIT_TIME_RE = re.compile(r"^(\d{1,2}):(\d{2})$")
 
 
 def _missing_column_groups(node, available_groups):
-    """Return the set of column-group ids referenced by ``node`` but absent
-    from ``available_groups``.
-
-    Walks the same calc-params nested-dict / aggregation-tuple /
-    calculation-tuple grammar as ``util.transform_calc_params`` and
-    collects only the leaves that look like column-group references --
-    aggregation tuples ``(group_id, agg_func)`` and bare strings. Bare
-    strings that match an existing column on ``cd.data`` are intentionally
-    NOT validated here; ``transform_calc_params`` accepts them.
-    """
+    """Column-group ids referenced by ``Group`` nodes in ``node`` but absent
+    from ``available_groups``. ``Column`` nodes and literals are not checked."""
     missing = set()
     if isinstance(node, dict):
         for value in node.values():
-            missing.update(_missing_column_groups(value, available_groups))
-        return missing
-    if isinstance(node, tuple) and len(node) == 2:
-        first, second = node
-        if isinstance(first, str) and isinstance(second, str):
-            # Aggregation tuple: (group_id, agg_func).
-            if first not in available_groups:
-                missing.add(first)
-            return missing
-        if callable(first) and isinstance(second, dict):
-            # Calculation tuple: (func, kwargs).
-            missing.update(_missing_column_groups(second, available_groups))
-            return missing
+            missing |= _missing_column_groups(value, available_groups)
+    elif isinstance(node, Group):
+        if node.group not in available_groups:
+            missing.add(node.group)
+    elif isinstance(node, Calc):
+        missing |= _missing_column_groups(node.args, available_groups)
     return missing
+
+
+def _resolve_reg_col_column(cd, var):
+    """Column of ``cd.data`` that ``cd.regression_cols[var]`` refers to.
+
+    ``regression_cols`` values are ``Group`` / ``Column`` nodes before
+    ``process_regression_columns`` (or ``agg_sensors``) runs and plain
+    strings afterwards; ``util.reg_col_label`` resolves both to a column
+    name for ``Column`` nodes and strings, or a bare group id for
+    ``Group`` nodes. A ``Group`` node's aggregated column (e.g. from a
+    direct ``agg_group`` call made ahead of ``agg_sensors``) is tried
+    under its ``<group>_<agg>_agg`` name before falling back to the bare
+    group id, since that id is a ``column_groups`` key, not a column of
+    ``cd.data``.
+
+    Returns
+    -------
+    str or None
+        The column name, or ``None`` if ``var`` is not a key of
+        ``cd.regression_cols`` or no candidate column exists on ``cd.data``.
+    """
+    if var not in cd.regression_cols:
+        return None
+    node = cd.regression_cols[var]
+    candidates = []
+    if isinstance(node, Group):
+        candidates.append(util.get_agg_column_name(node.group, node.agg))
+    candidates.append(util.reg_col_label(node))
+    return next((c for c in candidates if c in cd.data.columns), None)
 
 
 def add_am_pm_dim(df, split_time):
@@ -704,11 +718,11 @@ def calc_tc_power_column(
     """
     Materialize a temperature-corrected power column for plotting only.
 
-    Walks ``tc_power_calc`` (a calc-params nested dict using the same
-    grammar as ``TEST_SETUPS`` ``reg_cols_*`` values) via
-    ``captest.util.transform_calc_params`` and writes the resulting
-    ``power_temp_correct`` Series to ``cd.data[col_name]`` and
-    ``cd.data_filtered[col_name]``.
+    Walks ``tc_power_calc`` (a document mapping or already-built nodes
+    using the same grammar as ``TestSetup`` ``reg_cols`` values, see
+    :mod:`captest.setup`) via ``captest.util.transform_calc_params`` and
+    writes the resulting ``power_temp_correct`` Series to
+    ``cd.data[col_name]`` and ``cd.data_filtered[col_name]``.
 
     This helper is intentionally isolated from
     ``CapData.process_regression_columns``: it does NOT touch
@@ -723,11 +737,11 @@ def calc_tc_power_column(
         are auto-injected by ``CapData.custom_param`` if not present in
         ``tc_power_calc``.
     tc_power_calc : dict
-        Calc-params nested dict mirroring the bifi_power_tc preset's
-        ``reg_cols_meas['power']`` value. The outermost callable must
-        produce a Series of temperature-corrected power values; in
-        practice this is ``calcparams.power_temp_correct``. The dict must
-        contain a top-level ``"power"`` calculation tuple.
+        Document mapping (or ``dict`` of already-built ``Group`` /
+        ``Column`` / ``Calc`` nodes) mirroring the bifi_power_tc preset's
+        ``reg_cols`` ``power`` entry. The outermost node must be a
+        ``Calc`` that produces a Series of temperature-corrected power
+        values; in practice this is ``calcparams.power_temp_correct``.
     col_name : str, default ``TC_POWER_PLOT_COL``
         Name of the column written to ``cd.data`` / ``cd.data_filtered``.
     verbose : bool, default False
@@ -748,17 +762,23 @@ def calc_tc_power_column(
         missing from ``cd.column_groups``.
     ValueError
         When ``tc_power_calc`` does not contain a top-level ``"power"``
-        calculation tuple that produces a column in ``cd.data``.
+        calc node that produces a column in ``cd.data``.
     """
     if (not force_recompute) and (col_name in cd.data.columns):
         return col_name
 
+    side = Side.model_validate({"reg_cols": dict(tc_power_calc)})
+    spec = dict(side.reg_cols)
+    if not isinstance(spec.get("power"), Calc):
+        raise ValueError(
+            "calc_tc_power_column requires tc_power_calc to include a top-level "
+            "'power' calc node, such as 'power': {'calc': 'power_temp_correct', ...}."
+        )
+
     # Pre-validate column-group references so a missing group surfaces as a
     # clear KeyError instead of the AttributeError raised downstream by
     # ``CapData.agg_group`` when ``cd.loc[group_id]`` returns ``None``.
-    missing_groups = sorted(
-        _missing_column_groups(tc_power_calc, set(cd.column_groups.keys()))
-    )
+    missing_groups = sorted(_missing_column_groups(spec, set(cd.column_groups.keys())))
     if missing_groups:
         raise KeyError(
             f"calc_tc_power_column could not resolve column group(s) "
@@ -766,44 +786,20 @@ def calc_tc_power_column(
             f"explicit `tc_power_calc` dict that matches this CapData's "
             f"groups."
         )
-    if (
-        not isinstance(tc_power_calc, dict)
-        or "power" not in tc_power_calc
-        or not isinstance(tc_power_calc["power"], tuple)
-        or len(tc_power_calc["power"]) != 2
-        or not callable(tc_power_calc["power"][0])
-        or not isinstance(tc_power_calc["power"][1], dict)
-    ):
-        raise ValueError(
-            "calc_tc_power_column requires tc_power_calc to include a "
-            "top-level 'power' calculation tuple, such as "
-            "'power': (power_temp_correct, {...})."
-        )
-
-    # Deep-copy the calc spec so transform_calc_params doesn't mutate the
-    # caller's dict in place. transform_calc_params operates by walking
-    # the structure and producing a transformed return value, so we never
-    # need to expose the mutated form to the caller.
-    spec = copy.deepcopy(tc_power_calc)
 
     result = util.transform_calc_params(spec, cd, verbose=verbose)
 
-    # ``result`` is a dict with the same shape as the input, but with the
-    # calculation tuples replaced by the function names of the columns
-    # they wrote to. The top-level ``power`` calculation's product (e.g.
+    # ``result`` is a dict with the same shape as ``spec``, but with the
+    # calc nodes replaced by the registry names of the columns they wrote
+    # to. The top-level ``power`` calc's product (e.g.
     # ``power_temp_correct``) is the column we expose under ``col_name``.
-    if not isinstance(result, dict) or "power" not in result:
-        raise ValueError(
-            "calc_tc_power_column requires tc_power_calc to include a "
-            "top-level 'power' calculation."
-        )
     produced_col = result["power"]
     if not isinstance(produced_col, str) or produced_col not in cd.data.columns:
         raise ValueError(
             "calc_tc_power_column could not identify the produced "
             "temperature-corrected power column. Ensure tc_power_calc "
-            "includes a calculation tuple at the top level (e.g. "
-            "'power': (power_temp_correct, {...}))."
+            "includes a calc node at the top level (e.g. "
+            "'power': {'calc': 'power_temp_correct', ...})."
         )
 
     cd.data[col_name] = cd.data[produced_col]
@@ -962,7 +958,8 @@ class ScatterPlot(param.Parameterized):
         without writing a redundant column.
         """
         regression_already_tc = (
-            self.cd.regression_cols.get("power") == "power_temp_correct"
+            util.reg_col_label(self.cd.regression_cols.get("power"))
+            == "power_temp_correct"
         )
         if regression_already_tc:
             warnings.warn(
@@ -1085,17 +1082,16 @@ class ScatterPlot(param.Parameterized):
         DataLink(principal_link, timeseries)
 
         # ``y_col`` is the semantic regression-formula name (e.g. ``power``)
-        # which may not exist as a literal column on ``cd.data``; resolve
-        # it through ``regression_cols`` to recover the underlying column
+        # which may not exist as a literal column on ``cd.data``; resolve it
+        # through ``regression_cols`` to recover the underlying column
         # holding the unfiltered series.
         if y_col in self.cd.data.columns:
             full_series = self.cd.data[y_col]
-        elif y_col in self.cd.regression_cols and (
-            self.cd.regression_cols[y_col] in self.cd.data.columns
-        ):
-            full_series = self.cd.data[self.cd.regression_cols[y_col]]
         else:
-            full_series = None
+            resolved_col = _resolve_reg_col_column(self.cd, y_col)
+            full_series = (
+                self.cd.data[resolved_col] if resolved_col is not None else None
+            )
 
         if full_series is not None:
             full_df = full_series.rename(y_col).reset_index()

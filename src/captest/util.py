@@ -8,8 +8,16 @@ import warnings
 import numpy as np
 import pandas as pd
 import yaml
-from patsy import ModelDesc
 from upath import UPath
+
+from captest.calcparams import CALC_REGISTRY
+from captest.setup import (  # noqa: F401
+    Calc,
+    Column,
+    Group,
+    canonical_json,
+    parse_regression_formula,
+)
 
 
 def read_json(path):
@@ -262,202 +270,114 @@ def get_agg_column_name(group_id, agg_func):
     return col_name
 
 
-def update_by_path(dictionary, path, new_value=None, convert_callable=False):
-    """
-    Update a nested dictionary value by following a path list.
+def reg_col_label(value):
+    """Return the column group id or column name a regression column refers to.
+
+    ``CapData.regression_cols`` values are ``Group`` / ``Column`` nodes
+    before ``process_regression_columns`` (or ``agg_sensors``) runs and
+    plain strings afterwards. Readers that look a value up in
+    ``column_groups`` or ``data`` use this to handle both forms.
 
     Parameters
     ----------
-    dictionary : dict
-        The dictionary to update
-    path : list
-        A list representing the path to the target key
-    new_value : optional
-        The new value to set (if None and convert_callable=True,
-        will convert existing tuple to function name)
-    convert_callable : bool, optional
-        If True and new_value is None, converts tuple to function name
+    value : Group, Column, str or other
+        A value of ``CapData.regression_cols``.
 
     Returns
     -------
-    updated_dictionary : dict
-        The updated dictionary
+    object
+        ``value.group`` for a ``Group``, ``value.column`` for a ``Column``,
+        otherwise ``value`` unchanged.
     """
-    # Get a reference to the current level in the dictionary
-    current = dictionary
-
-    # Navigate to the parent of the target key
-    for key in path[:-1]:
-        current = current[key]
-
-    # If convert_callable is True and no new value provided, convert existing tuple
-    if convert_callable and new_value is None:
-        target_value = current[path[-1]]
-        if isinstance(target_value, tuple) and callable(target_value[0]):
-            current[path[-1]] = target_value[0].__name__
-    else:
-        # Update the target key with the new value
-        current[path[-1]] = new_value
-
-    return dictionary
-
-
-def _is_aggregation_tuple(node):
-    """Check if node is an aggregation tuple: (group_id: str, agg_func: str)."""
-    return (
-        isinstance(node, tuple)
-        and len(node) == 2
-        and isinstance(node[0], str)
-        and isinstance(node[1], str)
-    )
-
-
-def _is_calculation_tuple(node):
-    """Check if node is a calculation tuple: (callable, dict)."""
-    return (
-        isinstance(node, tuple)
-        and len(node) == 2
-        and callable(node[0])
-        and isinstance(node[1], dict)
-    )
-
-
-def _resolve_column_group(value, cd):
-    """
-    Resolve a column group ID to an actual column name.
-
-    Parameters
-    ----------
-    value : str
-        The column group ID or column name.
-    cd : CapData
-        CapData instance with column_groups attribute.
-
-    Returns
-    -------
-    str
-        The resolved column name.
-
-    Raises
-    ------
-    ValueError
-        If the column group has more than one column.
-    """
-    if value in cd.column_groups:
-        if len(cd.column_groups[value]) == 1:
-            return cd.column_groups[value][0]
-        else:
-            raise ValueError(
-                f'Looks like you specified a column group ID "{value}" that '
-                f"points to a group with more than one column. "
-                f'Try replacing it with ("{value}", "mean") or a different '
-                f"aggregation method."
-            )
+    if isinstance(value, Group):
+        return value.group
+    if isinstance(value, Column):
+        return value.column
     return value
 
 
-def _get_or_create_aggregation(group_id, agg_func, cd, agg_cache, verbose):
-    """
-    Get an aggregated column name, creating it if necessary.
+def _get_or_create_aggregation(node, cd, agg_cache, verbose):
+    """Return the column a ``Group`` node resolves to, aggregating if needed.
 
-    If a column named ``<group_id>_<agg_func>_agg`` already exists in
-    ``cd.data`` (e.g. measured data was loaded from a previously exported
-    test-data file), that column is reused instead of re-aggregating the
-    group, and a "Reusing existing column ..." message is printed when
-    ``verbose`` is True.
+    An existing ``<group>_<agg>_agg`` column (e.g. measured data loaded from
+    an exported test-data file) is reused rather than re-aggregated, with a
+    message when ``verbose``.
 
     Parameters
     ----------
-    group_id : str
-        The column group ID to aggregate.
-    agg_func : str
-        The aggregation function name.
+    node : captest.setup.Group
     cd : CapData
-        CapData instance.
     agg_cache : dict
-        Cache of already aggregated columns.
+        ``Group`` node -> aggregated column name, shared across one walk.
     verbose : bool
-        Whether to print verbose output.
 
     Returns
     -------
     str
-        The aggregated column name.
     """
-    cache_key = (group_id, agg_func)
-    if cache_key in agg_cache:
-        return agg_cache[cache_key]
-
-    expected_agg_name = get_agg_column_name(group_id, agg_func)
-    if expected_agg_name in cd.data.columns:
-        agg_name = expected_agg_name
+    if node in agg_cache:
+        return agg_cache[node]
+    expected = get_agg_column_name(node.group, node.agg)
+    if expected in cd.data.columns:
         if verbose:
             print(
-                f"Reusing existing column '{expected_agg_name}'; skipping "
-                f"aggregation of the {group_id} group.\n"
+                f"Reusing existing column '{expected}'; skipping "
+                f"aggregation of the {node.group} group.\n"
             )
+        agg_name = expected
     else:
-        agg_name = cd.agg_group(group_id=group_id, agg_func=agg_func, verbose=verbose)
-
-    agg_cache[cache_key] = agg_name
+        agg_name = cd.agg_group(group_id=node.group, agg_func=node.agg, verbose=verbose)
+    agg_cache[node] = agg_name
     return agg_name
 
 
 def transform_calc_params(node, cd, agg_cache=None, verbose=True):
-    """
-    Recursively transform a calc_params node, returning resolved values.
+    """Evaluate a regression-columns tree bottom-up, returning column names.
 
-    This function processes a nested dictionary structure that defines regression
-    parameters, executing aggregations and calculations as needed, and returns
-    a flattened structure with resolved column names.
+    Node types (see :mod:`captest.setup`):
 
-    Node types handled:
-    - dict: Transform each value recursively
-    - tuple (str, str): Aggregation - returns aggregated column name
-    - tuple (callable, dict): Calculation - executes function, returns function name
-    - str: Column group ID - resolved to column name if single column
-    - other: Passed through unchanged (e.g., numeric values)
+    - dict: transform each value (``Side.reg_cols`` or ``Calc.args``);
+    - ``Group``: aggregate the column group, return the new column name;
+    - ``Column``: return the column name after checking it exists;
+    - ``Calc``: transform ``args``, run the registered function through
+      ``cd.custom_param`` and return the column it wrote (its registry name);
+    - anything else is a literal argument, passed through unchanged.
 
     Parameters
     ----------
-    node : dict, tuple, str, or other
-        The current node in the calc_params structure.
+    node : dict, Group, Column, Calc or literal
     cd : CapData
-        CapData instance that functions will act on.
-    agg_cache : dict, optional
-        Cache of already aggregated column groups to avoid redundant calls.
-        Keys are tuples of (group_id, agg_func), values are aggregated column names.
-    verbose : bool, default True
-        Passed to aggregations and calculations. Set to False to suppress output.
+    agg_cache : dict or None
+    verbose : bool
 
     Returns
     -------
-    transformed
-        The transformed node with all aggregations executed and calculations
-        replaced by their function names.
+    object
+        The transformed node.
+
+    Raises
+    ------
+    KeyError
+        If a ``Column`` names a column absent from ``cd.data``.
     """
     if agg_cache is None:
         agg_cache = {}
-
     if isinstance(node, dict):
         return {
             key: transform_calc_params(value, cd, agg_cache, verbose)
             for key, value in node.items()
         }
-
-    if _is_aggregation_tuple(node):
-        group_id, agg_func = node
-        return _get_or_create_aggregation(group_id, agg_func, cd, agg_cache, verbose)
-
-    if _is_calculation_tuple(node):
-        func, kwargs = node
-        resolved_kwargs = transform_calc_params(kwargs, cd, agg_cache, verbose)
-        cd.custom_param(func, **resolved_kwargs, verbose=verbose)
-        return func.__name__
-
-    if isinstance(node, str):
-        return _resolve_column_group(node, cd)
-
+    if isinstance(node, Group):
+        return _get_or_create_aggregation(node, cd, agg_cache, verbose)
+    if isinstance(node, Column):
+        if node.column not in cd.data.columns:
+            raise KeyError(f"column {node.column!r} not in data")
+        return node.column
+    if isinstance(node, Calc):
+        entry = CALC_REGISTRY[node.calc]
+        resolved = transform_calc_params(node.args, cd, agg_cache, verbose)
+        cd.custom_param(entry.func, output=node.calc, verbose=verbose, **resolved)
+        return node.calc
     return node
 
 
@@ -471,49 +391,37 @@ def process_reg_cols(
     verbose=True,
 ):
     """
-    Recursively process a regression columns dictionary that includes calculated parameters.
+    Evaluate a regression-columns tree in place, flattening it to column names.
 
-    The regression parameters dictionary attribute of CapData can be defined with a
-    nested structure which includes tuples with two values where the first is a
-    CapData method to calculate a new value (column of Data attribute) and the second
-    is a dictionary of the kwargs to be passed to the function.
+    ``original_calc_params`` maps each regression variable to a node from
+    :mod:`captest.setup`: ``Group`` (aggregate a column group), ``Column``
+    (use an existing column) or ``Calc`` (run a registered calculation from
+    :data:`captest.calcparams.CALC_REGISTRY` whose ``args`` are themselves
+    nodes or literals). In a setup document the tree is written as plain
+    mappings, for example::
 
-    An example tuple:
-    (bom_temp, {'poa': 'irr_poa', 'temp_amb':'temp_amb', 'wind_speed':'wind_speed'})
+        meas:
+          reg_cols:
+            power:
+              calc: power_temp_correct
+              args:
+                power: {group: real_pwr_mtr, agg: sum}
+                cell_temp:
+                  calc: cell_temp
+                  args:
+                    poa: {group: irr_poa, agg: mean}
+                    bom: {group: temp_bom, agg: mean}
+            poa:
+              calc: e_total
+              args:
+                poa:  {group: irr_poa,  agg: mean}
+                rpoa: {group: irr_rpoa, agg: mean}
 
-    Where bom_temp is a CapData method that accepts the kwargs poa, temp_amb,
-    and wind_speed, which have the values (column group ids) irr_poa, temp_amb, wind_speed,
-    respectively.
-
-    Additionally, column groups can be aggregated by specifying a tuple which contains
-    two strings - the column group id (e.g., 'irr_poa') and the aggregation method
-    (e.g. 'mean'). This will result in the CapData.agg_group method being called and
-    the first value in the tuple passed to the group_id kwarg and the second passed
-    to the agg_func kwarg.
-
-    If a regression parameter key is paired with a column groups id for a column
-    group with only a single column, then that column name will replace the column group
-    id.
-
-    The dictionary passed to `original_calc_params` may be nested like this example:
-
-    calc_params_map = {
-        'power_tc': (CapData.power_tc, {
-            'power': 'real_pwr_mtr',
-            'cell_temp': (CapData.cell_temp, {
-                'poa': ('irr_poa', 'mean'),
-                'bom': (CapData.bom_temp, {
-                    'poa': ('irr_poa', 'mean'),
-                    'temp_amb': ('temp_amb', 'mean'),
-                    'wind_speed': ('wind_speed', 'mean')
-                })
-            })
-        }),
-    }
-
-    This function will start at the bottom of nested dictionaries and progressively
-    call the functions with the kwargs replacing the function tuples with the function
-    names or the aggregated column names.
+    which ``captest.setup.Side`` validates into nodes. Evaluation starts at the
+    leaves: each ``Group`` is aggregated once per call (an existing
+    ``<group>_<agg>_agg`` column is reused), each ``Calc`` writes a column
+    named after its registry name, and every variable is replaced by the name
+    of the column that holds it.
 
     Parameters
     ----------
@@ -526,10 +434,10 @@ def process_reg_cols(
     dict_path : list
         Deprecated. Ignored if provided.
     cd : CapData
-        CapData instance that functions in original_calc_params will act on.
+        CapData instance the aggregations and calculations act on.
     agg_cache : dict, optional
         Cache of already aggregated column groups to avoid redundant calls to agg_group.
-        Keys are tuples of (group_id, agg_func) and values are the aggregated column names.
+        Keys are ``Group`` nodes and values are the aggregated column names.
     verbose : bool, default True
         Passed to the group aggregations and the parameter calculations. Set to False
         to prevent all summary output.
@@ -555,8 +463,12 @@ _PERC_N_PREFIX = "perc_"
 def perc_wrap(p):
     """Return a callable that computes the ``p``-th percentile of a Series.
 
-    Used to build ``TEST_SETUPS[...]['rep_conditions']['func']`` dicts for
-    percentile-based reporting irradiance (e.g. 60th percentile POA).
+    Pass the result directly as a ``func`` value to ``CapData.rep_cond`` (or
+    ``CapTest.rep_cond``) for a percentile-based reporting condition (e.g.
+    ``perc_wrap(60)`` for the 60th percentile POA). Test setup documents and
+    ``CapTest`` overrides do not accept callables; they spell the same thing as
+    the string ``"perc_N"`` (e.g. ``"perc_60"``), which ``CapTest.rep_cond``
+    resolves to ``perc_wrap(N)``.
 
     Parameters
     ----------
@@ -685,73 +597,6 @@ def callable_from_qualname(ref):
     except (ImportError, AttributeError) as exc:
         raise ValueError(f"Cannot import callable {ref!r}: {exc}") from exc
     return obj
-
-
-def parse_regression_formula(formula: str) -> tuple[list[str], list[str]]:
-    """
-    Return (lhs_list, rhs_list) for `formula`.
-
-    Rules
-    -----
-    • Each list contains the **unique raw variable names** appearing on
-      that side, sorted.
-    • `- 1` (intercept-removal) is ignored.
-    • `I(...)` blocks are unwrapped; products like `I(poa * t_amb)` are
-      split into their component symbols (`poa`, `t_amb`).
-
-    Parameters
-    ----------
-    formula : str
-        Regression formula to parse.
-
-    Returns
-    -------
-    Tuple[List[str], List[str]]
-        Tuple of (lhs_list, rhs_list).
-    """
-    # --- helpers ------------------------------------------------------
-    _sym_re = re.compile(r"[A-Za-z_]\w*")
-
-    def _extract_raw_names(factor_str: str) -> list[str]:
-        """
-        Turn 'I(poa * t_amb)'  ->  ['poa', 't_amb']
-             'poa'             ->  ['poa']
-        """
-        # strip outer I(…)
-        if factor_str.startswith("I(") and factor_str.endswith(")"):
-            factor_str = factor_str[2:-1]
-        # split by * or :  (products/interactions)
-        parts = re.split(r"[\*\:]", factor_str)
-        names = []
-        for part in parts:
-            # pull out identifier tokens
-            names.extend(_sym_re.findall(part))
-        return names
-
-    # --- main logic ---------------------------------------------------
-    md = ModelDesc.from_formula(formula)
-
-    lhs_list: list[str] = []
-    rhs_list: list[str] = []
-
-    # left
-    for term in md.lhs_termlist:
-        for f in term.factors:
-            for name in _extract_raw_names(f.name()):
-                if name not in lhs_list:
-                    lhs_list.append(name)
-
-    # right
-    for term in md.rhs_termlist:
-        for f in term.factors:
-            for name in _extract_raw_names(f.name()):
-                if name not in rhs_list:
-                    rhs_list.append(name)
-
-    # discard the Patsy-built-in intercept symbol if present
-    rhs_list = [n for n in rhs_list if n != "Intercept"]
-
-    return lhs_list, rhs_list
 
 
 class StrictAttrs:

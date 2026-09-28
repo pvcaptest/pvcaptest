@@ -52,11 +52,12 @@ Regression
    util.parse_regression_formula
    util.process_reg_cols
    util.transform_calc_params
+   util.reg_col_label
 
-Configuration
--------------
+Documents
+---------
 
 .. autosummary::
    :toctree: generated/
 
-   util.update_by_path
+   util.canonical_json

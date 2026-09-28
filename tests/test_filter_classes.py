@@ -1,5 +1,6 @@
 """Tests for the filter-step class hierarchy (BaseSummaryStep / BaseFilter)."""
 
+import datetime
 import inspect
 import math
 import re
@@ -11,6 +12,7 @@ import numpy as np
 import pandas as pd
 import param
 import pytest
+from dateutil import tz as dtz
 
 from captest import capdata, util
 from captest.capdata import CapData
@@ -711,6 +713,157 @@ class TestFilterTime:
         f = Time(end="2023-02-15")
         f.run(cd_time)
         assert f.explanation == "Data after 2023-02-15 was removed."
+
+    @pytest.mark.parametrize(
+        ("value", "expected"),
+        [
+            (pd.Timestamp("1990-09-14"), "1990-09-14"),
+            (pd.Timestamp("2023-02-01 06:30"), "2023-02-01T06:30:00"),
+            (
+                pd.Timestamp(
+                    "2023-02-01", tz=datetime.timezone(datetime.timedelta(hours=-5))
+                ),
+                "2023-02-01T00:00:00-05:00",
+            ),
+            (datetime.date(2023, 2, 1), "2023-02-01"),
+            (datetime.datetime(2023, 2, 1, 12), "2023-02-01T12:00:00"),
+            (np.datetime64("2023-02-01"), "2023-02-01"),
+            (np.datetime64("2023-02-01T00:00:00.000000000", "ns"), "2023-02-01"),
+            ("2023-02-01", "2023-02-01"),
+            (None, None),
+        ],
+    )
+    def test_to_config_emits_iso_strings(self, value, expected):
+        cfg = Time(test_date=value, days=10).to_config()
+        assert cfg["test_date"] == expected
+        assert cfg["tz"] is None
+
+    def test_named_zone_is_written_as_instant_plus_tz(self):
+        start = pd.Timestamp("2023-03-10", tz="America/Chicago")
+        cfg = Time(start=start, days=4).to_config()
+        assert cfg["start"] == "2023-03-10T00:00:00-06:00"
+        assert cfg["tz"] == "America/Chicago"
+
+    @staticmethod
+    def _hourly_chicago(center):
+        from captest.capdata import CapData
+
+        cd = CapData("t")
+        idx = pd.date_range(
+            pd.Timestamp(center) - pd.Timedelta(days=2),
+            periods=24 * 10,
+            freq="h",
+            tz="America/Chicago",
+        )
+        cd.data = pd.DataFrame({"x": 1.0}, index=idx)
+        return cd
+
+    @pytest.mark.parametrize("start", ["2023-03-10", "2023-11-03"])
+    def test_named_zone_round_trip_across_dst(self, start):
+        cd = self._hourly_chicago(start)
+        f = Time(start=pd.Timestamp(start, tz="America/Chicago"), days=4)
+        g = Time.from_config(f.to_config())
+        assert list(g._execute(cd)) == list(f._execute(cd))
+
+    @pytest.mark.parametrize("first", [True, False])
+    def test_repeated_dst_hour_keeps_its_occurrence(self, first):
+        ts = pd.Timestamp("2023-11-05 01:30").tz_localize(
+            "America/Chicago", ambiguous=first
+        )
+        cfg = Time(start=ts, days=1).to_config()
+        g = Time.from_config(cfg)
+        assert g._parse(g.start) == ts
+        other = pd.Timestamp("2023-11-05 01:30").tz_localize(
+            "America/Chicago", ambiguous=not first
+        )
+        assert Time(start=other, days=1).to_config()["start"] != cfg["start"]
+
+    @pytest.mark.parametrize(
+        "make",
+        [
+            lambda: Time(
+                start=pd.Timestamp("2023-03-10", tz=dtz.gettz("America/Chicago")),
+                days=4,
+            ),
+            lambda: Time(
+                start=pd.Timestamp("2023-03-10", tz="America/Chicago"),
+                end=pd.Timestamp("2023-03-20", tz="Europe/Berlin"),
+            ),
+            lambda: Time(
+                tz="Europe/Berlin",
+                start=pd.Timestamp("2023-03-10", tz="America/Chicago"),
+            ),
+            lambda: Time(
+                start=pd.Timestamp("2023-03-10", tz="America/Chicago"),
+                test_date=pd.Timestamp("2023-03-12T00:00-06:00"),
+                days=4,
+            ),
+            lambda: Time(start=pd.NaT, drop=True),
+            lambda: Time(start=np.datetime64("NaT", "ns"), drop=True),
+        ],
+        ids=[
+            "unnamed-dst-zone",
+            "mixed-zones",
+            "tz-conflict",
+            "named-plus-fixed",
+            "nat",
+            "np64-nat",
+        ],
+    )
+    def test_unserializable_zones_keep_raw_values(self, make):
+        from captest.setup import canonical_json
+
+        f = make()
+        cfg = f.to_config()  # never raises
+        assert cfg["start"] is f.start
+        with pytest.raises((TypeError, ValueError)):
+            canonical_json(cfg)  # persistence is refused downstream
+
+    def test_unnamed_zone_step_replays_through_pipeline(self):
+        from captest.capdata import CapData
+
+        idx = pd.date_range("2023-03-08", periods=24 * 10, freq="h", tz="UTC")
+        cd = CapData("t")
+        cd.data = pd.DataFrame({"x": 1.0}, index=idx)
+        start = pd.Timestamp("2023-03-10", tz=dtz.gettz("America/Chicago"))
+        cd.filter_time(start=start, days=4)
+        config = cd.filters_to_config()  # what run_test snapshots
+        replay = CapData("t")
+        replay.data = cd.data.copy()
+        replay.run_pipeline(config)
+        assert list(replay.data_filtered.index) == list(cd.data_filtered.index)
+
+    def test_replay_only_step_in_a_full_run_test(self):
+        # Integration: run_test snapshots the live pipeline through
+        # to_config; a replay-only Time step must still produce results and
+        # leave the fingerprint unset with the canonicalisation reason.
+        from tests.test_provenance import build_loaded, filter_and_run
+
+        tst = build_loaded()
+        tst.meas.filter_time(start=pd.NaT, drop=True)  # keeps every row
+        results = filter_and_run(tst)
+        assert results is not None
+        assert tst.last_results is results
+        assert tst.run_fingerprint is None
+        assert "cannot be canonicalised" in tst.run_fingerprint_error
+
+    def test_explicit_tz_with_naive_values_is_kept(self):
+        cfg = Time(tz="America/Chicago", start="2023-03-10", days=4).to_config()
+        assert cfg["tz"] == "America/Chicago"
+        assert cfg["start"] == "2023-03-10"
+
+    def test_to_config_round_trip_is_lossless(self, cd_time):
+        f = Time(start=pd.Timestamp("2023-02-01"), end=pd.Timestamp("2023-02-15"))
+        cfg = f.to_config()
+        g = Time.from_config(cfg)
+        assert list(g._execute(cd_time)) == list(f._execute(cd_time))
+        assert g.to_config() == cfg
+
+    def test_to_config_is_canonical_json(self):
+        from captest.setup import canonical_json
+
+        cfg = Time(test_date=pd.Timestamp("1990-09-14"), days=30).to_config()
+        canonical_json(cfg)  # z1d1: must not raise
 
     def test_wrap_year_kwarg_is_rejected(self):
         with pytest.raises(TypeError, match="wrap_year"):

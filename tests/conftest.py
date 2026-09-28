@@ -4,7 +4,14 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from captest import CapTest, capdata as pvc, columngroups as cg, load_pvsyst, util
+from captest import CapTest, capdata as pvc, columngroups as cg, util
+from tests.setup_fixtures import (
+    add_bom_temp,
+    add_precwat,
+    add_spec_corrected,
+    build_meas_default,
+    build_sim_default,
+)
 
 
 @pytest.fixture
@@ -193,29 +200,7 @@ def meas_cd_default():
     ``bifi_power_tc_calc_tbom`` presets also resolve against this fixture
     without additional wiring.
     """
-    cd = pvc.CapData("meas")
-    df = pd.read_csv(
-        "./tests/data/example_measured_data.csv",
-        index_col=0,
-        parse_dates=True,
-    )
-    # Synthesize rear-POA irradiance as a fraction of the front-POA sensors.
-    # Real rpoa is typically 10-20% of front POA for bifacial sites; 15%
-    # keeps the test fixture in a realistic range without requiring a new
-    # data file.
-    df["met1_rpoa"] = df["met1_poa_pyranometer"] * 0.15
-    df["met2_rpoa"] = df["met2_poa_pyranometer"] * 0.15
-    cd.data = df
-    cd.column_groups = cg.ColumnGroups(
-        {
-            "real_pwr_mtr": ["meter_power"],
-            "irr_poa": ["met1_poa_pyranometer", "met2_poa_pyranometer"],
-            "irr_rpoa": ["met1_rpoa", "met2_rpoa"],
-            "temp_amb": ["met1_amb_temp", "met2_amb_temp"],
-            "wind_speed": ["met1_windspeed", "met2_windspeed"],
-        }
-    )
-    return cd
+    return build_meas_default()
 
 
 @pytest.fixture
@@ -227,10 +212,7 @@ def sim_cd_default():
     ``bifi_power_tc_meas_tbom``, ``bifi_power_tc_calc_tbom``) resolve without
     needing a new PVsyst export.
     """
-    cd = load_pvsyst(path="./tests/data/pvsyst_example_HourlyRes_2.CSV")
-    cd.data["GlobBak"] = cd.data["GlobInc"] * 0.15
-    cd.data["BackShd"] = 0.0
-    return cd
+    return build_sim_default()
 
 
 @pytest.fixture
@@ -283,15 +265,7 @@ def meas_cd_bom_temp(meas_cd_default):
     giving roughly 15-25 °C above ambient at 1000 W/m², which is in a
     realistic range for a bifacial module in field conditions.
     """
-    cd = meas_cd_default
-    df = cd.data
-    df["met1_bom_temp"] = df["met1_amb_temp"] + df["met1_poa_pyranometer"] * 0.025
-    df["met2_bom_temp"] = df["met2_amb_temp"] + df["met2_poa_pyranometer"] * 0.025
-    cd.data = df
-    groups = dict(cd.column_groups)
-    groups["temp_bom"] = ["met1_bom_temp", "met2_bom_temp"]
-    cd.column_groups = cg.ColumnGroups(groups)
-    return cd
+    return add_bom_temp(meas_cd_default)
 
 
 @pytest.fixture
@@ -347,31 +321,7 @@ def meas_cd_spec_corrected(meas_cd_default):
     tree requires ``humidity`` and ``pressure`` column groups plus
     ``cd.site`` for apparent-zenith calculations.
     """
-    cd = meas_cd_default
-    rng = np.random.default_rng(seed=42)
-    n = cd.data.shape[0]
-    cd.data["met1_humidity"] = np.clip(rng.normal(60.0, 10.0, n), 5.0, 95.0)
-    cd.data["met2_humidity"] = np.clip(rng.normal(60.0, 10.0, n), 5.0, 95.0)
-    cd.data["met1_pressure"] = rng.normal(1013.0, 3.0, n)
-    cd.data["met2_pressure"] = rng.normal(1013.0, 3.0, n)
-    groups = dict(cd.column_groups)
-    groups["humidity"] = ["met1_humidity", "met2_humidity"]
-    groups["pressure"] = ["met1_pressure", "met2_pressure"]
-    cd.column_groups = cg.ColumnGroups(groups)
-    cd.site = {
-        "loc": {
-            "latitude": 33.0,
-            "longitude": -99.5,
-            "altitude": 500,
-            "tz": "America/Chicago",
-        },
-        "sys": {
-            "surface_tilt": 20,
-            "surface_azimuth": 180,
-            "albedo": 0.2,
-        },
-    }
-    return cd
+    return add_spec_corrected(meas_cd_default)
 
 
 @pytest.fixture
@@ -383,11 +333,7 @@ def sim_cd_spec_corrected(sim_cd_default):
     realistic-looking synthetic value (0.5-3 cm expressed in meters, matching
     PVsyst units) is added so the preset can resolve end-to-end in tests.
     """
-    cd = sim_cd_default
-    rng = np.random.default_rng(seed=43)
-    n = cd.data.shape[0]
-    cd.data["PrecWat"] = rng.uniform(0.005, 0.03, n)  # meters
-    return cd
+    return add_precwat(sim_cd_default)
 
 
 @pytest.fixture
