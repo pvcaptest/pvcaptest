@@ -67,6 +67,8 @@ directory); `util.canonical_json` and `util.reg_col_label`.
   0.15 fits formulas with formulaic instead of patsy, so
   `model.data.design_info` no longer exists and regression fitting fails.
   Remove the cap once captest supports the formulaic model data.
+- `patsy>=0.5.6` is now a declared dependency. captest imports it directly
+  (`capdata`, `setup`); it was previously only pulled in by statsmodels.
 - **Breaking:** test setups are now pure-data documents. `regression_cols`
 trees use tagged nodes — `{group: irr_poa, agg: mean}`, `{column: E_Grid}`,
 `{calc: e_total, args: {...}}` — instead of `(group, agg)` / `(callable,
