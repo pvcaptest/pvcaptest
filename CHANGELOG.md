@@ -63,6 +63,10 @@ resolved (`None` before `setup()`); read `resolved_setup.to_dict()` /
 directory); `util.canonical_json` and `util.reg_col_label`.
 
 ### Changed
+- `statsmodels` is capped below 0.15 (`statsmodels>=0.8,<0.15`). statsmodels
+  0.15 fits formulas with formulaic instead of patsy, so
+  `model.data.design_info` no longer exists and regression fitting fails.
+  Remove the cap once captest supports the formulaic model data.
 - **Breaking:** test setups are now pure-data documents. `regression_cols`
 trees use tagged nodes — `{group: irr_poa, agg: mean}`, `{column: E_Grid}`,
 `{calc: e_total, args: {...}}` — instead of `(group, agg)` / `(callable,
