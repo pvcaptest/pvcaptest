@@ -63,6 +63,33 @@ def build_sim_rear_shade():
     return cd
 
 
+def _rear_ratio(index):
+    """Rear-to-front irradiance ratio that varies with the hour of day.
+
+    A constant ratio makes rear POA an exact multiple of front POA, so a
+    ``power ~ poa + rpoa`` regression is rank-deficient and its coefficients
+    depend on the platform's LAPACK (the ``*_tbom`` oracles drifted on macOS
+    and Windows). Varying the ratio keeps the two terms independent.
+    """
+    return 0.15 + 0.03 * np.sin(2 * np.pi * np.asarray(index.hour) / 24)
+
+
+def build_meas_rear_varied():
+    """``build_meas_default`` with rear POA a time-varying fraction of front."""
+    cd = build_meas_default()
+    ratio = _rear_ratio(cd.data.index)
+    cd.data["met1_rpoa"] = cd.data["met1_poa_pyranometer"] * ratio
+    cd.data["met2_rpoa"] = cd.data["met2_poa_pyranometer"] * ratio
+    return cd
+
+
+def build_sim_rear_varied():
+    """``build_sim_default`` with ``GlobBak`` a time-varying fraction of GlobInc."""
+    cd = build_sim_default()
+    cd.data["GlobBak"] = cd.data["GlobInc"] * _rear_ratio(cd.data.index)
+    return cd
+
+
 def add_bom_temp(cd):
     """Add a synthetic ``temp_bom`` group (ambient + 0.025 * POA)."""
     df = cd.data
@@ -110,6 +137,10 @@ def _meas_bom():
     return add_bom_temp(build_meas_default())
 
 
+def _meas_bom_rear_varied():
+    return add_bom_temp(build_meas_rear_varied())
+
+
 def _meas_spec():
     return add_spec_corrected(build_meas_default())
 
@@ -145,8 +176,8 @@ PRESET_FIXTURES = {
         build_sim_rear_shade,
         _BIFI_SHADE,
     ),
-    "bifi_power_tc_meas_tbom": (_meas_bom, build_sim_default, _TC),
-    "bifi_power_tc_calc_tbom": (build_meas_default, build_sim_default, _TC),
+    "bifi_power_tc_meas_tbom": (_meas_bom_rear_varied, build_sim_rear_varied, _TC),
+    "bifi_power_tc_calc_tbom": (build_meas_rear_varied, build_sim_rear_varied, _TC),
     "bifi_power_tc_etotal_rear_shade_sim": (_meas_bom, build_sim_rear_shade, _TC),
     "bifi_power_tc_etotal_rear_shade_meas": (
         _meas_bom,

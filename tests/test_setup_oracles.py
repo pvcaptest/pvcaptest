@@ -43,3 +43,21 @@ def test_oracle_files_are_pairwise_distinct():
     for preset, text in texts.items():
         assert text not in seen, f"{preset} oracle is identical to {seen[text]}"
         seen[text] = preset
+
+
+@pytest.mark.parametrize("preset", sorted(TEST_SETUPS))
+def test_preset_fixture_regressions_are_well_conditioned(preset):
+    """Each preset's fixture data gives a full-rank, well-conditioned fit.
+
+    A rank-deficient design (e.g. rear POA an exact multiple of front POA)
+    has no unique coefficients: statsmodels' pinv then returns whichever
+    solution the platform's LAPACK rounding selects, and the oracle drifts
+    between Linux, macOS and Windows.
+    """
+    tst = build_captest(preset)
+    for side in ("meas", "sim"):
+        cd = getattr(tst, side)
+        cd.fit_regression(filter=False, summary=False)
+        exog = cd.regression_results.model.exog
+        assert np.linalg.matrix_rank(exog) == exog.shape[1], side
+        assert np.linalg.cond(exog) < 1e8, side

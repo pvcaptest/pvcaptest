@@ -796,3 +796,27 @@ Branch: `reg-cols-serialization`
   raised. There were also nine minors. All were fixed in one wave (`6b2dd45`..`0d83779`)
   and re-reviewed clean.
 - Branch pushed; draft PR opened (link in the PR list / final message).
+
+### Post-merge-prep: tbom oracle drift on macOS and Windows
+
+CI failed `test_preset_reproduces_oracle[bifi_power_tc_{calc,meas}_tbom]` on
+every macOS and Windows job (Ubuntu passed), with the sim intercept off by
+~0.5% (-26461 / -26490 vs -26338). Root cause is the fixtures, not captest:
+`build_meas_default` set rear POA to exactly `0.15 * poa` and
+`build_sim_default` set `GlobBak = 0.15 * GlobInc` with `BackShd = 0`, so the
+tbom presets' `power ~ poa + rpoa` design matrix was rank 2 of 3
+(condition ~1e15). statsmodels' `pinv` dropped the null singular value only
+because it sat just under the 1e-15 cutoff (3.6e-16 relative); keeping it
+moves the intercept by ~70 and sends `poa` / `rpoa` to ~1e14, so the result
+depended on each platform's LAPACK rounding. The oracles pinned one
+arbitrary solution out of infinitely many.
+
+Fix: `build_meas_rear_varied` / `build_sim_rear_varied` make the rear-to-front
+ratio vary with the hour of day (`0.15 + 0.03 sin(2 pi hour / 24)`), used only
+by the two tbom presets (condition ~5e2, fit independent of `rcond`). The two
+oracle files were regenerated with `tests.tools.capture_setup_oracles` on the
+pre-migration code (a detached worktree at 39aae20, whose `src/` equals
+207ce75's, statsmodels 0.14.6) with the new fixtures; the other eight files it
+rewrote differed from the committed ones by at most 2.6e-11 relative and were
+left unchanged. `test_preset_fixture_regressions_are_well_conditioned` guards
+every preset's fixture fit (full rank, condition < 1e8).
