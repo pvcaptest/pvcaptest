@@ -406,6 +406,47 @@ class TestPercHelpersInUtil:
         assert util._perc_wrap_to_string("mean") == "mean"
         assert util._resolve_perc_string("mean") == "mean"
 
+    def test_perc_wrap_matches_nearest_percentile(self):
+        """Verify perc_wrap returns the nearest-rank percentile of a Series."""
+        s = pd.Series([5.0, 1.0, 4.0, 2.0, 3.0])
+        assert util.perc_wrap(60)(s) == np.percentile(s, 60, method="nearest")
+
+    def test_perc_wrap_skips_nan(self):
+        """Verify NaNs are ignored rather than making the percentile NaN."""
+        s = pd.Series([1.0, 2.0, np.nan, 4.0, 5.0])
+        assert util.perc_wrap(60)(s) == 4.0
+
+    def test_perc_wrap_in_dataframe_agg_dict(self):
+        """Verify perc_wrap works per column inside a DataFrame.agg dict."""
+        df = pd.DataFrame({"poa": [1.0, 2.0, np.nan, 4.0, 5.0], "t": [1.0] * 5})
+        result = df.agg({"poa": util.perc_wrap(60), "t": "mean"})
+        assert result["poa"] == 4.0
+
+    def test_perc_wrap_rejects_scalar(self):
+        """Verify a scalar raises TypeError, which pandas 2 Series.agg relies on.
+
+        pandas 2.x ``Series.agg(func)`` first applies ``func`` element-wise and
+        only aggregates the whole Series when that raises.
+        """
+        with pytest.raises(TypeError, match="scalar"):
+            util.perc_wrap(60)(3.0)
+
+    def test_perc_wrap_in_series_agg_aggregates(self):
+        """Verify Series.agg with perc_wrap returns the percentile, not a transform."""
+        s = pd.Series([1.0, 2.0, 3.0, 4.0, 5.0])
+        assert s.agg(util.perc_wrap(60)) == 3.0
+
+    def test_perc_wrap_on_dataframe_is_per_column(self):
+        """Verify a direct DataFrame call returns one percentile per column."""
+        df = pd.DataFrame({"a": [1.0, 2, 3, 4, 5], "b": [10.0, 20, 30, 40, 50]})
+        assert util.perc_wrap(60)(df).to_dict() == {"a": 3.0, "b": 30.0}
+
+    def test_perc_wrap_in_groupby_agg(self):
+        """Verify perc_wrap aggregates each group when used in groupby.agg."""
+        df = pd.DataFrame({"g": [0, 0, 0, 1, 1, 1], "v": [1.0, 2, 3, 10, 20, 30]})
+        result = df.groupby("g").agg({"v": util.perc_wrap(100)})
+        assert result["v"].tolist() == [3.0, 30.0]
+
 
 class TestReadJsonYamlPathTypes:
     """read_json / read_yaml must accept str, Path, UPath, and remote URIs.

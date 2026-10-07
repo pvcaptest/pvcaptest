@@ -478,15 +478,27 @@ def perc_wrap(p):
     Returns
     -------
     callable
-        Function that takes a pandas Series or array-like and returns the
-        p-th percentile using ``method='nearest'``.
+        Function that takes a pandas Series or 1-d array-like and returns the
+        p-th percentile via ``Series.quantile(p / 100, interpolation='nearest')``.
+        Missing values are skipped, so a NaN in the data does not make the
+        result NaN. Called directly on a DataFrame it returns a Series of
+        per-column percentiles. Its ``__name__`` is ``"perc_wrap(p)"``, which
+        is how it is displayed in filter summaries and serialized as
+        ``"perc_N"``. The returned function raises ``TypeError`` when given a
+        scalar.
     """
 
-    def numpy_percentile(x):
-        return np.percentile(x.T, p, method="nearest")
+    def percentile(x):
+        # pandas 2.x Series.agg(func) first applies func element-wise and only
+        # aggregates the whole Series when that raises, so a scalar must raise.
+        if np.ndim(x) == 0:
+            raise TypeError("perc_wrap needs a Series or array-like, not a scalar.")
+        if not isinstance(x, (pd.Series, pd.DataFrame)):
+            x = pd.Series(x)
+        return x.quantile(p / 100, interpolation="nearest")
 
-    numpy_percentile.__name__ = f"perc_wrap({p})"
-    return numpy_percentile
+    percentile.__name__ = f"perc_wrap({p})"
+    return percentile
 
 
 def _resolve_perc_string(val):
