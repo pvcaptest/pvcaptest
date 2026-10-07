@@ -148,7 +148,10 @@ the aggregation it applied) in `regression_cols_preprocess`, so
 `Series.quantile(N / 100, interpolation="nearest")` instead of
 `np.percentile(..., method="nearest")`. Results are unchanged for data
 without missing values; missing values are now skipped, where previously a
-single NaN made the percentile reporting condition NaN.
+single NaN made the percentile reporting condition NaN. Called directly on
+a DataFrame, it returns per-column percentiles rather than one percentile of
+all values pooled (`rep_cond` and `DataFrame.agg` pass it one column at a
+time, so they are unaffected).
 
 ### Removed
 - `util.update_by_path` and `captest.captest.validate_test_setup`.

@@ -422,6 +422,11 @@ class TestPercHelpersInUtil:
         result = df.agg({"poa": util.perc_wrap(60), "t": "mean"})
         assert result["poa"] == 4.0
 
+    def test_perc_wrap_on_dataframe_is_per_column(self):
+        """Verify a direct DataFrame call returns one percentile per column."""
+        df = pd.DataFrame({"a": [1.0, 2, 3, 4, 5], "b": [10.0, 20, 30, 40, 50]})
+        assert util.perc_wrap(60)(df).to_dict() == {"a": 3.0, "b": 30.0}
+
     def test_perc_wrap_in_groupby_agg(self):
         """Verify perc_wrap aggregates each group when used in groupby.agg."""
         df = pd.DataFrame({"g": [0, 0, 0, 1, 1, 1], "v": [1.0, 2, 3, 10, 20, 30]})

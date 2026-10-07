@@ -481,8 +481,10 @@ def perc_wrap(p):
         Function that takes a pandas Series or 1-d array-like and returns the
         p-th percentile via ``Series.quantile(p / 100, interpolation='nearest')``.
         Missing values are skipped, so a NaN in the data does not make the
-        result NaN. Its ``__name__`` is ``"perc_wrap(p)"``, which is how it is
-        displayed in filter summaries and serialized as ``"perc_N"``.
+        result NaN. Called directly on a DataFrame it returns a Series of
+        per-column percentiles. Its ``__name__`` is ``"perc_wrap(p)"``, which
+        is how it is displayed in filter summaries and serialized as
+        ``"perc_N"``.
     """
 
     def percentile(x):
