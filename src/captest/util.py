@@ -484,10 +484,15 @@ def perc_wrap(p):
         result NaN. Called directly on a DataFrame it returns a Series of
         per-column percentiles. Its ``__name__`` is ``"perc_wrap(p)"``, which
         is how it is displayed in filter summaries and serialized as
-        ``"perc_N"``.
+        ``"perc_N"``. The returned function raises ``TypeError`` when given a
+        scalar.
     """
 
     def percentile(x):
+        # pandas 2.x Series.agg(func) first applies func element-wise and only
+        # aggregates the whole Series when that raises, so a scalar must raise.
+        if np.ndim(x) == 0:
+            raise TypeError("perc_wrap needs a Series or array-like, not a scalar.")
         if not isinstance(x, (pd.Series, pd.DataFrame)):
             x = pd.Series(x)
         return x.quantile(p / 100, interpolation="nearest")

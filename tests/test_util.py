@@ -422,6 +422,20 @@ class TestPercHelpersInUtil:
         result = df.agg({"poa": util.perc_wrap(60), "t": "mean"})
         assert result["poa"] == 4.0
 
+    def test_perc_wrap_rejects_scalar(self):
+        """Verify a scalar raises TypeError, which pandas 2 Series.agg relies on.
+
+        pandas 2.x ``Series.agg(func)`` first applies ``func`` element-wise and
+        only aggregates the whole Series when that raises.
+        """
+        with pytest.raises(TypeError, match="scalar"):
+            util.perc_wrap(60)(3.0)
+
+    def test_perc_wrap_in_series_agg_aggregates(self):
+        """Verify Series.agg with perc_wrap returns the percentile, not a transform."""
+        s = pd.Series([1.0, 2.0, 3.0, 4.0, 5.0])
+        assert s.agg(util.perc_wrap(60)) == 3.0
+
     def test_perc_wrap_on_dataframe_is_per_column(self):
         """Verify a direct DataFrame call returns one percentile per column."""
         df = pd.DataFrame({"a": [1.0, 2, 3, 4, 5], "b": [10.0, 20, 30, 40, 50]})
