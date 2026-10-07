@@ -144,11 +144,20 @@ is evaluated again from that node; any other plain string raises
 - `CapData.agg_sensors` records the node behind each flattened value (with
 the aggregation it applied) in `regression_cols_preprocess`, so
 `agg_sensors()` followed by `process_regression_columns()` keeps working.
+- `perc_wrap(N)` computes the percentile with
+`Series.quantile(N / 100, interpolation="nearest")` instead of
+`np.percentile(..., method="nearest")`. Results are unchanged for data
+without missing values; missing values are now skipped, where previously a
+single NaN made the percentile reporting condition NaN.
 
 ### Removed
 - `util.update_by_path` and `captest.captest.validate_test_setup`.
 
 ### Fixed
+- `get_summary()` / `describe_filters()` show a percentile reporting
+  condition as `func={'poa': perc_wrap(60), ...}` instead of the function's
+  object repr (`<function perc_wrap.<locals>.numpy_percentile at 0x...>`).
+  Any other callable in a `rep_cond` `func` is shown by its `__name__`.
 - `CapData.copy()` now carries over the `site` and `tolerance` attributes,
 which it previously dropped. Copies are the basis of the load-once,
 copy-per-run pattern, and a dropped `site` made `filter_backtracking` (and the

@@ -297,7 +297,7 @@ Reporting conditions
 --------------------
 :py:meth:`~captest.capdata.CapData.rep_cond` can be used to calculate the reporting conditions. ``rep_cond`` is formula-agnostic: its right-hand-side variables are derived from :py:attr:`~captest.capdata.CapData.regression_formula` via :py:func:`~captest.util.parse_regression_formula`, so it supports any regression equation (not just the default ASTM E2848 formula). Results are stored in the :py:attr:`~captest.capdata.CapData.rc` attribute.
 
-The ``func`` argument is a dict mapping each right-hand-side variable name to an aggregation function (a pandas agg name or a callable). Omitting ``func`` falls back to ``{var: 'mean' for var in rhs}``. For percentile aggregations use :py:func:`~captest.captest.perc_wrap`, e.g. ``func={'poa': perc_wrap(60), 't_amb': 'mean', 'w_vel': 'mean'}``.
+The ``func`` argument is a dict mapping each right-hand-side variable name to an aggregation function (a pandas agg name or a callable). Omitting ``func`` falls back to ``{var: 'mean' for var in rhs}``. For percentile aggregations use :py:func:`~captest.captest.perc_wrap`, e.g. ``func={'poa': perc_wrap(60), 't_amb': 'mean', 'w_vel': 'mean'}``. ``perc_wrap`` uses ``Series.quantile`` with ``interpolation='nearest'`` and skips missing values.
 
 When the test is driven through a :py:class:`~captest.CapTest`, each preset in :py:data:`~captest.captest.TEST_SETUPS` supplies its own default ``rep_conditions`` dict and :py:meth:`~captest.CapTest.rep_cond` forwards it automatically. See :ref:`captest`.
 

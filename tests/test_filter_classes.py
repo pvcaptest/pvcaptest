@@ -2215,6 +2215,42 @@ class TestFilterConfigRoundTrip:
         assert FILTER_REGISTRY["Custom"] is Custom
 
 
+class TestRepCondArgsRepr:
+    """``RepCond.args_repr`` renders callables by name, not by object repr."""
+
+    def test_perc_wrap_in_func_dict_renders_percentile(self):
+        """Verify a perc_wrap value in a func dict shows its percentile."""
+        rc = RepCond(func={"poa": util.perc_wrap(60), "t_amb": "mean"})
+        assert "func={'poa': perc_wrap(60), 't_amb': 'mean'}" in rc.args_repr
+
+    def test_bare_perc_wrap_func_renders_percentile(self):
+        """Verify a bare perc_wrap func shows its percentile."""
+        assert "func=perc_wrap(60)" in RepCond(func=util.perc_wrap(60)).args_repr
+
+    def test_named_callable_renders_name(self):
+        """Verify a named callable in a func dict renders by its __name__."""
+        rc = RepCond(func={"poa": np.mean})
+        assert "func={'poa': mean}" in rc.args_repr
+
+    def test_callable_without_dunder_name_falls_back_to_repr(self):
+        """Verify a callable with no __name__ renders via repr without raising."""
+        import functools
+
+        part = functools.partial(np.percentile, q=60)
+        assert repr(part) in RepCond(func={"poa": part}).args_repr
+
+    def test_string_func_unchanged(self):
+        """Verify a bare string func renders as before."""
+        assert "func=mean" in RepCond(func="mean").args_repr
+
+    def test_summary_shows_percentile(self, pvsyst):
+        """Verify get_summary's filter_arguments show perc_wrap(N), not an address."""
+        pvsyst.rep_cond(func=util.perc_wrap(60))
+        args = pvsyst.get_summary()["filter_arguments"].iloc[-1]
+        assert "perc_wrap(60)" in args
+        assert "<function" not in args
+
+
 class TestFailedStepRollback:
     """A step whose ``_execute`` raises must leave the CapData unchanged.
 

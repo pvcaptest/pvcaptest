@@ -83,7 +83,8 @@ class TestTopLevelFuncs(unittest.TestCase):
             wrap_perc = df.agg(captest_module.perc_wrap(val)).values[0]
             bool_array.append(np_perc == wrap_perc)
         self.assertTrue(
-            all(bool_array), "np.percentile wrapper gives different value than np perc"
+            all(bool_array),
+            "perc_wrap gives a different value than np.percentile nearest",
         )
         self.assertTrue(all(df == df_cpy), "perc_wrap function modified input df")
 

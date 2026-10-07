@@ -1896,6 +1896,13 @@ def _decode_func_value(v):
     return util._resolve_perc_string(v)
 
 
+def _func_display(v):
+    """Summary text for one RepCond.func value: callables by ``__name__``."""
+    if callable(v):
+        return getattr(v, "__name__", repr(v))
+    return repr(v)
+
+
 class RepCond(BaseSummaryStep):
     """Reporting-conditions calculation as a zero-removal summary step.
 
@@ -1939,6 +1946,22 @@ class RepCond(BaseSummaryStep):
     _explanation_template = (
         "Reporting conditions were calculated (no intervals removed)."
     )
+
+    def _args_for_repr(self):
+        """Show callables in ``func`` by name (e.g. ``perc_wrap(60)``).
+
+        The default rendering would show a callable inside a ``func`` dict by
+        its object repr (``<function ... at 0x...>``). Callables without a
+        ``__name__`` (e.g. ``functools.partial``) fall back to ``repr``.
+        """
+        values = super()._args_for_repr()
+        func = values.get("func")
+        if isinstance(func, dict):
+            items = ", ".join(f"{k!r}: {_func_display(v)}" for k, v in func.items())
+            values["func"] = f"{{{items}}}"
+        elif callable(func):
+            values["func"] = _func_display(func)
+        return values
 
     def _execute(self, capdata):
         capdata._calc_rep_cond(
