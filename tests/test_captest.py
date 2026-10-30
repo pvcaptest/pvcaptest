@@ -4835,3 +4835,47 @@ def test_unsupplied_empty_live_chain_still_uses_pending(tst):
     tst.meas_filters_pending = [{"type": "RepCond", "func": "mean"}]
     tst.replay_filters(side="meas")
     assert len(tst.meas.filters) == 1
+
+
+def _boom(*args, **kwargs):
+    raise RuntimeError("boom")
+
+
+def test_setup_completed_false_on_fresh_test():
+    assert CapTest().setup_completed() is False
+
+
+def test_setup_completed_true_after_setup(tst):
+    tst.setup()
+    assert tst.setup_completed() and tst.setup_completed("sim")
+
+
+def test_setup_completed_false_for_sim_after_sim_failure(tst, monkeypatch):
+    # raises while configuring sim, after both formulas are assigned
+    monkeypatch.setattr(tst.sim, "process_regression_columns", _boom)
+    with pytest.raises(RuntimeError):
+        tst.setup()
+    assert tst.setup_completed("meas") is True
+    assert tst.setup_completed("sim") is False
+    assert tst.setup_completed() is False
+    # a side the call did not process keeps its flag
+    tst.setup(side="meas")
+    assert tst.setup_completed("sim") is False
+    with pytest.raises(ValueError, match="side must be"):
+        tst.setup_completed("bad")
+
+
+@pytest.mark.filterwarnings("ignore:The data_filtered attribute:UserWarning")
+def test_setup_completed_run_test_internal_vs_later_failure(tst, monkeypatch):
+    with monkeypatch.context() as m:
+        m.setattr(tst.sim, "process_regression_columns", _boom)
+        with pytest.raises(RuntimeError):
+            tst.run_test()
+    # internal setup raises -> setup_completed() False
+    assert tst.setup_completed() is False
+    tst.setup()
+    monkeypatch.setattr(tst.meas, "fit_regression", _boom)
+    with pytest.raises(RuntimeError):
+        tst.run_test()
+    # regression raises after setup -> setup_completed() True
+    assert tst.setup_completed() is True

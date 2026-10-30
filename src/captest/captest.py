@@ -1371,6 +1371,8 @@ class CapTest(param.Parameterized):
         # manual RC authoritative.
         self._rc = None
         self._loading = False
+        # Per-side "last setup() finished" flag; written only by setup().
+        self._setup_completed = {"meas": False, "sim": False}
         # Serialized filter pipelines stored at load (from_mapping) and not
         # yet applied; consumed by run_test (spec R2). Plain lists of
         # filter-config dicts, public so users can inspect or edit them.
@@ -2876,6 +2878,10 @@ class CapTest(param.Parameterized):
         if side not in ("meas", "sim", "both"):
             raise ValueError(f"side must be 'meas', 'sim', or 'both', got {side!r}.")
         sides = ("meas", "sim") if side == "both" else (side,)
+        # A processed side is incomplete until its processing finishes below;
+        # a side this call does not process keeps its flag.
+        for s in sides:
+            self._setup_completed[s] = False
         for s in sides:
             if getattr(self, s) is None:
                 raise RuntimeError(f"CapTest.{s} must be set before setup().")
@@ -2916,6 +2922,7 @@ class CapTest(param.Parameterized):
             # RC (ct.rc) and cd.rep_cond can update it. Runtime reference
             # only; capdata.py never imports captest.
             cd._captest = self
+            self._setup_completed[s] = True
 
         # Consume manual reporting-conditions values stashed by a load-only
         # from_mapping (run_setup=False). Only a full setup can seed them:
@@ -2926,6 +2933,35 @@ class CapTest(param.Parameterized):
             self._pending_manual_rc = None
 
         return self
+
+    def setup_completed(self, side="both"):
+        """Report whether the last :meth:`setup` on a side ran to completion.
+
+        ``setup`` clears the flag of each side it processes on entry and sets
+        it only once that side's regression columns are processed, so a
+        ``setup`` (direct, or inside ``run_test``) that raised part-way
+        reads ``False`` even though ``regression_formula`` was already
+        assigned. A side that ``setup(side=...)`` did not process keeps its
+        flag. ``False`` on a fresh ``CapTest``.
+
+        Parameters
+        ----------
+        side : {'both', 'meas', 'sim'}, default 'both'
+            Which side(s) to check; ``'both'`` is true only when both are.
+
+        Returns
+        -------
+        bool
+
+        Raises
+        ------
+        ValueError
+            If ``side`` is not ``'meas'``, ``'sim'``, or ``'both'``.
+        """
+        if side not in ("meas", "sim", "both"):
+            raise ValueError(f"side must be 'meas', 'sim', or 'both', got {side!r}.")
+        sides = ("meas", "sim") if side == "both" else (side,)
+        return all(self._setup_completed[s] for s in sides)
 
     def scatter_plots(self, which="meas", **kwargs):
         """Create the scatter plot for the active capacity-test setup.
