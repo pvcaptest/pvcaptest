@@ -2737,7 +2737,7 @@ class CapData(param.Parameterized):
         return (
             self.rc,
             self.__dict__.get("rc_tool", _MISSING),
-            None if ct is None else (ct._rc, ct.rc_source),
+            None if ct is None else (ct._rc, ct.rc_source, ct.rc_kind),
             self.rc_kind,
         )
 
@@ -2751,7 +2751,9 @@ class CapData(param.Parameterized):
         else:
             self.rc_tool = rc_tool
         if ct_state is not None and self._captest is not None:
-            self._captest._set_rc(ct_state[0], ct_state[1], warn=False)
+            self._captest._set_rc(
+                ct_state[0], ct_state[1], kind=ct_state[2], warn=False
+            )
 
     def run_pipeline(self, config):
         """Rebuild and run each filter step from a list of config dicts.
@@ -2771,12 +2773,12 @@ class CapData(param.Parameterized):
         The replay is a transaction: if any step raises, the pre-call state
         is restored before the exception propagates — the ``filters`` chain,
         ``rc``/``rc_tool``, and, when this CapData belongs to a CapTest, the
-        test-level ``rc``/``rc_source`` (a mid-pipeline ``RepCond`` write is
-        undone). A note naming the failing step is attached to the exception
-        (Python 3.11+). The transaction covers state pvcaptest owns or that
-        step execution replaces; external side effects — warnings already
-        emitted mid-replay, or mutations a user-supplied callable makes to
-        its own objects — are not undone.
+        test-level ``rc``/``rc_source``/``rc_kind`` (a mid-pipeline
+        ``RepCond`` write is undone). A note naming the failing step is
+        attached to the exception (Python 3.11+). The transaction covers
+        state pvcaptest owns or that step execution replaces; external side
+        effects — warnings already emitted mid-replay, or mutations a
+        user-supplied callable makes to its own objects — are not undone.
         """
         prior_filters = self.filters
         rc_snapshot = self._rc_state_snapshot()
@@ -2815,11 +2817,12 @@ class CapData(param.Parameterized):
         such as ``ix_after``/``pts_after`` and resolved fields; param edits
         made before the call are pre-call state and are kept),
         ``rc``/``rc_tool``, and, when this CapData belongs to a CapTest, the
-        test-level ``rc``/``rc_source``. A note naming the failing step is
-        attached to the exception (Python 3.11+). The transaction covers
-        state pvcaptest owns or that step execution replaces; external side
-        effects — warnings already emitted mid-replay, or mutations a
-        user-supplied callable makes to its own objects — are not undone.
+        test-level ``rc``/``rc_source``/``rc_kind``. A note naming the
+        failing step is attached to the exception (Python 3.11+). The
+        transaction covers state pvcaptest owns or that step execution
+        replaces; external side effects — warnings already emitted
+        mid-replay, or mutations a user-supplied callable makes to its own
+        objects — are not undone.
 
         Parameters
         ----------
