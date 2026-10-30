@@ -3513,6 +3513,70 @@ class TestTestRc:
         ct.rc_source = "manual"  # must not raise (Selector now allows it)
         assert ct.rc_source == "manual"
 
+    def test_rc_source_accepts_none(self):
+        ct = CapTest()
+        ct.rc_source = None
+        assert ct.rc_source is None
+
+
+class TestClearRc:
+    """``CapTest.clear_rc``: drop the test RC and its provenance."""
+
+    _hand_sequenced = TestRunTest._hand_sequenced
+
+    def test_clear_rc_clears_rc_and_source(self, ct_default, recwarn):
+        self._hand_sequenced(ct_default)
+        meas_rc = ct_default.meas.rc.copy()
+        n_filters = len(ct_default.meas.filters)
+        recwarn.clear()
+        ct_default.clear_rc()
+        assert ct_default.rc is None
+        assert ct_default.rc_source is None
+        assert not [w for w in recwarn if issubclass(w.category, UserWarning)]
+        pd.testing.assert_frame_equal(ct_default.meas.rc, meas_rc)
+        assert len(ct_default.meas.filters) == n_filters
+
+    def test_rep_irr_after_clear_rc_raises(self, ct_default):
+        self._hand_sequenced(ct_default)
+        ct_default.clear_rc()
+        with pytest.raises(ValueError, match="test reporting conditions"):
+            ct_default.meas.filter_irr(0.5, 1.5, ref_val="rep_irr")
+
+    def test_rc_after_clear_rc_recomputes_silently(self, ct_default):
+        self._hand_sequenced(ct_default)
+        ct_default.clear_rc()
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", UserWarning)
+            ct_default.rep_cond("sim")
+        assert ct_default.rc_source == "sim"
+        assert ct_default.rc is not None
+
+    def test_clear_rc_discards_pending_manual_rc(
+        self, meas_cd_default, sim_cd_default, tmp_path
+    ):
+        sub, loaders = TestManualRcStaging._build(
+            self, meas_cd_default, sim_cd_default, tmp_path
+        )
+        tst = CapTest.from_mapping(sub, run_setup=False, **loaders)
+        tst.clear_rc()
+        tst.setup()
+        assert tst.rc is None
+        assert tst.rc_source is None
+
+    def test_clear_rc_round_trips_rc_source_none(
+        self, meas_cd_default, sim_cd_default, tmp_path
+    ):
+        sub, loaders = TestManualRcStaging._build(
+            self, meas_cd_default, sim_cd_default, tmp_path
+        )
+        tst = CapTest.from_mapping(sub, **loaders)
+        tst.clear_rc()
+        sub2 = tst.to_mapping()
+        assert sub2["rc_source"] is None
+        assert "reporting_conditions_values" not in sub2
+        tst2 = CapTest.from_mapping(sub2, run_setup=False, **loaders)
+        assert tst2.rc_source is None
+
 
 class TestManualRc:
     """The public ct.rc = df manual-override setter (rc_source='manual')."""

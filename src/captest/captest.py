@@ -106,8 +106,10 @@ class CapTestResults:
         columns, keyed by ``'meas'`` / ``'sim'``.
     rc : pandas.DataFrame
         The reporting conditions both regressions were predicted at.
-    rc_source : str
-        Provenance of ``rc`` (``'meas'``, ``'sim'``, or ``'manual'``).
+    rc_source : str or None
+        Provenance of ``rc`` (``'meas'``, ``'sim'``, or ``'manual'``);
+        ``None`` only when ``CapTest.rc_source`` was cleared while an RC
+        stayed set.
     pvalues_checked : bool
         Which variant is the headline: ``True`` when ``cap_ratio``,
         ``actual_capacity``, ``expected_capacity``, and the pass/fail
@@ -126,7 +128,7 @@ class CapTestResults:
     points_used: dict
     regression_tables: dict
     rc: pd.DataFrame
-    rc_source: str
+    rc_source: str | None
     pvalues_checked: bool = False
 
     def summary(self):
@@ -800,10 +802,11 @@ _CAPTEST_OVERRIDE_KEYS = frozenset(
 # Keys whose ``None`` (yaml ``null``) value is a distinct, meaningful value
 # rather than a request to fall back to the param default. These are NOT
 # stripped by ``from_mapping`` so the value round-trips through ``to_yaml`` /
-# ``from_yaml``. ``altitude_override`` is the only such key: it has a non-None
-# default (0, the sea-level convention) but allows ``None`` to mean "respect
-# the site's own altitude".
-_CAPTEST_NONE_MEANINGFUL_KEYS = frozenset({"altitude_override"})
+# ``from_yaml``. ``altitude_override`` has a non-None default (0, the
+# sea-level convention) but allows ``None`` to mean "respect the site's own
+# altitude"; ``rc_source`` defaults to ``'meas'`` and is ``None`` after
+# ``clear_rc()``.
+_CAPTEST_NONE_MEANINGFUL_KEYS = frozenset({"altitude_override", "rc_source"})
 
 
 def _own_loader_id(loader):
@@ -1061,11 +1064,15 @@ class CapTest(param.Parameterized):
     rc_source = param.Selector(
         objects=["meas", "sim", "manual"],
         default="meas",
+        allow_None=True,
         doc="Provenance of the single test RC (CapTest.rc): 'meas'/'sim' when "
-        "computed from that dataset's rep_cond, or 'manual' when set directly. "
-        "Seeds the default 'which' for rep_cond. This is a provenance label "
-        "managed alongside CapTest.rc by the sanctioned mutation paths "
-        "(rep_cond / the tst.rc setter, both routed through _set_rc) and is "
+        "computed from that dataset's rep_cond, 'manual' when set directly, or "
+        "None after clear_rc() (no reporting conditions and no producing side; "
+        "replay_filters then replays a side whose pipeline has a RepCond "
+        "first). Seeds the default 'which' for rep_cond. This is a provenance "
+        "label managed alongside CapTest.rc by the sanctioned mutation paths "
+        "(rep_cond / the tst.rc setter, both routed through _set_rc, and "
+        "clear_rc) and is "
         "accepted as a construction-time config input; assigning it directly "
         "afterward relabels provenance without changing the stored rc and is "
         "not recommended.",
@@ -1358,6 +1365,28 @@ class CapTest(param.Parameterized):
             If ``value`` is not a DataFrame, Series, or dict.
         """
         self._set_rc(self._coerce_and_validate_manual_rc(value), "manual")
+
+    def clear_rc(self):
+        """Clear the test reporting conditions and their provenance.
+
+        Sets :attr:`rc` and :attr:`rc_source` to ``None`` — e.g. after the
+        RepCond step that produced them is removed — and discards manual
+        values stashed by a load-only ``from_mapping(..., run_setup=False)``,
+        so a later :meth:`setup` does not restore them. Silent. Each side's
+        own ``rc`` and the applied filter chains are left as they are; steps
+        that resolved against the cleared RC keep their results until
+        replayed. The next RC write (:meth:`rep_cond`, a replayed RepCond
+        step, or the ``rc`` setter) establishes a new RC and source without
+        a source-change warning, and :meth:`replay_filters` replays a side
+        whose pipeline contains a RepCond step first.
+
+        Returns
+        -------
+        None
+        """
+        self._rc = None
+        self.rc_source = None
+        self._pending_manual_rc = None
 
     def _coerce_and_validate_manual_rc(self, value):
         """Validate and coerce a candidate manual reporting-conditions value.
