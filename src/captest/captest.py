@@ -3134,17 +3134,200 @@ class CapTest(param.Parameterized):
             print(results)
         return results
 
+    def _select_replay_configs(self, sides, configs=None):
+        """Choose the filter pipeline each side replays.
+
+        Per side: ``configs[side]`` when supplied; otherwise the live chain
+        when non-empty (snapshotted via ``filters_to_config`` — interactive
+        edits are authoritative), else the side's pending config.
+
+        Parameters
+        ----------
+        sides : list of {'meas', 'sim'}
+            Sides to select a pipeline for.
+        configs : mapping, optional
+            Pipelines (lists of filter-config dicts) keyed by side.
+
+        Returns
+        -------
+        dict
+            A new list of filter-config dicts per side.
+        """
+        selected = {}
+        for s in sides:
+            if configs is not None and s in configs:
+                selected[s] = list(configs[s])
+                continue
+            cd = getattr(self, s)
+            if cd is not None and cd.filters:
+                selected[s] = cd.filters_to_config()
+            else:
+                selected[s] = list(getattr(self, f"{s}_filters_pending"))
+        return selected
+
+    def _replay_order(self, side):
+        """Order in which :meth:`replay_filters` replays the sides.
+
+        The ``rc_source`` side goes first so its RepCond step populates the
+        test RC before the other side's RC-dependent filters resolve.
+        """
+        if side != "both":
+            return [side]
+        if self.rc_source == "sim":
+            return ["sim", "meas"]
+        return ["meas", "sim"]
+
+    def replay_filters(self, side="both", configs=None):
+        """Replay the filter pipelines with :meth:`run_test`'s semantics.
+
+        The filter phase of :meth:`run_test` on its own: it never calls
+        :meth:`setup` and never fits a regression, so the sides must already
+        be set up. Each side's pipeline is replayed with
+        :meth:`CapData.run_pipeline`, which resets that side's applied chain
+        first.
+
+        - **Source.** ``configs[side]`` when supplied; otherwise the live
+          chain when non-empty, else the side's pending config
+          (``meas_filters_pending`` / ``sim_filters_pending``).
+        - **Order.** The ``rc_source`` side first, so its RepCond step
+          populates the test RC before the other side's RC-dependent
+          filters (``ref_val='rep_irr'``) resolve.
+        - **Manual RC.** With ``rc_source='manual'`` the manual reporting
+          conditions stay authoritative: replayed RepCond steps compute
+          side-local RCs only and never overwrite ``tst.rc``.
+        - **Pending configs.** A side's pending list is consumed after its
+          replay succeeds and, when the replay fails, holds the full failed
+          pipeline so it can be edited and replayed again.
+
+        For ``side='both'`` the not-yet-replayed side is excluded from the
+        RC-staleness warning while the replay runs, and a warning is emitted
+        when both pipelines contain a RepCond step under a computed
+        ``rc_source``.
+
+        Parameters
+        ----------
+        side : {'both', 'meas', 'sim'}, default 'both'
+            Which side(s) to replay.
+        configs : mapping, optional
+            Pipelines to replay instead of the live chain / pending config,
+            as lists of filter-config dicts (the
+            :meth:`CapData.filters_to_config` format) keyed by ``'meas'`` /
+            ``'sim'``. A replayed side missing from ``configs`` uses the
+            default source.
+
+        Returns
+        -------
+        CapTest
+            ``self``.
+
+        Raises
+        ------
+        ValueError
+            If ``side`` is not ``'meas'``, ``'sim'``, or ``'both'``, or
+            ``configs`` has a key for a side that is not being replayed.
+        RuntimeError
+            If a side to replay is unset or :meth:`setup` has not wired it to
+            this test.
+        Exception
+            Any exception raised by a filter step propagates after that
+            side's replay is rolled back; on Python 3.11+ it carries a note
+            naming the retained pending config.
+        """
+        if side not in ("meas", "sim", "both"):
+            raise ValueError(f"side must be 'meas', 'sim', or 'both', got {side!r}.")
+        sides = ["meas", "sim"] if side == "both" else [side]
+        if configs is not None:
+            unknown = sorted(set(configs) - set(sides))
+            if unknown:
+                raise ValueError(
+                    f"configs has pipelines for {unknown}, but side={side!r} "
+                    f"replays only {sides}."
+                )
+        for s in sides:
+            cd = getattr(self, s)
+            if cd is None or cd._captest is not self:
+                raise RuntimeError(
+                    f"tst.{s} is not set up for this test; call tst.setup() "
+                    "(or tst.run_test()) before replay_filters()."
+                )
+        configs = self._select_replay_configs(sides, configs)
+        run_sides = self._replay_order(side)
+        if (
+            side == "both"
+            and self.rc_source in ("meas", "sim")
+            and all(
+                any(d.get("type") == "RepCond" for d in configs[s])
+                for s in ("meas", "sim")
+            )
+        ):
+            warnings.warn(
+                "Both pipelines contain a RepCond step with a computed "
+                f"rc_source ('{self.rc_source}'): this is ambiguous and "
+                "unsupported — the non-rc_source side's RepCond will "
+                "overwrite the test reporting conditions and flip "
+                "rc_source. Remove the RepCond step from the non-rc_source "
+                "pipeline."
+            )
+
+        if side == "both":
+            self._rc_pending_sides = set(run_sides)
+        # A manual RC is authoritative: suppress live RepCond propagation
+        # during the replay (mirroring from_mapping's manual-RC replay
+        # semantics) so a replayed RepCond step still computes that side's
+        # local cd.rc but never overwrites ct.rc or flips rc_source.
+        # Computed sources keep live propagation — the staleness
+        # machinery depends on it.
+        manual_rc = self.rc_source == "manual"
+        if manual_rc:
+            self._loading = True
+        try:
+            for s in run_sides:
+                # Consume the pending registration as this side's replay
+                # begins: the currently-replaying side is never in its
+                # own exclusion set.
+                self._rc_pending_sides.discard(s)
+                if configs[s]:
+                    try:
+                        getattr(self, s).run_pipeline(configs[s])
+                    except Exception as e:
+                        # Keep the failed pipeline's definition editable:
+                        # the live chain was reset, so after the rollback the
+                        # pending list is the only copy of a live-chain
+                        # snapshot (spec R2 rule 3).
+                        setattr(self, f"{s}_filters_pending", configs[s])
+                        if hasattr(e, "add_note"):
+                            e.add_note(
+                                f"The {s} filter pipeline failed and was "
+                                "rolled back. Its definition is retained "
+                                f"in tst.{s}_filters_pending — edit the "
+                                "failing step's dict and re-run "
+                                "tst.run_test() or tst.replay_filters() (or "
+                                f"tst.{s}.run_pipeline(tst.{s}_filters_pending"
+                                ")), or edit the yaml config and reload."
+                            )
+                        raise
+                # A completed pass makes the live chain the single source
+                # of truth for this side; the pending config is consumed
+                # regardless of which source was replayed (spec R2).
+                setattr(self, f"{s}_filters_pending", [])
+        finally:
+            self._rc_pending_sides = set()
+            if manual_rc:
+                self._loading = False
+        return self
+
     def run_test(
         self, side="both", check_pvalues=False, pval=_DEFAULT_PVAL, print_res=False
     ):
         """Run the full capacity test (or one side of it) end to end.
 
-        Canonical sequence: (1) ``setup(side=side)``; (2) replay each side's
-        filter pipeline, the ``rc_source`` side first so its RepCond step
-        populates the test RC before the other side's RC-dependent filters
-        resolve; (3) ``fit_regression`` per side; then, for ``side='both'``
-        only, (4) verify the rc_source pipeline computed the RC this run and
-        (5) return :class:`CapTestResults`.
+        Canonical sequence: (1) ``setup(side=side)``; (2)
+        :meth:`replay_filters` — each side's filter pipeline, the
+        ``rc_source`` side first so its RepCond step populates the test RC
+        before the other side's RC-dependent filters resolve; (3)
+        ``fit_regression`` per side; then, for ``side='both'`` only, (4)
+        verify the rc_source pipeline computed the RC this run and (5)
+        return :class:`CapTestResults`.
 
         Each side's replay source is chosen before setup clears the chains:
         the live chain when non-empty (snapshotted via ``filters_to_config``
@@ -3154,16 +3337,13 @@ class CapTest(param.Parameterized):
         pending list is consumed after its replay succeeds — a later
         ``reset_filter()`` + ``run_test`` means "no filters", not
         "resurrect the config's filters" — and retained (holding the full
-        failed pipeline) when the replay fails. During a
-        full run the not-yet-replayed side is registered in
-        ``_rc_pending_sides`` so the RC write does not warn about steps this
-        call is about to re-run; per-side runs register nothing, so an
-        RC-changing recompute warns about the other side's applied
-        RC-dependent steps. The ``process_regression_columns`` lost-filters
-        warning is suppressed for this intentional orchestrated clearing.
-        When ``rc_source='manual'`` the manual reporting conditions remain
-        authoritative during replay: pipeline RepCond steps compute
-        side-local RCs only, matching ``from_mapping``.
+        failed pipeline) when the replay fails. See :meth:`replay_filters`
+        for the replay rules, including manual-RC protection and the
+        RC-staleness exclusions of a full run; per-side runs register no
+        exclusions, so an RC-changing recompute warns about the other
+        side's applied RC-dependent steps. The
+        ``process_regression_columns`` lost-filters warning is suppressed
+        for this intentional orchestrated clearing.
 
         Parameters
         ----------
@@ -3203,36 +3383,10 @@ class CapTest(param.Parameterized):
             else f"the last run_test was single-side (side={side!r})"
         )
         run_sides = ["meas", "sim"] if side == "both" else [side]
-        if side == "both" and self.rc_source == "sim":
-            run_sides = ["sim", "meas"]
-
         # Select each side's replay source BEFORE setup:
         # process_regression_columns clears each targeted side's applied
-        # chain. The live chain wins when non-empty (interactive edits are
-        # authoritative); otherwise the side's pending config is replayed.
-        configs = {}
-        for s in run_sides:
-            cd = getattr(self, s)
-            if cd is not None and cd.filters:
-                configs[s] = cd.filters_to_config()
-            else:
-                configs[s] = list(getattr(self, f"{s}_filters_pending"))
-        if (
-            side == "both"
-            and self.rc_source in ("meas", "sim")
-            and all(
-                any(d.get("type") == "RepCond" for d in configs[s])
-                for s in ("meas", "sim")
-            )
-        ):
-            warnings.warn(
-                "Both pipelines contain a RepCond step with a computed "
-                f"rc_source ('{self.rc_source}'): this is ambiguous and "
-                "unsupported — the non-rc_source side's RepCond will "
-                "overwrite the test reporting conditions and flip "
-                "rc_source. Remove the RepCond step from the non-rc_source "
-                "pipeline."
-            )
+        # chain.
+        configs = self._select_replay_configs(run_sides)
 
         stage = "setup"
         try:
@@ -3247,51 +3401,7 @@ class CapTest(param.Parameterized):
                 self.setup(verbose=False, side=side)
 
             stage = "filter pipelines"
-            if side == "both":
-                self._rc_pending_sides = set(run_sides)
-            # A manual RC is authoritative: suppress live RepCond propagation
-            # during the replay (mirroring from_mapping's manual-RC replay
-            # semantics) so a replayed RepCond step still computes that side's
-            # local cd.rc but never overwrites ct.rc or flips rc_source.
-            # Computed sources keep live propagation — the staleness
-            # machinery depends on it.
-            manual_rc = self.rc_source == "manual"
-            if manual_rc:
-                self._loading = True
-            try:
-                for s in run_sides:
-                    # Consume the pending registration as this side's replay
-                    # begins: the currently-replaying side is never in its
-                    # own exclusion set.
-                    self._rc_pending_sides.discard(s)
-                    if configs[s]:
-                        try:
-                            getattr(self, s).run_pipeline(configs[s])
-                        except Exception as e:
-                            # Keep the failed pipeline's definition editable:
-                            # setup() already cleared the live chain, so after
-                            # the rollback the pending list is the only copy
-                            # of a live-chain snapshot (spec R2 rule 3).
-                            setattr(self, f"{s}_filters_pending", configs[s])
-                            if hasattr(e, "add_note"):
-                                e.add_note(
-                                    f"The {s} filter pipeline failed and was "
-                                    "rolled back. Its definition is retained "
-                                    f"in tst.{s}_filters_pending — edit the "
-                                    "failing step's dict and re-run "
-                                    "tst.run_test() (or "
-                                    f"tst.{s}.run_pipeline(tst.{s}_filters_pending"
-                                    ")), or edit the yaml config and reload."
-                                )
-                            raise
-                    # A completed pass makes the live chain the single source
-                    # of truth for this side; the pending config is consumed
-                    # regardless of which source was replayed (spec R2).
-                    setattr(self, f"{s}_filters_pending", [])
-            finally:
-                self._rc_pending_sides = set()
-                if manual_rc:
-                    self._loading = False
+            self.replay_filters(side=side, configs=configs)
 
             stage = "fit_regression"
             for s in run_sides:

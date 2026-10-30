@@ -22,7 +22,7 @@ import yaml
 from captest import CapTest, captest as ct, columngroups as cg, load_pvsyst, util
 from captest.capdata import CapData
 from captest.captest import CapTestResults
-from captest.filters import Irradiance
+from captest.filters import Irradiance, RepCond
 
 # Presets that the shipped meas_cd_default / sim_cd_default fixtures cover
 # end-to-end through CapTest.setup(). Extend this list when you add a preset
@@ -3002,6 +3002,133 @@ class TestRunTest:
         from captest import capdata as cd_mod
 
         assert not hasattr(cd_mod, "run_test")
+
+
+class TestReplayFilters:
+    """``CapTest.replay_filters``: run_test's filter phase on its own."""
+
+    _hand_sequenced = TestRunTest._hand_sequenced
+
+    @staticmethod
+    def _irr_config(low=200, high=900, ref_val=None):
+        return Irradiance(low=low, high=high, ref_val=ref_val).to_config()
+
+    @staticmethod
+    def _types(cd):
+        return [type(st).__name__ for st in cd.filters]
+
+    def test_replay_filters_replays_live_chain_without_setup_or_fit(
+        self, ct_default, monkeypatch
+    ):
+        self._hand_sequenced(ct_default)
+        meas_types = self._types(ct_default.meas)
+        sim_types = self._types(ct_default.sim)
+        rc = ct_default.rc.copy()
+
+        def fail(*args, **kwargs):
+            raise AssertionError("must not be called")
+
+        monkeypatch.setattr(CapTest, "setup", fail)
+        monkeypatch.setattr(CapData, "fit_regression", fail)
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", UserWarning)
+            out = ct_default.replay_filters()
+
+        assert out is ct_default
+        assert self._types(ct_default.meas) == meas_types
+        assert self._types(ct_default.sim) == sim_types
+        pd.testing.assert_frame_equal(ct_default.rc, rc)
+        assert ct_default.rc_source == "meas"
+
+    def test_replay_filters_uses_supplied_configs(self, ct_default):
+        self._hand_sequenced(ct_default)
+        ct_default.meas_filters_pending = [self._irr_config(100, 1000)]
+        ct_default.replay_filters(side="meas", configs={"meas": [self._irr_config()]})
+        assert self._types(ct_default.meas) == ["Irradiance"]
+        assert ct_default.meas.filters[0].low == 200
+        assert ct_default.meas_filters_pending == []
+
+    def test_replay_filters_configs_missing_side_falls_back(self, ct_default):
+        self._hand_sequenced(ct_default)
+        sim_types = self._types(ct_default.sim)
+        configs = {"meas": [self._irr_config(), RepCond().to_config()]}
+        ct_default.replay_filters(configs=configs)
+        assert self._types(ct_default.meas) == ["Irradiance", "RepCond"]
+        assert self._types(ct_default.sim) == sim_types
+
+    def test_replay_filters_falls_back_to_pending(self, ct_default):
+        ct_default.meas_filters_pending = [self._irr_config()]
+        ct_default.replay_filters(side="meas")
+        assert self._types(ct_default.meas) == ["Irradiance"]
+        assert ct_default.meas_filters_pending == []
+
+    def test_replay_filters_manual_rc_suppressed(self, ct_default):
+        self._hand_sequenced(ct_default)
+        manual_rc = ct_default.rc.copy()
+        manual_rc.iloc[0, 0] = manual_rc.iloc[0, 0] * 1.01
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            ct_default.rc = manual_rc
+        manual_values = ct_default.rc.copy()
+
+        ct_default.replay_filters()
+
+        assert ct_default.rc_source == "manual"
+        pd.testing.assert_frame_equal(ct_default.rc, manual_values)
+        assert "RepCond" in self._types(ct_default.meas)
+        assert ct_default._loading is False
+
+    def test_replay_filters_failure_keeps_pending_and_notes(
+        self, ct_default, monkeypatch
+    ):
+        configs = {"meas": [self._irr_config()]}
+        monkeypatch.setattr(
+            Irradiance,
+            "_execute",
+            lambda self, capdata: (_ for _ in ()).throw(RuntimeError("boom")),
+        )
+        with pytest.raises(RuntimeError, match="boom") as excinfo:
+            ct_default.replay_filters(side="meas", configs=configs)
+        assert ct_default.meas_filters_pending == configs["meas"]
+        assert ct_default.meas.filters == []
+        assert ct_default._rc_pending_sides == set()
+        assert ct_default._loading is False
+        if sys.version_info >= (3, 11):
+            notes = getattr(excinfo.value, "__notes__", [])
+            assert any("meas_filters_pending" in n for n in notes)
+            assert not any("run_test stage" in n for n in notes)
+
+    def test_replay_filters_requires_setup(self, meas_cd_default):
+        tst = CapTest.from_params(test_setup="e2848_default", meas=meas_cd_default)
+        with pytest.raises(RuntimeError, match=r"setup\(\)"):
+            tst.replay_filters(side="meas")
+
+    def test_replay_filters_rejects_unknown_config_side(self, ct_default):
+        with pytest.raises(ValueError, match="sim"):
+            ct_default.replay_filters(side="meas", configs={"sim": []})
+        with pytest.raises(ValueError, match="bogus"):
+            ct_default.replay_filters(configs={"bogus": []})
+
+    def test_replay_filters_invalid_side(self, ct_default):
+        with pytest.raises(ValueError, match="side"):
+            ct_default.replay_filters(side="x")
+
+    def test_run_test_delegates_to_replay_filters(self, ct_default, monkeypatch):
+        self._hand_sequenced(ct_default)
+        calls = []
+        orig = CapTest.replay_filters
+
+        def spy(self, side="both", configs=None):
+            calls.append((side, configs))
+            return orig(self, side=side, configs=configs)
+
+        monkeypatch.setattr(CapTest, "replay_filters", spy)
+        ct_default.run_test()
+        assert len(calls) == 1
+        side, configs = calls[0]
+        assert side == "both"
+        assert set(configs) == {"meas", "sim"}
+        assert [d["type"] for d in configs["meas"]] == ["Irradiance", "RepCond"]
 
 
 def _hourly_typical_year(year=1990):
