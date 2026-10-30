@@ -2037,6 +2037,25 @@ class RepCond(BaseSummaryStep):
         return values
 
     def _execute(self, capdata):
+        self._check_values_exclusive()
+        for other in capdata.filters:
+            if (
+                isinstance(other, RepCond)
+                and other is not self
+                and (self.values is not None or other.values is not None)
+            ):
+                warnings.warn(
+                    f"RepCond step {self.name!r} follows RepCond step "
+                    f"{other.name!r} on {capdata.name!r}, and at least one has "
+                    "values: the later step overwrites the earlier one's "
+                    "reporting conditions.",
+                    UserWarning,
+                    stacklevel=2,
+                )
+                break
+        if self.values is not None:
+            capdata._set_rep_cond_values(self.values)
+            return capdata.data_filtered.index
         capdata._calc_rep_cond(
             self.func,
             self.w_vel,

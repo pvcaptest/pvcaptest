@@ -1216,6 +1216,7 @@ class TestCapDataCopyCompleteness:
             "column_groups": ({"irr_poa_": ["poa"]}, _values_equal),
             "regression_cols": ({"poa": "irr_poa_"}, _values_equal),
             "rc": (pd.DataFrame({"poa": [800.0]}), _values_equal),
+            "rc_kind": ("manual", _values_equal),
             "regression_results": ("fitted-model-sentinel", _values_equal),
             "regression_formula": ("power ~ poa - 1", _values_equal),
             "tolerance": ("+/- 4", _values_equal),

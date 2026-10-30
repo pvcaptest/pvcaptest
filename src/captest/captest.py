@@ -1428,29 +1428,7 @@ class CapTest(param.Parameterized):
                 f"different regression formulas ({meas_fml!r} vs {sim_fml!r})."
             )
         _, rhs = util.parse_regression_formula(meas_fml)
-        if isinstance(value, pd.DataFrame):
-            df = value.copy()
-        elif isinstance(value, pd.Series):
-            df = value.to_frame().T
-        elif isinstance(value, dict):
-            df = pd.DataFrame([value])
-        else:
-            raise TypeError(
-                "tst.rc must be a one-row DataFrame, a pandas Series, or a dict "
-                f"mapping regression variable -> value; got "
-                f"{type(value).__name__}."
-            )
-        if len(df) != 1:
-            raise ValueError(
-                f"Reporting conditions must be a single row; got {len(df)} rows."
-            )
-        missing = [var for var in rhs if var not in df.columns]
-        if missing:
-            raise ValueError(
-                "Manual reporting conditions are missing required regression "
-                f"variable(s): {missing}. Required: {rhs}."
-            )
-        return df
+        return util.validate_manual_rc(value, rhs)
 
     def _set_rc(self, rc, source, warn=True):
         """Single internal write point for ``_rc`` and ``rc_source``.

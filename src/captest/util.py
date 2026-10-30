@@ -724,3 +724,59 @@ def format_name_list(names, cutoff=10, edge=3):
     head = ", ".join(names[:edge])
     tail = ", ".join(names[-edge:])
     return f"{head}, ..., {tail} ({len(names)} total)"
+
+
+def validate_manual_rc(value, rhs):
+    """Validate the structure of a candidate manual reporting-conditions value.
+
+    Shared by ``CapTest._coerce_and_validate_manual_rc`` (the ``rc`` setter and
+    config load) and ``CapData._set_rep_cond_values`` (``RepCond(values=...)``).
+    Checks structure only: dtypes are left untouched and extra columns are
+    kept. Value-type rules (finite real numbers, ``float`` coercion) belong to
+    the caller that needs them.
+
+    Parameters
+    ----------
+    value : pandas.DataFrame or pandas.Series or dict
+        Candidate reporting conditions. A Series or dict maps each regression
+        variable to its value; a DataFrame is used as given.
+    rhs : list of str
+        Right-hand-side variables of the regression formula; each must be
+        present in ``value``.
+
+    Returns
+    -------
+    pandas.DataFrame
+        A one-row DataFrame holding every variable in ``rhs`` plus any extras.
+
+    Raises
+    ------
+    TypeError
+        If ``value`` is not a DataFrame, Series, or dict.
+    ValueError
+        If ``value`` coerces to more than one row, or omits a variable in
+        ``rhs``.
+    """
+    if isinstance(value, pd.DataFrame):
+        df = value.copy()
+    elif isinstance(value, pd.Series):
+        df = value.to_frame().T
+    elif isinstance(value, dict):
+        df = pd.DataFrame([value])
+    else:
+        raise TypeError(
+            "tst.rc must be a one-row DataFrame, a pandas Series, or a dict "
+            f"mapping regression variable -> value; got "
+            f"{type(value).__name__}."
+        )
+    if len(df) != 1:
+        raise ValueError(
+            f"Reporting conditions must be a single row; got {len(df)} rows."
+        )
+    missing = [var for var in rhs if var not in df.columns]
+    if missing:
+        raise ValueError(
+            "Manual reporting conditions are missing required regression "
+            f"variable(s): {missing}. Required: {rhs}."
+        )
+    return df
