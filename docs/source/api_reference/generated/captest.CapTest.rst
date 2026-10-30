@@ -17,6 +17,7 @@
       ~CapTest.captest_results
       ~CapTest.captest_results_check_pvalues
       ~CapTest.check_fit
+      ~CapTest.clear_rc
       ~CapTest.determine_pass_or_fail
       ~CapTest.from_mapping
       ~CapTest.from_params
@@ -25,6 +26,7 @@
       ~CapTest.overlay_scatters
       ~CapTest.reload
       ~CapTest.rep_cond
+      ~CapTest.replay_filters
       ~CapTest.residual_plot
       ~CapTest.run_test
       ~CapTest.scatter_plots

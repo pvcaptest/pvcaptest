@@ -22,7 +22,7 @@ import yaml
 from captest import CapTest, captest as ct, columngroups as cg, load_pvsyst, util
 from captest.capdata import CapData
 from captest.captest import CapTestResults
-from captest.filters import Irradiance
+from captest.filters import Irradiance, RepCond
 
 # Presets that the shipped meas_cd_default / sim_cd_default fixtures cover
 # end-to-end through CapTest.setup(). Extend this list when you add a preset
@@ -3004,6 +3004,196 @@ class TestRunTest:
         assert not hasattr(cd_mod, "run_test")
 
 
+class TestReplayFilters:
+    """``CapTest.replay_filters``: run_test's filter phase on its own."""
+
+    _hand_sequenced = TestRunTest._hand_sequenced
+
+    @staticmethod
+    def _irr_config(low=200, high=900, ref_val=None):
+        return Irradiance(low=low, high=high, ref_val=ref_val).to_config()
+
+    @staticmethod
+    def _types(cd):
+        return [type(st).__name__ for st in cd.filters]
+
+    def test_replay_filters_replays_live_chain_without_setup_or_fit(
+        self, ct_default, monkeypatch
+    ):
+        self._hand_sequenced(ct_default)
+        meas_types = self._types(ct_default.meas)
+        sim_types = self._types(ct_default.sim)
+        rc = ct_default.rc.copy()
+
+        def fail(*args, **kwargs):
+            raise AssertionError("must not be called")
+
+        monkeypatch.setattr(CapTest, "setup", fail)
+        monkeypatch.setattr(CapData, "fit_regression", fail)
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", UserWarning)
+            out = ct_default.replay_filters()
+
+        assert out is ct_default
+        assert self._types(ct_default.meas) == meas_types
+        assert self._types(ct_default.sim) == sim_types
+        pd.testing.assert_frame_equal(ct_default.rc, rc)
+        assert ct_default.rc_source == "meas"
+
+    def test_replay_filters_uses_supplied_configs(self, ct_default):
+        self._hand_sequenced(ct_default)
+        ct_default.meas_filters_pending = [self._irr_config(100, 1000)]
+        ct_default.replay_filters(side="meas", configs={"meas": [self._irr_config()]})
+        assert self._types(ct_default.meas) == ["Irradiance"]
+        assert ct_default.meas.filters[0].low == 200
+        assert ct_default.meas_filters_pending == []
+
+    def test_replay_filters_configs_missing_side_falls_back(self, ct_default):
+        self._hand_sequenced(ct_default)
+        sim_types = self._types(ct_default.sim)
+        configs = {"meas": [self._irr_config(), RepCond().to_config()]}
+        ct_default.replay_filters(configs=configs)
+        assert self._types(ct_default.meas) == ["Irradiance", "RepCond"]
+        assert self._types(ct_default.sim) == sim_types
+
+    def test_replay_filters_falls_back_to_pending(self, ct_default):
+        ct_default.meas_filters_pending = [self._irr_config()]
+        ct_default.replay_filters(side="meas")
+        assert self._types(ct_default.meas) == ["Irradiance"]
+        assert ct_default.meas_filters_pending == []
+
+    def test_replay_filters_manual_rc_suppressed(self, ct_default):
+        self._hand_sequenced(ct_default)
+        manual_rc = ct_default.rc.copy()
+        manual_rc.iloc[0, 0] = manual_rc.iloc[0, 0] * 1.01
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            ct_default.rc = manual_rc
+        manual_values = ct_default.rc.copy()
+
+        ct_default.replay_filters()
+
+        assert ct_default.rc_source == "manual"
+        pd.testing.assert_frame_equal(ct_default.rc, manual_values)
+        assert "RepCond" in self._types(ct_default.meas)
+        assert ct_default._loading is False
+
+    def test_replay_filters_failure_keeps_pending_and_notes(
+        self, ct_default, monkeypatch
+    ):
+        configs = {"meas": [self._irr_config()]}
+        monkeypatch.setattr(
+            Irradiance,
+            "_execute",
+            lambda self, capdata: (_ for _ in ()).throw(RuntimeError("boom")),
+        )
+        with pytest.raises(RuntimeError, match="boom") as excinfo:
+            ct_default.replay_filters(side="meas", configs=configs)
+        assert ct_default.meas_filters_pending == configs["meas"]
+        assert ct_default.meas.filters == []
+        assert ct_default._rc_pending_sides == set()
+        assert ct_default._loading is False
+        if sys.version_info >= (3, 11):
+            notes = getattr(excinfo.value, "__notes__", [])
+            assert any("meas_filters_pending" in n for n in notes)
+            assert not any("run_test stage" in n for n in notes)
+
+    def test_replay_filters_requires_setup(self, meas_cd_default):
+        tst = CapTest.from_params(test_setup="e2848_default", meas=meas_cd_default)
+        with pytest.raises(RuntimeError, match=r"setup\(\)"):
+            tst.replay_filters(side="meas")
+
+    def test_replay_filters_rejects_unknown_config_side(self, ct_default):
+        with pytest.raises(ValueError, match="sim"):
+            ct_default.replay_filters(side="meas", configs={"sim": []})
+        with pytest.raises(ValueError, match="bogus"):
+            ct_default.replay_filters(configs={"bogus": []})
+
+    def test_replay_filters_invalid_side(self, ct_default):
+        with pytest.raises(ValueError, match="side"):
+            ct_default.replay_filters(side="x")
+
+    def test_replay_order_producer_first_when_rc_source_none(
+        self, ct_default, monkeypatch
+    ):
+        configs = {
+            "meas": [self._irr_config(0.5, 1.5, ref_val="rep_irr")],
+            "sim": [self._irr_config(400, 1400), RepCond().to_config()],
+        }
+        order = []
+        orig = CapData.run_pipeline
+
+        def spy(cd, cfg):
+            order.append(cd)
+            return orig(cd, cfg)
+
+        monkeypatch.setattr(CapData, "run_pipeline", spy)
+        ct_default.clear_rc()
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", UserWarning)
+            ct_default.replay_filters(configs=configs)
+        assert order[0] is ct_default.sim and order[1] is ct_default.meas
+        assert ct_default.rc_source == "sim"
+        assert ct_default.meas.filters[0].ref_val_resolved == pytest.approx(
+            ct_default.rc["poa"].iloc[0]
+        )
+
+    def test_replay_order_meas_first_when_rc_source_none(self, ct_default):
+        configs = {
+            "meas": [self._irr_config(400, 1400), RepCond().to_config()],
+            "sim": [self._irr_config(0.5, 1.5, ref_val="rep_irr")],
+        }
+        ct_default.clear_rc()
+        ct_default.replay_filters(configs=configs)
+        assert ct_default.rc_source == "meas"
+        assert ct_default.sim.filters[0].ref_val_resolved == pytest.approx(
+            ct_default.rc["poa"].iloc[0]
+        )
+
+    def test_both_rep_cond_warns_when_rc_source_none(self, ct_default):
+        configs = {
+            "meas": [RepCond().to_config()],
+            "sim": [RepCond().to_config()],
+        }
+        ct_default.clear_rc()
+        with pytest.warns(UserWarning, match="rc_source=None"):
+            ct_default.replay_filters(configs=configs)
+        assert ct_default.rc_source == "sim"
+
+    def test_run_test_after_clear_rc_recomputes(self, ct_default):
+        self._hand_sequenced(ct_default)
+        res1 = ct_default.run_test()
+        ct_default.clear_rc()
+        res2 = ct_default.run_test()
+        assert res2.rc_source == "meas"
+        assert res2.cap_ratio == pytest.approx(res1.cap_ratio, rel=1e-10)
+
+    def test_run_test_rc_source_none_without_producer_raises(self, ct_default):
+        ct_default.meas.filter_irr(400, 1400)
+        ct_default.sim.filter_irr(400, 1400)
+        ct_default.clear_rc()
+        with pytest.raises(RuntimeError, match="rc_source is None") as excinfo:
+            ct_default.run_test()
+        assert "manual" not in str(excinfo.value)
+
+    def test_run_test_delegates_to_replay_filters(self, ct_default, monkeypatch):
+        self._hand_sequenced(ct_default)
+        calls = []
+        orig = CapTest.replay_filters
+
+        def spy(self, side="both", configs=None):
+            calls.append((side, configs))
+            return orig(self, side=side, configs=configs)
+
+        monkeypatch.setattr(CapTest, "replay_filters", spy)
+        ct_default.run_test()
+        assert len(calls) == 1
+        side, configs = calls[0]
+        assert side == "both"
+        assert set(configs) == {"meas", "sim"}
+        assert [d["type"] for d in configs["meas"]] == ["Irradiance", "RepCond"]
+
+
 def _hourly_typical_year(year=1990):
     """1-year hourly DataFrame indexed by ``year``."""
     idx = pd.date_range(f"{year}-01-01", f"{year}-12-31 23:00", freq="h")
@@ -3385,6 +3575,77 @@ class TestTestRc:
         ct = CapTest()
         ct.rc_source = "manual"  # must not raise (Selector now allows it)
         assert ct.rc_source == "manual"
+
+    def test_rc_source_accepts_none(self):
+        ct = CapTest()
+        ct.rc_source = None
+        assert ct.rc_source is None
+
+
+class TestClearRc:
+    """``CapTest.clear_rc``: drop the test RC and its provenance."""
+
+    _hand_sequenced = TestRunTest._hand_sequenced
+
+    def test_clear_rc_clears_rc_and_source(self, ct_default, recwarn):
+        self._hand_sequenced(ct_default)
+        meas_rc = ct_default.meas.rc.copy()
+        n_filters = len(ct_default.meas.filters)
+        recwarn.clear()
+        ct_default.clear_rc()
+        assert ct_default.rc is None
+        assert ct_default.rc_source is None
+        assert not [w for w in recwarn if issubclass(w.category, UserWarning)]
+        pd.testing.assert_frame_equal(ct_default.meas.rc, meas_rc)
+        assert len(ct_default.meas.filters) == n_filters
+
+    def test_rep_irr_after_clear_rc_raises(self, ct_default):
+        self._hand_sequenced(ct_default)
+        ct_default.clear_rc()
+        with pytest.raises(ValueError, match="test reporting conditions"):
+            ct_default.meas.filter_irr(0.5, 1.5, ref_val="rep_irr")
+
+    def test_rc_after_clear_rc_recomputes_silently(self, ct_default):
+        self._hand_sequenced(ct_default)
+        ct_default.clear_rc()
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", UserWarning)
+            ct_default.rep_cond("sim")
+        assert ct_default.rc_source == "sim"
+        assert ct_default.rc is not None
+
+    def test_clear_rc_discards_pending_manual_rc(
+        self, meas_cd_default, sim_cd_default, tmp_path
+    ):
+        sub, loaders = TestManualRcStaging._build(
+            self, meas_cd_default, sim_cd_default, tmp_path
+        )
+        tst = CapTest.from_mapping(sub, run_setup=False, **loaders)
+        tst.clear_rc()
+        tst.setup()
+        assert tst.rc is None
+        assert tst.rc_source is None
+
+    def test_clear_rc_round_trips_rc_source_none(
+        self, meas_cd_default, sim_cd_default, tmp_path
+    ):
+        sub, loaders = TestManualRcStaging._build(
+            self, meas_cd_default, sim_cd_default, tmp_path
+        )
+        tst = CapTest.from_mapping(sub, **loaders)
+        tst.clear_rc()
+        sub2 = tst.to_mapping()
+        assert sub2["rc_source"] is None
+        assert "reporting_conditions_values" not in sub2
+        tst2 = CapTest.from_mapping(sub2, run_setup=False, **loaders)
+        assert tst2.rc_source is None
+
+        path = tmp_path / "cleared.yaml"
+        tst.to_yaml(path)
+        assert yaml.safe_load(path.read_text())["captest"]["rc_source"] is None
+        tst3 = CapTest.from_yaml(path, **loaders)
+        assert tst3.rc_source is None
+        assert tst3.rc is None
 
 
 class TestManualRc:

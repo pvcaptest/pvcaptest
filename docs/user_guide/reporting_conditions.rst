@@ -135,6 +135,27 @@ A manual RC is treated as the authoritative value: it is not overwritten when
 later ``rep_cond`` call that would change the source back to a computed value
 emits the source-change warning.
 
+Clearing reporting conditions and replaying filters
+---------------------------------------------------
+:py:meth:`~captest.CapTest.clear_rc` discards the test RC and its provenance
+(``tst.rc`` and ``tst.rc_source`` become ``None``), for example after removing
+the ``RepCond`` step that produced them or to stop using a manual RC. It is
+silent and leaves each side's applied filters and own ``rc`` as they are. The
+next RC write establishes a new RC and source without a source-change warning,
+and ``rc_source: null`` round-trips through ``to_yaml`` / ``from_yaml``.
+
+:py:meth:`~captest.CapTest.replay_filters` replays the filter pipelines with
+the same rules as :py:meth:`~captest.CapTest.run_test` — side order, manual-RC
+protection, and consuming (or, on failure, retaining) the pending pipelines —
+without running ``setup()`` or fitting the regressions. By default each side
+replays its applied chain, or its pending pipeline when nothing is applied;
+``configs`` supplies the pipelines instead:
+
+.. code-block:: Python
+
+    tst.clear_rc()
+    tst.replay_filters(configs={'sim': sim_pipeline})  # list of step configs
+
 Reporting conditions and results
 --------------------------------
 :py:meth:`~captest.CapTest.captest_results` (and
@@ -166,16 +187,18 @@ The single test RC round-trips through
   immediately and a self-anchoring ``ref_val='rep_irr'`` filter resolves
   correctly when the pipelines later run.
 
-When ``run_test`` replays the pipelines, it runs the configured ``rc_source``
-side first, so a cross-side ``ref_val='rep_irr'`` filter (for example a
-measured filter anchored on a modeled reporting irradiance) resolves against
-an already-established ``tst.rc``.
+When ``run_test`` (or ``replay_filters``) replays the pipelines, it runs the
+configured ``rc_source`` side first, so a cross-side ``ref_val='rep_irr'``
+filter (for example a measured filter anchored on a modeled reporting
+irradiance) resolves against an already-established ``tst.rc``. After
+``clear_rc()`` (``rc_source`` is ``None``) the side whose pipeline contains the
+``RepCond`` step runs first.
 
 .. note::
 
     Only the ``rc_source`` side's pipeline should contain a reporting-conditions
     step. A configuration with a ``RepCond`` step in *both* pipelines under a
-    computed ``rc_source`` is ambiguous — whichever side replays second would
+    computed ``rc_source`` (or a cleared one, ``None``) is ambiguous — whichever side replays second would
     overwrite the test reporting conditions and flip ``rc_source`` — so loading
     or re-running such a configuration emits a ``UserWarning`` asking for the
     ``RepCond`` step to be removed from the non-``rc_source`` pipeline.

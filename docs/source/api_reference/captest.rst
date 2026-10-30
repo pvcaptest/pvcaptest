@@ -51,8 +51,9 @@ Reporting Conditions
 A capacity test has a single set of reporting conditions, owned by the test as
 :py:attr:`~captest.CapTest.rc` and tracked by
 :py:attr:`~captest.CapTest.rc_source` (``'meas'`` / ``'sim'`` /
-``'manual'``). Compute them with :py:meth:`~captest.CapTest.rep_cond`
-or assign them directly via the ``rc`` setter. See :ref:`reporting_conditions`
+``'manual'``, or ``None`` after :py:meth:`~captest.CapTest.clear_rc`).
+Compute them with :py:meth:`~captest.CapTest.rep_cond` or assign them
+directly via the ``rc`` setter. See :ref:`reporting_conditions`
 in the user guide for the full model.
 
 .. autosummary::
@@ -61,6 +62,7 @@ in the user guide for the full model.
    CapTest.rc
    CapTest.rc_source
    CapTest.rep_cond
+   CapTest.clear_rc
    CapTest.rep_irr_filter_low
    CapTest.rep_irr_filter_high
 
@@ -84,6 +86,8 @@ Results
 Methods for running the capacity test and evaluating pass/fail.
 :py:meth:`~captest.CapTest.run_test` runs the whole test — setup,
 filter-pipeline replay, regressions, and results — in one call.
+:py:meth:`~captest.CapTest.replay_filters` runs only the filter-pipeline
+replay.
 :py:meth:`~captest.CapTest.captest_results` returns a
 :py:class:`~captest.captest.CapTestResults` object; ``str(results)``
 reproduces the printed report and ``results.styled_pvalues()`` the styled
@@ -93,6 +97,7 @@ p-value table.
    :toctree: generated/
 
    CapTest.run_test
+   CapTest.replay_filters
    CapTest.captest_results
    CapTest.captest_results_check_pvalues
    CapTest.determine_pass_or_fail

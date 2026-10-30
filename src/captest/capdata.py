@@ -586,7 +586,7 @@ def pred_summary(grps, rcs, allowance, **kwargs):
         for param_col_name in params.columns:
             if rc_col_name == param_col_name:
                 new_col_name = param_col_name + "-param"
-                params.rename(columns={param_col_name: new_col_name}, inplace=True)
+                params = params.rename(columns={param_col_name: new_col_name})
 
     results = pd.concat([rcs, predictions, params], axis=1)
 
@@ -1074,7 +1074,7 @@ class CapData(param.Parameterized):
         if record:
             prep.RenameColumns(column_map=dict(column_map)).run(self)
             return
-        self.data.rename(columns=column_map, inplace=True)
+        self.data.columns = self.data.rename(columns=column_map).columns
         for key, value in self.column_groups.items():
             self.column_groups[key] = [column_map.get(col, col) for col in value]
 
@@ -1115,8 +1115,7 @@ class CapData(param.Parameterized):
                         )
             rename = dict(zip(df.columns, reg_vars))
 
-        df.rename(columns=rename, inplace=True)
-        return df
+        return df.rename(columns=rename)
 
     def review_column_groups(self):
         """Print `column_groups` with nice formatting."""
