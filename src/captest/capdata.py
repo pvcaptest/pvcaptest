@@ -2986,8 +2986,8 @@ class CapData(param.Parameterized):
             finite real number (bool, NaN, infinity and strings are refused).
         """
         _, rhs = util.parse_regression_formula(self.regression_formula)
-        util.validate_manual_rc(values, rhs)
         clean = util.coerce_finite_floats(values)
+        util.validate_manual_rc(clean, rhs)
         order = rhs + [key for key in clean if key not in rhs]
         rc_df = pd.DataFrame([clean])[order]
 
