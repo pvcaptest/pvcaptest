@@ -3194,16 +3194,26 @@ class CapTest(param.Parameterized):
                 selected[s] = list(getattr(self, f"{s}_filters_pending"))
         return selected
 
-    def _replay_order(self, side):
+    def _replay_order(self, side, configs):
         """Order in which :meth:`replay_filters` replays the sides.
 
         The ``rc_source`` side goes first so its RepCond step populates the
-        test RC before the other side's RC-dependent filters resolve.
+        test RC before the other side's RC-dependent filters resolve. With
+        ``rc_source=None`` (after :meth:`clear_rc`) the producer goes first:
+        sim when only the sim pipeline in ``configs`` has a RepCond step,
+        otherwise meas.
         """
         if side != "both":
             return [side]
         if self.rc_source == "sim":
             return ["sim", "meas"]
+        if self.rc_source is None:
+            has_rep_cond = {
+                s: any(d.get("type") == "RepCond" for d in configs[s])
+                for s in ("meas", "sim")
+            }
+            if has_rep_cond["sim"] and not has_rep_cond["meas"]:
+                return ["sim", "meas"]
         return ["meas", "sim"]
 
     def replay_filters(self, side="both", configs=None):
@@ -3220,7 +3230,10 @@ class CapTest(param.Parameterized):
           (``meas_filters_pending`` / ``sim_filters_pending``).
         - **Order.** The ``rc_source`` side first, so its RepCond step
           populates the test RC before the other side's RC-dependent
-          filters (``ref_val='rep_irr'``) resolve.
+          filters (``ref_val='rep_irr'``) resolve. With ``rc_source=None``
+          (after :meth:`clear_rc`) the side whose pipeline contains a
+          RepCond step goes first (meas when both or neither do); under
+          ``'manual'`` meas goes first.
         - **Manual RC.** With ``rc_source='manual'`` the manual reporting
           conditions stay authoritative: replayed RepCond steps compute
           side-local RCs only and never overwrite ``tst.rc``.
@@ -3280,7 +3293,7 @@ class CapTest(param.Parameterized):
                     "(or tst.run_test()) before replay_filters()."
                 )
         configs = self._select_replay_configs(sides, configs)
-        run_sides = self._replay_order(side)
+        run_sides = self._replay_order(side, configs)
         if (
             side == "both"
             and self.rc_source in ("meas", "sim")
@@ -3391,8 +3404,9 @@ class CapTest(param.Parameterized):
             If ``side`` is not ``'meas'``, ``'sim'``, or ``'both'``.
         RuntimeError
             For ``side='both'``: a computed ``rc_source`` whose replayed
-            pipeline contains no RepCond step, or ``rc_source='manual'``
-            with no reporting conditions set. Exceptions raised in any
+            pipeline contains no RepCond step, ``rc_source='manual'``
+            with no reporting conditions set, or ``rc_source=None`` with no
+            RepCond step in either pipeline. Exceptions raised in any
             stage carry a ``[CapTest.run_test stage: ...]`` note on
             Python 3.11+.
 
@@ -3453,6 +3467,13 @@ class CapTest(param.Parameterized):
                         "step; the test reporting conditions were not "
                         "computed this run."
                     )
+            elif self.rc_source is None and self._rc is None:
+                raise RuntimeError(
+                    "rc_source is None (cleared by tst.clear_rc()) and neither "
+                    "pipeline contains a RepCond step, so no reporting "
+                    "conditions were computed; add a RepCond step or assign "
+                    "tst.rc = df before run_test()."
+                )
             elif self._rc is None:
                 raise RuntimeError(
                     "rc_source='manual' but no reporting conditions are "

@@ -3113,6 +3113,48 @@ class TestReplayFilters:
         with pytest.raises(ValueError, match="side"):
             ct_default.replay_filters(side="x")
 
+    def test_replay_order_producer_first_when_rc_source_none(self, ct_default):
+        configs = {
+            "meas": [self._irr_config(0.5, 1.5, ref_val="rep_irr")],
+            "sim": [self._irr_config(400, 1400), RepCond().to_config()],
+        }
+        ct_default.clear_rc()
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", UserWarning)
+            ct_default.replay_filters(configs=configs)
+        assert ct_default.rc_source == "sim"
+        assert ct_default.meas.filters[0].ref_val_resolved == pytest.approx(
+            ct_default.rc["poa"].iloc[0]
+        )
+
+    def test_replay_order_meas_first_when_rc_source_none(self, ct_default):
+        configs = {
+            "meas": [self._irr_config(400, 1400), RepCond().to_config()],
+            "sim": [self._irr_config(0.5, 1.5, ref_val="rep_irr")],
+        }
+        ct_default.clear_rc()
+        ct_default.replay_filters(configs=configs)
+        assert ct_default.rc_source == "meas"
+        assert ct_default.sim.filters[0].ref_val_resolved == pytest.approx(
+            ct_default.rc["poa"].iloc[0]
+        )
+
+    def test_run_test_after_clear_rc_recomputes(self, ct_default):
+        self._hand_sequenced(ct_default)
+        res1 = ct_default.run_test()
+        ct_default.clear_rc()
+        res2 = ct_default.run_test()
+        assert res2.rc_source == "meas"
+        assert res2.cap_ratio == pytest.approx(res1.cap_ratio, rel=1e-10)
+
+    def test_run_test_rc_source_none_without_producer_raises(self, ct_default):
+        ct_default.meas.filter_irr(400, 1400)
+        ct_default.sim.filter_irr(400, 1400)
+        ct_default.clear_rc()
+        with pytest.raises(RuntimeError, match="rc_source is None") as excinfo:
+            ct_default.run_test()
+        assert "manual" not in str(excinfo.value)
+
     def test_run_test_delegates_to_replay_filters(self, ct_default, monkeypatch):
         self._hand_sequenced(ct_default)
         calls = []
@@ -3576,6 +3618,13 @@ class TestClearRc:
         assert "reporting_conditions_values" not in sub2
         tst2 = CapTest.from_mapping(sub2, run_setup=False, **loaders)
         assert tst2.rc_source is None
+
+        path = tmp_path / "cleared.yaml"
+        tst.to_yaml(path)
+        assert yaml.safe_load(path.read_text())["captest"]["rc_source"] is None
+        tst3 = CapTest.from_yaml(path, **loaders)
+        assert tst3.rc_source is None
+        assert tst3.rc is None
 
 
 class TestManualRc:
