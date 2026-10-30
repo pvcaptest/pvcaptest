@@ -3113,15 +3113,26 @@ class TestReplayFilters:
         with pytest.raises(ValueError, match="side"):
             ct_default.replay_filters(side="x")
 
-    def test_replay_order_producer_first_when_rc_source_none(self, ct_default):
+    def test_replay_order_producer_first_when_rc_source_none(
+        self, ct_default, monkeypatch
+    ):
         configs = {
             "meas": [self._irr_config(0.5, 1.5, ref_val="rep_irr")],
             "sim": [self._irr_config(400, 1400), RepCond().to_config()],
         }
+        order = []
+        orig = CapData.run_pipeline
+
+        def spy(cd, cfg):
+            order.append(cd)
+            return orig(cd, cfg)
+
+        monkeypatch.setattr(CapData, "run_pipeline", spy)
         ct_default.clear_rc()
         with warnings.catch_warnings():
             warnings.simplefilter("error", UserWarning)
             ct_default.replay_filters(configs=configs)
+        assert order[0] is ct_default.sim and order[1] is ct_default.meas
         assert ct_default.rc_source == "sim"
         assert ct_default.meas.filters[0].ref_val_resolved == pytest.approx(
             ct_default.rc["poa"].iloc[0]
@@ -3138,6 +3149,16 @@ class TestReplayFilters:
         assert ct_default.sim.filters[0].ref_val_resolved == pytest.approx(
             ct_default.rc["poa"].iloc[0]
         )
+
+    def test_both_rep_cond_warns_when_rc_source_none(self, ct_default):
+        configs = {
+            "meas": [RepCond().to_config()],
+            "sim": [RepCond().to_config()],
+        }
+        ct_default.clear_rc()
+        with pytest.warns(UserWarning, match="rc_source=None"):
+            ct_default.replay_filters(configs=configs)
+        assert ct_default.rc_source == "sim"
 
     def test_run_test_after_clear_rc_recomputes(self, ct_default):
         self._hand_sequenced(ct_default)

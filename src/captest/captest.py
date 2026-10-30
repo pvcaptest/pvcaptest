@@ -3232,8 +3232,8 @@ class CapTest(param.Parameterized):
           populates the test RC before the other side's RC-dependent
           filters (``ref_val='rep_irr'``) resolve. With ``rc_source=None``
           (after :meth:`clear_rc`) the side whose pipeline contains a
-          RepCond step goes first (meas when both or neither do); under
-          ``'manual'`` meas goes first.
+          RepCond step goes first; when neither does, or under
+          ``'manual'``, meas goes first.
         - **Manual RC.** With ``rc_source='manual'`` the manual reporting
           conditions stay authoritative: replayed RepCond steps compute
           side-local RCs only and never overwrite ``tst.rc``.
@@ -3243,8 +3243,8 @@ class CapTest(param.Parameterized):
 
         For ``side='both'`` the not-yet-replayed side is excluded from the
         RC-staleness warning while the replay runs, and a warning is emitted
-        when both pipelines contain a RepCond step under a computed
-        ``rc_source``.
+        when both pipelines contain a RepCond step under a computed or
+        ``None`` ``rc_source`` (the side replayed last would set the RC).
 
         Parameters
         ----------
@@ -3294,14 +3294,10 @@ class CapTest(param.Parameterized):
                 )
         configs = self._select_replay_configs(sides, configs)
         run_sides = self._replay_order(side, configs)
-        if (
-            side == "both"
-            and self.rc_source in ("meas", "sim")
-            and all(
-                any(d.get("type") == "RepCond" for d in configs[s])
-                for s in ("meas", "sim")
-            )
-        ):
+        both_rep_cond = side == "both" and all(
+            any(d.get("type") == "RepCond" for d in configs[s]) for s in ("meas", "sim")
+        )
+        if both_rep_cond and self.rc_source in ("meas", "sim"):
             warnings.warn(
                 "Both pipelines contain a RepCond step with a computed "
                 f"rc_source ('{self.rc_source}'): this is ambiguous and "
@@ -3309,6 +3305,14 @@ class CapTest(param.Parameterized):
                 "overwrite the test reporting conditions and flip "
                 "rc_source. Remove the RepCond step from the non-rc_source "
                 "pipeline."
+            )
+        elif both_rep_cond and self.rc_source is None:
+            warnings.warn(
+                "Both pipelines contain a RepCond step with rc_source=None: "
+                "this is ambiguous and unsupported — the sim RepCond replays "
+                "last and sets the test reporting conditions, after the meas "
+                "steps resolved against the meas RC. Remove the RepCond step "
+                "from one pipeline."
             )
 
         if side == "both":
