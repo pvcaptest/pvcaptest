@@ -6,6 +6,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Added
+- `CapTest.replay_filters(side="both", configs=None)`: the filter-replay stage
+  of `run_test` as a public method. It keeps `run_test`'s side order,
+  live-chain-else-pending selection, manual-RC protection and pending-list
+  handling (consumed on success, retained on failure), but never runs
+  `setup()` or fits a regression. `configs` supplies the pipelines to replay,
+  keyed by side. `run_test` now calls it.
+- `CapTest.clear_rc()`: set `rc` and `rc_source` to `None` (and drop manual
+  values stashed by a load-only `from_mapping`). `rc_source` accepts `None`,
+  which round-trips through `to_yaml` / `from_yaml`; a hand-written
+  `rc_source: null` now loads as `None` instead of the `'meas'` default. With
+  `rc_source=None`, `replay_filters` / `run_test` replay the side whose
+  pipeline contains a `RepCond` step first, so the other side's
+  `ref_val='rep_irr'` steps resolve against the new RC.
 - `CapTest.run_fingerprint`, `run_fingerprint_error`, `mapping_fingerprint()`
   and `last_results`: bind a completed `run_test()`'s results to the
   configuration that produced them, including load settings as they were at

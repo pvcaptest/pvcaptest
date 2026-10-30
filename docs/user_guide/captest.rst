@@ -936,6 +936,13 @@ back to its pre-call state and the failed side's pipeline definition is
 retained in ``tst.<side>_filters_pending``; see :ref:`replay-failure` for the
 recovery loop.
 
+The filter-replay stage is public on its own as
+:py:meth:`~captest.CapTest.replay_filters`: it applies the same source
+selection, side order, and pending-pipeline rules, but does not run
+``setup()`` or fit the regressions, and its ``configs`` argument can supply
+the pipelines to replay. See :ref:`reporting_conditions` for how it pairs with
+:py:meth:`~captest.CapTest.clear_rc`.
+
 Re-running one side
 ~~~~~~~~~~~~~~~~~~~
 Pass ``side='meas'`` or ``side='sim'`` to re-run only one side's setup,
