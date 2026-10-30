@@ -4822,3 +4822,16 @@ def test_lone_values_step_and_computed_steps_do_not_warn(tst):
         CapTest.from_mapping(rc_mapping(meas_filters=[VALUES_STEP]), **FRESH_LOADERS)
         tst.replay_filters(configs={"meas": [VALUES_STEP, BAND], "sim": [BAND]})
         tst.replay_filters(configs={"meas": [COMPUTED_STEP, COMPUTED_STEP], "sim": []})
+
+
+def test_explicit_empty_config_resets_side(tst):
+    run_with(tst, meas=[{"type": "RepCond", "func": "mean"}], sim=[])
+    tst.replay_filters(side="meas", configs={"meas": []})
+    assert tst.meas.filters == [] and tst.meas_filters_pending == []
+
+
+def test_unsupplied_empty_live_chain_still_uses_pending(tst):
+    tst.meas.filters = []
+    tst.meas_filters_pending = [{"type": "RepCond", "func": "mean"}]
+    tst.replay_filters(side="meas")
+    assert len(tst.meas.filters) == 1

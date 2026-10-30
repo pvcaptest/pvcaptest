@@ -3404,6 +3404,11 @@ class CapTest(param.Parameterized):
                                 ")), or edit the yaml config and reload."
                             )
                         raise
+                else:
+                    # An empty selected pipeline (an explicit ``[]``, or an
+                    # empty live chain with nothing pending) means "no
+                    # filters": reset the side's chain rather than keep it.
+                    getattr(self, s).filters = []
                 # A completed pass makes the live chain the single source
                 # of truth for this side; the pending config is consumed
                 # regardless of which source was replayed (spec R2).
