@@ -4824,6 +4824,23 @@ def test_lone_values_step_and_computed_steps_do_not_warn(tst):
         tst.replay_filters(configs={"meas": [COMPUTED_STEP, COMPUTED_STEP], "sim": []})
 
 
+def test_null_values_key_is_not_a_values_step(tst):
+    hand_edited = {"type": "RepCond", "func": "mean", "values": None}
+    with warnings.catch_warnings():
+        warnings.filterwarnings("error", message="RepCond")
+        tst.replay_filters(configs={"meas": [hand_edited, COMPUTED_STEP], "sim": []})
+
+
+@pytest.mark.filterwarnings("ignore:RepCond step .*follows:UserWarning")
+def test_manual_rc_source_warns_once_for_values_beside_repcond(tst):
+    tst.rc = {"poa": 700, "t_amb": 20, "w_vel": 2}
+    with pytest.warns(UserWarning) as rec:
+        tst.replay_filters(configs={"meas": [COMPUTED_STEP, VALUES_STEP], "sim": []})
+    messages = [str(w.message) for w in rec]
+    assert any("ignored because rc_source is 'manual'" in m for m in messages)
+    assert not any("Keep one RepCond step" in m for m in messages)
+
+
 def test_explicit_empty_config_resets_side(tst):
     run_with(tst, meas=[{"type": "RepCond", "func": "mean"}], sim=[])
     tst.replay_filters(side="meas", configs={"meas": []})

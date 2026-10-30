@@ -1907,6 +1907,7 @@ class RepCond(BaseSummaryStep):
     """Reporting-conditions calculation as a zero-removal summary step.
 
     Computes ``capdata.rc`` from the filtered data at this point in the chain
+    (or, in values mode, sets it from the step's ``values``)
     and returns the index **unchanged** (``pts_removed == 0``), so the step
     appears in the summary at its position relative to the filters that
     preceded it. The reporting-conditions math is not duplicated here: it lives
@@ -1953,6 +1954,18 @@ class RepCond(BaseSummaryStep):
     _explanation_template = (
         "Reporting conditions were calculated (no intervals removed)."
     )
+
+    @property
+    def explanation(self):
+        """Describe the step; values mode reads differently from computed mode."""
+        if self.values is None:
+            return super().explanation
+        if not hasattr(self, "ix_after"):
+            return None
+        return (
+            "Reporting conditions were set from the step's values "
+            "(no intervals removed)."
+        )
 
     _COMPUTED_PARAMS = (
         "func",
@@ -2071,7 +2084,8 @@ class RepCond(BaseSummaryStep):
             config.update(util.params_to_config(self))
             for name in self._COMPUTED_PARAMS:
                 config.pop(name)
-            config["values"] = {str(k): float(v) for k, v in self.values.items()}
+            validated = self._validate_values(self.values)
+            config["values"] = {str(k): v for k, v in validated.items()}
             return config
         config = super().to_config()
         config.pop("values", None)

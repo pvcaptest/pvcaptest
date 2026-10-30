@@ -830,7 +830,7 @@ def _warn_repcond_values(rc_source, configs):
         Lists of filter-config dicts keyed by side.
     """
     steps = [
-        (f"{side} step {i}", "values" in step)
+        (f"{side} step {i}", step.get("values") is not None)
         for side, config in configs.items()
         for i, step in enumerate(config or [])
         if step.get("type") == "RepCond"
@@ -845,7 +845,7 @@ def _warn_repcond_values(rc_source, configs):
                     "is 'manual'; call clear_rc() to let the step set the "
                     "reporting conditions."
                 )
-    if len(steps) > 1:
+    if rc_source != "manual" and len(steps) > 1:
         names = " and ".join(
             f"{label} ({'values' if has_values else 'computed'})"
             for label, has_values in steps

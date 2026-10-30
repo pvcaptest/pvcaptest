@@ -2634,12 +2634,37 @@ def test_batched_mode_switch_does_not_raise():
         {"poa": float("inf")},
         {"poa": "800"},
         {"poa": 10**400},
+        {"poa": np.bool_(True)},
         {},
     ],
 )
 def test_bad_values_refused_at_construction(bad):
     with pytest.raises(ValueError):
         RepCond(values=bad)
+
+
+def test_to_config_refuses_values_set_by_batched_update():
+    step = RepCond(func="mean")
+    step.param.update(values={"poa": True, "t_amb": 25, "w_vel": 1}, func=None)
+    with pytest.raises(ValueError, match="finite real number"):
+        step.to_config()
+
+
+@pytest.mark.parametrize(
+    "bad", [float("nan"), "800", True, np.bool_(True), float("inf")]
+)
+def test_to_config_refuses_values_reassigned_after_construction(bad):
+    step = RepCond(values={"poa": 800, "t_amb": 25, "w_vel": 1})
+    step.values = {"poa": bad, "t_amb": 25, "w_vel": 1}
+    with pytest.raises(ValueError, match="finite real number"):
+        step.to_config()
+
+
+def test_to_config_refuses_values_reassigned_to_empty():
+    step = RepCond(values={"poa": 800})
+    step.values = {}
+    with pytest.raises(ValueError, match="at least one variable"):
+        step.to_config()
 
 
 def test_empty_values_message():
@@ -2702,6 +2727,22 @@ def test_values_step_drops_stale_rc_tool(meas_rc):
         [{"type": "RepCond", "values": {"poa": 800, "t_amb": 25, "w_vel": 1}}]
     )
     assert "rc_tool" not in meas_rc.__dict__
+
+
+@pytest.mark.filterwarnings("ignore:RepCond step .*follows:UserWarning")
+def test_explanation_by_mode(meas_rc):
+    computed = RepCond(func="mean")
+    manual = RepCond(values={"poa": 800, "t_amb": 25, "w_vel": 1})
+    assert manual.explanation is None
+    computed.run(meas_rc)
+    manual.run(meas_rc)
+    assert (
+        computed.explanation
+        == "Reporting conditions were calculated (no intervals removed)."
+    )
+    assert manual.explanation == (
+        "Reporting conditions were set from the step's values (no intervals removed)."
+    )
 
 
 def test_missing_term_fails_as_step_failure(meas):
