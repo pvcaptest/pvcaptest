@@ -110,6 +110,9 @@ class CapTestResults:
         Provenance of ``rc`` (``'meas'``, ``'sim'``, or ``'manual'``);
         ``None`` only when ``CapTest.rc_source`` was cleared while an RC
         stayed set.
+    rc_kind : str or None
+        Whether ``rc`` was ``'computed'`` from data or typed in
+        (``'manual'``); ``None`` when ``CapTest.rc_kind`` was never set.
     pvalues_checked : bool
         Which variant is the headline: ``True`` when ``cap_ratio``,
         ``actual_capacity``, ``expected_capacity``, and the pass/fail
@@ -129,6 +132,7 @@ class CapTestResults:
     regression_tables: dict
     rc: pd.DataFrame
     rc_source: str | None
+    rc_kind: str | None = None
     pvalues_checked: bool = False
 
     def summary(self):
@@ -809,6 +813,50 @@ _CAPTEST_OVERRIDE_KEYS = frozenset(
 _CAPTEST_NONE_MEANINGFUL_KEYS = frozenset({"altitude_override", "rc_source"})
 
 
+def _warn_repcond_values(rc_source, configs):
+    """Warn about ``RepCond(values=...)`` steps that may not set the test RC.
+
+    Scans serialized filter configs, so it covers a config nothing has run
+    yet. Warns per values step under a manual ``rc_source`` (propagation is
+    suppressed, so the setter's RC outranks the step) and once, naming every
+    RepCond step, when a values step sits beside another RepCond on either
+    side (the later step overwrites the earlier one's reporting conditions).
+
+    Parameters
+    ----------
+    rc_source : str or None
+        The test's ``rc_source``.
+    configs : mapping
+        Lists of filter-config dicts keyed by side.
+    """
+    steps = [
+        (f"{side} step {i}", step.get("values") is not None)
+        for side, config in configs.items()
+        for i, step in enumerate(config or [])
+        if step.get("type") == "RepCond"
+    ]
+    if not any(has_values for _, has_values in steps):
+        return
+    if rc_source == "manual":
+        for label, has_values in steps:
+            if has_values:
+                warnings.warn(
+                    f"RepCond values on {label} are ignored because rc_source "
+                    "is 'manual'; call clear_rc() to let the step set the "
+                    "reporting conditions."
+                )
+    if rc_source != "manual" and len(steps) > 1:
+        names = " and ".join(
+            f"{label} ({'values' if has_values else 'computed'})"
+            for label, has_values in steps
+        )
+        warnings.warn(
+            f"RepCond on {names}: the step that runs later overwrites the "
+            "reporting conditions of the one before it, so typed-in values "
+            "can be lost. Keep one RepCond step."
+        )
+
+
 def _own_loader_id(loader):
     """Return the ``loader_id`` label ``loader`` carries as its own, else None.
 
@@ -1077,6 +1125,16 @@ class CapTest(param.Parameterized):
         "afterward relabels provenance without changing the stored rc and is "
         "not recommended.",
     )
+    rc_kind = param.Selector(
+        objects=["computed", "manual"],
+        default=None,
+        allow_None=True,
+        doc="How the single test RC (CapTest.rc) was produced: 'computed' from "
+        "data by a RepCond step, 'manual' when typed in (RepCond(values=...), "
+        "the tst.rc setter or a stored reporting_conditions_values), or None "
+        "with no RC. An output like a computed rc: written by _set_rc and "
+        "clear_rc, re-derived by a replay and never written by to_mapping.",
+    )
 
     # Test scope / time
     sim_days = param.Integer(
@@ -1313,6 +1371,8 @@ class CapTest(param.Parameterized):
         # manual RC authoritative.
         self._rc = None
         self._loading = False
+        # Per-side "last setup() finished" flag; written only by setup().
+        self._setup_completed = {"meas": False, "sim": False}
         # Serialized filter pipelines stored at load (from_mapping) and not
         # yet applied; consumed by run_test (spec R2). Plain lists of
         # filter-config dicts, public so users can inspect or edit them.
@@ -1332,7 +1392,8 @@ class CapTest(param.Parameterized):
         """The single test reporting-conditions DataFrame, or ``None``.
 
         Sourced from ``meas``/``sim`` via :meth:`rep_cond` or set manually via
-        the property setter; provenance is tracked by :attr:`rc_source`. See the
+        the property setter; provenance is tracked by :attr:`rc_source` and
+        :attr:`rc_kind`. See the
         RC-ownership design spec for the full lifecycle.
         """
         return self._rc
@@ -1364,15 +1425,18 @@ class CapTest(param.Parameterized):
         TypeError
             If ``value`` is not a DataFrame, Series, or dict.
         """
-        self._set_rc(self._coerce_and_validate_manual_rc(value), "manual")
+        self._set_rc(
+            self._coerce_and_validate_manual_rc(value), "manual", kind="manual"
+        )
 
     def clear_rc(self):
         """Clear the test reporting conditions and their provenance.
 
-        Sets :attr:`rc` and :attr:`rc_source` to ``None`` — e.g. after the
-        RepCond step that produced them is removed — and discards manual
-        values stashed by a load-only ``from_mapping(..., run_setup=False)``,
-        so a later :meth:`setup` does not restore them. Silent. Each side's
+        Sets :attr:`rc`, :attr:`rc_source` and :attr:`rc_kind` to ``None`` —
+        e.g. after the RepCond step that produced them is removed — and
+        discards manual values stashed by a load-only
+        ``from_mapping(..., run_setup=False)``, so a later :meth:`setup`
+        does not restore them. Silent. Each side's
         own ``rc`` and the applied filter chains are left as they are; steps
         that resolved against the cleared RC keep their results until
         replayed. The next RC write (:meth:`rep_cond`, a replayed RepCond
@@ -1386,6 +1450,7 @@ class CapTest(param.Parameterized):
         """
         self._rc = None
         self.rc_source = None
+        self.rc_kind = None
         self._pending_manual_rc = None
 
     def _coerce_and_validate_manual_rc(self, value):
@@ -1428,32 +1493,10 @@ class CapTest(param.Parameterized):
                 f"different regression formulas ({meas_fml!r} vs {sim_fml!r})."
             )
         _, rhs = util.parse_regression_formula(meas_fml)
-        if isinstance(value, pd.DataFrame):
-            df = value.copy()
-        elif isinstance(value, pd.Series):
-            df = value.to_frame().T
-        elif isinstance(value, dict):
-            df = pd.DataFrame([value])
-        else:
-            raise TypeError(
-                "tst.rc must be a one-row DataFrame, a pandas Series, or a dict "
-                f"mapping regression variable -> value; got "
-                f"{type(value).__name__}."
-            )
-        if len(df) != 1:
-            raise ValueError(
-                f"Reporting conditions must be a single row; got {len(df)} rows."
-            )
-        missing = [var for var in rhs if var not in df.columns]
-        if missing:
-            raise ValueError(
-                "Manual reporting conditions are missing required regression "
-                f"variable(s): {missing}. Required: {rhs}."
-            )
-        return df
+        return util.validate_manual_rc(value, rhs)
 
-    def _set_rc(self, rc, source, warn=True):
-        """Single internal write point for ``_rc`` and ``rc_source``.
+    def _set_rc(self, rc, source, kind=None, *, warn=True):
+        """Single internal write point for ``_rc``, ``rc_source``, ``rc_kind``.
 
         With ``warn`` True and an RC already set, emits at most ONE
         ``UserWarning`` per write, merging (a) a source-change notice when
@@ -1463,8 +1506,8 @@ class CapTest(param.Parameterized):
         the previous RC and are not excluded — sides in
         ``self._rc_pending_sides`` (registered by ``run_test`` for chains it
         is about to re-run) are excluded. Silent on first establishment and
-        on a same-source write of an unchanged RC. ``warn=False`` (config
-        load) suppresses both.
+        on a same-source write of an unchanged RC, whatever ``kind`` is.
+        ``warn=False`` (config load) suppresses both.
 
         Parameters
         ----------
@@ -1472,6 +1515,8 @@ class CapTest(param.Parameterized):
             One-row reporting-conditions DataFrame.
         source : {'meas', 'sim', 'manual'}
             Provenance to record in ``rc_source``.
+        kind : {'computed', 'manual'} or None, default None
+            How the RC was produced, recorded in ``rc_kind``.
         warn : bool, default True
             Suppress the merged warning when False (used during load).
         """
@@ -1494,6 +1539,7 @@ class CapTest(param.Parameterized):
                 warnings.warn(" ".join(parts))
         self._rc = rc
         self.rc_source = source
+        self.rc_kind = kind
 
     def _stale_rc_dependent_steps(self):
         """Applied steps whose ``ref_val`` resolves against the test RC.
@@ -1517,26 +1563,28 @@ class CapTest(param.Parameterized):
         return stale
 
     def _on_capdata_rep_cond(self, cd):
-        """Update the test RC after a member CapData computed its own ``rc``.
+        """Update the test RC after a member CapData set its own ``rc``.
 
-        Called by :meth:`CapData._calc_rep_cond` when the CapData belongs to
-        this test. Behavior is last-writer-wins: the calling side's ``rc``
-        becomes ``tst.rc`` and ``rc_source`` (a source-change ``UserWarning``
-        is emitted by :meth:`_set_rc`). ``_loading`` exists solely for
-        ``run_test``'s manual-RC replay: with ``rc_source='manual'`` the
-        manual reporting conditions stay authoritative, so propagation from
-        replayed RepCond steps is suppressed entirely (the step still
-        computes that side's local ``cd.rc``).
+        Called by :meth:`CapData._calc_rep_cond` and
+        :meth:`CapData._set_rep_cond_values` when the CapData belongs to this
+        test. Behavior is last-writer-wins: the calling side's ``rc`` becomes
+        ``tst.rc`` and ``rc_source``, and its ``rc_kind`` becomes
+        :attr:`rc_kind` (a source-change ``UserWarning`` is emitted by
+        :meth:`_set_rc`). ``_loading`` exists solely for ``run_test``'s
+        manual-RC replay: with ``rc_source='manual'`` the manual reporting
+        conditions stay authoritative, so propagation from replayed RepCond
+        steps is suppressed entirely (the step still sets that side's local
+        ``cd.rc``).
 
         Parameters
         ----------
         cd : CapData
-            The member CapData that just (re)computed its ``rc``.
+            The member CapData that just (re)set its ``rc``.
         """
         if self._loading:
             return
         side = "meas" if cd is self.meas else "sim"
-        self._set_rc(cd.rc.copy(), side, warn=True)
+        self._set_rc(cd.rc.copy(), side, kind=cd.rc_kind, warn=True)
 
     # --- data preparation -------------------------------------------------
 
@@ -1919,13 +1967,14 @@ class CapTest(param.Parameterized):
                 "rc_source. Remove the RepCond step from the non-rc_source "
                 "pipeline."
             )
+        _warn_repcond_values(inst.rc_source, {"meas": meas_filters, "sim": sim_filters})
 
         inst.meas_filters_pending = list(meas_filters or [])
         inst.sim_filters_pending = list(sim_filters or [])
         if inst.rc_source == "manual" and rc_values is not None:
             if inst.resolved_setup is not None:
                 df = inst._coerce_and_validate_manual_rc(rc_values)
-                inst._set_rc(df, "manual", warn=False)
+                inst._set_rc(df, "manual", kind="manual", warn=False)
             else:
                 inst._pending_manual_rc = dict(rc_values)
         return inst
@@ -2829,6 +2878,10 @@ class CapTest(param.Parameterized):
         if side not in ("meas", "sim", "both"):
             raise ValueError(f"side must be 'meas', 'sim', or 'both', got {side!r}.")
         sides = ("meas", "sim") if side == "both" else (side,)
+        # A processed side is incomplete until its processing finishes below;
+        # a side this call does not process keeps its flag.
+        for s in sides:
+            self._setup_completed[s] = False
         for s in sides:
             if getattr(self, s) is None:
                 raise RuntimeError(f"CapTest.{s} must be set before setup().")
@@ -2869,16 +2922,46 @@ class CapTest(param.Parameterized):
             # RC (ct.rc) and cd.rep_cond can update it. Runtime reference
             # only; capdata.py never imports captest.
             cd._captest = self
+            self._setup_completed[s] = True
 
         # Consume manual reporting-conditions values stashed by a load-only
         # from_mapping (run_setup=False). Only a full setup can seed them:
         # validation needs both sides' regression formulas, wired just above.
         if side == "both" and self._pending_manual_rc is not None:
             df = self._coerce_and_validate_manual_rc(self._pending_manual_rc)
-            self._set_rc(df, "manual", warn=False)
+            self._set_rc(df, "manual", kind="manual", warn=False)
             self._pending_manual_rc = None
 
         return self
+
+    def setup_completed(self, side="both"):
+        """Report whether the last :meth:`setup` on a side ran to completion.
+
+        ``setup`` clears the flag of each side it processes on entry and sets
+        it only once that side's regression columns are processed, so a
+        ``setup`` (direct, or inside ``run_test``) that raised part-way
+        reads ``False`` even though ``regression_formula`` was already
+        assigned. A side that ``setup(side=...)`` did not process keeps its
+        flag. ``False`` on a fresh ``CapTest``.
+
+        Parameters
+        ----------
+        side : {'both', 'meas', 'sim'}, default 'both'
+            Which side(s) to check; ``'both'`` is true only when both are.
+
+        Returns
+        -------
+        bool
+
+        Raises
+        ------
+        ValueError
+            If ``side`` is not ``'meas'``, ``'sim'``, or ``'both'``.
+        """
+        if side not in ("meas", "sim", "both"):
+            raise ValueError(f"side must be 'meas', 'sim', or 'both', got {side!r}.")
+        sides = ("meas", "sim") if side == "both" else (side,)
+        return all(self._setup_completed[s] for s in sides)
 
     def scatter_plots(self, which="meas", **kwargs):
         """Create the scatter plot for the active capacity-test setup.
@@ -3157,6 +3240,7 @@ class CapTest(param.Parameterized):
             },
             rc=rc.copy(),
             rc_source=self.rc_source,
+            rc_kind=self.rc_kind,
             pvalues_checked=check_pvalues,
         )
         if print_res:
@@ -3235,8 +3319,9 @@ class CapTest(param.Parameterized):
           RepCond step goes first; when neither does, or under
           ``'manual'``, meas goes first.
         - **Manual RC.** With ``rc_source='manual'`` the manual reporting
-          conditions stay authoritative: replayed RepCond steps compute
-          side-local RCs only and never overwrite ``tst.rc``.
+          conditions stay authoritative: replayed RepCond steps, values
+          steps included, set side-local RCs only and never overwrite
+          ``tst.rc``. A values step warns that it is ignored.
         - **Pending configs.** A side's pending list is consumed after its
           replay succeeds and, when the replay fails, holds the full failed
           pipeline so it can be edited and replayed again.
@@ -3244,7 +3329,9 @@ class CapTest(param.Parameterized):
         For ``side='both'`` the not-yet-replayed side is excluded from the
         RC-staleness warning while the replay runs, and a warning is emitted
         when both pipelines contain a RepCond step under a computed or
-        ``None`` ``rc_source`` (the side replayed last would set the RC).
+        ``None`` ``rc_source`` (the side replayed last would set the RC). A
+        values step beside any other RepCond step, on either side, warns on
+        every replay, naming the steps.
 
         Parameters
         ----------
@@ -3314,6 +3401,7 @@ class CapTest(param.Parameterized):
                 "steps resolved against the meas RC. Remove the RepCond step "
                 "from one pipeline."
             )
+        _warn_repcond_values(self.rc_source, configs)
 
         if side == "both":
             self._rc_pending_sides = set(run_sides)
@@ -3352,6 +3440,11 @@ class CapTest(param.Parameterized):
                                 ")), or edit the yaml config and reload."
                             )
                         raise
+                else:
+                    # An empty selected pipeline (an explicit ``[]``, or an
+                    # empty live chain with nothing pending) means "no
+                    # filters": reset the side's chain rather than keep it.
+                    getattr(self, s).filters = []
                 # A completed pass makes the live chain the single source
                 # of truth for this side; the pending config is consumed
                 # regardless of which source was replayed (spec R2).

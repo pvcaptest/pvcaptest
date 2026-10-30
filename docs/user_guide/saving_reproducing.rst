@@ -92,6 +92,11 @@ measured-side pipeline written by the bifacial example notebook:
         col_name: null
         custom_name: null
 
+A ``RepCond`` step can instead carry typed-in values, ``- type: RepCond`` with
+``values: {poa: 800.0, t_amb: 25.0, w_vel: 1.0}`` and none of the
+reporting-condition settings above; it sets ``rc`` from those values rather
+than computing it.
+
 Loading the file with :py:meth:`~captest.CapTest.from_yaml` loads the
 measured and modeled data and runs
 :py:meth:`~captest.CapTest.setup` to assign the regression and

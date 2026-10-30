@@ -22,7 +22,8 @@ import yaml
 from captest import CapTest, captest as ct, columngroups as cg, load_pvsyst, util
 from captest.capdata import CapData
 from captest.captest import CapTestResults
-from captest.filters import Irradiance, RepCond
+from captest.filters import Irradiance, RepCond, step_from_config
+from tests.setup_fixtures import build_meas_default, build_sim_default
 
 # Presets that the shipped meas_cd_default / sim_cd_default fixtures cover
 # end-to-end through CapTest.setup(). Extend this list when you add a preset
@@ -4593,3 +4594,305 @@ class TestCapTestPrep:
         pd.testing.assert_series_equal(tst.sim.data["E_Grid"], after_first)
         assert tst.sim.data["E_Grid"].max() == pytest.approx(sim_raw_max * 0.001)
         assert len(tst.sim.prep) == 1
+
+
+# --- RepCond(values=...) provenance -----------------------------------------
+
+VALUES_STEP = {"type": "RepCond", "values": {"poa": 800.0, "t_amb": 25.0, "w_vel": 1.0}}
+COMPUTED_STEP = {"type": "RepCond", "func": "mean"}
+BAND = {"type": "Irradiance", "low": 0.8, "high": 1.2, "ref_val": "rep_irr"}
+FRESH_LOADERS = {
+    "meas_loader": lambda p, **k: build_meas_default(),
+    "sim_loader": lambda p, **k: build_sim_default(),
+}
+
+
+def run_with(tst, meas=(), sim=()):
+    tst.setup()
+    tst.replay_filters(configs={"meas": list(meas), "sim": list(sim)})
+
+
+def rc_mapping(**keys):
+    """A captest sub-mapping ``from_mapping`` loads through ``FRESH_LOADERS``."""
+    return {
+        "test_setup": "e2848_default",
+        "meas_path": "/data/meas.csv",
+        "sim_path": "/data/sim.csv",
+        "ac_nameplate": 6_000_000,
+        "test_tolerance": "- 4",
+        **keys,
+    }
+
+
+@pytest.fixture
+def tst(ct_default):
+    """The two-side ``CapTest`` these tests replay on; setup has run."""
+    return ct_default
+
+
+@pytest.mark.filterwarnings("ignore:The data_filtered attribute:UserWarning")
+def test_provenance_table(tst):
+    assert (CapTest().rc_source, CapTest().rc_kind) == ("meas", None)
+    run_with(tst, meas=[VALUES_STEP, BAND])
+    assert (tst.rc_source, tst.rc_kind) == ("meas", "manual")
+    run_with(tst, meas=[COMPUTED_STEP, BAND])
+    assert (tst.rc_source, tst.rc_kind) == ("meas", "computed")
+    with pytest.warns(UserWarning, match="changed from 'meas' to 'manual'"):
+        tst.rc = {"poa": 800, "t_amb": 25, "w_vel": 1}
+    assert (tst.rc_source, tst.rc_kind) == ("manual", "manual")
+    tst.clear_rc()
+    assert (tst.rc_source, tst.rc_kind) == (None, None)
+
+
+def test_values_on_sim_record_the_sim_side(tst):
+    tst.rc_source = "sim"
+    run_with(tst, sim=[VALUES_STEP, BAND])
+    assert (tst.rc_source, tst.rc_kind) == ("sim", "manual")
+
+
+def test_dependents_both_sides_resolve_against_values(tst):
+    run_with(tst, meas=[VALUES_STEP, BAND], sim=[BAND])
+    assert tst.meas.filters[1].ref_val_resolved == 800.0
+    assert tst.sim.filters[0].ref_val_resolved == 800.0
+
+
+def test_values_round_trip_to_mapping_and_run_test(tst):
+    run_with(tst, meas=[VALUES_STEP, BAND])
+    tst._meas_path, tst._sim_path = "/data/meas.csv", "/data/sim.csv"
+    sub = tst.to_mapping()
+    assert "rc_kind" not in sub
+    assert sub["meas_filters"][0]["values"] == VALUES_STEP["values"]
+
+    reloaded = CapTest.from_mapping(sub, **FRESH_LOADERS)
+    assert reloaded.rc is None and reloaded.rc_kind is None
+    reloaded.run_test()
+    pd.testing.assert_frame_equal(reloaded.rc, tst.rc)
+    assert (reloaded.rc_source, reloaded.rc_kind) == ("meas", "manual")
+
+
+def test_mode_switch_by_param_edit_and_replay(tst):
+    run_with(tst, meas=[VALUES_STEP, BAND])
+    assert tst.rc.iloc[0]["poa"] == 800.0
+
+    tst.meas.filters[0].param.update(values=None, func="mean")
+    tst.replay_filters()
+    assert tst.rc_kind == "computed"
+    assert tst.rc.iloc[0]["poa"] != 800.0
+
+    tst.meas.filters[0].param.update(values=VALUES_STEP["values"], func=None)
+    tst.replay_filters()
+    assert tst.rc_kind == "manual"
+    assert tst.rc.iloc[0]["poa"] == 800.0
+
+
+def test_results_carry_rc_kind(tst):
+    run_with(tst, meas=[VALUES_STEP, BAND])
+    assert tst.run_test().rc_kind == "manual"
+    tst.meas.filters[0].param.update(values=None, func="mean")
+    assert tst.run_test().rc_kind == "computed"
+
+
+def test_legacy_manual_mapping_load_sets_rc_kind():
+    sub = rc_mapping(
+        rc_source="manual",
+        reporting_conditions_values={"poa": 800.0, "t_amb": 25.0, "w_vel": 1.0},
+    )
+    loaded = CapTest.from_mapping(sub, **FRESH_LOADERS)
+    assert (loaded.rc_source, loaded.rc_kind) == ("manual", "manual")
+
+
+def test_deferred_manual_rc_consumed_by_setup_sets_rc_kind():
+    sub = rc_mapping(
+        rc_source="manual",
+        reporting_conditions_values={"poa": 800.0, "t_amb": 25.0, "w_vel": 1.0},
+    )
+    loaded = CapTest.from_mapping(sub, run_setup=False, **FRESH_LOADERS)
+    assert (loaded.rc_source, loaded.rc_kind) == ("manual", None)
+    loaded.setup()
+    assert (loaded.rc_source, loaded.rc_kind) == ("manual", "manual")
+
+
+@pytest.mark.parametrize(
+    "seed, seed_kind, step",
+    [
+        (COMPUTED_STEP, "computed", VALUES_STEP),
+        (VALUES_STEP, "manual", COMPUTED_STEP),
+    ],
+    ids=["values", "computed"],
+)
+def test_direct_run_hook_failure_rolls_back_captest_provenance(
+    tst, seed, seed_kind, step
+):
+    # Fail inside the real hook: moving the source from sim to meas warns in
+    # _set_rc, which raises here. A step run on its own has no snapshot to
+    # fall back on, so _set_rc must not have written anything by then.
+    step_from_config(seed).run(tst.sim)
+    before = tst.rc.copy()
+    assert (tst.rc_source, tst.rc_kind) == ("sim", seed_kind)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", UserWarning)
+        with pytest.raises(UserWarning, match="rc_source changed"):
+            step_from_config(step).run(tst.meas)
+    pd.testing.assert_frame_equal(tst.rc, before)
+    assert (tst.rc_source, tst.rc_kind) == ("sim", seed_kind)
+
+
+@pytest.mark.filterwarnings("ignore:RepCond .*follows:UserWarning")
+def test_pipeline_failure_restores_captest_provenance(tst):
+    run_with(tst, meas=[VALUES_STEP])
+    before = tst.rc.copy()
+    with pytest.raises(ValueError):
+        tst.meas.run_pipeline(
+            [COMPUTED_STEP, {"type": "RepCond", "values": {"poa": 1}}]
+        )
+    pd.testing.assert_frame_equal(tst.rc, before)
+    assert (tst.rc_source, tst.rc_kind) == ("meas", "manual")
+
+
+def test_source_warning_ignores_a_kind_change_on_the_same_side(tst):
+    tst.replay_filters(configs={"meas": [COMPUTED_STEP], "sim": []})
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", UserWarning)
+        tst.replay_filters(configs={"meas": [VALUES_STEP], "sim": []})
+    assert (tst.rc_source, tst.rc_kind) == ("meas", "manual")
+
+
+def test_setter_outranks_values_step_and_warns(tst):
+    tst.rc = {"poa": 700, "t_amb": 20, "w_vel": 2}
+    with pytest.warns(UserWarning, match="ignored because rc_source is 'manual'"):
+        tst.replay_filters(configs={"meas": [VALUES_STEP], "sim": []})
+    assert tst.rc.iloc[0]["poa"] == 700.0
+
+
+def test_setter_outranks_warning_names_the_step(tst):
+    tst.rc = {"poa": 700, "t_amb": 20, "w_vel": 2}
+    with pytest.warns(UserWarning, match="values on sim step 1 are ignored") as rec:
+        tst.replay_filters(configs={"meas": [], "sim": [BAND, VALUES_STEP]})
+    assert any("call clear_rc()" in str(w.message) for w in rec)
+
+
+def test_setter_outranks_warning_at_load():
+    sub = rc_mapping(
+        rc_source="manual",
+        reporting_conditions_values={"poa": 700.0, "t_amb": 20.0, "w_vel": 2.0},
+        meas_filters=[VALUES_STEP],
+    )
+    with pytest.warns(UserWarning, match="values on meas step 0 are ignored"):
+        CapTest.from_mapping(sub, **FRESH_LOADERS)
+
+
+def test_setter_outranks_warning_covers_the_live_chain(tst):
+    run_with(tst, meas=[VALUES_STEP])
+    with pytest.warns(UserWarning, match="changed from 'meas' to 'manual'"):
+        tst.rc = {"poa": 700, "t_amb": 20, "w_vel": 2}
+    with pytest.warns(UserWarning, match="values on meas step 0 are ignored"):
+        tst.replay_filters()
+
+
+@pytest.mark.filterwarnings("ignore:Config defines a RepCond:UserWarning")
+@pytest.mark.filterwarnings("ignore:Both pipelines contain:UserWarning")
+@pytest.mark.filterwarnings("ignore:Test reporting conditions rc_source:UserWarning")
+def test_values_step_beside_other_side_repcond_warns(tst):
+    irr = {"type": "Irradiance", "low": 400, "high": 1400}
+    pipelines = {"meas": [irr, VALUES_STEP], "sim": [COMPUTED_STEP]}
+    match = "meas step 1 .*sim step 0"
+    with pytest.warns(UserWarning, match=match):
+        CapTest.from_mapping(
+            rc_mapping(meas_filters=pipelines["meas"], sim_filters=pipelines["sim"]),
+            **FRESH_LOADERS,
+        )
+    with pytest.warns(UserWarning, match=match):
+        tst.replay_filters(configs=pipelines)
+
+
+@pytest.mark.filterwarnings("ignore:RepCond .*follows:UserWarning")
+def test_values_step_beside_same_side_repcond_warns(tst):
+    pipeline = [COMPUTED_STEP, VALUES_STEP]
+    match = "meas step 0 .*meas step 1"
+    with pytest.warns(UserWarning, match=match):
+        CapTest.from_mapping(rc_mapping(meas_filters=pipeline), **FRESH_LOADERS)
+    with pytest.warns(UserWarning, match=match):
+        tst.replay_filters(side="meas", configs={"meas": pipeline})
+
+
+def test_lone_values_step_and_computed_steps_do_not_warn(tst):
+    with warnings.catch_warnings():
+        warnings.filterwarnings("error", message="RepCond")
+        CapTest.from_mapping(rc_mapping(meas_filters=[VALUES_STEP]), **FRESH_LOADERS)
+        tst.replay_filters(configs={"meas": [VALUES_STEP, BAND], "sim": [BAND]})
+        tst.replay_filters(configs={"meas": [COMPUTED_STEP, COMPUTED_STEP], "sim": []})
+
+
+def test_null_values_key_is_not_a_values_step(tst):
+    hand_edited = {"type": "RepCond", "func": "mean", "values": None}
+    with warnings.catch_warnings():
+        warnings.filterwarnings("error", message="RepCond")
+        tst.replay_filters(configs={"meas": [hand_edited, COMPUTED_STEP], "sim": []})
+
+
+@pytest.mark.filterwarnings("ignore:RepCond step .*follows:UserWarning")
+def test_manual_rc_source_warns_once_for_values_beside_repcond(tst):
+    tst.rc = {"poa": 700, "t_amb": 20, "w_vel": 2}
+    with pytest.warns(UserWarning) as rec:
+        tst.replay_filters(configs={"meas": [COMPUTED_STEP, VALUES_STEP], "sim": []})
+    messages = [str(w.message) for w in rec]
+    assert any("ignored because rc_source is 'manual'" in m for m in messages)
+    assert not any("Keep one RepCond step" in m for m in messages)
+
+
+def test_explicit_empty_config_resets_side(tst):
+    run_with(tst, meas=[{"type": "RepCond", "func": "mean"}], sim=[])
+    tst.replay_filters(side="meas", configs={"meas": []})
+    assert tst.meas.filters == [] and tst.meas_filters_pending == []
+
+
+def test_unsupplied_empty_live_chain_still_uses_pending(tst):
+    tst.meas.filters = []
+    tst.meas_filters_pending = [{"type": "RepCond", "func": "mean"}]
+    tst.replay_filters(side="meas")
+    assert len(tst.meas.filters) == 1
+
+
+def _boom(*args, **kwargs):
+    raise RuntimeError("boom")
+
+
+def test_setup_completed_false_on_fresh_test():
+    assert CapTest().setup_completed() is False
+
+
+def test_setup_completed_true_after_setup(tst):
+    tst.setup()
+    assert tst.setup_completed() and tst.setup_completed("sim")
+
+
+def test_setup_completed_false_for_sim_after_sim_failure(tst, monkeypatch):
+    # raises while configuring sim, after both formulas are assigned
+    monkeypatch.setattr(tst.sim, "process_regression_columns", _boom)
+    with pytest.raises(RuntimeError):
+        tst.setup()
+    assert tst.setup_completed("meas") is True
+    assert tst.setup_completed("sim") is False
+    assert tst.setup_completed() is False
+    # a side the call did not process keeps its flag
+    tst.setup(side="meas")
+    assert tst.setup_completed("sim") is False
+    with pytest.raises(ValueError, match="side must be"):
+        tst.setup_completed("bad")
+
+
+@pytest.mark.filterwarnings("ignore:The data_filtered attribute:UserWarning")
+def test_setup_completed_run_test_internal_vs_later_failure(tst, monkeypatch):
+    with monkeypatch.context() as m:
+        m.setattr(tst.sim, "process_regression_columns", _boom)
+        with pytest.raises(RuntimeError):
+            tst.run_test()
+    # internal setup raises -> setup_completed() False
+    assert tst.setup_completed() is False
+    tst.setup()
+    monkeypatch.setattr(tst.meas, "fit_regression", _boom)
+    with pytest.raises(RuntimeError):
+        tst.run_test()
+    # regression raises after setup -> setup_completed() True
+    assert tst.setup_completed() is True

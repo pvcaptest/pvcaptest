@@ -12,6 +12,7 @@ import numpy as np
 import pandas as pd
 import param
 import pytest
+import yaml
 from dateutil import tz as dtz
 
 from captest import capdata, util
@@ -2582,3 +2583,264 @@ class TestBacktrackingActiveHelper:
         azi = pd.Series([90.0, 100.0])
         with pytest.raises(ValueError):
             backtracking_active(zen, azi, 0, 180, "0.4")
+
+
+def test_repcond_values_config_is_minimal():
+    step = RepCond(values={"poa": 800, "t_amb": 25, "w_vel": 1})
+    cfg = step.to_config()
+    assert cfg["values"] == {"poa": 800.0, "t_amb": 25.0, "w_vel": 1.0}
+    assert all(isinstance(v, float) for v in cfg["values"].values())
+    assert not {
+        "func",
+        "w_vel",
+        "irr_bal",
+        "percent_filter",
+        "front_poa",
+        "rc_kwargs",
+    } & set(cfg)
+    assert step_from_config(cfg).values == cfg["values"]
+
+
+def test_computed_repcond_config_unchanged():
+    # pinned: no "values" key, all six computed keys present
+    cfg = RepCond(func={"poa": "perc_60"}).to_config()
+    assert "values" not in cfg
+    assert cfg["percent_filter"] == 20 and cfg["front_poa"] == "poa"
+
+
+def test_values_with_computed_param_raises():
+    with pytest.raises(ValueError, match="func"):
+        RepCond(values={"poa": 800.0}, func="mean")
+    with pytest.raises(ValueError, match="irr_bal"):
+        step_from_config({"type": "RepCond", "values": {"poa": 800.0}, "irr_bal": True})
+
+
+def test_old_full_shape_with_defaults_loads():
+    cfg = {**RepCond().to_config(), "values": {"poa": 800.0}}
+    assert step_from_config(cfg).values == {"poa": 800.0}
+
+
+def test_batched_mode_switch_does_not_raise():
+    step = RepCond(func={"poa": "perc_60"}, irr_bal=True)
+    step.param.update(values={"poa": 800.0}, func=None, irr_bal=False)
+    assert step.values == {"poa": 800.0}
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        {"poa": True},
+        {"poa": float("nan")},
+        {"poa": float("inf")},
+        {"poa": "800"},
+        {"poa": 10**400},
+        {"poa": np.bool_(True)},
+        {},
+    ],
+)
+def test_bad_values_refused_at_construction(bad):
+    with pytest.raises(ValueError):
+        RepCond(values=bad)
+
+
+def test_to_config_refuses_values_set_by_batched_update():
+    step = RepCond(func="mean")
+    step.param.update(values={"poa": True, "t_amb": 25, "w_vel": 1}, func=None)
+    with pytest.raises(ValueError, match="finite real number"):
+        step.to_config()
+
+
+@pytest.mark.parametrize(
+    "bad", [float("nan"), "800", True, np.bool_(True), float("inf")]
+)
+def test_to_config_refuses_values_reassigned_after_construction(bad):
+    step = RepCond(values={"poa": 800, "t_amb": 25, "w_vel": 1})
+    step.values = {"poa": bad, "t_amb": 25, "w_vel": 1}
+    with pytest.raises(ValueError, match="finite real number"):
+        step.to_config()
+
+
+def test_to_config_refuses_values_reassigned_to_empty():
+    step = RepCond(values={"poa": 800})
+    step.values = {}
+    with pytest.raises(ValueError, match="at least one variable"):
+        step.to_config()
+
+
+def test_empty_values_message():
+    with pytest.raises(ValueError, match="values must name at least one variable"):
+        RepCond(values={})
+
+
+def test_numpy_values_serialize_safely():
+    cfg = RepCond(values={"poa": np.float64(801.4)}).to_config()
+    assert type(cfg["values"]["poa"]) is float
+    yaml.safe_dump(cfg)
+
+
+# --- RepCond(values=...) execution -----------------------------------------
+
+VALUES_STEP_DICT = {
+    "type": "RepCond",
+    "values": {"poa": 800.0, "t_amb": 25.0, "w_vel": 1.0},
+}
+
+
+@pytest.fixture
+def meas_rc(meas):
+    """Measured CapData with regression columns resolved, so computed RC runs."""
+    meas.process_regression_columns(verbose=False)
+    return meas
+
+
+@pytest.fixture
+def tst(ct_default):
+    return ct_default
+
+
+def test_values_step_sets_rc_and_removes_nothing(meas):
+    n = len(meas.data_filtered)
+    meas.run_pipeline(
+        [
+            {
+                "type": "RepCond",
+                "values": {"poa": 800, "t_amb": 25, "w_vel": 1, "power": 9},
+            }
+        ]
+    )
+    assert meas.rc.iloc[0].to_dict() == {
+        "poa": 800.0,
+        "t_amb": 25.0,
+        "w_vel": 1.0,
+        "power": 9.0,
+    }
+    assert list(meas.rc.columns)[:3] == ["poa", "t_amb", "w_vel"]
+    assert meas.rc_kind == "manual" and len(meas.data_filtered) == n
+    assert "rc_tool" not in meas.__dict__
+
+
+def test_values_step_drops_stale_rc_tool(meas_rc):
+    meas_rc.run_pipeline([{"type": "RepCond", "irr_bal": True}])
+    assert "rc_tool" in meas_rc.__dict__
+    assert meas_rc.rc_kind == "computed"
+    meas_rc.run_pipeline(
+        [{"type": "RepCond", "values": {"poa": 800, "t_amb": 25, "w_vel": 1}}]
+    )
+    assert "rc_tool" not in meas_rc.__dict__
+
+
+@pytest.mark.filterwarnings("ignore:RepCond step .*follows:UserWarning")
+def test_explanation_by_mode(meas_rc):
+    computed = RepCond(func="mean")
+    manual = RepCond(values={"poa": 800, "t_amb": 25, "w_vel": 1})
+    assert manual.explanation is None
+    computed.run(meas_rc)
+    manual.run(meas_rc)
+    assert (
+        computed.explanation
+        == "Reporting conditions were calculated (no intervals removed)."
+    )
+    assert manual.explanation == (
+        "Reporting conditions were set from the step's values (no intervals removed)."
+    )
+
+
+def test_missing_term_fails_as_step_failure(meas):
+    with pytest.raises(ValueError, match=r"t_amb.*w_vel|w_vel.*t_amb"):
+        meas.run_pipeline([{"type": "RepCond", "values": {"poa": 800}}])
+
+
+def test_mixed_params_after_edit_fail_at_execute(meas):
+    step = RepCond(values={"poa": 800, "t_amb": 25, "w_vel": 1})
+    step.func = "mean"
+    with pytest.raises(ValueError, match="func"):
+        step.run(meas)
+
+
+@pytest.mark.parametrize(
+    "bad", [True, float("nan"), float("inf"), float("-inf"), "800", 10**400]
+)
+def test_values_reassigned_after_construction_are_refused(meas, bad):
+    step = RepCond(values={"poa": 800, "t_amb": 25, "w_vel": 1})
+    step.values = {"poa": bad, "t_amb": 25, "w_vel": 1}
+    with pytest.raises(ValueError, match="finite real number"):
+        step.run(meas)
+    assert meas.rc is None and meas.rc_kind is None
+
+
+@pytest.mark.parametrize("via", ["run_pipeline", "step_run"])
+def test_same_side_values_plus_repcond_warns(meas_rc, via):
+    cfgs = [
+        {"type": "RepCond", "values": {"poa": 800, "t_amb": 25, "w_vel": 1}},
+        {"type": "RepCond", "func": "mean"},
+    ]
+    with pytest.warns(
+        UserWarning,
+        match=r"RepCond \(step 1\) follows RepCond \(step 0\).*values on RepCond \(step 0\)\.",
+    ):
+        if via == "run_pipeline":
+            meas_rc.run_pipeline(cfgs)
+        else:
+            for c in cfgs:
+                step_from_config(c).run(meas_rc)
+
+
+def test_two_computed_repconds_do_not_warn(meas_rc):
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", UserWarning)
+        meas_rc.run_pipeline(
+            [{"type": "RepCond", "func": "mean"}, {"type": "RepCond", "func": "median"}]
+        )
+
+
+def test_snapshot_restore_covers_rc_kind(meas):
+    snap = meas._rc_state_snapshot()
+    meas.run_pipeline([VALUES_STEP_DICT])
+    assert meas.rc_kind == "manual"
+    meas._rc_state_restore(snap)
+    assert meas.rc_kind is None and meas.rc is None
+
+
+def test_pipeline_failure_restores_capdata_rc_kind(meas_rc):
+    meas_rc.run_pipeline([{"type": "RepCond", "func": "mean"}])
+    before = meas_rc.rc.copy()
+    with pytest.raises(ValueError):
+        meas_rc.run_pipeline(
+            [VALUES_STEP_DICT, {"type": "RepCond", "values": {"poa": 1}}]
+        )
+    assert meas_rc.rc_kind == "computed"
+    pd.testing.assert_frame_equal(meas_rc.rc, before)
+
+
+def test_legacy_setter_unchanged(tst):
+    tst.rc = pd.DataFrame([{"poa": 800, "t_amb": 25, "w_vel": 1, "note": "ie"}])
+    assert tst.rc["poa"].dtype.kind == "i" and tst.rc.iloc[0]["note"] == "ie"
+
+
+@pytest.mark.filterwarnings("ignore:RepCond .*follows:UserWarning")
+@pytest.mark.parametrize("kind", ["values", "computed"])
+def test_direct_run_hook_failure_rolls_back_capdata(tst, kind, monkeypatch):
+    # Seed the prior state with the *other* kind so rc_kind and rc_tool must
+    # actually revert: a computed failure falls back to manual with no rc_tool,
+    # a values failure falls back to computed with the irr_bal rc_tool.
+    seed = (
+        {"type": "RepCond", "irr_bal": True} if kind == "values" else VALUES_STEP_DICT
+    )
+    step_from_config(seed).run(tst.meas)
+    before = (
+        tst.meas.rc.copy(),
+        tst.meas.__dict__.get("rc_tool"),
+        tst.meas.rc_kind,
+    )
+    assert before[2] == ("computed" if kind == "values" else "manual")
+
+    def raises(cd):
+        raise RuntimeError("hook")
+
+    monkeypatch.setattr(tst, "_on_capdata_rep_cond", raises)
+    cfg = VALUES_STEP_DICT if kind == "values" else {"type": "RepCond", "irr_bal": True}
+    with pytest.raises(RuntimeError):
+        step_from_config(cfg).run(tst.meas)
+    pd.testing.assert_frame_equal(tst.meas.rc, before[0])
+    assert tst.meas.__dict__.get("rc_tool") is before[1]
+    assert tst.meas.rc_kind == before[2]

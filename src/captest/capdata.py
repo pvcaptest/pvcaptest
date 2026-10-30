@@ -856,6 +856,8 @@ class CapData(param.Parameterized):
         self.column_groups = {}
         self.regression_cols = {}
         self.rc = None
+        # "computed" (RepCond from data), "manual" (RepCond values), or None.
+        self.rc_kind = None
         # Back-reference to the owning CapTest (set by CapTest.setup), or None
         # for standalone use. Opaque runtime reference only — capdata.py never
         # imports captest. Intentionally NOT copied by CapData.copy().
@@ -965,6 +967,7 @@ class CapData(param.Parameterized):
         # its empty-chain guard and prep the same values twice.
         cd_c.prep = copy.deepcopy(self.prep)
         cd_c.rc = copy.copy(self.rc)
+        cd_c.rc_kind = self.rc_kind
         cd_c.regression_results = copy.deepcopy(self.regression_results)
         cd_c.regression_formula = copy.copy(self.regression_formula)
         cd_c.tolerance = copy.copy(self.tolerance)
@@ -2729,24 +2732,28 @@ class CapData(param.Parameterized):
         return "\n".join(lines)
 
     def _rc_state_snapshot(self):
-        """Capture rc/rc_tool and (when test-wired) the CapTest RC state."""
+        """Capture rc/rc_tool/rc_kind and (when test-wired) the CapTest RC state."""
         ct = self._captest
         return (
             self.rc,
             self.__dict__.get("rc_tool", _MISSING),
-            None if ct is None else (ct._rc, ct.rc_source),
+            None if ct is None else (ct._rc, ct.rc_source, ct.rc_kind),
+            self.rc_kind,
         )
 
     def _rc_state_restore(self, snapshot):
         """Restore a :meth:`_rc_state_snapshot` after a failed replay."""
-        rc, rc_tool, ct_state = snapshot
+        rc, rc_tool, ct_state, rc_kind = snapshot
         self.rc = rc
+        self.rc_kind = rc_kind
         if rc_tool is _MISSING:
             self.__dict__.pop("rc_tool", None)
         else:
             self.rc_tool = rc_tool
         if ct_state is not None and self._captest is not None:
-            self._captest._set_rc(ct_state[0], ct_state[1], warn=False)
+            self._captest._set_rc(
+                ct_state[0], ct_state[1], kind=ct_state[2], warn=False
+            )
 
     def run_pipeline(self, config):
         """Rebuild and run each filter step from a list of config dicts.
@@ -2766,12 +2773,12 @@ class CapData(param.Parameterized):
         The replay is a transaction: if any step raises, the pre-call state
         is restored before the exception propagates — the ``filters`` chain,
         ``rc``/``rc_tool``, and, when this CapData belongs to a CapTest, the
-        test-level ``rc``/``rc_source`` (a mid-pipeline ``RepCond`` write is
-        undone). A note naming the failing step is attached to the exception
-        (Python 3.11+). The transaction covers state pvcaptest owns or that
-        step execution replaces; external side effects — warnings already
-        emitted mid-replay, or mutations a user-supplied callable makes to
-        its own objects — are not undone.
+        test-level ``rc``/``rc_source``/``rc_kind`` (a mid-pipeline
+        ``RepCond`` write is undone). A note naming the failing step is
+        attached to the exception (Python 3.11+). The transaction covers
+        state pvcaptest owns or that step execution replaces; external side
+        effects — warnings already emitted mid-replay, or mutations a
+        user-supplied callable makes to its own objects — are not undone.
         """
         prior_filters = self.filters
         rc_snapshot = self._rc_state_snapshot()
@@ -2810,11 +2817,12 @@ class CapData(param.Parameterized):
         such as ``ix_after``/``pts_after`` and resolved fields; param edits
         made before the call are pre-call state and are kept),
         ``rc``/``rc_tool``, and, when this CapData belongs to a CapTest, the
-        test-level ``rc``/``rc_source``. A note naming the failing step is
-        attached to the exception (Python 3.11+). The transaction covers
-        state pvcaptest owns or that step execution replaces; external side
-        effects — warnings already emitted mid-replay, or mutations a
-        user-supplied callable makes to its own objects — are not undone.
+        test-level ``rc``/``rc_source``/``rc_kind``. A note naming the
+        failing step is attached to the exception (Python 3.11+). The
+        transaction covers state pvcaptest owns or that step execution
+        replaces; external side effects — warnings already emitted
+        mid-replay, or mutations a user-supplied callable makes to its own
+        objects — are not undone.
 
         Parameters
         ----------
@@ -2927,11 +2935,13 @@ class CapData(param.Parameterized):
         # computation above has succeeded, so a failure inside get_rep_irr or
         # the aggregation leaves the prior RC side-state untouched.
         prior_rc = self.rc
+        prior_rc_kind = self.rc_kind
         had_rc_tool = hasattr(self, "rc_tool")
         prior_rc_tool = getattr(self, "rc_tool", None)
         if irr_bal:
             self.rc_tool = rc_tool
         self.rc = RCs_df
+        self.rc_kind = "computed"
         # When this CapData belongs to a CapTest, propagate the freshly computed
         # rc to the single test rc (last-writer-wins). The CapTest decides warn
         # vs silent and config-seeded load behavior. Opaque call — capdata.py
@@ -2943,11 +2953,59 @@ class CapData(param.Parameterized):
                 # Restore the prior RC side-state so a failed propagation
                 # leaves this CapData byte-identical to its pre-run state.
                 self.rc = prior_rc
+                self.rc_kind = prior_rc_kind
                 if irr_bal:
                     if had_rc_tool:
                         self.rc_tool = prior_rc_tool
                     else:
                         del self.rc_tool
+                raise
+
+    def _set_rep_cond_values(self, values):
+        """Set ``self.rc`` from typed-in values instead of computing it.
+
+        Counterpart of :meth:`_calc_rep_cond`, called by
+        ``filters.RepCond._execute`` when the step carries ``values``. Checks
+        the values against this CapData's own regression formula (one row, a
+        value for every right-hand-side variable, extra keys kept), requires
+        each to be a finite real number and coerces it to ``float``. Sets
+        ``rc`` (right-hand-side variables first, in formula order, then the
+        extras), removes any stale ``rc_tool`` and sets ``rc_kind`` to
+        ``"manual"``. Computes fully before assigning, and restores all three
+        if the CapTest propagation callback raises.
+
+        Parameters
+        ----------
+        values : dict
+            Mapping of variable name to value.
+
+        Raises
+        ------
+        ValueError
+            If a right-hand-side variable is missing, or a value is not a
+            finite real number (bool, NaN, infinity and strings are refused).
+        """
+        _, rhs = util.parse_regression_formula(self.regression_formula)
+        clean = util.coerce_finite_floats(values)
+        util.validate_manual_rc(clean, rhs)
+        order = rhs + [key for key in clean if key not in rhs]
+        rc_df = pd.DataFrame([clean])[order]
+
+        prior_rc = self.rc
+        prior_rc_kind = self.rc_kind
+        had_rc_tool = "rc_tool" in self.__dict__
+        prior_rc_tool = self.__dict__.get("rc_tool")
+        self.rc = rc_df
+        self.rc_kind = "manual"
+        self.__dict__.pop("rc_tool", None)
+        if self._captest is not None:
+            try:
+                self._captest._on_capdata_rep_cond(self)
+            except Exception:
+                self.rc = prior_rc
+                self.rc_kind = prior_rc_kind
+                if had_rc_tool:
+                    self.rc_tool = prior_rc_tool
                 raise
 
     def rep_cond(

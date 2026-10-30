@@ -1907,6 +1907,7 @@ class RepCond(BaseSummaryStep):
     """Reporting-conditions calculation as a zero-removal summary step.
 
     Computes ``capdata.rc`` from the filtered data at this point in the chain
+    (or, in values mode, sets it from the step's ``values``)
     and returns the index **unchanged** (``pts_removed == 0``), so the step
     appears in the summary at its position relative to the filters that
     preceded it. The reporting-conditions math is not duplicated here: it lives
@@ -1942,10 +1943,84 @@ class RepCond(BaseSummaryStep):
         allow_None=True,
         doc="Extra kwargs forwarded to ReportingIrradiance (irr_bal only).",
     )
+    values = param.Dict(
+        default=None,
+        allow_None=True,
+        doc="Manual reporting conditions: regression rhs variable -> value. "
+        "When set, the step sets rc from these values instead of computing it. "
+        "Excludes the computed parameters (they must hold their defaults).",
+    )
 
     _explanation_template = (
         "Reporting conditions were calculated (no intervals removed)."
     )
+
+    @property
+    def explanation(self):
+        """Describe the step; values mode reads differently from computed mode."""
+        if self.values is None:
+            return super().explanation
+        if not hasattr(self, "ix_after"):
+            return None
+        return (
+            "Reporting conditions were set from the step's values "
+            "(no intervals removed)."
+        )
+
+    _COMPUTED_PARAMS = (
+        "func",
+        "w_vel",
+        "irr_bal",
+        "percent_filter",
+        "front_poa",
+        "rc_kwargs",
+    )
+
+    @classmethod
+    def _computed_param_defaults(cls):
+        """Return ``{name: default}`` for the computed (non-``values``) params."""
+        return {name: cls.param[name].default for name in cls._COMPUTED_PARAMS}
+
+    def __init__(self, **params):
+        if params.get("values") is not None:
+            params["values"] = self._validate_values(params["values"])
+        super().__init__(**params)
+        self._check_values_exclusive()
+
+    @staticmethod
+    def _validate_values(values):
+        """Return ``values`` with every value coerced to a finite ``float``.
+
+        Real numbers only (numpy scalars accepted); bool, NaN, +-inf and
+        strings are refused, as is an empty mapping.
+        """
+        if not values:
+            raise ValueError("values must name at least one variable")
+        return util.coerce_finite_floats(values)
+
+    def _check_values_exclusive(self):
+        """Raise ``ValueError`` if ``values`` is set alongside computed params.
+
+        The rule is "at its default", so a config in the old full shape with
+        ``values`` added still loads. Not run as a param watcher: batched
+        ``param.update`` mode switches must not raise on intermediate states.
+        """
+        if self.values is None:
+            return
+        offenders = []
+        for name, default in self._computed_param_defaults().items():
+            current = getattr(self, name)
+            if current is None or default is None:
+                at_default = current is default
+            else:
+                at_default = current == default
+            if not at_default:
+                offenders.append(name)
+        if offenders:
+            raise ValueError(
+                "RepCond values cannot be combined with computed "
+                f"parameters: {', '.join(offenders)} must be at their defaults"
+            )
 
     def _args_for_repr(self):
         """Show callables in ``func`` by name (e.g. ``perc_wrap(60)``).
@@ -1964,6 +2039,34 @@ class RepCond(BaseSummaryStep):
         return values
 
     def _execute(self, capdata):
+        self._check_values_exclusive()
+        for other in capdata.filters:
+            if (
+                isinstance(other, RepCond)
+                and other is not self
+                and (self.values is not None or other.values is not None)
+            ):
+                labels = capdata._step_labels()
+                i = capdata.filters.index(other)
+                this = f"{self.custom_name or type(self).__name__} (step {len(capdata.filters)})"
+                prev = f"{labels[i]} (step {i})"
+                with_values = [
+                    n
+                    for n, st in ((this, self), (prev, other))
+                    if st.values is not None
+                ]
+                warnings.warn(
+                    f"RepCond step {this} follows {prev} on "
+                    f"{capdata.name!r}; values on {' and '.join(with_values)}. "
+                    "The later step overwrites the earlier one's reporting "
+                    "conditions.",
+                    UserWarning,
+                    stacklevel=2,
+                )
+                break
+        if self.values is not None:
+            capdata._set_rep_cond_values(self.values)
+            return capdata.data_filtered.index
         capdata._calc_rep_cond(
             self.func,
             self.w_vel,
@@ -1975,7 +2078,17 @@ class RepCond(BaseSummaryStep):
         return capdata.data_filtered.index
 
     def to_config(self):
+        if self.values is not None:
+            # Minimal shape: computed params omitted so the mode is visible.
+            config = {"type": type(self).__name__}
+            config.update(util.params_to_config(self))
+            for name in self._COMPUTED_PARAMS:
+                config.pop(name)
+            validated = self._validate_values(self.values)
+            config["values"] = {str(k): v for k, v in validated.items()}
+            return config
         config = super().to_config()
+        config.pop("values", None)
         func = self.func
         if isinstance(func, dict):
             config["func"] = {k: _encode_func_value(v) for k, v in func.items()}
