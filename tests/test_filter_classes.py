@@ -12,6 +12,7 @@ import numpy as np
 import pandas as pd
 import param
 import pytest
+import yaml
 from dateutil import tz as dtz
 
 from captest import capdata, util
@@ -2582,3 +2583,64 @@ class TestBacktrackingActiveHelper:
         azi = pd.Series([90.0, 100.0])
         with pytest.raises(ValueError):
             backtracking_active(zen, azi, 0, 180, "0.4")
+
+
+def test_repcond_values_config_is_minimal():
+    step = RepCond(values={"poa": 800, "t_amb": 25, "w_vel": 1})
+    cfg = step.to_config()
+    assert cfg["values"] == {"poa": 800.0, "t_amb": 25.0, "w_vel": 1.0}
+    assert all(isinstance(v, float) for v in cfg["values"].values())
+    assert not {
+        "func",
+        "w_vel",
+        "irr_bal",
+        "percent_filter",
+        "front_poa",
+        "rc_kwargs",
+    } & set(cfg)
+    assert step_from_config(cfg).values == cfg["values"]
+
+
+def test_computed_repcond_config_unchanged():
+    # pinned: no "values" key, all six computed keys present
+    cfg = RepCond(func={"poa": "perc_60"}).to_config()
+    assert "values" not in cfg
+    assert cfg["percent_filter"] == 20 and cfg["front_poa"] == "poa"
+
+
+def test_values_with_computed_param_raises():
+    with pytest.raises(ValueError, match="func"):
+        RepCond(values={"poa": 800.0}, func="mean")
+    with pytest.raises(ValueError, match="irr_bal"):
+        step_from_config({"type": "RepCond", "values": {"poa": 800.0}, "irr_bal": True})
+
+
+def test_old_full_shape_with_defaults_loads():
+    cfg = {**RepCond().to_config(), "values": {"poa": 800.0}}
+    assert step_from_config(cfg).values == {"poa": 800.0}
+
+
+def test_batched_mode_switch_does_not_raise():
+    step = RepCond(func={"poa": "perc_60"}, irr_bal=True)
+    step.param.update(values={"poa": 800.0}, func=None, irr_bal=False)
+    assert step.values == {"poa": 800.0}
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [{"poa": True}, {"poa": float("nan")}, {"poa": float("inf")}, {"poa": "800"}, {}],
+)
+def test_bad_values_refused_at_construction(bad):
+    with pytest.raises(ValueError):
+        RepCond(values=bad)
+
+
+def test_empty_values_message():
+    with pytest.raises(ValueError, match="values must name at least one variable"):
+        RepCond(values={})
+
+
+def test_numpy_values_serialize_safely():
+    cfg = RepCond(values={"poa": np.float64(801.4)}).to_config()
+    assert type(cfg["values"]["poa"]) is float
+    yaml.safe_dump(cfg)

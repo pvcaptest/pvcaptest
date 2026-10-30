@@ -1942,10 +1942,83 @@ class RepCond(BaseSummaryStep):
         allow_None=True,
         doc="Extra kwargs forwarded to ReportingIrradiance (irr_bal only).",
     )
+    values = param.Dict(
+        default=None,
+        allow_None=True,
+        doc="Manual reporting conditions: regression rhs variable -> value. "
+        "When set, the step sets rc from these values instead of computing it. "
+        "Excludes the computed parameters (they must hold their defaults).",
+    )
 
     _explanation_template = (
         "Reporting conditions were calculated (no intervals removed)."
     )
+
+    _COMPUTED_PARAMS = (
+        "func",
+        "w_vel",
+        "irr_bal",
+        "percent_filter",
+        "front_poa",
+        "rc_kwargs",
+    )
+
+    @classmethod
+    def _computed_param_defaults(cls):
+        """Return ``{name: default}`` for the computed (non-``values``) params."""
+        return {name: cls.param[name].default for name in cls._COMPUTED_PARAMS}
+
+    def __init__(self, **params):
+        if params.get("values") is not None:
+            params["values"] = self._validate_values(params["values"])
+        super().__init__(**params)
+        self._check_values_exclusive()
+
+    @staticmethod
+    def _validate_values(values):
+        """Return ``values`` with every value coerced to a finite ``float``.
+
+        Real numbers only (numpy scalars accepted); bool, NaN, +-inf and
+        strings are refused, as is an empty mapping.
+        """
+        if not values:
+            raise ValueError("values must name at least one variable")
+        out = {}
+        for key, val in values.items():
+            if (
+                isinstance(val, (bool, np.bool_))
+                or not isinstance(val, numbers.Real)
+                or not math.isfinite(val)
+            ):
+                raise ValueError(
+                    f"values[{key!r}] must be a finite real number, got {val!r}"
+                )
+            out[key] = float(val)
+        return out
+
+    def _check_values_exclusive(self):
+        """Raise ``ValueError`` if ``values`` is set alongside computed params.
+
+        The rule is "at its default", so a config in the old full shape with
+        ``values`` added still loads. Not run as a param watcher: batched
+        ``param.update`` mode switches must not raise on intermediate states.
+        """
+        if self.values is None:
+            return
+        offenders = []
+        for name, default in self._computed_param_defaults().items():
+            current = getattr(self, name)
+            if current is None or default is None:
+                at_default = current is default
+            else:
+                at_default = current == default
+            if not at_default:
+                offenders.append(name)
+        if offenders:
+            raise ValueError(
+                "RepCond values cannot be combined with computed "
+                f"parameters: {', '.join(offenders)} must be at their defaults"
+            )
 
     def _args_for_repr(self):
         """Show callables in ``func`` by name (e.g. ``perc_wrap(60)``).
@@ -1975,7 +2048,16 @@ class RepCond(BaseSummaryStep):
         return capdata.data_filtered.index
 
     def to_config(self):
+        if self.values is not None:
+            # Minimal shape: computed params omitted so the mode is visible.
+            config = {"type": type(self).__name__}
+            config.update(util.params_to_config(self))
+            for name in self._COMPUTED_PARAMS:
+                config.pop(name)
+            config["values"] = {str(k): float(v) for k, v in self.values.items()}
+            return config
         config = super().to_config()
+        config.pop("values", None)
         func = self.func
         if isinstance(func, dict):
             config["func"] = {k: _encode_func_value(v) for k, v in func.items()}
