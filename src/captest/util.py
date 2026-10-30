@@ -2,6 +2,8 @@ import copy
 import difflib
 import importlib
 import json
+import math
+import numbers
 import re
 import warnings
 
@@ -780,3 +782,44 @@ def validate_manual_rc(value, rhs):
             f"variable(s): {missing}. Required: {rhs}."
         )
     return df
+
+
+def coerce_finite_floats(values):
+    """Return ``{key: float(value)}`` after checking each value is a finite real.
+
+    Refuses ``bool`` (including ``np.bool_``), non-real values such as strings,
+    NaN and infinities. Integers too large for a ``float`` are refused the same
+    way, so every failure is a ``ValueError``.
+
+    Parameters
+    ----------
+    values : dict
+        Mapping of name to candidate value.
+
+    Returns
+    -------
+    dict
+        Same keys, every value a finite ``float``.
+
+    Raises
+    ------
+    ValueError
+        If any value is not a finite real number.
+    """
+    out = {}
+    for key, val in values.items():
+        try:
+            ok = (
+                not isinstance(val, (bool, np.bool_))
+                and isinstance(val, numbers.Real)
+                and math.isfinite(val)
+            )
+            if ok:
+                out[key] = float(val)
+        except OverflowError:
+            ok = False
+        if not ok:
+            raise ValueError(
+                f"values[{key!r}] must be a finite real number, got {val!r}"
+            )
+    return out

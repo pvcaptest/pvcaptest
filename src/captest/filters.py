@@ -1983,18 +1983,7 @@ class RepCond(BaseSummaryStep):
         """
         if not values:
             raise ValueError("values must name at least one variable")
-        out = {}
-        for key, val in values.items():
-            if (
-                isinstance(val, (bool, np.bool_))
-                or not isinstance(val, numbers.Real)
-                or not math.isfinite(val)
-            ):
-                raise ValueError(
-                    f"values[{key!r}] must be a finite real number, got {val!r}"
-                )
-            out[key] = float(val)
-        return out
+        return util.coerce_finite_floats(values)
 
     def _check_values_exclusive(self):
         """Raise ``ValueError`` if ``values`` is set alongside computed params.
@@ -2044,11 +2033,20 @@ class RepCond(BaseSummaryStep):
                 and other is not self
                 and (self.values is not None or other.values is not None)
             ):
+                labels = capdata._step_labels()
+                i = capdata.filters.index(other)
+                this = f"{self.custom_name or type(self).__name__} (step {len(capdata.filters)})"
+                prev = f"{labels[i]} (step {i})"
+                with_values = [
+                    n
+                    for n, st in ((this, self), (prev, other))
+                    if st.values is not None
+                ]
                 warnings.warn(
-                    f"RepCond step {self.name!r} follows RepCond step "
-                    f"{other.name!r} on {capdata.name!r}, and at least one has "
-                    "values: the later step overwrites the earlier one's "
-                    "reporting conditions.",
+                    f"RepCond step {this} follows {prev} on "
+                    f"{capdata.name!r}; values on {' and '.join(with_values)}. "
+                    "The later step overwrites the earlier one's reporting "
+                    "conditions.",
                     UserWarning,
                     stacklevel=2,
                 )

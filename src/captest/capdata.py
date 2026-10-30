@@ -2984,17 +2984,7 @@ class CapData(param.Parameterized):
         """
         _, rhs = util.parse_regression_formula(self.regression_formula)
         util.validate_manual_rc(values, rhs)
-        clean = {}
-        for key, val in values.items():
-            if (
-                isinstance(val, (bool, np.bool_))
-                or not isinstance(val, (int, float, np.integer, np.floating))
-                or not np.isfinite(val)
-            ):
-                raise ValueError(
-                    f"values[{key!r}] must be a finite real number, got {val!r}"
-                )
-            clean[key] = float(val)
+        clean = util.coerce_finite_floats(values)
         order = rhs + [key for key in clean if key not in rhs]
         rc_df = pd.DataFrame([clean])[order]
 

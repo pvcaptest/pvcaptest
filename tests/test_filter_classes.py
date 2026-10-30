@@ -2628,7 +2628,14 @@ def test_batched_mode_switch_does_not_raise():
 
 @pytest.mark.parametrize(
     "bad",
-    [{"poa": True}, {"poa": float("nan")}, {"poa": float("inf")}, {"poa": "800"}, {}],
+    [
+        {"poa": True},
+        {"poa": float("nan")},
+        {"poa": float("inf")},
+        {"poa": "800"},
+        {"poa": 10**400},
+        {},
+    ],
 )
 def test_bad_values_refused_at_construction(bad):
     with pytest.raises(ValueError):
@@ -2710,7 +2717,7 @@ def test_mixed_params_after_edit_fail_at_execute(meas):
 
 
 @pytest.mark.parametrize(
-    "bad", [True, float("nan"), float("inf"), float("-inf"), "800"]
+    "bad", [True, float("nan"), float("inf"), float("-inf"), "800", 10**400]
 )
 def test_values_reassigned_after_construction_are_refused(meas, bad):
     step = RepCond(values={"poa": 800, "t_amb": 25, "w_vel": 1})
@@ -2726,7 +2733,10 @@ def test_same_side_values_plus_repcond_warns(meas_rc, via):
         {"type": "RepCond", "values": {"poa": 800, "t_amb": 25, "w_vel": 1}},
         {"type": "RepCond", "func": "mean"},
     ]
-    with pytest.warns(UserWarning, match="RepCond"):
+    with pytest.warns(
+        UserWarning,
+        match=r"RepCond \(step 1\) follows RepCond \(step 0\).*values on RepCond \(step 0\)\.",
+    ):
         if via == "run_pipeline":
             meas_rc.run_pipeline(cfgs)
         else:
@@ -2766,24 +2776,28 @@ def test_legacy_setter_unchanged(tst):
     assert tst.rc["poa"].dtype.kind == "i" and tst.rc.iloc[0]["note"] == "ie"
 
 
-@pytest.mark.filterwarnings("ignore:RepCond step:UserWarning")
+@pytest.mark.filterwarnings("ignore:RepCond .*follows:UserWarning")
 @pytest.mark.parametrize("kind", ["values", "computed"])
 def test_direct_run_hook_failure_rolls_back_capdata(tst, kind, monkeypatch):
-    # Prior state from a successful run, so there is an rc to roll back to.
-    step_from_config({"type": "RepCond", "irr_bal": True}).run(tst.meas)
+    # Seed the prior state with the *other* kind so rc_kind and rc_tool must
+    # actually revert: a computed failure falls back to manual with no rc_tool,
+    # a values failure falls back to computed with the irr_bal rc_tool.
+    seed = (
+        {"type": "RepCond", "irr_bal": True} if kind == "values" else VALUES_STEP_DICT
+    )
+    step_from_config(seed).run(tst.meas)
     before = (
         tst.meas.rc.copy(),
-        tst.meas.__dict__["rc_tool"],
+        tst.meas.__dict__.get("rc_tool"),
         tst.meas.rc_kind,
     )
+    assert before[2] == ("computed" if kind == "values" else "manual")
 
     def raises(cd):
         raise RuntimeError("hook")
 
     monkeypatch.setattr(tst, "_on_capdata_rep_cond", raises)
-    cfg = (
-        VALUES_STEP_DICT if kind == "values" else {"type": "RepCond", "func": "median"}
-    )
+    cfg = VALUES_STEP_DICT if kind == "values" else {"type": "RepCond", "irr_bal": True}
     with pytest.raises(RuntimeError):
         step_from_config(cfg).run(tst.meas)
     pd.testing.assert_frame_equal(tst.meas.rc, before[0])
