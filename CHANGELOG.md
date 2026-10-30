@@ -12,6 +12,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   handling (consumed on success, retained on failure), but never runs
   `setup()` or fits a regression. `configs` supplies the pipelines to replay,
   keyed by side. `run_test` now calls it.
+- `RepCond(values=...)`: a manual-values mode for the reporting-conditions
+  step. The step sets `capdata.rc` from a mapping of regression right-hand
+  variable to value instead of computing it, and removes no intervals. Its
+  config is minimal: `{type: RepCond, values: {poa: 800.0, t_amb: 25.0,
+  w_vel: 1.0}}`. `values` cannot be combined with the computed parameters
+  (`func`, `w_vel`, `irr_bal`, `percent_filter`, `front_poa`, `rc_kwargs`);
+  values must be finite real numbers, and `to_config()` refuses unvalidated
+  ones. A values step reports "Reporting conditions were set from the step's
+  values". Loading a config warns when a values step sits beside another
+  `RepCond`, or is overridden by `rc_source='manual'`.
+- `rc_kind` on `CapTest`, `CapData` and `CapTestResults`: whether the
+  reporting conditions were `'computed'` by a `RepCond` step or are
+  `'manual'` (set by `RepCond(values=...)` or the `rc` setter); `None` when
+  there are none.
+- `CapTest.setup_completed(side="both")`: whether the last `setup()` ran to
+  completion on a side, so a `setup()` that raised part-way reads `False` even
+  though `regression_formula` was already assigned.
 - `CapTest.clear_rc()`: set `rc` and `rc_source` to `None` (and drop manual
   values stashed by a load-only `from_mapping`). `rc_source` accepts `None`,
   which round-trips through `to_yaml` / `from_yaml`; a hand-written
@@ -76,6 +93,10 @@ resolved (`None` before `setup()`); read `resolved_setup.to_dict()` /
 directory); `util.canonical_json` and `util.reg_col_label`.
 
 ### Changed
+- `CapTest.replay_filters`: a side given an empty config (`configs={"meas":
+  []}`) now resets its chain, where it previously kept the existing one. A side
+  with no entry in `configs` still replays its live chain, else its pending
+  list.
 - `statsmodels` is capped below 0.15 (`statsmodels>=0.8,<0.15`). statsmodels
   0.15 fits formulas with formulaic instead of patsy, so
   `model.data.design_info` no longer exists and regression fitting fails.

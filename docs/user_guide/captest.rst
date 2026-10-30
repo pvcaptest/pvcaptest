@@ -455,6 +455,8 @@ the data, and carry the serialized pipelines.
    * - ``reporting_conditions_values``
      - Explicit reporting-condition values. Written and re-validated on load
        when ``rc_source: manual``.
+       A ``RepCond`` filter step can carry the same kind of values
+       (``values: {poa: 800.0, ...}``) in place of the computed settings.
    * - ``meas_prep``, ``sim_prep``
      - Serialized data-preparation pipelines, replayed immediately after every
        load. See :doc:`data_prep`.
