@@ -3400,6 +3400,11 @@ class CapData(param.Parameterized):
         prediction uses the unmodified fitted parameters, in the fit's own
         units (so a kW fit gives kW, whatever the test's headline units).
 
+        The curve uses every fitted coefficient, so it matches a reported
+        actual or expected capacity only when the headline is the plain
+        (not p-value-checked) prediction and ``captest_results`` did not
+        apply its x1000 mixed-unit rescale.
+
         Parameters
         ----------
         rc : DataFrame

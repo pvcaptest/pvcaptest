@@ -122,7 +122,10 @@ class CapTestResults:
     regression_stats : dict or None
         Per-side regression record from
         :func:`captest.capdata.regression_statistics` at ``rc``, keyed by
-        ``'meas'`` / ``'sim'``. ``None`` when not computed.
+        ``'meas'`` / ``'sim'``. ``None`` when not computed. The record,
+        ``prediction`` included, stays in each fit's own units, so on a
+        mixed-unit test it will not match the rescaled headline
+        ``actual_capacity``.
     """
 
     cap_ratio: float
@@ -3225,14 +3228,15 @@ class CapTest(param.Parameterized):
 
         def _reg_table(cd):
             r = cd.regression_results
+            ci = r.conf_int(alpha=0.05)
             return pd.DataFrame(
                 {
                     "coef": r.params,
                     "pvalue": r.pvalues,
                     "std_err": r.bse,
                     "t": r.tvalues,
-                    "ci_low": r.conf_int(alpha=0.05)[0],
-                    "ci_high": r.conf_int(alpha=0.05)[1],
+                    "ci_low": ci[0],
+                    "ci_high": ci[1],
                 }
             )
 
