@@ -4417,6 +4417,76 @@ class TestNoInternalCallerRecordsPrep:
         )
 
 
+class TestRegressionCurve:
+    FML = "power ~ poa + I(poa * poa) + I(poa * t_amb) + I(poa * w_vel) - 1"
+
+    @pytest.fixture
+    def rc(self):
+        return pd.DataFrame({"poa": [800.0], "t_amb": [25.0], "w_vel": [3.0]})
+
+    @pytest.fixture
+    def fitted_cd(self):
+        rng = np.random.default_rng(1)
+        n = 100
+        df = pd.DataFrame(
+            {
+                "poa": rng.uniform(300, 1000, n),
+                "t_amb": rng.uniform(5, 35, n),
+                "w_vel": rng.uniform(0, 8, n),
+            }
+        )
+        df["power"] = (
+            5 * df.poa
+            - 0.002 * df.poa**2
+            - 0.01 * df.poa * df.t_amb
+            + 0.05 * df.poa * df.w_vel
+            + rng.normal(0, 20, n)
+        )
+        cd = pvc.CapData("meas")
+        cd.regression_results = smf.ols(self.FML, df).fit()
+        return cd
+
+    def test_regression_curve_holds_other_predictors_at_the_rc(self, fitted_cd, rc):
+        curve = fitted_cd.regression_curve(rc, [500.0, 700.0])
+        params = fitted_cd.regression_results.params
+        t, w = float(rc["t_amb"].iloc[0]), float(rc["w_vel"].iloc[0])
+        expected = [
+            p * params.iloc[0]
+            + p * p * params.iloc[1]
+            + p * t * params.iloc[2]
+            + p * w * params.iloc[3]
+            for p in (500.0, 700.0)
+        ]
+        assert curve == pytest.approx(expected)
+        assert isinstance(curve, np.ndarray)
+
+    def test_mixed_units_keep_curves_in_the_fits_units(self):
+        np.random.seed(9876789)
+        a = np.linspace(0, 10, 100)
+        b = a / 2.0
+        c = a + 3.0
+        e = np.random.normal(size=100)
+        das_y = a + a**2 + a * b + a * c + e
+        sim_y = a + a**2 * 0.9 + a * b * 1.1 + a * c * 0.8 + e
+        das_df = pd.DataFrame({"power": das_y / 1000, "poa": a, "t_amb": b, "w_vel": c})
+        sim_df = pd.DataFrame({"power": sim_y, "poa": a, "t_amb": b, "w_vel": c})
+        meas, sim = pvc.CapData("meas"), pvc.CapData("sim")
+        meas.rc = pd.DataFrame({"poa": [6], "t_amb": [5], "w_vel": [3]})
+        meas.regression_results = smf.ols(self.FML, das_df).fit()
+        sim.regression_results = smf.ols(self.FML, sim_df).fit()
+        meas.data = das_df
+        meas.set_regression_cols(power="power", poa="poa", t_amb="t_amb", w_vel="w_vel")
+        ct = CapTest(test_tolerance="+/- 5", ac_nameplate=100)
+        ct.meas, ct.sim = meas, sim
+        ct._set_rc(meas.rc, "meas")
+        with pytest.warns(UserWarning):
+            res = ct.captest_results(print_res=False)
+        poa = float(res.rc["poa"].iloc[0])
+        native = meas.regression_curve(res.rc, [poa])[0]
+        assert native * 1000 == pytest.approx(res.actual_capacity)
+        assert native < 1  # still kW-scale, not rescaled to W
+
+
 class TestRegressionStatistics:
     FML = "power ~ poa + I(poa * poa) + I(poa * t_amb) + I(poa * w_vel) - 1"
 

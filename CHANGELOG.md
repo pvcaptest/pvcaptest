@@ -6,6 +6,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Added
+- `CapTestResults.regression_stats` (per side, from `regression_statistics`
+  at the test RC), and `std_err`, `t`, `ci_low`, `ci_high` columns on
+  `regression_tables`. `CapData.regression_curve(rc, values, x="poa")` predicts
+  the fit along one predictor with the others held at the RC, in the fit's own
+  units.
 - `CapTest.replay_filters(side="both", configs=None)`: the filter-replay stage
   of `run_test` as a public method. It keeps `run_test`'s side order,
   live-chain-else-pending selection, manual-RC protection and pending-list

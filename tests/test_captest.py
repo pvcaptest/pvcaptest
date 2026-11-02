@@ -2091,7 +2091,14 @@ class TestPortedMethods:
         assert res.tolerance == capt.test_tolerance
         assert set(res.points_used) == {"meas", "sim"}
         assert set(res.regression_tables) == {"meas", "sim"}
-        assert list(res.regression_tables["meas"].columns) == ["coef", "pvalue"]
+        assert list(res.regression_tables["meas"].columns) == [
+            "coef",
+            "pvalue",
+            "std_err",
+            "t",
+            "ci_low",
+            "ci_high",
+        ]
         pd.testing.assert_frame_equal(res.rc, rc)
 
     def test_captest_results_summary_contains_printed_fields(self):
@@ -2914,6 +2921,38 @@ class TestRunTest:
         capt.rep_cond()
         capt.meas.fit_regression(summary=False)
         capt.sim.fit_regression(summary=False)
+
+    @pytest.fixture
+    def tst_res(self, ct_default):
+        self._hand_sequenced(ct_default)
+        return ct_default, ct_default.run_test()
+
+    def test_run_test_carries_the_regression_record(self, tst_res):
+        _, res = tst_res
+        for side in ("meas", "sim"):
+            assert res.regression_stats[side]["nobs"] == res.points_used[side]
+            table = res.regression_tables[side]
+            assert list(table.columns) == [
+                "coef",
+                "pvalue",
+                "std_err",
+                "t",
+                "ci_low",
+                "ci_high",
+            ]
+            assert (table["ci_low"] < table["coef"]).all()
+            assert (table["coef"] < table["ci_high"]).all()
+
+    def test_regression_curve_meets_reported_capacity(self, tst_res):
+        tst, res = tst_res
+        rc = res.rc
+        poa = float(rc["poa"].iloc[0])
+        assert tst.meas.regression_curve(rc, [poa])[0] == pytest.approx(
+            res.actual_capacity
+        )
+        assert tst.sim.regression_curve(rc, [poa])[0] == pytest.approx(
+            res.expected_capacity
+        )
 
     def test_run_test_reproduces_hand_sequenced_results(self, ct_default, tmp_path):
         self._hand_sequenced(ct_default)

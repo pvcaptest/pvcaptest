@@ -3393,6 +3393,35 @@ class CapData(param.Parameterized):
 
         return results
 
+    def regression_curve(self, rc, values, x="poa"):
+        """Predict the fitted regression along one predictor.
+
+        Every other predictor is held at the first row of ``rc``. The
+        prediction uses the unmodified fitted parameters, in the fit's own
+        units (so a kW fit gives kW, whatever the test's headline units).
+
+        Parameters
+        ----------
+        rc : DataFrame
+            Reporting conditions; the first row is used.
+        values : array-like of float
+            Values of ``x`` to predict at.
+        x : str, default "poa"
+            Name of the ``rc`` column (regression variable) to vary.
+
+        Returns
+        -------
+        numpy.ndarray
+            Predicted values, one per entry of ``values``.
+        """
+        results = self.regression_results
+        frame = pd.concat([rc.iloc[[0]]] * len(values), ignore_index=True)
+        frame[x] = np.asarray(values, dtype=float)
+        # Same dmatrix + model.predict path as predict_with_pvalue_check, which
+        # avoids the pandas Copy-on-Write problems of results.predict.
+        exog = dmatrix(results.model.data.design_info, frame)
+        return np.asarray(results.model.predict(results.params, exog))
+
     def fit_regression(self, filter=False, summary=True, custom_name=None):
         """
         Perform a regression with statsmodels on the filtered data.

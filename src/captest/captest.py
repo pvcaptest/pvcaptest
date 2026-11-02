@@ -102,8 +102,9 @@ class CapTestResults:
     points_used : dict
         Points remaining after filtering, keyed by ``'meas'`` / ``'sim'``.
     regression_tables : dict
-        Per-side DataFrames of regression terms with ``coef`` and ``pvalue``
-        columns, keyed by ``'meas'`` / ``'sim'``.
+        Per-side DataFrames of regression terms with ``coef``, ``pvalue``,
+        ``std_err``, ``t``, ``ci_low`` and ``ci_high`` columns (the interval
+        is the 95% confidence interval), keyed by ``'meas'`` / ``'sim'``.
     rc : pandas.DataFrame
         The reporting conditions both regressions were predicted at.
     rc_source : str or None
@@ -118,6 +119,10 @@ class CapTestResults:
         ``actual_capacity``, ``expected_capacity``, and the pass/fail
         decision used the p-value-checked predictions
         (``check_pvalues=True``), ``False`` for the plain predictions.
+    regression_stats : dict or None
+        Per-side regression record from
+        :func:`captest.capdata.regression_statistics` at ``rc``, keyed by
+        ``'meas'`` / ``'sim'``. ``None`` when not computed.
     """
 
     cap_ratio: float
@@ -134,6 +139,7 @@ class CapTestResults:
     rc_source: str | None
     rc_kind: str | None = None
     pvalues_checked: bool = False
+    regression_stats: dict | None = None
 
     def summary(self):
         """Return the legacy printed report as a string."""
@@ -3181,7 +3187,7 @@ class CapTest(param.Parameterized):
         # capdata.py. Imported lazily to avoid importing holoviews-heavy
         # capdata internals at module-load time for callers that never
         # compute cap ratios (e.g. notebooks that only use setup + plots).
-        from captest.capdata import predict_with_pvalue_check
+        from captest.capdata import predict_with_pvalue_check, regression_statistics
 
         checked_actual = predict_with_pvalue_check(
             self.meas, rc=rc, pval_threshold=pval
@@ -3219,7 +3225,16 @@ class CapTest(param.Parameterized):
 
         def _reg_table(cd):
             r = cd.regression_results
-            return pd.DataFrame({"coef": r.params, "pvalue": r.pvalues})
+            return pd.DataFrame(
+                {
+                    "coef": r.params,
+                    "pvalue": r.pvalues,
+                    "std_err": r.bse,
+                    "t": r.tvalues,
+                    "ci_low": r.conf_int(alpha=0.05)[0],
+                    "ci_high": r.conf_int(alpha=0.05)[1],
+                }
+            )
 
         results = CapTestResults(
             cap_ratio=cap_ratio,
@@ -3242,6 +3257,10 @@ class CapTest(param.Parameterized):
             rc_source=self.rc_source,
             rc_kind=self.rc_kind,
             pvalues_checked=check_pvalues,
+            regression_stats={
+                "meas": regression_statistics(self.meas.regression_results, rc),
+                "sim": regression_statistics(self.sim.regression_results, rc),
+            },
         )
         if print_res:
             print(results)
