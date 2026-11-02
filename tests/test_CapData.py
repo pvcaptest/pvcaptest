@@ -4417,5 +4417,136 @@ class TestNoInternalCallerRecordsPrep:
         )
 
 
+class TestRegressionStatistics:
+    FML = "power ~ poa + I(poa * poa) + I(poa * t_amb) + I(poa * w_vel) - 1"
+
+    @pytest.fixture
+    def df(self):
+        rng = np.random.default_rng(42)
+        n = 200
+        poa = rng.uniform(300, 1000, n)
+        t_amb = rng.uniform(5, 35, n)
+        w_vel = rng.uniform(0, 8, n)
+        power = (
+            5 * poa
+            - 0.002 * poa**2
+            - 0.01 * poa * t_amb
+            + 0.05 * poa * w_vel
+            + rng.normal(0, 40, n)
+            + 100
+        )
+        return pd.DataFrame(
+            {"power": power, "poa": poa, "t_amb": t_amb, "w_vel": w_vel}
+        )
+
+    @pytest.fixture
+    def rc(self):
+        return pd.DataFrame({"poa": [800.0], "t_amb": [25.0], "w_vel": [3.0]})
+
+    @pytest.fixture
+    def fit_no_intercept(self, df):
+        return smf.ols(self.FML, df).fit()
+
+    @pytest.fixture
+    def degenerate_fit(self, df):
+        def build(case):
+            if case == "singular":
+                d = df.assign(poa2=2 * df["poa"])
+                return smf.ols("power ~ poa + poa2 - 1", d).fit()
+            if case == "constant_response":
+                d = df.assign(power=0.1 + 0.2)
+                return smf.ols(self.FML, d).fit()
+            if case == "tiny_sample":
+                return smf.ols(self.FML, df.head(3)).fit()
+            raise ValueError(case)
+
+        return build
+
+    def test_centred_r2_on_a_no_intercept_fit(self, fit_no_intercept, rc):
+        stats = pvc.regression_statistics(fit_no_intercept, rc)
+        y = fit_no_intercept.model.endog
+        tss = ((y - y.mean()) ** 2).sum()
+        r2 = 1 - fit_no_intercept.ssr / tss
+        assert stats["r2_centered"] == pytest.approx(r2)
+        n, p = stats["nobs"], stats["df_model"] + stats["k_constant"]
+        assert stats["r2_adj_centered"] == pytest.approx(
+            1 - (1 - r2) * (n - 1) / (n - p)
+        )
+        assert stats["r2"] == pytest.approx(fit_no_intercept.rsquared)
+        assert stats["r2"] > stats["r2_centered"]
+
+    @pytest.mark.parametrize("fml", ["power ~ poa", "power ~ poa + t_amb"])
+    def test_centred_equals_statsmodels_with_an_intercept(self, df, rc, fml):
+        fit = smf.ols(fml, df).fit()
+        stats = pvc.regression_statistics(fit, rc)
+        assert stats["r2_centered"] == pytest.approx(fit.rsquared)
+        assert stats["r2_adj_centered"] == pytest.approx(fit.rsquared_adj)
+
+    def test_every_key_is_present_and_json_clean(self, fit_no_intercept, rc):
+        stats = pvc.regression_statistics(fit_no_intercept, rc)
+        assert set(stats) >= {
+            "nobs", "df_model", "df_resid", "k_constant", "cov_type",
+            "use_t", "r2", "r2_adj", "r2_centered", "r2_adj_centered", "fvalue",
+            "f_pvalue", "aic", "bic", "llf", "ssr", "ess", "centered_tss",
+            "uncentered_tss", "mse_resid", "mse_model", "mse_total", "rmse",
+            "condition_number", "eigenvals", "resid_mean", "resid_std",
+            "durbin_watson", "jarque_bera", "jarque_bera_p", "skew", "kurtosis",
+            "omnibus", "omnibus_p", "prediction", "cov_params",
+        }  # fmt: skip
+        json.dumps(stats, allow_nan=False)
+        assert all(v is not None for k, v in stats.items() if k != "cov_params")
+        assert set(stats["prediction"]) == {
+            "mean",
+            "se_mean",
+            "se_obs",
+            "ci_low",
+            "ci_high",
+        }
+        assert stats["cov_params"]["terms"] == list(fit_no_intercept.params.index)
+        k = len(stats["cov_params"]["terms"])
+        assert np.shape(stats["cov_params"]["matrix"]) == (k, k)
+
+    def test_prediction_interval_is_for_the_mean(self, fit_no_intercept, rc):
+        stats = pvc.regression_statistics(fit_no_intercept, rc)
+        pred = fit_no_intercept.get_prediction(rc).summary_frame(alpha=0.05)
+        assert stats["prediction"]["ci_low"] == pytest.approx(
+            pred["mean_ci_lower"].iloc[0]
+        )
+        assert stats["prediction"]["ci_high"] == pytest.approx(
+            pred["mean_ci_upper"].iloc[0]
+        )
+        assert stats["prediction"]["se_obs"] > stats["prediction"]["se_mean"]
+
+    def test_resid_std_is_the_sample_sd(self, fit_no_intercept, rc):
+        stats = pvc.regression_statistics(fit_no_intercept, rc)
+        assert stats["resid_std"] == pytest.approx(
+            np.std(fit_no_intercept.resid, ddof=1)
+        )
+
+    @pytest.mark.parametrize("case", ["singular", "constant_response", "tiny_sample"])
+    def test_never_raises_and_nulls_only_what_failed(
+        self, case, degenerate_fit, rc, recwarn
+    ):
+        fit = degenerate_fit(case)
+        stats = pvc.regression_statistics(fit, rc)
+        assert not [w for w in recwarn.list if w.category is RuntimeWarning]
+        json.dumps(stats, allow_nan=False)
+        assert stats["nobs"] is not None
+        # the rest of the record still lands
+        assert stats["nobs"] == int(fit.nobs)
+        assert stats["ssr"] == pytest.approx(fit.ssr)
+        assert stats["cov_type"] == "nonrobust"
+        if case == "constant_response":
+            assert stats["r2_centered"] is None
+            assert stats["r2_adj_centered"] is None
+            assert stats["uncentered_tss"] is not None
+        if case == "tiny_sample":
+            assert stats["df_resid"] <= 0
+            assert stats["r2_adj_centered"] is None
+        if case == "singular":
+            assert stats["r2_centered"] is not None
+            assert stats["resid_std"] is not None
+
+
 if __name__ == "__main__":
     unittest.main()

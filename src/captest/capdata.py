@@ -22,6 +22,7 @@ import pandas as pd
 import param
 from bokeh.models import HoverTool, NumeralTickFormatter
 from patsy import dmatrix
+from statsmodels.stats.stattools import durbin_watson, jarque_bera, omni_normtest
 
 from captest import plotting, prep, util
 from captest.filters import (
@@ -635,6 +636,156 @@ def predict_with_pvalue_check(cd, rc=None, pval_threshold=0.05):
     exog = dmatrix(design_info, rc)
     # Predict using model.predict with custom params
     return results.model.predict(modified_params, exog)[0]
+
+
+def _stat(fn, as_int=False):
+    """Return ``fn()`` as a finite Python number, or None if it fails."""
+    try:
+        with warnings.catch_warnings(), np.errstate(all="ignore"):
+            warnings.simplefilter("ignore")
+            value = float(fn())
+    except Exception:
+        return None
+    if not np.isfinite(value):
+        return None
+    return int(value) if as_int else value
+
+
+def _clean_list(values):
+    """Convert an array to a list of finite floats, None for each bad element."""
+    return [_stat(lambda v=v: v) for v in values]
+
+
+def regression_statistics(fit, rc):
+    """
+    Collect the statistics of a fitted OLS regression as plain Python values.
+
+    Never raises. Each statistic is computed on its own, so one that fails or
+    comes out non-finite is None for that key alone and the rest still land.
+
+    Parameters
+    ----------
+    fit : statsmodels RegressionResultsWrapper
+        Fitted OLS results, e.g. ``CapData.regression_results``.
+    rc : DataFrame
+        One-row DataFrame of reporting conditions to predict at.
+
+    Returns
+    -------
+    dict
+        JSON-serializable. Keys: ``nobs``, ``df_model``, ``df_resid``,
+        ``k_constant``, ``cov_type``, ``use_t``, ``r2``, ``r2_adj``,
+        ``r2_centered``, ``r2_adj_centered``, ``fvalue``, ``f_pvalue``, ``aic``,
+        ``bic``, ``llf``, ``ssr``, ``ess``, ``centered_tss``, ``uncentered_tss``,
+        ``mse_resid``, ``mse_model``, ``mse_total``, ``rmse``,
+        ``condition_number``, ``eigenvals``, ``resid_mean``, ``resid_std``,
+        ``durbin_watson``, ``jarque_bera``, ``jarque_bera_p``, ``skew``,
+        ``kurtosis``, ``omnibus``, ``omnibus_p``, ``prediction`` (``mean``,
+        ``se_mean``, ``se_obs``, ``ci_low``, ``ci_high``; a 95% interval for the
+        mean prediction at ``rc``) and ``cov_params`` (``terms``, ``matrix``).
+
+    Notes
+    -----
+    ``r2`` and ``r2_adj`` are statsmodels' values, which are uncentered on a
+    formula with no intercept. ``r2_centered`` is ``1 - ssr / centered_tss`` and
+    is None when ``centered_tss`` is zero.
+    """
+
+    def attr(name):
+        return lambda: getattr(fit, name)
+
+    def passthrough(fn):
+        try:
+            with warnings.catch_warnings(), np.errstate(all="ignore"):
+                warnings.simplefilter("ignore")
+                return fn()
+        except Exception:
+            return None
+
+    stats = {
+        "nobs": _stat(attr("nobs"), as_int=True),
+        "df_model": _stat(attr("df_model")),
+        "df_resid": _stat(attr("df_resid")),
+        "k_constant": _stat(lambda: fit.k_constant, as_int=True),
+        "cov_type": passthrough(lambda: str(fit.cov_type)),
+        "use_t": passthrough(lambda: bool(fit.use_t)),
+        "r2": _stat(attr("rsquared")),
+        "r2_adj": _stat(attr("rsquared_adj")),
+    }
+
+    y = passthrough(lambda: np.asarray(fit.model.endog, dtype=float))
+    centered_tss = _stat(lambda: ((y - y.mean()) ** 2).sum())
+    ssr = _stat(attr("ssr"))
+
+    def r2_centered():
+        # A float mean leaves dust when y is constant, so compare relatively.
+        if not np.isclose(
+            centered_tss, 0.0, rtol=0, atol=1e-12 * float((y**2).sum() + 1e-300)
+        ):
+            return 1 - ssr / centered_tss
+        return np.nan
+
+    stats["r2_centered"] = _stat(r2_centered)
+    n, p = stats["nobs"], None
+    if stats["df_model"] is not None and stats["k_constant"] is not None:
+        p = stats["df_model"] + stats["k_constant"]
+    stats["r2_adj_centered"] = _stat(
+        lambda: 1 - (1 - stats["r2_centered"]) * (n - 1) / (n - p)
+    )
+
+    stats.update(
+        {
+            "fvalue": _stat(attr("fvalue")),
+            "f_pvalue": _stat(attr("f_pvalue")),
+            "aic": _stat(attr("aic")),
+            "bic": _stat(attr("bic")),
+            "llf": _stat(attr("llf")),
+            "ssr": ssr,
+            "ess": _stat(attr("ess")),
+            "centered_tss": centered_tss,
+            "uncentered_tss": _stat(attr("uncentered_tss")),
+            "mse_resid": _stat(attr("mse_resid")),
+            "mse_model": _stat(attr("mse_model")),
+            "mse_total": _stat(attr("mse_total")),
+            "rmse": _stat(lambda: np.sqrt(fit.mse_resid)),
+            "condition_number": _stat(attr("condition_number")),
+            "eigenvals": passthrough(lambda: _clean_list(fit.eigenvals)),
+        }
+    )
+
+    resid = passthrough(lambda: np.asarray(fit.resid, dtype=float))
+    jb = passthrough(lambda: jarque_bera(resid))
+    omni = passthrough(lambda: omni_normtest(resid))
+    stats.update(
+        {
+            "resid_mean": _stat(lambda: resid.mean()),
+            "resid_std": _stat(lambda: np.std(resid, ddof=1)),
+            "durbin_watson": _stat(lambda: durbin_watson(resid)),
+            "jarque_bera": _stat(lambda: jb[0]),
+            "jarque_bera_p": _stat(lambda: jb[1]),
+            "skew": _stat(lambda: jb[2]),
+            "kurtosis": _stat(lambda: jb[3]),
+            "omnibus": _stat(lambda: omni[0]),
+            "omnibus_p": _stat(lambda: omni[1]),
+        }
+    )
+
+    frame = passthrough(lambda: fit.get_prediction(rc).summary_frame(alpha=0.05))
+    se_mean = _stat(lambda: frame["mean_se"].iloc[0])
+    stats["prediction"] = {
+        "mean": _stat(lambda: frame["mean"].iloc[0]),
+        "se_mean": se_mean,
+        "se_obs": _stat(lambda: np.sqrt(se_mean**2 + fit.scale)),
+        "ci_low": _stat(lambda: frame["mean_ci_lower"].iloc[0]),
+        "ci_high": _stat(lambda: frame["mean_ci_upper"].iloc[0]),
+    }
+
+    cov = passthrough(lambda: np.asarray(fit.cov_params(), dtype=float))
+    stats["cov_params"] = {
+        "terms": passthrough(lambda: [str(t) for t in fit.params.index]),
+        "matrix": passthrough(lambda: [_clean_list(row) for row in cov]),
+    }
+    return stats
 
 
 def index_capdata(capdata, label, filtered=True):
