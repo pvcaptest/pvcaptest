@@ -103,6 +103,35 @@ def pvlib_system(sys):
     return system
 
 
+def localize_index(index, tz, nonexistent="NaT"):
+    """
+    Localize a naive DatetimeIndex, tolerating a de-duplicated fall-back hour.
+
+    The repeated hour is resolved with ``ambiguous="infer"`` when both copies are
+    present. ``util.reindex_datetime`` keeps only the first copy, which ``infer``
+    cannot resolve, so those timestamps are assumed to be DST. That is what the
+    first copy is, and solar calculations are unaffected because the hour is
+    overnight.
+
+    Parameters
+    ----------
+    index : DatetimeIndex
+        Timezone-naive index of local wall-clock times.
+    tz : str
+        Timezone to localize to.
+    nonexistent : str, default "NaT"
+        Passed to ``tz_localize`` for times in the spring-forward gap.
+
+    Returns
+    -------
+    DatetimeIndex with timezone
+    """
+    try:
+        return index.tz_localize(tz, ambiguous="infer", nonexistent=nonexistent)
+    except ValueError:
+        return index.tz_localize(tz, ambiguous=True, nonexistent=nonexistent)
+
+
 def get_tz_index(time_source, loc):
     """
     Create DatetimeIndex with timezone aligned with location dictionary.
@@ -129,10 +158,7 @@ def get_tz_index(time_source, loc):
         time_source = time_source.index
     if isinstance(time_source, pd.core.indexes.datetimes.DatetimeIndex):
         if time_source.tz is None:
-            time_source = time_source.tz_localize(
-                loc["tz"], ambiguous="infer", nonexistent="NaT"
-            )
-            return time_source
+            return localize_index(time_source, loc["tz"])
         else:
             if loc["tz"] != str(time_source.tz):
                 warnings.warn(

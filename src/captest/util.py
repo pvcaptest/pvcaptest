@@ -118,7 +118,9 @@ def reindex_datetime(data, file_name=None, report=False):
     """
     data_index_length = data.shape[0]
     df = data.copy()
-    df.sort_index(inplace=True)
+    # Stable, so duplicates keep their file order and the first occurrence of a
+    # repeated fall-back hour is the one kept below.
+    df.sort_index(kind="mergesort", inplace=True)
     freq_str = get_common_timestep(data, string_output=True)
     full_ix = pd.date_range(start=df.index[0], end=df.index[-1], freq=freq_str)
     try:

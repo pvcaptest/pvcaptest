@@ -210,6 +210,17 @@ time, so they are unaffected).
   a plain run.
 
 ### Fixed
+- Loading a naive local-time index whose repeated fall-back hour appears only
+  once no longer raises an ambiguous-time `ValueError`. New
+  `clearsky.localize_index` infers both copies when present and otherwise
+  assumes DST; `get_tz_index`, `calcparams.apparent_zenith` and the
+  `Backtracking` filter all use it.
+- `util.reindex_datetime` sorts stably, so the first occurrence of a duplicate
+  timestamp is the one kept. Quicksort kept an arbitrary mix of the two copies
+  of the fall-back hour.
+- `Time` moves a date outside auto-wrapped sim data one year to land inside it.
+  A stored `test_date` in the typical year selected nothing, and emptied the
+  sim side, once the measured window ended within 60 days of year end.
 - `get_summary()` / `describe_filters()` show a percentile reporting
   condition as `func={'poa': perc_wrap(60), ...}` instead of the function's
   object repr (`<function perc_wrap.<locals>.numpy_percentile at 0x...>`).

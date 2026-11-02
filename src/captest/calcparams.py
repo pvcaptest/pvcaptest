@@ -12,6 +12,8 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from captest.clearsky import localize_index
+
 pvlib_spec = importlib.util.find_spec("pvlib")
 if pvlib_spec is not None:
     import pvlib
@@ -436,7 +438,7 @@ def apparent_zenith(data, site=None, altitude_override=0, verbose=True):
 
     times = data.index
     if times.tz is None:
-        times = times.tz_localize(loc["tz"], ambiguous="infer", nonexistent="NaT")
+        times = localize_index(times, loc["tz"])
     solar_positions = location.get_solarposition(times)
     zenith = solar_positions["apparent_zenith"]
     zenith.index = zenith.index.tz_localize(None)

@@ -20,6 +20,7 @@ import sklearn.covariance as sk_cv
 import statsmodels.formula.api as smf
 
 from captest import util
+from captest.clearsky import localize_index
 
 pvlib_spec = importlib.util.find_spec("pvlib")
 if pvlib_spec is not None:
@@ -895,7 +896,10 @@ class Time(BaseFilter):
 
     The legacy ``wrap_year`` flag is intentionally not supported here; the
     wrap-year functionality has moved to CapTest's auto-wrap step at setup
-    time so sim data is already contiguous before any filtering runs.
+    time so sim data is already contiguous before any filtering runs. That wrap
+    spans two calendar years, so on wrapped data a date outside the data is
+    moved one year to land inside it, which is how a window pinned in the
+    typical year keeps working when the measured window nears the year end.
     """
 
     start = param.Parameter(default=None, doc="Window start (str or Timestamp).")
@@ -922,9 +926,9 @@ class Time(BaseFilter):
 
     def _execute(self, capdata):
         df = capdata.data_filtered
-        start = self._parse(self.start)
-        end = self._parse(self.end)
-        test_date = self._parse(self.test_date)
+        start = self._in_wrapped_year(self._parse(self.start), capdata)
+        end = self._in_wrapped_year(self._parse(self.end), capdata)
+        test_date = self._in_wrapped_year(self._parse(self.test_date), capdata)
 
         if test_date is not None:
             if self.days is None:
@@ -976,6 +980,24 @@ class Time(BaseFilter):
         ts = pd.to_datetime(value)
         if self.tz is not None:
             ts = ts.tz_localize(self.tz) if ts.tz is None else ts.tz_convert(self.tz)
+        return ts
+
+    @staticmethod
+    def _in_wrapped_year(ts, capdata):
+        """``ts`` moved one year to land in wrapped sim data, else unchanged.
+
+        Only data wrapped by ``CapTest._maybe_wrap_sim_year_end`` qualifies: a
+        date outside any other data, such as measured data, means what it says.
+        """
+        if ts is None or ts.tz is not None:
+            return ts
+        if getattr(capdata, "_pre_wrap_data", None) is None:
+            return ts
+        index = capdata.data.index
+        if ts > index[-1]:
+            return ts - pd.DateOffset(years=1)
+        if ts < index[0]:
+            return ts + pd.DateOffset(years=1)
         return ts
 
     @staticmethod
@@ -1559,15 +1581,13 @@ class Backtracking(BaseFilter):
         ``calcparams.apparent_zenith``: a tz-naive index is localized with the
         site tz; results are returned tz-naive and reindexed to ``df.index``.
 
-        Ambiguity policy: fall-back DST duplicates are localized with
-        ``ambiguous=True`` (assume DST) and spring-forward gaps with
-        ``nonexistent="shift_forward"`` rather than ``"infer"``/``"NaT"``. A lone
-        ambiguous local timestamp makes ``ambiguous="infer"`` raise, which would
-        crash the filter; these near-midnight edge intervals sit below the
-        horizon (``apparent_zenith > 90``), where the predicate is ``False``
-        regardless, so the exact wall-clock offset does not affect the result.
-        Any residual localization error is caught by ``_execute`` and turned
-        into a warn-and-no-op.
+        Ambiguity policy: :func:`captest.clearsky.localize_index` resolves the
+        fall-back hour, and spring-forward gaps use
+        ``nonexistent="shift_forward"`` rather than ``"NaT"``. These near-midnight
+        edge intervals sit below the horizon (``apparent_zenith > 90``), where the
+        predicate is ``False`` regardless, so the exact wall-clock offset does not
+        affect the result. Any residual localization error is caught by
+        ``_execute`` and turned into a warn-and-no-op.
         """
         from pvlib.location import Location
 
@@ -1575,9 +1595,7 @@ class Backtracking(BaseFilter):
         location = Location(**loc)
         times = df.index
         if times.tz is None:
-            times = times.tz_localize(
-                loc["tz"], ambiguous=True, nonexistent="shift_forward"
-            )
+            times = localize_index(times, loc["tz"], nonexistent="shift_forward")
         solpos = location.get_solarposition(times)
         solpos.index = solpos.index.tz_localize(None)
         target = df.index.tz_localize(None) if df.index.tz is not None else df.index
