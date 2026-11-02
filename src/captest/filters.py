@@ -926,9 +926,15 @@ class Time(BaseFilter):
 
     def _execute(self, capdata):
         df = capdata.data_filtered
-        start = self._in_wrapped_year(self._parse(self.start), capdata)
-        end = self._in_wrapped_year(self._parse(self.end), capdata)
-        test_date = self._in_wrapped_year(self._parse(self.test_date), capdata)
+        start = self._parse(self.start)
+        end = self._parse(self.end)
+        test_date = self._parse(self.test_date)
+
+        shift = self._wrapped_year_shift((start, end, test_date), capdata)
+        if shift is not None:
+            start = None if start is None else start + shift
+            end = None if end is None else end + shift
+            test_date = None if test_date is None else test_date + shift
 
         if test_date is not None:
             if self.days is None:
@@ -983,22 +989,26 @@ class Time(BaseFilter):
         return ts
 
     @staticmethod
-    def _in_wrapped_year(ts, capdata):
-        """``ts`` moved one year to land in wrapped sim data, else unchanged.
+    def _wrapped_year_shift(dates, capdata):
+        """The one-year offset that moves ``dates`` into wrapped sim data.
 
-        Only data wrapped by ``CapTest._maybe_wrap_sim_year_end`` qualifies: a
-        date outside any other data, such as measured data, means what it says.
+        ``None`` unless every given date is on the same side of the data, so a
+        window overlapping it stays in one piece. Only data wrapped by
+        ``CapTest._maybe_wrap_sim_year_end`` qualifies, and that data is always
+        naive: a date outside any other data, such as measured data, means what
+        it says.
         """
-        if ts is None or ts.tz is not None:
-            return ts
         if getattr(capdata, "_pre_wrap_data", None) is None:
-            return ts
+            return None
+        given = [date for date in dates if date is not None]
+        if not given or any(date.tz is not None for date in given):
+            return None
         index = capdata.data.index
-        if ts > index[-1]:
-            return ts - pd.DateOffset(years=1)
-        if ts < index[0]:
-            return ts + pd.DateOffset(years=1)
-        return ts
+        if min(given) > index[-1]:
+            return pd.DateOffset(years=-1)
+        if max(given) < index[0]:
+            return pd.DateOffset(years=1)
+        return None
 
     @staticmethod
     def _zone_kind(ts):

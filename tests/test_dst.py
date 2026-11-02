@@ -129,3 +129,13 @@ class TestTimeOnWrappedSim:
         index = pd.date_range("2026-10-01", periods=48, freq="h")
         cd.data = pd.DataFrame({"poa": 0.0}, index=index)
         assert len(Time(test_date="2025-10-01", days=2)._execute(cd)) == 0
+
+    def test_window_straddling_wrapped_end_keeps_its_overlap(self):
+        kept = Time(start="1990-06-20", end="1990-07-10")._execute(wrapped_sim())
+        assert kept[0] == pd.Timestamp("1990-06-20")
+        assert kept[-1] == pd.Timestamp("1990-06-30 23:00")
+
+    def test_start_alone_moves_and_runs_to_end_of_data(self):
+        kept = Time(start="1990-10-07")._execute(wrapped_sim())
+        assert kept[0] == pd.Timestamp("1989-10-07")
+        assert kept[-1] == pd.Timestamp("1990-06-30 23:00")

@@ -111,7 +111,8 @@ def localize_index(index, tz, nonexistent="NaT"):
     present. ``util.reindex_datetime`` keeps only the first copy, which ``infer``
     cannot resolve, so those timestamps are assumed to be DST. That is what the
     first copy is, and solar calculations are unaffected because the hour is
-    overnight.
+    overnight. Any other index ``infer`` rejects, such as one with both copies
+    already sorted together, takes the same assume-DST path and is not reported.
 
     Parameters
     ----------
