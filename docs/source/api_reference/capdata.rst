@@ -170,13 +170,19 @@ a :py:class:`~captest.CapTest` it resolves from the single test RC. See
 Regression
 ----------
 
-Methods for fitting the ASTM E2848 regression and predicting capacities.
+Methods for fitting the ASTM E2848 regression, predicting capacities, and
+reading the fit. :meth:`~captest.capdata.CapData.regression_curve` sweeps one
+predictor with the others held at the reporting conditions, and
+:func:`~captest.capdata.regression_statistics` collects the statistics stored
+on ``CapTestResults.regression_stats``.
 
 .. autosummary::
    :toctree: generated/
 
    capdata.CapData.fit_regression
    capdata.CapData.predict_capacities
+   capdata.CapData.regression_curve
+   capdata.regression_statistics
 
 Results and Uncertainty
 -----------------------
