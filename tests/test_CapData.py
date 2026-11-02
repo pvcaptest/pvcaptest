@@ -4454,6 +4454,7 @@ class TestRegressionStatistics:
                 d = df.assign(poa2=2 * df["poa"])
                 return smf.ols("power ~ poa + poa2 - 1", d).fit()
             if case == "constant_response":
+                # 0.1 + 0.2 is inexact, so the mean leaves float dust in the tss
                 d = df.assign(power=0.1 + 0.2)
                 return smf.ols(self.FML, d).fit()
             if case == "tiny_sample":
@@ -4474,6 +4475,7 @@ class TestRegressionStatistics:
         )
         assert stats["r2"] == pytest.approx(fit_no_intercept.rsquared)
         assert stats["r2"] > stats["r2_centered"]
+        assert stats["eigenvals"] == pytest.approx(list(fit_no_intercept.eigenvals))
 
     @pytest.mark.parametrize("fml", ["power ~ poa", "power ~ poa + t_amb"])
     def test_centred_equals_statsmodels_with_an_intercept(self, df, rc, fml):

@@ -719,6 +719,7 @@ def regression_statistics(fit, rc):
 
     def r2_centered():
         # A float mean leaves dust when y is constant, so compare relatively.
+        # The tolerance scales with sum(y**2), so it holds for kW and W alike.
         if not np.isclose(
             centered_tss, 0.0, rtol=0, atol=1e-12 * float((y**2).sum() + 1e-300)
         ):
