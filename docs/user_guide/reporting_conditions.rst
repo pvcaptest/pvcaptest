@@ -158,8 +158,7 @@ replays its applied chain, or its pending pipeline when nothing is applied;
 
 Reporting conditions and results
 --------------------------------
-:py:meth:`~captest.CapTest.captest_results` (and
-:py:meth:`~captest.CapTest.captest_results_check_pvalues`) predict both
+:py:meth:`~captest.CapTest.captest_results` predicts both
 the measured and modeled regressions at the single test RC ``tst.rc``. The
 returned :py:class:`~captest.captest.CapTestResults` object carries the
 reporting conditions the predictions were made at (``results.rc``) and their

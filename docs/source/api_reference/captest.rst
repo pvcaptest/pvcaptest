@@ -99,7 +99,6 @@ p-value table.
    CapTest.run_test
    CapTest.replay_filters
    CapTest.captest_results
-   CapTest.captest_results_check_pvalues
    CapTest.determine_pass_or_fail
    CapTest.get_summary
    captest.captest.CapTestResults

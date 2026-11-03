@@ -314,7 +314,7 @@ By default a summary showing the results of the regression is printed, similar t
 
 Results
 -------
-After loading, filtering and regressing measured and simulated data in two separate instances of :py:class:`~captest.capdata.CapData`, the two instances are bound together in a :py:class:`~captest.CapTest` and compared using :py:meth:`~captest.CapTest.captest_results`, which returns a :py:class:`~captest.captest.CapTestResults` object holding the capacity ratio, pass/fail result, and the values behind them. :py:meth:`~captest.CapTest.captest_results_check_pvalues` provides a styled summary of the predicted power using the regression coefficients of each :py:class:`~captest.capdata.CapData` instance and the reporting conditions. See :ref:`captest` for construction and the full workflow.
+After loading, filtering and regressing measured and simulated data in two separate instances of :py:class:`~captest.capdata.CapData`, the two instances are bound together in a :py:class:`~captest.CapTest` and compared using :py:meth:`~captest.CapTest.captest_results`, which returns a :py:class:`~captest.captest.CapTestResults` object holding the capacity ratio, pass/fail result, and the values behind them. :py:meth:`~captest.captest.CapTestResults.styled_pvalues` provides a styled table of the regression coefficients and p-values of each :py:class:`~captest.capdata.CapData` instance. See :ref:`captest` for construction and the full workflow.
 
 The results method will check and warn for potential issues:
 
@@ -330,6 +330,6 @@ The results from that example display as follows:
 
 .. image:: ../_images/results.png
 
-By default the results will be calculated twice. The second calculation will set the regression coefficient for any term where the p-value is greater than 0.05 to zero before calculating the predicted power. These high p-values are highlighted in yellow as shown in the above example for the wind speed regression term of the simulated data. See :ref:`reviewing-results` for how the ``check_pvalues`` argument selects which of the two calculations is the headline result.
+The capacity ratio always comes from the full regression. High p-values (above 0.05) are highlighted in yellow as shown in the above example for the wind speed regression term of the simulated data. They are reported, not acted on: no coefficient is dropped or zeroed. See :ref:`reviewing-results`.
 
 

@@ -25,9 +25,7 @@
 
    .. autosummary::
    
-      ~CapTestResults.pvalues_checked
       ~CapTestResults.cap_ratio
-      ~CapTestResults.cap_ratio_pval_check
       ~CapTestResults.passed
       ~CapTestResults.tolerance
       ~CapTestResults.bounds

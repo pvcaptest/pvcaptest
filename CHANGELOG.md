@@ -194,6 +194,20 @@ time, so they are unaffected).
 
 ### Removed
 - `util.update_by_path` and `captest.captest.validate_test_setup`.
+- The p-value-checked capacity ratio, with no deprecation cycle: the
+  `check_pvalues` and `pval` arguments of `CapTest.run_test` and
+  `CapTest.captest_results`, `CapTestResults.cap_ratio_pval_check` and
+  `.pvalues_checked`, `CapTest.captest_results_check_pvalues`, and
+  `capdata.predict_with_pvalue_check`. The check set every coefficient above
+  the cutoff to zero without refitting, which is not statistically valid: the
+  zeroed prediction equals the refit one only when the dropped terms contribute
+  nothing at the reporting conditions, which all-positive PV data cannot meet.
+  It moved the ratio by several percent, usually upward, enough to change a
+  pass/fail result. The ratio now always comes from the full regression.
+  `CapTestResults.styled_pvalues` and `highlight_pvals` stay, so p-values are
+  still reported. Use `capdata.predict_at_rc(cd, rc=None)` for a plain
+  prediction at the reporting conditions. Run fingerprints are unchanged for
+  a plain run.
 
 ### Fixed
 - `get_summary()` / `describe_filters()` show a percentile reporting

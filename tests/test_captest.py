@@ -1980,9 +1980,8 @@ class TestResolvedSetupProperty:
 
 class TestPortedMethods:
     """Tests for CapTest methods ported from the former module-level
-    ``capdata.captest_results``, ``captest_results_check_pvalues``,
-    ``determine_pass_or_fail``, ``get_summary``, ``overlay_scatters``, and
-    ``plotting.residual_plot``.
+    ``capdata.captest_results``, ``determine_pass_or_fail``, ``get_summary``,
+    ``overlay_scatters``, and ``plotting.residual_plot``.
     """
 
     def _build_capdata_with_fit(self):
@@ -2149,92 +2148,30 @@ class TestPortedMethods:
             res = capt.captest_results(print_res=False)
         assert res is None
 
-    def _build_ct_insignificant_term(self):
-        """A CapTest whose fits have an insignificant ``I(poa * w_vel)`` term.
+    def test_the_ratio_is_bit_identical_to_the_plain_one(self):
+        from captest.capdata import predict_at_rc
 
-        ``w_vel`` is an unrelated random regressor (true coefficient zero), so
-        its p-value is above 0.05 on both sides and the p-value-checked
-        predictions genuinely differ from the plain ones.
-        """
-        import statsmodels.formula.api as smf
-
-        from captest.capdata import CapData
-
-        np.random.seed(1234)
-        nsample = 100
-        a = np.linspace(0, 10, nsample)
-        b = a / 2.0
-        c = np.random.uniform(0, 1, nsample)
-        e = np.random.normal(size=nsample)
-        das_y = a + a**2 + a * b + e
-        sim_y = a + 0.9 * a**2 + 1.1 * a * b + e
-        das_df = pd.DataFrame({"power": das_y, "poa": a, "t_amb": b, "w_vel": c})
-        sim_df = pd.DataFrame({"power": sim_y, "poa": a, "t_amb": b, "w_vel": c})
-
-        meas = CapData("meas")
-        sim = CapData("sim")
-        meas.data = das_df
-        sim.data = sim_df
-
-        fml = "power ~ poa + I(poa * poa) + I(poa * t_amb) + I(poa * w_vel) - 1"
-        meas.regression_results = smf.ols(formula=fml, data=das_df).fit()
-        sim.regression_results = smf.ols(formula=fml, data=sim_df).fit()
-
-        capt = CapTest(test_tolerance="+/- 5", ac_nameplate=100)
-        capt.meas = meas
-        capt.sim = sim
-        return capt
-
-    def test_captest_results_check_pvalues_true_reports_checked_values(self):
-        from captest.capdata import predict_with_pvalue_check
-
-        capt = self._build_ct_insignificant_term()
-        rc = pd.DataFrame({"poa": [6], "t_amb": [5], "w_vel": [3]})
-        capt._set_rc(rc, "meas")
-        checked_actual = predict_with_pvalue_check(
-            capt.meas, rc=rc, pval_threshold=0.05
-        )
-        checked_expected = predict_with_pvalue_check(
-            capt.sim, rc=rc, pval_threshold=0.05
-        )
-
-        # Sanity: the fixture's insignificant term makes checked != plain, so
-        # the field assertions below genuinely discriminate the two variants.
-        plain_actual = capt.meas.regression_results.predict(rc)[0]
-        assert abs(checked_actual - plain_actual) > 1e-6
-
-        res = capt.captest_results(check_pvalues=True, print_res=False)
-
-        assert res.pvalues_checked is True
-        assert res.cap_ratio == res.cap_ratio_pval_check
-        assert res.actual_capacity == pytest.approx(checked_actual, rel=1e-10)
-        assert res.expected_capacity == pytest.approx(checked_expected, rel=1e-10)
-        assert res.cap_ratio == pytest.approx(
-            checked_actual / checked_expected, rel=1e-10
-        )
-        assert res.passed == bool(capt.determine_pass_or_fail(res.cap_ratio)[0])
-        assert res.tested_capacity == pytest.approx(
-            capt.ac_nameplate * res.cap_ratio, rel=1e-10
-        )
-
-    def test_captest_results_check_pvalues_false_reports_plain_values(self):
         capt = self._build_ct()
         rc = pd.DataFrame({"poa": [6], "t_amb": [5], "w_vel": [3]})
         capt._set_rc(rc, "meas")
-        plain_actual = capt.meas.regression_results.predict(rc)[0]
-        plain_expected = capt.sim.regression_results.predict(rc)[0]
 
         res = capt.captest_results(print_res=False)
 
-        assert res.pvalues_checked is False
-        assert res.actual_capacity == pytest.approx(plain_actual, rel=1e-10)
-        assert res.expected_capacity == pytest.approx(plain_expected, rel=1e-10)
-        assert res.cap_ratio == pytest.approx(plain_actual / plain_expected, rel=1e-10)
+        expected = predict_at_rc(capt.meas, res.rc) / predict_at_rc(capt.sim, res.rc)
+        assert res.cap_ratio == expected
+        assert res.actual_capacity == predict_at_rc(capt.meas, res.rc)
+        assert res.expected_capacity == predict_at_rc(capt.sim, res.rc)
 
-    def test_captest_results_check_pvalues_returns_styled_df(self):
+    def test_the_report_names_no_checked_ratio(self):
         capt = self._build_ct()
         capt._set_rc(pd.DataFrame({"poa": [6], "t_amb": [5], "w_vel": [3]}), "meas")
-        styled = capt.captest_results_check_pvalues(print_res=False)
+        res = capt.captest_results(print_res=False)
+        assert "check" not in str(res).lower()
+
+    def test_captest_results_styled_pvalues_returns_styled_df(self):
+        capt = self._build_ct()
+        capt._set_rc(pd.DataFrame({"poa": [6], "t_amb": [5], "w_vel": [3]}), "meas")
+        styled = capt.captest_results(print_res=False).styled_pvalues()
         # Styler objects expose the underlying data via the .data attribute.
         underlying = styled.data
         assert isinstance(underlying, pd.DataFrame)

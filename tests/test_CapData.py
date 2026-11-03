@@ -402,7 +402,6 @@ class TestTopLevelFuncs(unittest.TestCase):
         """Pin the exact legacy report format produced by CapTestResults."""
         results = captest_module.CapTestResults(
             cap_ratio=0.97,
-            cap_ratio_pval_check=0.97,
             passed=True,
             tolerance="+/- 5",
             bounds="950, 1050",
@@ -431,7 +430,6 @@ class TestTopLevelFuncs(unittest.TestCase):
         """FAIL result renders with the same column alignment as PASS."""
         results = captest_module.CapTestResults(
             cap_ratio=0.94,
-            cap_ratio_pval_check=0.94,
             passed=False,
             tolerance="+/- 5",
             bounds="950, 1050",
@@ -2936,11 +2934,11 @@ class TestStatsmodelsParamModification:
         )
 
 
-class TestPredictWithPvalueCheck:
+class TestPredictAtRc:
     """
-    Tests for predict_with_pvalue_check function.
+    Tests for predict_at_rc function.
 
-    This function makes predictions using model.predict() with custom params
+    This function makes predictions using model.predict() with the fitted params
     for consistent behavior across pandas versions.
     """
 
@@ -2975,53 +2973,35 @@ class TestPredictWithPvalueCheck:
 
         return cd
 
-    def test_predict_no_pvalue_threshold(self, capdata_with_regression):
-        """Test prediction without p-value filtering (threshold=None)."""
+    def test_matches_the_statsmodels_prediction(self, capdata_with_regression):
         cd = capdata_with_regression
 
-        # Prediction without filtering should match standard predict
         expected = cd.regression_results.predict(cd.rc)[0]
-        actual = pvc.predict_with_pvalue_check(cd, pval_threshold=None)
+        actual = pvc.predict_at_rc(cd)
 
         assert actual == pytest.approx(expected, rel=1e-10)
 
-    def test_predict_with_pvalue_threshold_zeros_insignificant(
-        self, capdata_with_regression
-    ):
-        """Test that insignificant coefficients are zeroed with p-value threshold."""
-        cd = capdata_with_regression
+    def test_returns_a_float(self, capdata_with_regression):
+        pred = pvc.predict_at_rc(capdata_with_regression)
 
-        # Check that 'noise' coefficient has high p-value (should be filtered)
-        noise_pval = cd.regression_results.pvalues["noise"]
-        assert noise_pval > 0.05, "Test setup error: noise should be insignificant"
-
-        # Get prediction with p-value filtering
-        pred_with_filter = pvc.predict_with_pvalue_check(cd, pval_threshold=0.05)
-
-        # The key test is that the function runs without error and returns a float
-        assert isinstance(pred_with_filter, (float, np.floating))
-
-    def test_predict_with_very_low_threshold_zeros_all(self, capdata_with_regression):
-        """Test with very low threshold that zeros out all coefficients."""
-        cd = capdata_with_regression
-
-        # With threshold of 0, all coefficients should be zeroed
-        # (no p-value is exactly 0)
-        pred = pvc.predict_with_pvalue_check(cd, pval_threshold=0)
-
-        # Result should be close to 0 (all coeffs zeroed, including intercept)
-        # or equal to intercept if intercept p-value is 0
         assert isinstance(pred, (float, np.floating))
 
-    def test_predict_with_high_threshold_keeps_all(self, capdata_with_regression):
-        """Test with threshold of 1.0 keeps all coefficients."""
+    def test_rc_argument_overrides_the_capdata_rc(self, capdata_with_regression):
         cd = capdata_with_regression
+        other = pd.DataFrame({"x": [8.0], "noise": [0.0]})
 
-        # With threshold of 1.0, no coefficients should be zeroed
-        pred_high_threshold = pvc.predict_with_pvalue_check(cd, pval_threshold=1.0)
-        pred_no_filter = pvc.predict_with_pvalue_check(cd, pval_threshold=None)
+        pred = pvc.predict_at_rc(cd, rc=other)
 
-        assert pred_high_threshold == pytest.approx(pred_no_filter, rel=1e-10)
+        assert pred == pytest.approx(cd.regression_results.predict(other)[0], rel=1e-10)
+        assert pred != pvc.predict_at_rc(cd)
+
+    def test_does_not_modify_the_fitted_params(self, capdata_with_regression):
+        cd = capdata_with_regression
+        before = cd.regression_results.params.copy()
+
+        pvc.predict_at_rc(cd)
+
+        pd.testing.assert_series_equal(cd.regression_results.params, before)
 
 
 class TestCapTestCpResultsSingleCoeff(unittest.TestCase):
@@ -3120,7 +3100,7 @@ class TestCapTestCpResultsMultCoeffKwVsW(unittest.TestCase):
         ct._set_rc(meas.rc, "meas")
 
         with self.assertWarns(UserWarning):
-            cp_rat = ct.captest_results(check_pvalues=False, print_res=False).cap_ratio
+            cp_rat = ct.captest_results(print_res=False).cap_ratio
 
         self.assertAlmostEqual(
             cp_rat, cp_rat_test_val, 6, "captest_results did not return expected value."
@@ -3171,9 +3151,9 @@ class TestCapTestCpResultsMultCoeff(unittest.TestCase):
     def test_model_predict_with_modified_params(self):
         """Test that model.predict() with modified params works correctly.
 
-        This test verifies the approach used by predict_with_pvalue_check:
-        using model.predict(modified_params, exog) to make predictions with
-        modified coefficients, which works consistently across pandas versions.
+        This test verifies the approach used by predict_at_rc:
+        using model.predict(params, exog) to make predictions with
+        custom coefficients, which works consistently across pandas versions.
         """
         das_results = self.meas.regression_results
         sim_results = self.sim.regression_results
@@ -3223,84 +3203,37 @@ class TestCapTestCpResultsMultCoeff(unittest.TestCase):
         ct._set_rc(self.meas.rc.copy(), "meas")
         return ct
 
-    def test_pvals_default_false(self):
+    def test_cap_ratio_is_the_plain_ratio(self):
         actual = self.meas.regression_results.predict(self.meas.rc)[0]
         expected = self.sim.regression_results.predict(self.meas.rc)[0]
         cp_rat_test_val = actual / expected
 
         ct = self._build_ct()
-        cp_rat = ct.captest_results(check_pvalues=False, print_res=False).cap_ratio
+        cp_rat = ct.captest_results(print_res=False).cap_ratio
 
         self.assertEqual(
             cp_rat, cp_rat_test_val, "captest_results did not return expected value."
         )
 
-    def test_pvals_true(self):
-        """Test that the p-value check changes the result and sets the headline.
-
-        With pval=1e-15, the 'poa' coefficient should be zeroed because its
-        p-value is > 1e-15, which changes the checked prediction. With
-        check_pvalues=False the headline ``cap_ratio`` is the plain ratio and
-        differs from the checked one; with check_pvalues=True the checked
-        ratio IS the headline.
-        """
-        ct = self._build_ct()
-        plain_res = ct.captest_results(
-            check_pvalues=False,
-            pval=1e-15,
-            print_res=False,
-        )
-        checked_res = ct.captest_results(
-            check_pvalues=True,
-            pval=1e-15,
-            print_res=False,
-        )
-
-        # The ratios should be different because poa coefficient is zeroed
-        self.assertNotEqual(
-            plain_res.cap_ratio,
-            plain_res.cap_ratio_pval_check,
-            "the p-value check should change the capacity ratio",
-        )
-        self.assertFalse(plain_res.pvalues_checked)
-        # With check_pvalues=True the checked ratio is the headline ratio.
-        self.assertEqual(checked_res.cap_ratio, checked_res.cap_ratio_pval_check)
-        self.assertTrue(checked_res.pvalues_checked)
-
     @pytest.fixture(autouse=True)
     def _pass_fixtures(self, capsys):
         self.capsys = capsys
 
-    def test_pvals_true_print(self):
+    def test_print_res_prints_the_summary(self):
         """
-        Test that captest_results with check_pvalues=True prints expected output.
+        Test that captest_results with print_res=True prints the summary.
 
         This test uses the pytest autouse fixture defined above to
         capture the print to stdout and test it, so it must be run
-        using pytest.  Run just this test using 'pytest tests/
-        test_CapData.py::TestCapTestCpResultsMultCoeff::test_pvals_true_print'
+        using pytest.
         """
-        self.maxDiff = 10_000
-
         ct = self._build_ct()
-        res = ct.captest_results(
-            check_pvalues=True,
-            pval=1e-15,
-            print_res=True,
-        )
+        res = ct.captest_results(print_res=True)
         captured = self.capsys.readouterr()
 
         # print_res=True prints exactly the object's summary report.
         self.assertEqual(str(res) + "\n", captured.out)
-
-        # Pin the pval-checked headline values from the legacy printed
-        # report: poa coefficient zeroed (pval=1e-15), so the checked ratio,
-        # tested capacity, and pass/fail match the pre-CapTestResults output.
-        self.assertAlmostEqual(res.cap_ratio_pval_check, 1.08996, 5)
-        self.assertAlmostEqual(res.tested_capacity, 108.996, 3)
-        self.assertFalse(res.passed)
-        self.assertEqual(res.bounds, "95.0, 105.0")
-        self.assertIn("Capacity Test Result:         FAIL", captured.out)
+        self.assertIn("Tested output ratio:", captured.out)
 
     def test_formulas_match(self):
         sim = pvc.CapData("sim")
@@ -3313,7 +3246,7 @@ class TestCapTestCpResultsMultCoeff(unittest.TestCase):
         ct.sim = sim
 
         with self.assertWarns(UserWarning):
-            ct.captest_results(check_pvalues=True)
+            ct.captest_results()
 
 
 class TestGetFilteringTable:

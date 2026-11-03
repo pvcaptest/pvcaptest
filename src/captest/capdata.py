@@ -597,11 +597,11 @@ def pred_summary(grps, rcs, allowance, **kwargs):
     return results
 
 
-def predict_with_pvalue_check(cd, rc=None, pval_threshold=0.05):
+def predict_at_rc(cd, rc=None):
     """
-    Make prediction with optional p-value filtering of coefficients.
+    Predict the fitted regression at the reporting conditions.
 
-    Uses model.predict() with custom params to ensure consistent behavior
+    Uses model.predict() with the fitted params to ensure consistent behavior
     across pandas 2.x and 3.0+ (avoids Copy-on-Write issues).
 
     Parameters
@@ -612,30 +612,18 @@ def predict_with_pvalue_check(cd, rc=None, pval_threshold=0.05):
         - rc attribute (reporting conditions DataFrame), used if rc param is None
     rc : DataFrame, optional
         Reporting conditions DataFrame. If None, uses cd.rc.
-    pval_threshold : float, default 0.05
-        If provided, coefficients with p-value > threshold are set to zero
-        before making the prediction. Set to None to skip pval check.
 
     Returns
     -------
     float
-        Predicted value at reporting conditions.
+        Predicted value at reporting conditions, in the fit's own units.
     """
     results = cd.regression_results
     if rc is None:
         rc = cd.rc
-    # Copy params to avoid modifying original
-    modified_params = results.params.copy()
-    # Zero out coefficients with p-values above threshold
-    if pval_threshold is not None:
-        for key, pval in results.pvalues.items():
-            if pval > pval_threshold:
-                modified_params[key] = 0
-    # Create design matrix from reporting conditions
     design_info = results.model.data.design_info
     exog = dmatrix(design_info, rc)
-    # Predict using model.predict with custom params
-    return results.model.predict(modified_params, exog)[0]
+    return results.model.predict(results.params, exog)[0]
 
 
 def _stat(fn, as_int=False):
@@ -3401,8 +3389,7 @@ class CapData(param.Parameterized):
         units (so a kW fit gives kW, whatever the test's headline units).
 
         The curve uses every fitted coefficient, so it matches a reported
-        actual or expected capacity only when the headline is the plain
-        (not p-value-checked) prediction and ``captest_results`` did not
+        actual or expected capacity only when ``captest_results`` did not
         apply its x1000 mixed-unit rescale.
 
         Parameters
@@ -3422,7 +3409,7 @@ class CapData(param.Parameterized):
         results = self.regression_results
         frame = pd.concat([rc.iloc[[0]]] * len(values), ignore_index=True)
         frame[x] = np.asarray(values, dtype=float)
-        # Same dmatrix + model.predict path as predict_with_pvalue_check, which
+        # Same dmatrix + model.predict path as predict_at_rc, which
         # avoids the pandas Copy-on-Write problems of results.predict.
         exog = dmatrix(results.model.data.design_info, frame)
         return np.asarray(results.model.predict(results.params, exog))

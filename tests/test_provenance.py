@@ -9,6 +9,8 @@ from captest.io import load_data, load_pvsyst, loader_id
 from tests.setup_fixtures import build_meas_default, build_sim_default
 
 _SIM_WINDOW = ("1990-10-09", "1990-10-13 23:55:00")
+# Captured from the code before the p-value check was removed.
+KNOWN_FINGERPRINT = "e259eb3dc392ffa80247ec436cf2f404359d47f49c4c113118c2565bdfad1700"
 
 
 @loader_id("test.meas")
@@ -235,23 +237,10 @@ class TestRunFingerprint:
         filter_and_run(tst)
         assert tst.run_fingerprint != tst.mapping_fingerprint()
 
-    def test_check_pvalues_run_has_no_fingerprint(self):
+    def test_run_fingerprint_is_unchanged_for_a_plain_run(self):
         tst = build_loaded()
-        results = filter_and_run(tst, check_pvalues=True)
-        assert tst.last_results is results
-        assert tst.run_fingerprint is None
-        assert "check_pvalues=True" in tst.run_fingerprint_error
-
-    def test_nondefault_pval_has_no_fingerprint(self):
-        tst = build_loaded()
-        filter_and_run(tst, pval=1.0)
-        assert tst.run_fingerprint is None
-        assert "pval" in tst.run_fingerprint_error
-
-    def test_default_pval_passed_explicitly_fingerprints(self):
-        tst = build_loaded()
-        filter_and_run(tst, pval=0.05)
-        assert tst.run_fingerprint == tst.mapping_fingerprint()
+        filter_and_run(tst)
+        assert tst.run_fingerprint == KNOWN_FINGERPRINT
 
     def test_auto_wrap_off_has_no_fingerprint(self):
         tst = build_loaded(auto_wrap_sim=False)
@@ -459,8 +448,8 @@ class TestSideReplacedAfterRun:
         assert "replaced" in tst.run_fingerprint_error
 
     def test_replacing_a_side_clears_unfingerprinted_results(self):
-        tst = build_loaded()
-        filter_and_run(tst, pval=1.0)
+        tst = build_loaded(auto_wrap_sim=False)
+        filter_and_run(tst)
         assert tst.last_results is not None
         tst.sim = tst.sim.copy()
         assert tst.last_results is None
@@ -571,9 +560,9 @@ class TestRunIdentityEdges:
         assert "replaced" in tst.run_fingerprint_error
 
     def test_replaced_reason_wins_over_unfingerprinted_run(self):
-        tst = build_loaded()
-        filter_and_run(tst, pval=1.0)
-        assert "pval" in tst.run_fingerprint_error
+        tst = build_loaded(auto_wrap_sim=False)
+        filter_and_run(tst)
+        assert "auto_wrap_sim" in tst.run_fingerprint_error
         tst.sim = tst.sim.copy()
         assert "replaced" in tst.run_fingerprint_error
 

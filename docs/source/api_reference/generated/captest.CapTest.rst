@@ -15,7 +15,6 @@
    
       ~CapTest.__init__
       ~CapTest.captest_results
-      ~CapTest.captest_results_check_pvalues
       ~CapTest.check_fit
       ~CapTest.clear_rc
       ~CapTest.determine_pass_or_fail

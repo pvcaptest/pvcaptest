@@ -13,7 +13,7 @@ At module-import time the dependency is one-way only:
 module scope so ``CapTest`` can declare ``meas``/``sim`` as
 ``param.ClassSelector(class_=CapData)``. ``captest.capdata`` does NOT import
 anything from this module at import time; the single-CapData helper
-``predict_with_pvalue_check`` is imported lazily from within
+``predict_at_rc`` is imported lazily from within
 ``CapTest.captest_results``.
 """
 
@@ -80,11 +80,7 @@ class CapTestResults:
     ----------
     cap_ratio : float
         Headline capacity test ratio ``actual / expected`` — the ratio the
-        pass/fail decision was made on. P-value-checked when the test ran
-        with ``check_pvalues=True`` (see ``pvalues_checked``), otherwise
-        computed without p-value filtering.
-    cap_ratio_pval_check : float
-        Capacity ratio computed with above-threshold coefficients zeroed.
+        pass/fail decision was made on, from the full regression.
     passed : bool
         Pass/fail result for the headline ratio against ``tolerance``.
     tolerance : str
@@ -92,13 +88,11 @@ class CapTestResults:
     bounds : str
         Human-readable capacity bounds string for the tolerance.
     expected_capacity : float
-        Predicted modeled test output at reporting conditions (headline
-        variant; see ``pvalues_checked``).
+        Predicted modeled test output at reporting conditions.
     actual_capacity : float
-        Predicted measured test output at reporting conditions (headline
-        variant; see ``pvalues_checked``).
+        Predicted measured test output at reporting conditions.
     tested_capacity : float
-        ``ac_nameplate`` times the headline capacity ratio.
+        ``ac_nameplate`` times the capacity ratio.
     points_used : dict
         Points remaining after filtering, keyed by ``'meas'`` / ``'sim'``.
     regression_tables : dict
@@ -114,11 +108,6 @@ class CapTestResults:
     rc_kind : str or None
         Whether ``rc`` was ``'computed'`` from data or typed in
         (``'manual'``); ``None`` when ``CapTest.rc_kind`` was never set.
-    pvalues_checked : bool
-        Which variant is the headline: ``True`` when ``cap_ratio``,
-        ``actual_capacity``, ``expected_capacity``, and the pass/fail
-        decision used the p-value-checked predictions
-        (``check_pvalues=True``), ``False`` for the plain predictions.
     regression_stats : dict or None
         Per-side regression record from
         :func:`captest.capdata.regression_statistics` at ``rc``, keyed by
@@ -129,7 +118,6 @@ class CapTestResults:
     """
 
     cap_ratio: float
-    cap_ratio_pval_check: float
     passed: bool
     tolerance: str
     bounds: str
@@ -141,7 +129,6 @@ class CapTestResults:
     rc: pd.DataFrame
     rc_source: str | None
     rc_kind: str | None = None
-    pvalues_checked: bool = False
     regression_stats: dict | None = None
 
     def summary(self):
@@ -356,10 +343,6 @@ def _merge_rep_conditions(base, override):
 
 #: Overrides merged onto the preset rather than replacing it; empty is no change.
 _MERGED_OVERRIDES = ("reg_cols_meas", "reg_cols_sim", "rep_conditions")
-
-#: The p-value threshold ``run_test`` / ``captest_results`` default to. A
-#: stored run is only reproducible from its mapping at this value.
-_DEFAULT_PVAL = 0.05
 
 _RESOLVE_KEYS = (
     "reg_cols_meas",
@@ -2427,7 +2410,7 @@ class CapTest(param.Parameterized):
             canonical_json(self._build_yaml_sub_mapping()).encode("utf-8")
         ).hexdigest()
 
-    def _set_run_fingerprint(self, check_pvalues, pval):
+    def _set_run_fingerprint(self):
         """Compute :attr:`run_fingerprint` after a completed both-side run.
 
         Never raises: an unknown provenance, an execution option the mapping
@@ -2435,20 +2418,6 @@ class CapTest(param.Parameterized):
         fingerprint ``None`` with the reason in :attr:`run_fingerprint_error`.
         """
         self._run_fingerprint = None
-        if check_pvalues:
-            self._run_fingerprint_error = (
-                "the last run used check_pvalues=True, an execution option the "
-                "mapping does not carry; re-run with check_pvalues=False to "
-                "store results"
-            )
-            return
-        if pval != _DEFAULT_PVAL:
-            self._run_fingerprint_error = (
-                f"the last run used pval={pval}; cap_ratio_pval_check depends "
-                "on it and the mapping does not carry it. Re-run with the "
-                f"default pval={_DEFAULT_PVAL} to store results"
-            )
-            return
         if not self.auto_wrap_sim:
             self._run_fingerprint_error = (
                 "auto_wrap_sim=False is not serialized by to_mapping(), so the "
@@ -3142,7 +3111,7 @@ class CapTest(param.Parameterized):
         warnings.warn("Sign must be '-', '+/-', or '-/+'.")
         return None
 
-    def captest_results(self, check_pvalues=False, pval=0.05, print_res=True):
+    def captest_results(self, print_res=True):
         """Compute the capacity test results for ``self.meas`` vs ``self.sim``.
 
         Predicts both regressions at the single test reporting conditions
@@ -3150,21 +3119,12 @@ class CapTest(param.Parameterized):
         ``self.rc_source`` is reported for provenance. Raises ``ValueError``
         if ``self.rc`` is ``None``. Uses ``self.ac_nameplate`` for the
         tested capacity and ``self.test_tolerance`` (via
-        ``self.determine_pass_or_fail``) for the pass/fail result. Both the
-        plain and the p-value-checked predictions are always computed;
-        ``check_pvalues`` selects which pair is the headline reported as
-        ``cap_ratio`` / ``actual_capacity`` / ``expected_capacity`` and used
-        for pass/fail and tested capacity (``cap_ratio_pval_check`` always
-        carries the checked ratio; ``pvalues_checked`` records the choice).
+        ``self.determine_pass_or_fail``) for the pass/fail result. The ratio
+        always comes from the full regression: no coefficient is dropped or
+        zeroed.
 
         Parameters
         ----------
-        check_pvalues : bool, default False
-            When True, the headline predictions and ratio are the ones
-            computed with above-``pval`` coefficients zeroed before
-            prediction.
-        pval : float, default 0.05
-            P-value cutoff used for the p-value-checked ratio.
         print_res : bool, default True
             When True, prints the formatted results (``str(results)``).
 
@@ -3186,31 +3146,17 @@ class CapTest(param.Parameterized):
                 "tst.rep_cond(which) or assign tst.rc = df first."
             )
 
-        # predict_with_pvalue_check is a single-CapData helper that stays in
+        # predict_at_rc is a single-CapData helper that stays in
         # capdata.py. Imported lazily to avoid importing holoviews-heavy
         # capdata internals at module-load time for callers that never
         # compute cap ratios (e.g. notebooks that only use setup + plots).
-        from captest.capdata import predict_with_pvalue_check, regression_statistics
+        from captest.capdata import predict_at_rc, regression_statistics
 
-        checked_actual = predict_with_pvalue_check(
-            self.meas, rc=rc, pval_threshold=pval
-        )
-        checked_expected = predict_with_pvalue_check(
-            self.sim, rc=rc, pval_threshold=pval
-        )
-        plain_actual = predict_with_pvalue_check(self.meas, rc=rc, pval_threshold=None)
-        plain_expected = predict_with_pvalue_check(self.sim, rc=rc, pval_threshold=None)
-        cap_ratio_pval_check = checked_actual / checked_expected
-        # The headline pair drives the report and the pass/fail decision.
-        if check_pvalues:
-            actual, expected = checked_actual, checked_expected
-            cap_ratio = cap_ratio_pval_check
-        else:
-            actual, expected = plain_actual, plain_expected
-            cap_ratio = plain_actual / plain_expected
+        actual = predict_at_rc(self.meas, rc=rc)
+        expected = predict_at_rc(self.sim, rc=rc)
+        cap_ratio = actual / expected
         if cap_ratio < 0.01:
             cap_ratio *= 1000
-            cap_ratio_pval_check *= 1000
             actual *= 1000
             warnings.warn(
                 "Capacity ratio and actual capacity multiplied by 1000"
@@ -3242,7 +3188,6 @@ class CapTest(param.Parameterized):
 
         results = CapTestResults(
             cap_ratio=cap_ratio,
-            cap_ratio_pval_check=cap_ratio_pval_check,
             passed=bool(test_passed[0]),
             tolerance=self.test_tolerance,
             bounds=test_passed[1],
@@ -3260,7 +3205,6 @@ class CapTest(param.Parameterized):
             rc=rc.copy(),
             rc_source=self.rc_source,
             rc_kind=self.rc_kind,
-            pvalues_checked=check_pvalues,
             regression_stats={
                 "meas": regression_statistics(self.meas.regression_results, rc),
                 "sim": regression_statistics(self.sim.regression_results, rc),
@@ -3478,9 +3422,7 @@ class CapTest(param.Parameterized):
                 self._loading = False
         return self
 
-    def run_test(
-        self, side="both", check_pvalues=False, pval=_DEFAULT_PVAL, print_res=False
-    ):
+    def run_test(self, side="both", print_res=False):
         """Run the full capacity test (or one side of it) end to end.
 
         Canonical sequence: (1) ``setup(side=side)``; (2)
@@ -3510,7 +3452,7 @@ class CapTest(param.Parameterized):
         Parameters
         ----------
         side : {'both', 'meas', 'sim'}, default 'both'
-        check_pvalues, pval, print_res
+        print_res : bool, default False
             Forwarded to :meth:`captest_results` (``side='both'`` only).
 
         Returns
@@ -3601,54 +3543,19 @@ class CapTest(param.Parameterized):
                 )
 
             stage = "results"
-            results = self.captest_results(
-                check_pvalues=check_pvalues, pval=pval, print_res=print_res
-            )
+            results = self.captest_results(print_res=print_res)
             self._last_results = results
             self._run_capdata = {
                 "meas": weakref.ref(self.meas),
                 "sim": weakref.ref(self.sim),
             }
-            self._set_run_fingerprint(check_pvalues, pval)
+            self._set_run_fingerprint()
             return results
         except Exception as e:
             # add_note exists on 3.11+; the project floor is 3.10.
             if hasattr(e, "add_note"):
                 e.add_note(f"[CapTest.run_test stage: {stage}]")
             raise
-
-    def captest_results_check_pvalues(self, print_res=False, **kwargs):
-        """Compute cap ratio with and without p-value filtering.
-
-        Thin display wrapper around :meth:`captest_results` (called once):
-        prints both capacity ratios and returns the p-value Styler view of
-        the results (``CapTestResults.styled_pvalues``).
-
-        Parameters
-        ----------
-        print_res : bool, default False
-            Forwarded to the internal ``captest_results`` call.
-        **kwargs
-            Forwarded to ``captest_results`` (e.g. ``check_pvalues`` to pick
-            the headline ratio, ``pval`` for the cutoff).
-
-        Returns
-        -------
-        pandas.io.formats.style.Styler
-            Styled DataFrame with p-values and parameter values for both
-            ``self.meas`` and ``self.sim``. P-values >= 0.05 are highlighted.
-        """
-        res = self.captest_results(print_res=print_res, **kwargs)
-
-        cap_ratio_rounded = np.round(res.cap_ratio, decimals=4) * 100
-        cap_ratio_check_pvalues_rounded = (
-            np.round(res.cap_ratio_pval_check, decimals=4) * 100
-        )
-
-        print(f"{cap_ratio_rounded:.3f}% - Cap Ratio")
-        print(f"{cap_ratio_check_pvalues_rounded:.3f}% - Cap Ratio after pval check")
-
-        return res.styled_pvalues()
 
     def get_summary(self):
         """Concatenate ``self.meas.get_summary()`` and ``self.sim.get_summary()``.

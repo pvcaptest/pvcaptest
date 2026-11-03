@@ -1174,39 +1174,15 @@ result values:
 ``str(results)`` (or ``print(results)``) reproduces the printed report, and
 ``results.styled_pvalues()`` returns a styled table of the regression
 coefficients and p-values for both sides with high p-values highlighted.
-Other fields include the p-value-checked capacity ratio
-(``cap_ratio_pval_check``), the tolerance and capacity bounds the test was
+Other fields include the tolerance and capacity bounds the test was
 judged against, the points remaining after filtering on each side
 (``points_used``), per-side regression tables, and the reporting conditions
 used with their provenance (``rc``, ``rc_source``).
 
-Headline selection with check_pvalues
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-``captest_results`` always computes two variants of the predicted capacities:
-the plain predictions from the fitted coefficients, and the
-**p-value-checked** predictions, in which any coefficient whose p-value is
-above the ``pval`` cutoff (default ``0.05``) is set to zero before
-predicting. The ``check_pvalues`` argument selects which variant is the
-*headline* — the values reported as ``cap_ratio``, ``actual_capacity``,
-``expected_capacity``, and ``tested_capacity`` and used for the pass/fail
-decision:
-
-.. code-block:: Python
-
-    results = tst.captest_results()                    # headline = plain
-    results = tst.captest_results(check_pvalues=True)  # headline = checked
-
-Two fields make the selection unambiguous regardless of how the test was
-run:
-
-- ``results.cap_ratio_pval_check`` always carries the p-value-checked ratio,
-  even when the headline is the plain variant.
-- ``results.pvalues_checked`` records which variant the headline fields hold
-  (``True`` when the test ran with ``check_pvalues=True``).
-
-The same arguments are accepted by
-:py:meth:`~captest.CapTest.run_test`, which forwards them to
-``captest_results``.
+The capacity ratio always comes from the full regression. A coefficient with a
+high p-value is reported, and ``styled_pvalues()`` highlights it, but it is
+never dropped or zeroed: the regression form is fixed by the test standard, and
+setting a coefficient to zero without refitting is not statistically valid.
 
 .. note::
 
@@ -1216,9 +1192,9 @@ The same arguments are accepted by
 
 Additional review methods are available from the same ``CapTest`` object:
 
-- :py:meth:`~captest.CapTest.captest_results_check_pvalues` compares
-  results with and without high-p-value coefficients and highlights
-  coefficients with p-values above 0.05.
+- :py:meth:`~captest.captest.CapTestResults.styled_pvalues` tabulates the
+  regression coefficients and p-values for both sides and highlights
+  p-values above 0.05.
 - :py:meth:`~captest.CapTest.overlay_scatters` overlays the measured
   and modeled regression scatter plots.
 - :py:meth:`~captest.CapTest.residual_plot` compares measured and
