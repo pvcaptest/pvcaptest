@@ -173,9 +173,9 @@ Regression
 Methods for fitting the ASTM E2848 regression, predicting capacities, and
 reading the fit. :meth:`~captest.capdata.CapData.regression_curve` sweeps one
 predictor with the others held at the reporting conditions, and
-:func:`~captest.capdata.predict_at_rc` predicts at the reporting
-conditions, and :func:`~captest.capdata.regression_statistics` collects the statistics stored
-on ``CapTestResults.regression_stats``.
+:func:`~captest.capdata.predict_at_rc` predicts at the reporting conditions,
+and :func:`~captest.capdata.regression_statistics` collects the statistics
+stored on ``CapTestResults.regression_stats``.
 
 .. autosummary::
    :toctree: generated/

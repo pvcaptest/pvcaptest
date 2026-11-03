@@ -9,7 +9,9 @@ from captest.io import load_data, load_pvsyst, loader_id
 from tests.setup_fixtures import build_meas_default, build_sim_default
 
 _SIM_WINDOW = ("1990-10-09", "1990-10-13 23:55:00")
-# Captured from the code before the p-value check was removed.
+# Captured from the code before the p-value check was removed. If it ever
+# mismatches, check test_untouched_run_matches first: it shows whether the
+# mapping itself changed rather than this pinned value.
 KNOWN_FINGERPRINT = "e259eb3dc392ffa80247ec436cf2f404359d47f49c4c113118c2565bdfad1700"
 
 

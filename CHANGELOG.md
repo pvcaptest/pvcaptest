@@ -45,7 +45,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and `last_results`: bind a completed `run_test()`'s results to the
   configuration that produced them, including load settings as they were at
   load time. Unset after a single-side or failed run, a reload, or a run with
-  a non-default `pval`, `check_pvalues=True` or `auto_wrap_sim=False`; while
+  `auto_wrap_sim=False`; while
   `meas` or `sim` is a different `CapData` from the one the run used (e.g.
   `tst.meas = tst.meas.copy()`), `run_fingerprint` and `last_results` read
   `None` and `run_fingerprint_error` says the side was replaced. A copied

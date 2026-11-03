@@ -1,5 +1,5 @@
-captest.capdata.regression\_statistics
-=============================
+﻿captest.capdata.predict\_at\_rc
+===============================
 
 .. currentmodule:: captest.capdata
 
