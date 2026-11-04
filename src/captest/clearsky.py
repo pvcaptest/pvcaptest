@@ -103,6 +103,16 @@ def pvlib_system(sys):
     return system
 
 
+# pandas 3 raises ValueError for an unresolvable ambiguous time; pandas 2.x raises
+# pytz's AmbiguousTimeError, which is not a ValueError. pytz is optional in pandas 3.
+try:
+    from pytz.exceptions import AmbiguousTimeError as _PytzAmbiguousTimeError
+
+    _AMBIGUOUS_ERRORS = (ValueError, _PytzAmbiguousTimeError)
+except ImportError:  # pragma: no cover
+    _AMBIGUOUS_ERRORS = (ValueError,)
+
+
 def localize_index(index, tz, nonexistent="NaT"):
     """
     Localize a naive DatetimeIndex, tolerating a de-duplicated fall-back hour.
@@ -129,7 +139,7 @@ def localize_index(index, tz, nonexistent="NaT"):
     """
     try:
         return index.tz_localize(tz, ambiguous="infer", nonexistent=nonexistent)
-    except ValueError:
+    except _AMBIGUOUS_ERRORS:
         return index.tz_localize(tz, ambiguous=True, nonexistent=nonexistent)
 
 
