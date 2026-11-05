@@ -187,7 +187,7 @@ the two models differ across the range of each predictor variable. See
 
 Identifying Regression Data
 ---------------------------
-To perform the regression pvcaptest uses `statsmodels <https://www.statsmodels.org/stable/index.html>`_, which in turn `relies on patsy <https://www.statsmodels.org/stable/examples/notebooks/generated/formulas.html>`_ to simplify specifying regression equations.
+To perform the regression pvcaptest uses `statsmodels <https://www.statsmodels.org/stable/index.html>`_, which in turn `relies on a formula engine <https://www.statsmodels.org/stable/examples/notebooks/generated/formulas.html>`_ (formulaic from statsmodels 0.15, patsy before that) to simplify specifying regression equations.
 
 By default the ASTM E2848 regression equation is defined in the :py:attr:`~captest.capdata.CapData.regression_formula` attribute:
 

@@ -107,12 +107,17 @@ directory); `util.canonical_json` and `util.reg_col_label`.
   []}`) now resets its chain, where it previously kept the existing one. A side
   with no entry in `configs` still replays its live chain, else its pending
   list.
-- `statsmodels` is capped below 0.15 (`statsmodels>=0.8,<0.15`). statsmodels
-  0.15 fits formulas with formulaic instead of patsy, so
-  `model.data.design_info` no longer exists and regression fitting fails.
-  Remove the cap once captest supports the formulaic model data.
+- statsmodels 0.15 is supported. statsmodels 0.15 fits formulas with
+  formulaic by default instead of patsy, so `model.data.design_info` no longer
+  exists. The new `capdata.design_matrix(results, frame)` builds the
+  prediction design matrix from whichever engine fitted the model (a formulaic
+  `ModelSpec`, or a patsy `DesignInfo` under statsmodels < 0.15 or
+  `SM_FORMULA_ENGINE=patsy`); `predict_at_rc` and `CapData.regression_curve`
+  use it. Both engines give the same parameters and predictions for the
+  shipped presets.
 - `patsy>=0.5.6` is now a declared dependency. captest imports it directly
-  (`capdata`, `setup`); it was previously only pulled in by statsmodels.
+  (`capdata`, and `setup`, which still parses `reg_fml` with patsy); it was
+  previously only pulled in by statsmodels.
 - **Breaking:** test setups are now pure-data documents. `regression_cols`
 trees use tagged nodes — `{group: irr_poa, agg: mean}`, `{column: E_Grid}`,
 `{calc: e_total, args: {...}}` — instead of `(group, agg)` / `(callable,

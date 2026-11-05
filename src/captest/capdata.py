@@ -21,7 +21,7 @@ import numpy as np
 import pandas as pd
 import param
 from bokeh.models import HoverTool, NumeralTickFormatter
-from patsy import dmatrix
+from patsy import DesignInfo, dmatrix
 from statsmodels.stats.stattools import durbin_watson, jarque_bera, omni_normtest
 
 from captest import plotting, prep, util
@@ -597,6 +597,39 @@ def pred_summary(grps, rcs, allowance, **kwargs):
     return results
 
 
+def design_matrix(results, frame):
+    """
+    Build the exog matrix of a formula-fitted model for new data.
+
+    Works with either statsmodels formula engine. statsmodels 0.15+ stores the
+    formula spec as ``model.data.model_spec``: a formulaic ``ModelSpec`` under
+    the default formulaic engine, or a patsy ``DesignInfo`` when the patsy
+    engine is selected (``SM_FORMULA_ENGINE=patsy``). Earlier statsmodels
+    versions store a patsy ``DesignInfo`` as ``model.data.design_info``.
+
+    Parameters
+    ----------
+    results : statsmodels RegressionResultsWrapper
+        Results of a model fit from a formula, e.g.
+        ``CapData.regression_results``.
+    frame : DataFrame
+        Data holding every right-hand-side variable of the formula.
+
+    Returns
+    -------
+    numpy.ndarray
+        Design matrix with one row per row of ``frame`` and one column per
+        model parameter, in ``results.params`` order.
+    """
+    data = results.model.data
+    spec = getattr(data, "model_spec", None)
+    if spec is None:
+        spec = data.design_info
+    if isinstance(spec, DesignInfo):
+        return np.asarray(dmatrix(spec, frame))
+    return np.asarray(spec.get_model_matrix(frame))
+
+
 def predict_at_rc(cd, rc=None):
     """
     Predict the fitted regression at the reporting conditions.
@@ -621,8 +654,7 @@ def predict_at_rc(cd, rc=None):
     results = cd.regression_results
     if rc is None:
         rc = cd.rc
-    design_info = results.model.data.design_info
-    exog = dmatrix(design_info, rc)
+    exog = design_matrix(results, rc)
     return results.model.predict(results.params, exog)[0]
 
 
@@ -935,7 +967,7 @@ class CapData(param.Parameterized):
         Holds the linear regression model object.
     regression_formula : str
         Regression formula to be fit to measured and simulated data.  Must
-        follow the requirements of statsmodels use of patsy.
+        follow the statsmodels formula syntax (formulaic or patsy).
     tolerance : str
         String representing error band.  Ex. '+ 3', '+/- 3', '- 5'
         There must be space between the sign and number. Number is
@@ -3409,9 +3441,9 @@ class CapData(param.Parameterized):
         results = self.regression_results
         frame = pd.concat([rc.iloc[[0]]] * len(values), ignore_index=True)
         frame[x] = np.asarray(values, dtype=float)
-        # Same dmatrix + model.predict path as predict_at_rc, which
+        # Same design_matrix + model.predict path as predict_at_rc, which
         # avoids the pandas Copy-on-Write problems of results.predict.
-        exog = dmatrix(results.model.data.design_info, frame)
+        exog = design_matrix(results, frame)
         return np.asarray(results.model.predict(results.params, exog))
 
     def fit_regression(self, filter=False, summary=True, custom_name=None):

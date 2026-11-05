@@ -14,7 +14,6 @@ import pvlib
 import pytest
 import statsmodels.formula.api as smf
 import yaml
-from patsy import dmatrix
 
 from captest import (
     CapTest,
@@ -2917,8 +2916,7 @@ class TestStatsmodelsParamModification:
         modified_params["x"] = 0
 
         # Create design matrix for prediction
-        design_info = results.model.data.design_info
-        exog = dmatrix(design_info, test_df)
+        exog = pvc.design_matrix(results, test_df)
 
         # Predict with modified params
         pred_with_modified = results.model.predict(modified_params, exog)[0]
@@ -3171,11 +3169,9 @@ class TestCapTestCpResultsMultCoeff(unittest.TestCase):
         sim_params_modified["poa"] = 0
 
         # Use model.predict() with custom params
-        das_design_info = das_results.model.data.design_info
-        sim_design_info = sim_results.model.data.design_info
 
-        das_exog = dmatrix(das_design_info, rc)
-        sim_exog = dmatrix(sim_design_info, rc)
+        das_exog = pvc.design_matrix(das_results, rc)
+        sim_exog = pvc.design_matrix(sim_results, rc)
 
         # Predictions with modified params
         actual_after = das_results.model.predict(das_params_modified, das_exog)[0]

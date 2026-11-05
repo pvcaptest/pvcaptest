@@ -253,7 +253,8 @@ def fit_model(
     ----------
     df : pandas dataframe
     fml : str
-        Formula to fit refer to statsmodels and patsy documentation for format.
+        Formula to fit; refer to the statsmodels formula documentation for
+        format.
         Default is the formula in ASTM E2848.
 
     Returns
