@@ -222,6 +222,17 @@ Methods for scatter plots, filter inspection, and interactive dashboards.
    capdata.CapData.scatter_filters
    capdata.CapData.timeseries_filters
 
+Performance Ratio
+-----------------
+
+Performance ratio test on the filtered data; see :doc:`prtest` for the
+underlying functions.
+
+.. autosummary::
+   :toctree: generated/
+
+   capdata.CapData.performance_ratio
+
 Export
 ------
 

@@ -101,6 +101,15 @@ resolved (`None` before `setup()`); read `resolved_setup.to_dict()` /
 `content_digest()` for the normalised setup and its identity.
 - `captest.captest.load_presets` and `SETUPS_DIR` (the shipped preset
 directory); `util.canonical_json` and `util.reg_col_label`.
+- `CapData.performance_ratio` and `prtest.performance_ratio`: the PR test as a
+  composition of pure functions in `captest.prtest` (units and `dt_hours`,
+  `expected_energy_wh`, `complete_rows`, `pr_ratio`, `fixed_reference` /
+  `derive_reference` including monthly references, `measured_pr`,
+  `weighted_expected_pr`, `degradation_factor`, `parse_pr_tolerance`, `judge`),
+  returning a `PrTestResults`.
+- `calcparams.register_to_interval_energy` and `util.common_timestep_delta`
+  (the dominant timestep without rounding to whole minutes).
+- `calcparams.cell_temp(..., temp_delta=)`.
 
 ### Changed
 - `CapTest.replay_filters`: a side given an empty config (`configs={"meas":
@@ -218,8 +227,27 @@ time, so they are unaffected).
   still reported. Use `capdata.predict_at_rc(cd, rc=None)` for a plain
   prediction at the reporting conditions. Run fingerprints are unchanged for
   a plain run.
+- The `captest.prtest` performance-ratio API is replaced outright, with no
+  deprecation shims: `perf_ratio`, `perf_ratio_temp_corr_nrel`,
+  `perf_ratio_inputs_ok` and `PrResults` (with `print_pr_result`) are removed.
+  Replacements:
+  - `perf_ratio(...)` becomes
+    `cd.performance_ratio(numerator=..., poa=..., dc_nameplate=..., kind=...,
+    units=...)` on a `CapData`, or
+    `prtest.performance_ratio(df, numerator=..., poa=..., ...)` on a
+    DataFrame. `unit_adj` is replaced by `kind` (`"power"` or `"energy"`) plus
+    `units` (`W`/`kW`/`MW` or `Wh`/`kWh`/`MWh`).
+  - `perf_ratio_temp_corr_nrel(...)` becomes the same call with a temperature
+    source (`cell_temp=`, `bom=`, or `temp_amb=` with `wind_speed=`) and
+    `power_temp_coeff=` (%/degC, negative).
+  - `PrResults` becomes `PrTestResults`.
+  - Degradation is now linear, `1 - years * rate / 100` via
+    `prtest.degradation_factor`, where the old code compounded
+    `(1 - d) ** year`.
 
 ### Fixed
+- `calcparams.avg_typ_cell_temp` ignores rows with a missing temperature
+  (or POA) in both the numerator and the denominator.
 - `file_reader` no longer fails with `UnboundLocalError` on a file with
   multi-row headings whose data rows are all blank (e.g. a report for a device
   that sent nothing). It finds the end of the headings among all rows when the

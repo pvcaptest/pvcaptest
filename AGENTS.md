@@ -136,7 +136,7 @@ There are two levels of API.
 - pvlib-based clear-sky GHI/POA modeling used by `io.load_data` when site metadata is supplied. Clear-sky *filtering* (`Clearsky`) is separate and uses `pvlib.clearsky.detect_clearsky` directly.
 
 **`src/captest/calcparams.py`** — Derived measured values
-- Functions to calculate derived values from measured data (e.g. back-of-module temperature from POA, wind speed, and ambient temperature via the Sandia model).
+- Functions to calculate derived values from measured data (e.g. back-of-module temperature from POA, wind speed, and ambient temperature via the Sandia model; `register_to_interval_energy` turns a cumulative register into interval energy).
 - `CALC_REGISTRY` / `@register_calc(name=None, *, requires_params=(), requires_import=())`: every public calculation is registered by name, which is how a `Calc` node refers to it (custom calculations register the same way before a setup naming them loads). `CapData.custom_param(func, *, output=None, ...)` injects a `CapData` attribute only for an argument absent from the node's `args`; `tests/test_calc_params.py` checks each declaration against the function source.
 
 **`src/captest/columngroups.py`** — Column grouping
@@ -149,8 +149,8 @@ There are two levels of API.
 - `residual_plot(...)`: compares residual-vs-exogenous behavior between two fitted `CapData` objects
 
 **`src/captest/prtest.py`** — Performance ratio
-- `perf_ratio(...)` and `perf_ratio_temp_corr_nrel(...)` are separate from ASTM capacity-test calculation
-- Results wrapped in `PrResults` with aggregate PR outputs and per-timestep data
+- Pure-function PR test API, separate from ASTM capacity-test calculation: units (`to_energy_wh`, `dt_hours`), `expected_energy_wh`, the complete-row set (`complete_rows`), references (`fixed_reference` / `derive_reference`, incl. monthly), `measured_pr`, `degradation_factor` (linear), and `judge`; no pvlib import
+- `performance_ratio(...)` / `CapData.performance_ratio(...)` compose them into a `PrTestResults`
 
 ### Public API Surface
 `src/captest/__init__.py` re-exports `load_data`, `load_pvsyst`, `DataLoader` (from `io`) and `CapTest`, `TEST_SETUPS`, `load_config` (from `captest`), plus submodules `capdata`, `captest`, `io`, `columngroups`, `calcparams`, `clearsky`, `plotting`, `prtest`, `util`. (`filters.py` is internal — imported by `capdata`, not re-exported. `setup.py` is public but not re-exported by name; import it as `captest.setup`.)

@@ -13,4 +13,4 @@ configuring test parameters, and loading data.
    capdata.CapData
    io.DataLoader
    columngroups.ColumnGroups
-   prtest.PrResults
+   prtest.PrTestResults

@@ -22,6 +22,7 @@ Time Series
    :toctree: generated/
 
    util.get_common_timestep
+   util.common_timestep_delta
    util.reindex_datetime
    util.detect_solar_noon
 
