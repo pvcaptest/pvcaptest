@@ -246,6 +246,113 @@ class TestAvgTypCellTemp:
         )
 
 
+class TestCellTempDelta:
+    def test_override_replaces_table_value(self):
+        df = pd.DataFrame({"bom": [40.0], "poa": [800.0]})
+        result = calcparams.cell_temp(df, "bom", "poa", temp_delta=0.5, verbose=False)
+        assert result.iloc[0] == pytest.approx(40.4)
+
+    def test_default_uses_table_value(self):
+        df = pd.DataFrame({"bom": [40.0], "poa": [800.0]})
+        result = calcparams.cell_temp(df, "bom", "poa", verbose=False)
+        assert result.iloc[0] == pytest.approx(42.4)
+
+
+class TestAvgTypCellTempNaN:
+    def test_rows_with_nan_excluded_from_both_sums(self):
+        df = pd.DataFrame({"poa": [1000.0, 500.0, 800.0], "cell": [40.0, 25.0, np.nan]})
+        assert calcparams.avg_typ_cell_temp(df, "poa", "cell") == pytest.approx(35.0)
+
+    def test_nan_poa_excluded(self):
+        df = pd.DataFrame({"poa": [1000.0, np.nan], "cell": [40.0, 25.0]})
+        assert calcparams.avg_typ_cell_temp(df, "poa", "cell") == pytest.approx(40.0)
+
+
+class TestRegisterToIntervalEnergy:
+    @staticmethod
+    def _frame(values, start="2024-01-01 10:00"):
+        ix = pd.date_range(start, periods=len(values), freq="1min")
+        return pd.DataFrame({"reg": values}, index=ix, dtype=float)
+
+    def test_end_label(self):
+        df = self._frame([0, 10, 20, 30, 40])
+        out = calcparams.register_to_interval_energy(
+            df, "reg", label="end", verbose=False
+        )
+        assert np.isnan(out.iloc[0])
+        assert out.iloc[1:].tolist() == [10, 10, 10, 10]
+
+    def test_start_label(self):
+        df = self._frame([0, 10, 25, 30, 40])
+        out = calcparams.register_to_interval_energy(
+            df, "reg", label="start", verbose=False
+        )
+        assert out.iloc[:-1].tolist() == [10, 15, 5, 10]
+        assert np.isnan(out.iloc[-1])
+
+    def test_reset_is_nan_and_warns_with_count(self):
+        df = self._frame([0, 10, 50, 3, 13, 23])
+        with pytest.warns(UserWarning, match="1"):
+            out = calcparams.register_to_interval_energy(
+                df, "reg", label="end", verbose=False
+            )
+        assert np.isnan(out.iloc[3])
+        assert out.iloc[4] == 10
+
+    def test_nan_reading_voids_both_touching_intervals(self):
+        df = self._frame([0, 10, np.nan, 30, 40, 50])
+        out = calcparams.register_to_interval_energy(
+            df, "reg", label="end", verbose=False
+        )
+        assert np.isnan(out.iloc[2]) and np.isnan(out.iloc[3])
+        assert out.iloc[4] == 10
+
+    def test_register_start_label_shift_is_time_based(self):
+        df = self._frame([0, 10, 20, 30, 40, 55, 60]).drop(
+            pd.Timestamp("2024-01-01 10:03")
+        )
+        end = calcparams.register_to_interval_energy(
+            df, "reg", label="end", verbose=False
+        )
+        start = calcparams.register_to_interval_energy(
+            df, "reg", label="start", verbose=False
+        )
+        assert np.isnan(end[pd.Timestamp("2024-01-01 10:04")])
+        assert np.isnan(start[pd.Timestamp("2024-01-01 10:02")])
+        assert start[pd.Timestamp("2024-01-01 10:04")] == 15
+
+    def test_parity_with_interval_energy(self):
+        ix = pd.date_range("2024-01-01 10:00", periods=8, freq="5min")
+        power_w = pd.Series([100.0, 250, 400, 320, 90, 500, 610, 20], index=ix)
+        energy = power_w * (5 / 60)
+        reg = energy.cumsum().shift(1, fill_value=0)
+        df = pd.DataFrame({"reg": reg})
+        out = calcparams.register_to_interval_energy(
+            df, "reg", label="start", verbose=False
+        )
+        pd.testing.assert_series_equal(
+            out.iloc[:-1], energy.iloc[:-1], check_names=False
+        )
+        assert np.isnan(out.iloc[-1])
+
+    def test_invalid_label_raises(self):
+        df = self._frame([0, 1, 2])
+        with pytest.raises(ValueError, match="label"):
+            calcparams.register_to_interval_energy(df, "reg", label="mid")
+
+    def test_duplicate_timestamps_raise(self):
+        df = self._frame([0, 1, 2])
+        df.index = df.index[[0, 1, 1]]
+        with pytest.raises(ValueError, match="duplicate"):
+            calcparams.register_to_interval_energy(df, "reg")
+
+    def test_verbose_prints_register_and_label(self, capsys):
+        df = self._frame([0, 1, 2])
+        calcparams.register_to_interval_energy(df, "reg", label="end")
+        out = capsys.readouterr().out
+        assert "reg" in out and "end" in out
+
+
 class TestRpoaPvsyst:
     def test_series_inputs(self):
         ix = pd.date_range(start="1/1/2021 12:00", freq="h", periods=3)

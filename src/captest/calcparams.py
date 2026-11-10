@@ -246,7 +246,13 @@ def bom_temp(
 
 @register_calc(requires_params=("module_type", "racking"))
 def cell_temp(
-    data, bom, poa, module_type="glass_cell_poly", racking="open_rack", verbose=True
+    data,
+    bom,
+    poa,
+    module_type="glass_cell_poly",
+    racking="open_rack",
+    temp_delta=None,
+    verbose=True,
 ):
     """Calculate cell temp from BOM temp, POA, and heat transfer coefficient.
 
@@ -271,6 +277,10 @@ def cell_temp(
         Any of glass_cell_poly, glass_cell_glass, or 'poly_tf_steel'.
     racking: str, default 'open_rack'
         Any of 'open_rack', 'close_roof_mount', or 'insulated_back'
+    temp_delta : float, optional
+        Cell-to-back-of-module temperature difference at 1000 W/m^2 (degrees C),
+        replacing the conduction offset (``del_tcnd``) looked up from
+        `module_type` and `racking`. Default None uses the table value.
     verbose : bool, default True
         By default prints explanation of calculation. Set to False for no output
         message.
@@ -288,9 +298,9 @@ def cell_temp(
         )
     bom_data = data[bom]
     poa_data = data[poa]
-    return (
-        bom_data + (poa_data / 1000) * EMP_HEAT_COEFF[racking][module_type]["del_tcnd"]
-    )
+    if temp_delta is None:
+        temp_delta = EMP_HEAT_COEFF[racking][module_type]["del_tcnd"]
+    return bom_data + (poa_data / 1000) * temp_delta
 
 
 @register_calc()
@@ -310,9 +320,13 @@ def avg_typ_cell_temp(data, poa, cell_temp, verbose=True):
     Returns
     -------
     float
-        Average irradiance-weighted cell temperature.
+        Average irradiance-weighted cell temperature. Only rows where both
+        columns are finite contribute to the numerator and the denominator.
     """
-    return (data[poa] * data[cell_temp]).sum() / data[poa].sum()
+    poa_data = data[poa]
+    temp_data = data[cell_temp]
+    finite = np.isfinite(poa_data) & np.isfinite(temp_data)
+    return (poa_data[finite] * temp_data[finite]).sum() / poa_data[finite].sum()
 
 
 @register_calc()
@@ -682,6 +696,75 @@ def scale(data, col=None, factor=1.0, verbose=True):
     if verbose:
         print(f'Calculating and adding "{scale.__name__}" column as {col} * {factor}.')
     return data[col] * factor
+
+
+@register_calc()
+def register_to_interval_energy(data, register, label="start", verbose=True):
+    """Difference a cumulative energy register into interval energy.
+
+    Interval energy is computed from timestamps, not row positions, so a
+    missing row voids the interval it spans instead of shifting the values.
+    Intervals that are not exactly one common timestep long, that touch a NaN
+    reading, or that are negative (a register reset or rollover) are NaN. The
+    values stay in the register's own units.
+
+    Parameters
+    ----------
+    data : DataFrame
+        Source DataFrame with a DatetimeIndex. Duplicate timestamps raise.
+    register : str
+        Column name of the cumulative energy register.
+    label : {'start', 'end'}, default 'start'
+        Which end of the interval the value is stamped at. ``'end'`` gives
+        ``reg[t] - reg[t - dt]``; ``'start'`` gives ``reg[t + dt] - reg[t]``,
+        matching interval-average power timestamps.
+    verbose : bool, default True
+        Set to False to suppress the explanatory print message.
+
+    Returns
+    -------
+    Series
+        Interval energy indexed like ``data.index``.
+
+    Raises
+    ------
+    ValueError
+        If `label` is not ``'start'`` or ``'end'``, or the index has duplicate
+        timestamps or no dominant timestep.
+
+    Warns
+    -----
+    UserWarning
+        If any step between readings is negative; the count is reported.
+    """
+    from captest.util import common_timestep_delta
+
+    if label not in ("start", "end"):
+        raise ValueError(f"label must be 'start' or 'end', got {label!r}.")
+    if data.index.has_duplicates:
+        raise ValueError("data index has duplicate timestamps.")
+    if verbose:
+        print(
+            f'Calculating and adding "{register_to_interval_energy.__name__}" '
+            f'column by differencing the "{register}" register, labelled at '
+            f'the interval "{label}".'
+        )
+    dt = common_timestep_delta(data.index)
+    end = data[register].diff()
+    steps = data.index.to_series().diff()
+    end[steps != dt] = np.nan
+    negative = end < 0
+    if negative.any():
+        warnings.warn(
+            f'"{register}" decreases at {int(negative.sum())} step(s) '
+            "(register reset or rollover); those intervals are set to NaN.",
+            UserWarning,
+            stacklevel=2,
+        )
+        end[negative] = np.nan
+    if label == "end":
+        return end
+    return end.shift(freq=-dt).reindex(data.index)
 
 
 @register_calc(requires_params=("spectral_module_type",), requires_import=("pvlib",))
