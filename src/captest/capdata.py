@@ -3782,6 +3782,39 @@ class CapData(param.Parameterized):
             )
         return Side.model_validate({"reg_cols": reg_cols})
 
+    def performance_ratio(self, *, dt_hours=None, **kwargs):
+        """Compute the performance ratio of the filtered data.
+
+        Runs `captest.prtest.performance_ratio` on ``data_filtered``. The
+        interval length comes from the **unfiltered** ``data`` index, so a
+        filter that removes rows does not change it.
+
+        Parameters
+        ----------
+        dt_hours : float, optional
+            Interval length in hours. Default is the dominant timestep of
+            ``data.index``.
+        **kwargs
+            Passed to `captest.prtest.performance_ratio` (``numerator``,
+            ``poa``, ``dc_nameplate``, ``kind``, ``units``, temperature
+            sources, ...).
+
+        Returns
+        -------
+        captest.prtest.PrTestResults
+            The measured PR; no pass/fail is judged.
+
+        Raises
+        ------
+        ValueError
+            As `captest.prtest.performance_ratio`.
+        """
+        from captest import prtest
+
+        if dt_hours is None:
+            dt_hours = prtest.dt_hours(self.data.index)
+        return prtest.performance_ratio(self.data_filtered, dt_hours=dt_hours, **kwargs)
+
     def custom_param(self, func, *, output=None, verbose=True, **kwargs):
         """Run ``func`` on ``data`` and store the result as a new column.
 

@@ -4549,5 +4549,50 @@ class TestRegressionStatistics:
             assert stats["resid_std"] is not None
 
 
+class TestPerformanceRatioMethod:
+    @staticmethod
+    def _cd():
+        idx = pd.date_range("2025-06-01 10:00", periods=8, freq="15min")
+        rng = np.arange(8, dtype=float)
+        cd = pvc.CapData("meas")
+        cd.data = pd.DataFrame(
+            {"energy": 100.0 + 2 * rng, "poa": 600.0 + 20 * rng}, index=idx
+        )
+        return cd
+
+    def test_cd_performance_ratio_uses_unfiltered_timestep(self):
+        from captest import prtest
+
+        cd = self._cd()
+        cd.filter_custom(lambda df: df.iloc[::2])
+        kw = {"numerator": "energy", "poa": "poa", "dc_nameplate": 1000.0}
+        res = cd.performance_ratio(kind="energy", units="Wh", **kw)
+        kept = cd.data_filtered
+        manual = prtest.performance_ratio(
+            kept, kind="energy", units="Wh", dt_hours=0.25, **kw
+        )
+        wrong = prtest.performance_ratio(
+            kept, kind="energy", units="Wh", dt_hours=0.5, **kw
+        )
+        assert res.ratio == pytest.approx(manual.ratio)
+        assert res.ratio != pytest.approx(wrong.ratio)
+        assert res.dt_hours == {"meas": 0.25}
+        assert res.points_used == {"meas": 4}
+
+    def test_explicit_dt_hours_used_once(self):
+        res = self._cd().performance_ratio(
+            numerator="energy", poa="poa", dc_nameplate=1000.0, dt_hours=0.5
+        )
+        assert res.dt_hours == {"meas": 0.5}
+
+    @pytest.mark.parametrize(
+        "changes", [{"dt_hours": 0}, {"dt_hours": -0.25}, {"dc_nameplate": 0}]
+    )
+    def test_invalid_inputs_raise(self, changes):
+        kw = {"numerator": "energy", "poa": "poa", "dc_nameplate": 1000.0} | changes
+        with pytest.raises(ValueError):
+            self._cd().performance_ratio(**kw)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -12,11 +12,13 @@ import math
 import re
 import warnings
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import ClassVar
 
 import numpy as np
 import pandas as pd
 
+from captest import calcparams
 from captest.util import common_timestep_delta
 
 G_STC = 1000.0
@@ -71,6 +73,9 @@ def dt_hours(index):
         Timestep in hours.
     """
     return common_timestep_delta(index) / pd.Timedelta(hours=1)
+
+
+_index_dt_hours = dt_hours
 
 
 def to_energy_wh(values, *, kind, units, dt_hours):
@@ -1115,3 +1120,276 @@ def weighted_expected_pr(reference: Reference, insolation_wh_m2: pd.Series) -> f
     values = pd.Series({int(m): reference.pr[int(m)] for m in weights.index})
     values.index = weights.index
     return float((weights * values).sum() / weights.sum())
+
+
+@dataclass
+class PrTestResults:
+    """
+    Result of a performance ratio test.
+
+    Attributes
+    ----------
+    ratio : float
+        Measured PR including the availability factor.
+    ratio_without_availability : float
+        The same ratio with availability taken as 1.
+    temp_corrected : bool
+        Whether the temperature-corrected form was used.
+    dc_nameplate : float
+        DC nameplate capacity in W.
+    power_temp_coeff : float or None
+        Power temperature coefficient in %/°C, None for a plain test.
+    intervals : pd.DataFrame
+        Per-row energy, expected energy, irradiance, temperatures and PR.
+    points_used, dropped_nan, dropped_nonfinite, dt_hours : dict
+        Per side (``"meas"``, ``"sim"``): rows used, rows dropped for NaN,
+        rows dropped for inf, and the interval length in hours.
+    numerator : dict
+        Per side ``{"kind", "units"}`` of the energy or power numerator.
+    t_ref : float or None
+        Reference cell temperature in °C for a single-valued reference.
+    expected_ratio, expected_ratio_undegraded : float or None
+        Expected PR with and without the degradation factor.
+    degradation : dict or None
+        ``{"rate", "years", "factor"}`` when degradation was applied.
+    tolerance : str or None
+        Tolerance as given, e.g. ``"5%"``.
+    threshold, margin, ratio_to_threshold : float or None
+        Judgement values; see `Judgement`.
+    passed : bool or None
+        Pass/fail; None when no expected PR was supplied.
+    valid : bool or None
+        Whether the validity checks in `checks` all hold.
+    checks : dict
+        Named validity checks.
+    reference_source : str or None
+        ``"fixed"``, ``"derived"`` or ``"standalone"``.
+    granularity : str
+        ``"single"`` or ``"monthly"``.
+    monthly : pd.DataFrame or None
+        Per-month intervals, insolation and measured PR.
+    """
+
+    kind: ClassVar[str] = "pr"
+
+    ratio: float
+    ratio_without_availability: float
+    temp_corrected: bool
+    dc_nameplate: float
+    power_temp_coeff: float | None
+    intervals: pd.DataFrame
+    points_used: dict
+    dropped_nan: dict
+    dropped_nonfinite: dict
+    dt_hours: dict
+    numerator: dict
+    t_ref: float | None = None
+    expected_ratio: float | None = None
+    expected_ratio_undegraded: float | None = None
+    degradation: dict | None = None
+    tolerance: str | None = None
+    threshold: float | None = None
+    margin: float | None = None
+    ratio_to_threshold: float | None = None
+    passed: bool | None = None
+    valid: bool | None = None
+    checks: dict = field(default_factory=dict)
+    reference_source: str | None = None
+    granularity: str = "single"
+    monthly: pd.DataFrame | None = None
+
+    def summary(self) -> str:
+        """
+        Return a plain-text summary of the result.
+
+        Returns
+        -------
+        str
+            Measured PR as a percentage; when an expected PR was judged, also
+            the PASS/FAIL outcome, expected PR, threshold and margin in PR
+            points.
+        """
+        lines = []
+        if self.passed is not None:
+            lines.append(
+                "Performance ratio test: " + ("PASS" if self.passed else "FAIL")
+            )
+        form = "temperature-corrected" if self.temp_corrected else "plain"
+        lines.append(f"Measured PR ({form}): {self.ratio * 100:.2f} %")
+        if self.expected_ratio is not None:
+            lines.append(f"Expected PR: {self.expected_ratio * 100:.2f} %")
+        if self.threshold is not None:
+            lines.append(f"Threshold: {self.threshold * 100:.2f} %")
+        if self.margin is not None:
+            lines.append(f"Margin: {self.margin * 100:+.2f} PR points")
+        return "\n".join(lines)
+
+    def __str__(self) -> str:
+        return self.summary()
+
+
+def performance_ratio(
+    data: pd.DataFrame,
+    *,
+    numerator: str,
+    poa: str,
+    dc_nameplate: float,
+    kind: str = "power",
+    units: str = "W",
+    dt_hours: float | None = None,
+    cell_temp: str | None = None,
+    bom: str | None = None,
+    temp_amb: str | None = None,
+    wind_speed: str | None = None,
+    power_temp_coeff: float | None = None,
+    base_temp: float = 25.0,
+    module_type: str = "glass_cell_poly",
+    racking: str = "open_rack",
+    temp_delta: float | None = None,
+) -> PrTestResults:
+    """
+    Compute the performance ratio of one dataset, with no pass/fail judgement.
+
+    At most one temperature source may be given: a measured cell temperature
+    column, a back-of-module column (cell temperature from the Sandia model), or
+    ambient temperature plus wind speed (back-of-module then cell temperature).
+    Any of them selects the temperature-corrected form with the reference
+    temperature `base_temp`; none gives the plain form.
+
+    Parameters
+    ----------
+    data : pd.DataFrame
+        Time-indexed data; rows with a missing or non-finite input are dropped.
+    numerator : str
+        Column of measured interval power or interval energy.
+    poa : str
+        Plane-of-array irradiance column in W/m².
+    dc_nameplate : float
+        DC nameplate capacity in W.
+    kind : {"power", "energy"}, default "power"
+        What `numerator` holds.
+    units : str, default "W"
+        Units of `numerator`; ``W``/``kW``/``MW`` or ``Wh``/``kWh``/``MWh``.
+    dt_hours : float, optional
+        Interval length in hours. Default is the dominant timestep of
+        `data.index`; pass it explicitly when `data` is filtered.
+    cell_temp : str, optional
+        Measured cell temperature column in °C.
+    bom : str, optional
+        Back-of-module temperature column in °C.
+    temp_amb, wind_speed : str, optional
+        Ambient temperature (°C) and wind speed (m/s) columns; give both.
+    power_temp_coeff : float, optional
+        Power temperature coefficient in %/°C; required with a temperature
+        source and rejected without one.
+    base_temp : float, default 25.0
+        Reference cell temperature in °C.
+    module_type, racking : str
+        Sandia model selectors for `bom` / `temp_amb`.
+    temp_delta : float, optional
+        Cell-to-back-of-module temperature difference at 1000 W/m².
+
+    Returns
+    -------
+    PrTestResults
+        Measured PR and its detail, keyed by side ``"meas"``; ``passed``,
+        ``valid`` and ``expected_ratio`` are None.
+
+    Raises
+    ------
+    ValueError
+        If more than one temperature source is given, ``temp_amb`` and
+        ``wind_speed`` are not given together, `power_temp_coeff` is missing
+        with a temperature source or given without one, or `dc_nameplate`,
+        `dt_hours` or the units are invalid.
+    """
+    _require_positive_finite("dc_nameplate", dc_nameplate)
+    if dt_hours is None:
+        dt_hours = _index_dt_hours(data.index)
+    _require_positive_finite("dt_hours", dt_hours)
+    if (temp_amb is None) != (wind_speed is None):
+        raise ValueError("temp_amb and wind_speed must be given together.")
+    sources = [
+        name
+        for name, given in (
+            ("cell_temp", cell_temp),
+            ("bom", bom),
+            ("temp_amb and wind_speed", temp_amb),
+        )
+        if given is not None
+    ]
+    if len(sources) > 1:
+        raise ValueError(
+            f"Give at most one temperature source; got {' and '.join(sources)}."
+        )
+    corrected = bool(sources)
+    if corrected and power_temp_coeff is None:
+        raise ValueError(f"power_temp_coeff is required with {sources[0]}.")
+    if not corrected and power_temp_coeff is not None:
+        raise ValueError(
+            "power_temp_coeff was given without a temperature source "
+            "(cell_temp, bom, or temp_amb with wind_speed)."
+        )
+    if corrected:
+        validate_power_temp_coeff(power_temp_coeff)
+
+    inputs = {"energy": data[numerator], "poa": data[poa]}
+    if temp_amb is not None:
+        bom_series = calcparams.bom_temp(
+            data,
+            poa=poa,
+            temp_amb=temp_amb,
+            wind_speed=wind_speed,
+            module_type=module_type,
+            racking=racking,
+            verbose=False,
+        )
+        data = data.assign(_bom_temp=bom_series)
+        bom = "_bom_temp"
+    if bom is not None:
+        inputs["cell_temp"] = calcparams.cell_temp(
+            data,
+            bom,
+            poa,
+            module_type=module_type,
+            racking=racking,
+            temp_delta=temp_delta,
+            verbose=False,
+        )
+    elif cell_temp is not None:
+        inputs["cell_temp"] = data[cell_temp]
+    frame = pd.DataFrame(inputs)
+    rows = complete_rows(frame, label="meas")
+    kept = frame.loc[rows.index]
+    energy_wh = to_energy_wh(kept["energy"], kind=kind, units=units, dt_hours=dt_hours)
+    measured = measured_pr(
+        energy_wh,
+        kept["poa"],
+        dc_nameplate=dc_nameplate,
+        dt_hours=dt_hours,
+        reference=Reference(
+            pr=None,
+            t_ref=base_temp if corrected else None,
+            source="standalone",
+            granularity="single",
+        ),
+        cell_temp=kept["cell_temp"] if corrected else None,
+        power_temp_coeff=power_temp_coeff,
+    )
+    return PrTestResults(
+        ratio=measured.ratio,
+        ratio_without_availability=measured.ratio_without_availability,
+        temp_corrected=corrected,
+        dc_nameplate=dc_nameplate,
+        power_temp_coeff=power_temp_coeff,
+        intervals=measured.intervals,
+        points_used={"meas": len(rows.index)},
+        dropped_nan={"meas": rows.dropped_nan},
+        dropped_nonfinite={"meas": rows.dropped_nonfinite},
+        dt_hours={"meas": dt_hours},
+        numerator={"meas": {"kind": kind, "units": units}},
+        t_ref=base_temp if corrected else None,
+        reference_source="standalone",
+        granularity="single",
+        monthly=measured.monthly,
+    )

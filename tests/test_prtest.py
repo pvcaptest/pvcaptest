@@ -914,3 +914,205 @@ class TestWeightedExpectedPr:
         )
         with pytest.raises(ValueError, match="insolation"):
             prtest.weighted_expected_pr(ref, pd.Series({1: 0.0}))
+
+
+def _pr_frame(periods=8, freq="15min"):
+    idx = pd.date_range("2025-06-01 10:00", periods=periods, freq=freq)
+    rng = np.arange(periods, dtype=float)
+    return pd.DataFrame(
+        {
+            "power": 400.0 + 10 * rng,
+            "poa": 600.0 + 20 * rng,
+            "tcell": 40.0 + rng,
+            "bom": 35.0 + rng,
+            "amb": 25.0 + 0.5 * rng,
+            "wind": 2.0 + 0.1 * rng,
+        },
+        index=idx,
+    )
+
+
+class TestPrTestResults:
+    def _full(self, **changes):
+        fields = {
+            "ratio": 0.8123,
+            "ratio_without_availability": 0.8123,
+            "temp_corrected": False,
+            "dc_nameplate": 1000.0,
+            "power_temp_coeff": None,
+            "intervals": pd.DataFrame(),
+            "points_used": {"meas": 4},
+            "dropped_nan": {"meas": 0},
+            "dropped_nonfinite": {"meas": 0},
+            "dt_hours": {"meas": 0.25},
+            "numerator": {"meas": {"kind": "power", "units": "W"}},
+            "expected_ratio": 0.80,
+            "threshold": 0.78,
+            "margin": 0.0323,
+            "passed": True,
+        }
+        fields.update(changes)
+        return prtest.PrTestResults(**fields)
+
+    def test_kind_is_not_a_field(self):
+        import dataclasses
+
+        assert prtest.PrTestResults.kind == "pr"
+        assert "kind" not in [f.name for f in dataclasses.fields(prtest.PrTestResults)]
+
+    def test_summary_full(self):
+        text = self._full().summary()
+        assert "PASS" in text
+        assert "81.23" in text
+        assert "80.00" in text
+        assert "78.00" in text
+        assert "+3.23" in text
+        assert str(self._full()) == text
+
+    def test_summary_fail(self):
+        assert "FAIL" in self._full(passed=False, margin=-0.01).summary()
+
+    def test_summary_standalone(self):
+        text = self._full(
+            expected_ratio=None, threshold=None, margin=None, passed=None
+        ).summary()
+        assert "81.23" in text
+        assert "PASS" not in text and "FAIL" not in text
+        assert "Threshold" not in text and "Margin" not in text
+
+
+class TestPerformanceRatio:
+    kwargs = {"numerator": "power", "poa": "poa", "dc_nameplate": 1000.0}
+
+    def test_plain_matches_hand_computation(self):
+        df = _pr_frame()
+        res = prtest.performance_ratio(df, **self.kwargs)
+        expected = (df["power"] * 0.25).sum() / (1000.0 * df["poa"] / 1000 * 0.25).sum()
+        assert res.ratio == pytest.approx(expected)
+        assert res.temp_corrected is False
+        assert res.passed is None and res.valid is None
+        assert res.expected_ratio is None
+        assert res.dt_hours == {"meas": 0.25}
+        assert res.points_used == {"meas": 8}
+        assert res.numerator == {"meas": {"kind": "power", "units": "W"}}
+        assert res.reference_source == "standalone"
+        assert res.granularity == "single"
+
+    def _corrected_expected(self, df, tcell, coeff=-0.4, base=25.0):
+        exp = 1000.0 * df["poa"] / 1000 * 0.25 * (1 + coeff / 100 * (tcell - base))
+        return (df["power"] * 0.25).sum() / exp.sum()
+
+    def test_corrected_via_cell_temp(self):
+        df = _pr_frame()
+        res = prtest.performance_ratio(
+            df, cell_temp="tcell", power_temp_coeff=-0.4, **self.kwargs
+        )
+        assert res.ratio == pytest.approx(self._corrected_expected(df, df["tcell"]))
+        assert res.temp_corrected is True
+        assert res.t_ref == 25.0
+        assert res.power_temp_coeff == -0.4
+
+    def test_corrected_via_bom(self):
+        from captest import calcparams
+
+        df = _pr_frame()
+        tcell = calcparams.cell_temp(df, "bom", "poa", temp_delta=3.0, verbose=False)
+        res = prtest.performance_ratio(
+            df, bom="bom", temp_delta=3.0, power_temp_coeff=-0.4, **self.kwargs
+        )
+        assert res.ratio == pytest.approx(self._corrected_expected(df, tcell))
+
+    def test_corrected_via_amb_and_wind(self):
+        from captest import calcparams
+
+        df = _pr_frame()
+        bom = calcparams.bom_temp(
+            df, poa="poa", temp_amb="amb", wind_speed="wind", verbose=False
+        )
+        tcell = calcparams.cell_temp(df.assign(b=bom), "b", "poa", verbose=False)
+        res = prtest.performance_ratio(
+            df,
+            temp_amb="amb",
+            wind_speed="wind",
+            power_temp_coeff=-0.4,
+            base_temp=20.0,
+            **self.kwargs,
+        )
+        assert res.t_ref == 20.0
+        assert res.ratio == pytest.approx(
+            self._corrected_expected(df, tcell, base=20.0)
+        )
+
+    def test_multiple_temperature_sources_raise(self):
+        with pytest.raises(ValueError, match="one"):
+            prtest.performance_ratio(
+                _pr_frame(),
+                cell_temp="tcell",
+                bom="bom",
+                power_temp_coeff=-0.4,
+                **self.kwargs,
+            )
+
+    def test_incomplete_amb_wind_raises(self):
+        with pytest.raises(ValueError, match="temp_amb"):
+            prtest.performance_ratio(
+                _pr_frame(), temp_amb="amb", power_temp_coeff=-0.4, **self.kwargs
+            )
+
+    def test_source_without_coefficient_raises(self):
+        with pytest.raises(ValueError, match="power_temp_coeff"):
+            prtest.performance_ratio(_pr_frame(), cell_temp="tcell", **self.kwargs)
+
+    def test_coefficient_without_source_raises(self):
+        with pytest.raises(ValueError, match="power_temp_coeff"):
+            prtest.performance_ratio(_pr_frame(), power_temp_coeff=-0.4, **self.kwargs)
+
+    def test_dt_hours_inferred_and_explicit(self):
+        df = _pr_frame(freq="30min")
+        assert prtest.performance_ratio(df, **self.kwargs).dt_hours == {"meas": 0.5}
+        res = prtest.performance_ratio(df, dt_hours=0.25, **self.kwargs)
+        assert res.dt_hours == {"meas": 0.25}
+
+    @pytest.mark.parametrize("bad", [0, -0.25])
+    def test_bad_dt_hours_raises(self, bad):
+        with pytest.raises(ValueError, match="dt_hours"):
+            prtest.performance_ratio(_pr_frame(), dt_hours=bad, **self.kwargs)
+
+    @pytest.mark.parametrize("bad", [0, -5.0])
+    def test_bad_nameplate_raises(self, bad):
+        with pytest.raises(ValueError, match="dc_nameplate"):
+            prtest.performance_ratio(
+                _pr_frame(), numerator="power", poa="poa", dc_nameplate=bad
+            )
+
+    def test_energy_numerator_and_units(self):
+        df = _pr_frame()
+        df["energy"] = df["power"] * 0.25 / 1000
+        res = prtest.performance_ratio(
+            df, kind="energy", units="kWh", **{**self.kwargs, "numerator": "energy"}
+        )
+        plain = prtest.performance_ratio(df, **self.kwargs)
+        assert res.ratio == pytest.approx(plain.ratio)
+
+    def test_nan_rows_dropped_and_counted(self):
+        df = _pr_frame()
+        df.iloc[2, df.columns.get_loc("poa")] = np.nan
+        df.iloc[3, df.columns.get_loc("power")] = np.inf
+        with pytest.warns(UserWarning, match="dropped"):
+            res = prtest.performance_ratio(df, **self.kwargs)
+        assert res.points_used == {"meas": 6}
+        assert res.dropped_nan == {"meas": 1}
+        assert res.dropped_nonfinite == {"meas": 1}
+
+    def test_standalone_identity_note(self):
+        df = _pr_frame()
+        plain = prtest.performance_ratio(df, **self.kwargs)
+        weighted = prtest.weighted_cell_temp(df["poa"], df["tcell"])
+        corrected = prtest.performance_ratio(
+            df,
+            cell_temp="tcell",
+            power_temp_coeff=-0.4,
+            base_temp=weighted,
+            **self.kwargs,
+        )
+        assert corrected.ratio == pytest.approx(plain.ratio)
