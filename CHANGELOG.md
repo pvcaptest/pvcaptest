@@ -106,7 +106,11 @@ directory); `util.canonical_json` and `util.reg_col_label`.
   `expected_energy_wh`, `complete_rows`, `pr_ratio`, `fixed_reference` /
   `derive_reference` including monthly references, `measured_pr`,
   `weighted_expected_pr`, `degradation_factor`, `parse_pr_tolerance`, `judge`),
-  returning a `PrTestResults`.
+  returning a `PrTestResults`. The composed functions (`pr_ratio`,
+  `weighted_cell_temp`, `measured_pr`, `derive_reference`) raise on a NaN or
+  infinite input instead of letting a sum skip it; pass them the
+  `complete_rows` set. Monthly reference tables are a dict keyed by month
+  number 1-12 or a 12-entry list, January first.
 - `calcparams.register_to_interval_energy` and `util.common_timestep_delta`
   (the dominant timestep without rounding to whole minutes).
 - `calcparams.cell_temp(..., temp_delta=)`.
@@ -241,9 +245,17 @@ time, so they are unaffected).
     source (`cell_temp=`, `bom=`, or `temp_amb=` with `wind_speed=`) and
     `power_temp_coeff=` (%/degC, negative).
   - `PrResults` becomes `PrTestResults`.
-  - Degradation is now linear, `1 - years * rate / 100` via
-    `prtest.degradation_factor`, where the old code compounded
-    `(1 - d) ** year`.
+  - The old `availability=` argument maps to
+    `prtest.measured_pr(..., availability=...)`. The standalone
+    `performance_ratio` takes no availability; build the complete-row set with
+    `prtest.complete_rows` over every input, availability included, then call
+    `measured_pr` on those rows.
+  - The old `degradation=` / `year=` arguments map to
+    `prtest.degradation_factor(rate, years)` applied to the expected PR passed
+    to `prtest.judge(...)`. Degradation is now linear, `1 - years * rate / 100`,
+    where the old code compounded `(1 - d) ** year`.
+  - The CapTest PR test kind (coming) will handle availability and
+    degradation for you.
 
 ### Fixed
 - `calcparams.avg_typ_cell_temp` ignores rows with a missing temperature
