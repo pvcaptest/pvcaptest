@@ -1,434 +1,194 @@
+import warnings
+
 import numpy as np
 import pandas as pd
 import pytest
 
-from captest import prtest as pr
-
-"""
-Run tests using pytest use the following from project root.
-To run a class of tests
-pytest tests/test_CapData.py::TestCapDataEmpty
-
-To run a specific test:
-pytest tests/test_CapData.py::TestCapDataEmpty::test_capdata_empty
-"""
-
-ix = pd.date_range(start="1/1/2021 12:00", freq="h", periods=3)
-
-ix_5min = pd.date_range(start="1/1/2021 12:00", freq="5min", periods=3)
+from captest import prtest
 
 
-class TestCheckPerfRatioInputs:
-    def test_ok_inputs(self):
-        ac_energy = pd.Series({"energy": [90, 95, 97]}, index=ix)
-        poa = pd.Series([805, 810, 812], index=ix)
-        input_ok = pr.perf_ratio_inputs_ok(ac_energy, 110, poa)
-        assert input_ok is True
+class TestUnits:
+    def test_constants(self):
+        assert prtest.G_STC == 1000.0
+        assert prtest.POWER_UNITS == {"W": 1.0, "kW": 1e3, "MW": 1e6}
+        assert prtest.ENERGY_UNITS == {"Wh": 1.0, "kWh": 1e3, "MWh": 1e6}
 
-    def test_warn_ac_energy_type(self):
-        """Raise warning if `ac_energy` is not a Pandas Series."""
-        ac_energy = pd.DataFrame({"energy": [90, 95, 97]}, index=ix)
-        poa = pd.Series([805, 810, 812], index=ix)
-        with pytest.warns(UserWarning):
-            input_ok = pr.perf_ratio_inputs_ok(ac_energy, 110, poa)
-        assert input_ok is False
+    def test_dt_hours(self):
+        index = pd.date_range("2024-01-01", periods=5, freq="15min")
+        assert prtest.dt_hours(index) == 0.25
 
-    def test_warn_poa_type(self):
-        """Raise warning if `poa` is not a Pandas Series."""
-        ac_energy = pd.Series([90, 95, 97], index=ix)
-        poa = pd.DataFrame({"poa": [805, 810, 812]}, index=ix)
-        with pytest.warns(UserWarning):
-            input_ok = pr.perf_ratio_inputs_ok(ac_energy, 110, poa)
-        assert input_ok is False
+    def test_power_to_energy_wh(self):
+        out = prtest.to_energy_wh(
+            pd.Series([0.5]), kind="power", units="MW", dt_hours=0.25
+        )
+        assert out.tolist() == [125000.0]
 
-    def test_poa_ac_energy_index_match(self):
-        """Raise warning if indices of poa and ac_energy do not match."""
-        ix_poa = pd.date_range(start="1/1/2021 13:00", freq="h", periods=3)
-        ac_energy = pd.Series([90, 95, 97], index=ix)
-        poa = pd.Series([805, 810, 812], index=ix_poa)
-        with pytest.warns(UserWarning):
-            input_ok = pr.perf_ratio_inputs_ok(ac_energy, 110, poa)
-        assert input_ok is False
-
-    def test_avail_index_match(self):
-        """Raise warning if index of availability does not match poa."""
-        ix_availability = pd.date_range(start="1/1/2021 13:00", freq="h", periods=3)
-        ac_energy = pd.Series([90, 95, 97], index=ix)
-        poa = pd.Series([805, 810, 812], index=ix)
-        avail = pd.Series([0.9, 1, 0.95], index=ix_availability)
-        with pytest.warns(UserWarning):
-            pr.perf_ratio(ac_energy, 110, poa, availability=avail)
-
-
-class TestPerfRatio:
-    def test_simple_pr_hourly(self):
-        """Test a short series of data for a hypothetical system.
-
-        System specs:
-        - ac nameplate: 100 kW
-        - dc/ac ratio: 1.2
-        - dc nameplate: 120 kW-DC
-        """
-        # Wh for 3 hours
-        ac_energy = pd.Series([80_000, 90_000, 95_000], index=ix)
-        poa = pd.Series([850, 900, 1000], index=ix)  # poa W/m^2
-        dc_nameplate = 120_000  # W-DC
-
-        perf_ratio = pr.perf_ratio(ac_energy, dc_nameplate, poa)
-        assert perf_ratio.pr <= 1
-        assert perf_ratio.pr > 0
-        assert isinstance(perf_ratio.timestep[0], np.float64)
-        assert isinstance(perf_ratio.timestep[1], str)
-        assert perf_ratio.dc_nameplate == dc_nameplate
-        assert isinstance(perf_ratio.results_data, pd.DataFrame)
-        assert perf_ratio.pr == pytest.approx(0.8030, rel=1e-2)
-
-    def test_simple_pr_hourly_unit_adj(self):
-        """Test a short series of data for a hypothetical system.
-
-        System specs:
-        - ac nameplate: 100 kW
-        - dc/ac ratio: 1.2
-        - dc nameplate: 120 kW-DC
-        """
-        # kWh for 3 hours
-        ac_energy = pd.Series([80, 90, 95], index=ix)
-        poa = pd.Series([850, 900, 1000], index=ix)  # poa W/m^2
-        dc_nameplate = 120_000  # W-DC
-
-        perf_ratio = pr.perf_ratio(ac_energy, dc_nameplate, poa, unit_adj=1000)
-        assert perf_ratio.pr <= 1
-        assert perf_ratio.pr >= 0
-        assert isinstance(perf_ratio.timestep[0], np.float64)
-        assert isinstance(perf_ratio.timestep[1], str)
-        assert perf_ratio.dc_nameplate == dc_nameplate
-        assert isinstance(perf_ratio.results_data, pd.DataFrame)
-        assert perf_ratio.pr == pytest.approx(0.8030, rel=1e-2)
-
-    def test_simple_pr_5min(self):
-        """Test a short series of data for a hypothetical system.
-
-        System specs:
-        - ac nameplate: 100 kW
-        - dc/ac ratio: 1.2
-        - dc nameplate: 120 kW-DC
-        """
-        # Wh for 3 hours
-        ac_energy = pd.Series([80_000, 90_000, 95_000], index=ix_5min)
-        ac_energy = ac_energy / 12  # convert to Wh for 5min intervals
-        poa = pd.Series([850, 900, 1000], index=ix_5min)  # poa W/m^2
-        dc_nameplate = 120_000  # W-DC
-
-        perf_ratio = pr.perf_ratio(ac_energy, dc_nameplate, poa)
-        assert perf_ratio.pr <= 1
-        assert perf_ratio.pr > 0
-        assert isinstance(perf_ratio.timestep[0], np.float64)
-        assert isinstance(perf_ratio.timestep[1], str)
-        assert perf_ratio.dc_nameplate == dc_nameplate
-        assert isinstance(perf_ratio.results_data, pd.DataFrame)
-        assert perf_ratio.pr == pytest.approx(0.8030, rel=1e-2)
-
-    def test_simple_pr_hourly_int_avail(self):
-        """Test a short series of data for a hypothetical system.
-
-        System specs:
-        - ac nameplate: 100 kW
-        - dc/ac ratio: 1.2
-        - dc nameplate: 120 kW-DC
-        """
-        # Wh for 3 hours
-        ac_energy = pd.Series([80_000, 90_000, 95_000], index=ix)
-        poa = pd.Series([850, 900, 1000], index=ix)  # poa W/m^2
-        dc_nameplate = 120_000  # W-DC
-
-        perf_ratio = pr.perf_ratio(ac_energy, dc_nameplate, poa, availability=0.9)
-        assert perf_ratio.pr == pytest.approx(0.8922556)
-
-    def test_simple_pr_hourly_series_avail(self):
-        """Test a short series of data for a hypothetical system.
-
-        System specs:
-        - ac nameplate: 100 kW
-        - dc/ac ratio: 1.2
-        - dc nameplate: 120 kW-DC
-        """
-        # Wh for 3 hours
-        ac_energy = pd.Series([80_000, 90_000, 95_000], index=ix)
-        poa = pd.Series([850, 900, 1000], index=ix)  # poa W/m^2
-        dc_nameplate = 120_000  # W-DC
-        avail = pd.Series([0.9, 1, 0.95], index=ix)
-
-        perf_ratio = pr.perf_ratio(ac_energy, dc_nameplate, poa, availability=avail)
-        assert perf_ratio.pr == pytest.approx(0.844487)
+    def test_energy_to_wh(self):
+        out = prtest.to_energy_wh(
+            pd.Series([125.0]), kind="energy", units="kWh", dt_hours=0.25
+        )
+        assert out.tolist() == [125000.0]
 
     @pytest.mark.parametrize(
-        "degrad, year, expected",
-        [
-            (0.5, 1, 0.807065),
-            (0.5, 2, 0.811121),
-            (0.5, 3, 0.815197),
-            (0.7, 1, 0.808691),
-            (0.7, 2, 0.814392),
-            (0.7, 3, 0.820132),
-        ],
+        "kind, units",
+        [("power", "kWh"), ("energy", "kW"), ("power", "GW"), ("energy", "J")],
     )
-    def test_simple_pr_hourly_degrad(self, degrad, year, expected):
-        """Test degradation applied to PR denominator.
+    def test_bad_units_raise_listing_allowed(self, kind, units):
+        with pytest.raises(ValueError, match="W, kW, MW|Wh, kWh, MWh"):
+            prtest.to_energy_wh(pd.Series([1.0]), kind=kind, units=units, dt_hours=1)
 
-        System specs:
-        - ac nameplate: 100 kW
-        - dc/ac ratio: 1.2
-        - dc nameplate: 120 kW-DC
-        """
-        # Wh for 3 hours
-        ac_energy = pd.Series([80_000, 90_000, 95_000], index=ix)
-        poa = pd.Series([850, 900, 1000], index=ix)  # poa W/m^2
-        dc_nameplate = 120_000  # W-DC
-
-        perf_ratio = pr.perf_ratio(
-            ac_energy, dc_nameplate, poa, year=year, degradation=degrad
-        )
-        assert perf_ratio.pr == pytest.approx(expected)
-
-
-class TestPerfRatioTempCorrNREL:
-    def test_simple_pr_hourly(self):
-        """Test a short series of data for a hypothetical system.
-
-        System specs:
-        - ac nameplate: 100 kW
-        - dc/ac ratio: 1.2
-        - dc nameplate: 120 kW-DC
-        """
-        # Wh for 3 hours
-        ac_energy = pd.Series([80_000, 90_000, 95_000], index=ix)
-        poa = pd.Series([850, 900, 1000], index=ix)  # poa W/m^2
-        dc_nameplate = 120_000  # W-DC
-        temp_amb = pd.Series([30, 32, 34], index=ix)
-        wind_speed = pd.Series([1, 1.5, 0.8], index=ix)
-        perf_ratio = pr.perf_ratio_temp_corr_nrel(
-            ac_energy,
-            dc_nameplate,
-            poa,
-            power_temp_coeff=-0.37,
-            temp_amb=temp_amb,
-            wind_speed=wind_speed,
-        )
-        assert perf_ratio.pr <= 1
-        assert perf_ratio.pr > 0
-        assert isinstance(perf_ratio.timestep[0], np.float64)
-        assert isinstance(perf_ratio.timestep[1], str)
-        assert perf_ratio.dc_nameplate == dc_nameplate
-        assert isinstance(perf_ratio.results_data, pd.DataFrame)
-
-    def test_pr_meas_bom(self):
-        """Test a short series of data for a hypothetical system.
-
-        System specs:
-        - ac nameplate: 100 kW
-        - dc/ac ratio: 1.2
-        - dc nameplate: 120 kW-DC
-        """
-        # Wh for 3 hours
-        ac_energy = pd.Series([80_000, 90_000, 95_000], index=ix)
-        poa = pd.Series([850, 900, 1000], index=ix)  # poa W/m^2
-        dc_nameplate = 120_000  # W-DC
-        temp_bom = pd.Series([30, 32, 34], index=ix)
-        wind_speed = pd.Series([1, 1.5, 0.8], index=ix)
-        perf_ratio = pr.perf_ratio_temp_corr_nrel(
-            ac_energy,
-            dc_nameplate,
-            poa,
-            power_temp_coeff=-0.37,
-            temp_bom=temp_bom,
-            wind_speed=wind_speed,
-        )
-        assert perf_ratio.pr <= 1
-        assert perf_ratio.pr > 0
-        assert isinstance(perf_ratio.timestep[0], np.float64)
-        assert isinstance(perf_ratio.timestep[1], str)
-        assert perf_ratio.dc_nameplate == dc_nameplate
-        assert isinstance(perf_ratio.results_data, pd.DataFrame)
-
-    def test_irr_weighted_cell_temp_matches_per_interval_correction(self):
-        """Verify per-interval correction equals correcting at the weighted mean temp.
-
-        This is the property that made the removed `single_irr_weighted_temp` option
-        redundant: the correction is linear in cell temperature and each interval is
-        weighted by its POA irradiance, so collapsing the per-interval cell
-        temperatures to their irradiance-weighted mean leaves the summed expected DC,
-        and therefore the reported PR, unchanged.
-        """
-        ac_energy = pd.Series([80_000, 90_000, 95_000], index=ix)
-        poa = pd.Series([850, 900, 1000], index=ix)
-        dc_nameplate = 120_000
-        temp_bom = pd.Series([30, 32, 34], index=ix)
-        power_temp_coeff = -0.37
-
-        perf_ratio = pr.perf_ratio_temp_corr_nrel(
-            ac_energy,
-            dc_nameplate,
-            poa,
-            power_temp_coeff=power_temp_coeff,
-            temp_bom=temp_bom,
-        )
-
-        # Correct once at the irradiance-weighted mean cell temperature instead.
-        temp_cell = temp_bom + (poa / 1000) * 3  # del_tcnd of the default module
-        temp_cell_weighted = (poa * temp_cell).sum() / poa.sum()
-        nameplate_weighted = dc_nameplate * (
-            1 + (power_temp_coeff / 100) * (temp_cell_weighted - 25)
-        )
-        expected_dc_weighted = nameplate_weighted * poa / 1000
-        pr_weighted = ac_energy.sum() / expected_dc_weighted.sum()
-
-        assert perf_ratio.pr == pytest.approx(pr_weighted)
-
-    def test_single_irr_weighted_temp_argument_removed(self):
-        """Verify the removed `single_irr_weighted_temp` option is rejected."""
-        ac_energy = pd.Series([80_000, 90_000, 95_000], index=ix)
-        poa = pd.Series([850, 900, 1000], index=ix)
-        temp_bom = pd.Series([30, 32, 34], index=ix)
-
-        with pytest.raises(TypeError):
-            pr.perf_ratio_temp_corr_nrel(
-                ac_energy,
-                120_000,
-                poa,
-                power_temp_coeff=-0.37,
-                temp_bom=temp_bom,
-                single_irr_weighted_temp=True,
+    def test_bad_kind_raises(self):
+        with pytest.raises(ValueError, match="kind"):
+            prtest.to_energy_wh(
+                pd.Series([1.0]), kind="other", units="kW", dt_hours=1.0
             )
 
-    def test_pr_meas_bom_and_amb(self):
-        """Test a short series of data for a hypothetical system.
+    def test_power_from_energy(self):
+        out = prtest.power_from_energy(
+            pd.Series([25.0]),
+            energy_units="kWh",
+            power_units="MW",
+            dt_hours=0.25,
+        )
+        assert out.tolist() == pytest.approx([0.1])
 
-        Providing too many inputs - BOM temp and amb temp plus wind speed.
+    def test_power_from_energy_bad_units(self):
+        with pytest.raises(ValueError, match="Wh, kWh, MWh"):
+            prtest.power_from_energy(
+                pd.Series([1.0]), energy_units="kW", power_units="MW", dt_hours=1.0
+            )
+        with pytest.raises(ValueError, match="W, kW, MW"):
+            prtest.power_from_energy(
+                pd.Series([1.0]), energy_units="kWh", power_units="MWh", dt_hours=1.0
+            )
 
-        System specs:
-        - ac nameplate: 100 kW
-        - dc/ac ratio: 1.2
-        - dc nameplate: 120 kW-DC
-        """
-        # Wh for 3 hours
-        ac_energy = pd.Series([80_000, 90_000, 95_000], index=ix)
-        poa = pd.Series([850, 900, 1000], index=ix)  # poa W/m^2
-        dc_nameplate = 120_000  # W-DC
-        temp_bom = pd.Series([30, 32, 34], index=ix)
-        temp_amb = pd.Series([30, 32, 34], index=ix)
-        wind_speed = pd.Series([1, 1.5, 0.8], index=ix)
-        perf_ratio = pr.perf_ratio_temp_corr_nrel(
-            ac_energy,
-            dc_nameplate,
+
+class TestExpectedEnergy:
+    def test_plain(self):
+        out = prtest.expected_energy_wh(
+            pd.Series([1000.0, 500.0]), dc_nameplate=1e6, dt_hours=0.25
+        )
+        assert out.tolist() == pytest.approx([250000.0, 125000.0])
+
+    def test_corrected_multiplies(self):
+        out = prtest.expected_energy_wh(
+            pd.Series([1000.0, 500.0]),
+            dc_nameplate=1e6,
+            dt_hours=0.25,
+            cell_temp=pd.Series([45.0, 25.0]),
+            t_ref=25.0,
+            power_temp_coeff=-0.4,
+        )
+        assert out.tolist() == pytest.approx([230000.0, 125000.0])
+
+    def test_t_ref_series_applied_per_row(self):
+        out = prtest.expected_energy_wh(
+            pd.Series([1000.0, 1000.0]),
+            dc_nameplate=1e6,
+            dt_hours=0.25,
+            cell_temp=pd.Series([45.0, 45.0]),
+            t_ref=pd.Series([25.0, 45.0]),
+            power_temp_coeff=-0.4,
+        )
+        assert out.tolist() == pytest.approx([230000.0, 250000.0])
+
+    def test_availability_scalar_and_series(self):
+        poa = pd.Series([1000.0, 1000.0])
+        half = prtest.expected_energy_wh(
+            poa, dc_nameplate=1e6, dt_hours=0.25, availability=0.5
+        )
+        assert half.tolist() == pytest.approx([125000.0, 125000.0])
+        per_row = prtest.expected_energy_wh(
             poa,
-            power_temp_coeff=-0.37,
-            temp_bom=temp_bom,
-            temp_amb=temp_amb,
-            wind_speed=wind_speed,
+            dc_nameplate=1e6,
+            dt_hours=0.25,
+            availability=pd.Series([1.0, 0.5]),
         )
-        assert perf_ratio.pr <= 1
-        assert perf_ratio.pr > 0
-        assert isinstance(perf_ratio.timestep[0], np.float64)
-        assert isinstance(perf_ratio.timestep[1], str)
-        assert perf_ratio.dc_nameplate == dc_nameplate
-        assert isinstance(perf_ratio.results_data, pd.DataFrame)
+        assert per_row.tolist() == pytest.approx([250000.0, 125000.0])
 
-    def test_expected_dc_derated_when_cells_above_base_temp(self):
-        """Verify hot cells reduce the temperature-corrected nameplate.
+    def test_corrected_requires_t_ref_and_coeff(self):
+        kwargs = {
+            "poa": pd.Series([1000.0]),
+            "dc_nameplate": 1e6,
+            "dt_hours": 0.25,
+            "cell_temp": pd.Series([45.0]),
+        }
+        with pytest.raises(ValueError, match="t_ref"):
+            prtest.expected_energy_wh(**kwargs, power_temp_coeff=-0.4)
+        with pytest.raises(ValueError, match="power_temp_coeff"):
+            prtest.expected_energy_wh(**kwargs, t_ref=25.0)
 
-        Constant 1000 W/m^2 POA and a 45 C BOM temp give a cell temp of
-        45 + (1000 / 1000) * 3 = 48 C for the default open rack, glass/cell/poly
-        module. With a -0.40 %/C coefficient the correction factor is
-        1 + (-0.0040 * (48 - 25)) = 0.908, so the 100 kW-DC nameplate corrects
-        down to 90.8 kW-DC and each hourly interval expects 90,800 Wh.
-        """
-        ac_energy = pd.Series([80_000, 82_000, 84_000], index=ix)
-        poa = pd.Series([1000, 1000, 1000], index=ix)
-        dc_nameplate = 100_000
-        temp_bom = pd.Series([45, 45, 45], index=ix)
+    def test_t_ref_without_cell_temp_raises(self):
+        with pytest.raises(ValueError, match="cell_temp"):
+            prtest.expected_energy_wh(
+                pd.Series([1000.0]), dc_nameplate=1e6, dt_hours=0.25, t_ref=25.0
+            )
 
-        perf_ratio = pr.perf_ratio_temp_corr_nrel(
-            ac_energy,
-            dc_nameplate,
-            poa,
-            power_temp_coeff=-0.40,
-            temp_bom=temp_bom,
+    def test_matches_pvwatts_dc(self):
+        pvlib = pytest.importorskip("pvlib")
+        rng = np.random.default_rng(0)
+        g = pd.Series(rng.uniform(0, 1100, 50))
+        t = pd.Series(rng.uniform(5, 65, 50))
+        out = prtest.expected_energy_wh(
+            g,
+            dc_nameplate=1e6,
+            dt_hours=0.25,
+            cell_temp=t,
+            t_ref=31.7,
+            power_temp_coeff=-0.35,
         )
+        expected = pvlib.pvsystem.pvwatts_dc(g, t, 1e6, -0.0035, 31.7) * 0.25
+        np.testing.assert_allclose(out, expected, rtol=1e-12)
 
-        np.testing.assert_allclose(
-            perf_ratio.results_data["expected_dc"].values, [90_800.0] * 3
-        )
-        assert perf_ratio.pr == pytest.approx(246_000 / 272_400)
-
-    def test_expected_dc_uprated_when_cells_below_base_temp(self):
-        """Verify cold cells increase the temperature-corrected nameplate.
-
-        Constant 500 W/m^2 POA and a 5 C BOM temp give a cell temp of
-        5 + (500 / 1000) * 3 = 6.5 C. With a -0.40 %/C coefficient the correction
-        factor is 1 + (-0.0040 * (6.5 - 25)) = 1.074, so the 100 kW-DC nameplate
-        corrects up to 107.4 kW-DC and each hourly interval expects 53,700 Wh.
-        """
-        ac_energy = pd.Series([40_000, 41_000, 42_000], index=ix)
-        poa = pd.Series([500, 500, 500], index=ix)
-        dc_nameplate = 100_000
-        temp_bom = pd.Series([5, 5, 5], index=ix)
-
-        perf_ratio = pr.perf_ratio_temp_corr_nrel(
-            ac_energy,
-            dc_nameplate,
-            poa,
-            power_temp_coeff=-0.40,
-            temp_bom=temp_bom,
-        )
-
-        np.testing.assert_allclose(
-            perf_ratio.results_data["expected_dc"].values, [53_700.0] * 3
-        )
-        assert perf_ratio.pr == pytest.approx(123_000 / 161_100)
-
-    def test_hot_cells_raise_pr_above_uncorrected_pr(self):
-        """Verify weather correcting removes the thermal penalty from the PR.
-
-        Cell temperatures above the base temperature lower the expected DC, so
-        the temperature-corrected PR must exceed the uncorrected PR for the same
-        measured energy.
-        """
-        ac_energy = pd.Series([80_000, 82_000, 84_000], index=ix)
-        poa = pd.Series([1000, 1000, 1000], index=ix)
-        dc_nameplate = 100_000
-        temp_bom = pd.Series([45, 45, 45], index=ix)
-
-        pr_corrected = pr.perf_ratio_temp_corr_nrel(
-            ac_energy,
-            dc_nameplate,
-            poa,
-            power_temp_coeff=-0.40,
-            temp_bom=temp_bom,
-        )
-        pr_uncorrected = pr.perf_ratio(ac_energy, dc_nameplate, poa)
-
-        assert pr_corrected.pr > pr_uncorrected.pr
+    def test_nameplate_and_timestep_validated(self):
+        poa = pd.Series([1000.0])
+        for bad in (0, -1e6, np.nan):
+            with pytest.raises(ValueError, match="dc_nameplate"):
+                prtest.expected_energy_wh(poa, dc_nameplate=bad, dt_hours=0.25)
+        for bad in (0, -0.25, np.nan):
+            with pytest.raises(ValueError, match="dt_hours"):
+                prtest.expected_energy_wh(poa, dc_nameplate=1e6, dt_hours=bad)
+            with pytest.raises(ValueError, match="dt_hours"):
+                prtest.to_energy_wh(poa, kind="power", units="kW", dt_hours=bad)
+            with pytest.raises(ValueError, match="dt_hours"):
+                prtest.power_from_energy(
+                    poa, energy_units="kWh", power_units="kW", dt_hours=bad
+                )
 
 
-class TestPrResults:
-    """Test the print statements of the print_pr_result method of the PerfRatio class."""
+class TestValidators:
+    def test_positive_coeff_raises_with_nrel_message(self):
+        with pytest.raises(ValueError) as exc:
+            prtest.validate_power_temp_coeff(0.32)
+        message = str(exc.value)
+        assert "power_temp_coeff" in message
+        assert "eq. 8" in message
+        assert "-0.32" in message
 
-    def test_passing_test(self, capsys):
-        """Test that the print statement is correct for a passing test."""
-        perf_ratio = pr.PrResults(pr=0.8, expected_pr=0.78)
-        perf_ratio.print_pr_result()
-        captured = capsys.readouterr()
-        assert captured.out == (
-            "The test is PASSING with a measured PR of 80.00, "
-            "which is 2.00 above the expected PR of 78.00\n"
-        )
+    @pytest.mark.parametrize("bad", [np.nan, np.inf, -np.inf])
+    def test_nonfinite_coeff_raises(self, bad):
+        with pytest.raises(ValueError, match="power_temp_coeff"):
+            prtest.validate_power_temp_coeff(bad)
 
-    def test_failing_test(self, capsys):
-        """Test that the print statement is correct for a passing test."""
-        perf_ratio = pr.PrResults(pr=0.78, expected_pr=0.8)
-        perf_ratio.print_pr_result()
-        captured = capsys.readouterr()
-        assert captured.out == (
-            "The test is FAILING with a measured PR of 78.00, "
-            "which is 2.00 below the expected PR of 80.00\n"
-        )
+    @pytest.mark.parametrize("coeff", [-0.0032, -1.5])
+    def test_coeff_magnitude_warns(self, coeff):
+        with pytest.warns(UserWarning, match="%/°C"):
+            prtest.validate_power_temp_coeff(coeff)
+
+    def test_typical_coeff_does_not_warn(self):
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            prtest.validate_power_temp_coeff(-0.32)
+
+    @pytest.mark.parametrize(
+        "bad",
+        [95, np.nan, np.inf, pd.Series([1.0, 1.2]), pd.Series([0.5, -0.1])],
+    )
+    def test_availability_out_of_range_raises(self, bad):
+        with pytest.raises(ValueError, match="0 ≤ A ≤ 1"):
+            prtest.validate_availability(bad)
+
+    def test_availability_valid(self):
+        prtest.validate_availability(1.0)
+        prtest.validate_availability(0.0)
+        prtest.validate_availability(pd.Series([0.2, 1.0, np.nan]))

@@ -1,278 +1,252 @@
+"""
+Performance ratio (PR) test calculations.
+
+Pure functions implementing the energy-based performance ratio of NREL/TP-5200-57991
+(Dierauf et al., "Weather-Corrected Performance Ratio"): unit conversion, expected
+energy from plane-of-array irradiance with an optional temperature correction, and
+input validators. Measured and expected energy are always handled in Wh internally.
+"""
+
+import math
 import warnings
 
-import numpy as np
 import pandas as pd
-import param
 
-from captest import calcparams, capdata, util
+from captest.util import common_timestep_delta
 
-"""DIRECTLY BELOW DRAFT PR FUNCTION TO DO ALL VERSIONS OF CALC
-DECIDED TO BREAK INTO SMALLER FUNCTIONS, LEAVE TEMPORARILY"""
+G_STC = 1000.0
+"""Plane-of-array irradiance at standard test conditions, W/m²."""
+
+POWER_UNITS = {"W": 1.0, "kW": 1e3, "MW": 1e6}
+"""Power units accepted by the unit helpers, as multipliers to W."""
+
+ENERGY_UNITS = {"Wh": 1.0, "kWh": 1e3, "MWh": 1e6}
+"""Energy units accepted by the unit helpers, as multipliers to Wh."""
+
+_COEFF_TYPICAL_RANGE = (0.05, 1.0)
 
 
-def perf_ratio_inputs_ok(ac_energy, dc_nameplate, poa, availability=1):
-    """Check types of perf_ratio arguments.
+def _require_positive_finite(name, value):
+    """Raise ValueError unless `value` is a finite number greater than zero."""
+    if not (math.isfinite(value) and value > 0):
+        raise ValueError(f"{name} must be a finite number greater than 0; got {value}.")
 
-    Parameters
-    ----------
-    ac_energy : Series
-        Measured energy production (Wh) from system meter.
-    dc_nameplate : numeric
-        Summation of nameplate ratings (W) for all installed modules of system
-        under test.
-    poa : Series
-        POA irradiance (W/m^2) for each time interval of the test.
-    availability : numeric or Series, default 1
-        Apply an adjustment for plant availability to the expected power
-        (denominator).
+
+def _unit_factor(units, table, label):
+    """Return the multiplier for `units` from `table` or raise listing the options."""
+    if units not in table:
+        raise ValueError(
+            f"Unknown {label} unit {units!r}; allowed units are {', '.join(table)}."
+        )
+    return table[units]
+
+
+def dt_hours(index):
     """
-    if not isinstance(ac_energy, pd.Series):
-        warnings.warn("ac_energy must be a Pandas Series.")
-        return False
-    elif not isinstance(poa, pd.Series):
-        warnings.warn("poa must be a Pandas Series.")
-        return False
-    elif not ac_energy.index.equals(poa.index):
-        warnings.warn("indices of poa and ac_energy must match.")
-        return False
-    elif isinstance(availability, pd.Series):
-        if not availability.index.equals(poa.index):
-            warnings.warn(
-                "Index of availability must match the index of the poa and ac_energy."
-            )
-            return False
-        else:
-            return True
-    else:
-        return True
-
-
-def perf_ratio(
-    ac_energy,
-    dc_nameplate,
-    poa,
-    unit_adj=1,
-    degradation=0,
-    year=1,
-    availability=1,
-):
-    """Calculate performance ratio.
+    Return the dominant timestep of an index in hours.
 
     Parameters
     ----------
-    ac_energy : Series
-        Measured energy production (Wh) from system meter.
-    dc_nameplate : numeric
-        Summation of nameplate ratings (W) for all installed modules of system
-        under test.
-    poa : Series
-        POA irradiance (W/m^2) for each time interval of the test.
-    unit_adj : numeric, default 1
-        Scale factor to adjust units of `ac_energy`. For exmaple pass 1000
-        to convert measured energy from kWh to Wh within PR calculation.
-    degradation : numeric, default None
-        Apply a derate (percent, Ex: 0.5%) for degradation to the expected
-        power (denominator). Must also pass specify a value for the `year`
-        argument.
-        NOTE: Percent is divided by 100 to convert to decimal within function.
-    year : numeric
-        Year of operation to use in degradation calculation.
-    availability : numeric or Series, default 1
-        Apply an adjustment for plant availability to the expected power
-        (denominator).
+    index : pd.DatetimeIndex
+        Unfiltered index of a measured or modeled dataset.
 
     Returns
     -------
-    PrResults
-        Instance of class PrResults.
+    float
+        Timestep in hours.
     """
-    if not perf_ratio_inputs_ok(
-        ac_energy, dc_nameplate, poa, availability=availability
-    ):
-        return
-
-    timestep = util.get_common_timestep(poa, units="h", string_output=False)
-    timestep_str = util.get_common_timestep(poa, units="h", string_output=True)
-
-    expected_dc = (
-        availability
-        * dc_nameplate
-        * poa
-        / 1000
-        * (1 - degradation / 100) ** year
-        * timestep
-    )
-    pr = ac_energy.sum() * unit_adj / expected_dc.sum()
-
-    input_cd = capdata.CapData("input_cd")
-    input_cd.data = pd.concat([poa, ac_energy], axis=1)
-
-    pr_per_timestep = ac_energy * unit_adj / expected_dc
-    results_data = pd.concat([ac_energy, expected_dc, pr_per_timestep], axis=1)
-    results_data.columns = ["ac_energy", "expected_dc", "pr_per_timestep"]
-
-    results = PrResults(
-        timestep=(timestep, timestep_str),
-        pr=pr,
-        dc_nameplate=dc_nameplate,
-        input_data=input_cd,
-        results_data=results_data,
-    )
-    return results
+    return common_timestep_delta(index) / pd.Timedelta(hours=1)
 
 
-def perf_ratio_temp_corr_nrel(
-    ac_energy,
-    dc_nameplate,
-    poa,
-    power_temp_coeff=None,
-    temp_bom=None,
-    temp_amb=None,
-    wind_speed=None,
-    base_temp=25,
-    module_type="glass_cell_poly",
-    racking="open_rack",
-    unit_adj=1,
-    degradation=None,
-    year=None,
-    availability=1,
-):
-    """Calculate performance ratio.
+def to_energy_wh(values, *, kind, units, dt_hours):
+    """
+    Convert interval power or interval energy to interval energy in Wh.
 
     Parameters
     ----------
-    ac_energy : Series
-        Measured energy production (kWh) from system meter.
-    dc_nameplate : numeric
-        Summation of nameplate ratings (W) for all installed modules of system
-        under test.
-    poa : Series
-        POA irradiance (W/m^2) for each time interval of the test.
-    power_temp_coeff : numeric, default None
-        Module power temperature coefficient as percent per degree celsius.
-        Ex. -0.36
-    temp_bom : Series
-        Measured back of module temperature. The `temp_amb` and `wind_speed` arguments
-        are not used if this argument is not None; skips calculating BOM temps from
-        ambient temperature, wind speed, and POA irradiance.
-    temp_amb : Series
-        Ambient temperature (degrees C) measurements.
-    wind_speed : Series
-        Measured wind speed (m/sec) corrected to measurement height of
-        10 meters.
-    base_temp : numeric, default 25
-        Base temperature (in Celsius) to correct power to. Default is the
-        STC of 25 degrees Celsius. The NREL Weather-Corrected Performance
-        Ratio technical report uses the term 'Tcell_typ_avg' for this value.
-    module_type : str, default 'glass_cell_poly'
-        Any of glass_cell_poly, glass_cell_glass, or 'poly_tf_steel'.
-    racking: str, default 'open_rack'
-        Any of 'open_rack', 'close_roof_mount', or 'insulated_back'
-    unit_adj : numeric, default 1
-        Scale factor to adjust units of `ac_energy`. For exmaple pass 1000
-        to convert measured energy from kWh to Wh within PR calculation.
-    degradation : numeric, default None
-        NOT IMPLEMENTED
-        Apply a derate for degradation to the expected power (denominator).
-        Must also pass specify a value for the `year` argument.
-    year : numeric
-        NOT IMPLEMENTED
-        Year of operation to use in degradation calculation.
-    availability : numeric or Series, default 1
-        NOT IMPLEMENTED
-        Apply an adjustment for plant availability to the expected power
-        (denominator).
+    values : pd.Series
+        Interval power (average over the interval) or interval energy.
+    kind : {"power", "energy"}
+        What `values` holds.
+    units : str
+        One of `POWER_UNITS` when `kind` is "power", else one of `ENERGY_UNITS`.
+    dt_hours : float
+        Length of each interval in hours; must be finite and greater than 0.
 
     Returns
     -------
-    PrResults
-        Instance of class PrResults.
+    pd.Series
+        Energy per interval in Wh.
 
-    Notes
+    Raises
+    ------
+    ValueError
+        If `kind` or `units` is not recognized, the units do not match `kind`,
+        or `dt_hours` is not a positive finite number.
+    """
+    _require_positive_finite("dt_hours", dt_hours)
+    if kind == "power":
+        return values * _unit_factor(units, POWER_UNITS, "power") * dt_hours
+    if kind == "energy":
+        return values * _unit_factor(units, ENERGY_UNITS, "energy")
+    raise ValueError(f"kind must be 'power' or 'energy'; got {kind!r}.")
+
+
+def power_from_energy(energy, *, energy_units, power_units, dt_hours):
+    """
+    Convert interval energy to average interval power.
+
+    Parameters
+    ----------
+    energy : pd.Series
+        Energy per interval.
+    energy_units : str
+        One of `ENERGY_UNITS`.
+    power_units : str
+        One of `POWER_UNITS`; units of the result.
+    dt_hours : float
+        Length of each interval in hours; must be finite and greater than 0.
+
+    Returns
+    -------
+    pd.Series
+        Average power over each interval in `power_units`.
+
+    Raises
+    ------
+    ValueError
+        If a unit is not recognized or `dt_hours` is not a positive finite number.
+    """
+    _require_positive_finite("dt_hours", dt_hours)
+    energy_wh = energy * _unit_factor(energy_units, ENERGY_UNITS, "energy")
+    return energy_wh / dt_hours / _unit_factor(power_units, POWER_UNITS, "power")
+
+
+def validate_power_temp_coeff(power_temp_coeff):
+    """
+    Check a power temperature coefficient given in %/°C.
+
+    Parameters
+    ----------
+    power_temp_coeff : float
+        Power temperature coefficient in %/°C; must be finite and negative.
+
+    Raises
+    ------
+    ValueError
+        If the value is not finite or is not negative.
+
+    Warns
     -----
-    The cell temperature correction is applied per interval. A
-    `single_irr_weighted_temp` option, which collapsed the per-interval cell
-    temperatures to a single irradiance weighted mean before correcting, was removed
-    because it cannot change the reported `pr`. The correction factor is
-    linear in cell temperature and each interval's contribution to the expected DC is
-    weighted by its POA irradiance -- the same weight used to average the temperature
-    -- so the two are algebraically identical once summed::
-
-        sum_i G_i * (1 + g * (T_i - b)) == (1 + g * (T_w - b)) * sum_i G_i
-
-    where ``T_w = sum_i(G_i * T_i) / sum_i(G_i)``. The option appeared to change the
-    result only while the correction was applied as a division, which is not linear in
-    temperature; that was a bug, fixed in the same release. Contract language calling
-    for a single irradiance weighted cell temperature is therefore already satisfied by
-    the per-interval calculation.
+    UserWarning
+        If the magnitude is outside the range typical of %/°C values, which
+        usually means the coefficient was given as a fraction or in the wrong units.
     """
-    timestep = util.get_common_timestep(poa, units="h", string_output=False)
-    timestep_str = util.get_common_timestep(poa, units="h", string_output=True)
-
-    coeffs = calcparams.EMP_HEAT_COEFF[racking][module_type]
-    if temp_bom is None:
-        temp_bom = poa * np.exp(coeffs["a"] + coeffs["b"] * wind_speed) + temp_amb
-    temp_cell = temp_bom + (poa / 1000) * coeffs["del_tcnd"]
-    dc_nameplate_temp_corr = dc_nameplate * (
-        1 + ((power_temp_coeff / 100) * (temp_cell - base_temp))
-    )
-    # below is same as the perf_ratio function
-    # move to a separate function?
-    expected_dc = (
-        availability
-        * dc_nameplate_temp_corr
-        * poa
-        / 1000
-        # * (1 - degradation / 100)**year
-        * timestep
-    )
-    pr = ac_energy.sum() * unit_adj / expected_dc.sum()
-
-    input_cd = capdata.CapData("input_cd")
-    input_cd.data = pd.concat([poa, ac_energy], axis=1)
-
-    pr_per_timestep = ac_energy * unit_adj / expected_dc
-    results_data = pd.concat([ac_energy, expected_dc, pr_per_timestep], axis=1)
-    results_data.columns = ["ac_energy", "expected_dc", "pr_per_timestep"]
-
-    results = PrResults(
-        timestep=(timestep, timestep_str),
-        pr=pr,
-        dc_nameplate=dc_nameplate,
-        input_data=input_cd,
-        results_data=results_data,
-    )
-    return results
+    if not math.isfinite(power_temp_coeff):
+        raise ValueError(
+            f"power_temp_coeff must be a finite number; got {power_temp_coeff}."
+        )
+    if power_temp_coeff >= 0:
+        raise ValueError(
+            "power_temp_coeff must be negative (%/°C). pvcaptest follows NREL "
+            "eq. 8, 1 − δ·(Tcell_typ_avg − T_cell), which needs the negative sign; "
+            "a contract that states β unsigned, e.g. 1 + β·(Tref − Tmeas) with "
+            "β = 0.32, is the same equation with power_temp_coeff=-0.32."
+        )
+    low, high = _COEFF_TYPICAL_RANGE
+    if not low <= abs(power_temp_coeff) <= high:
+        warnings.warn(
+            f"power_temp_coeff={power_temp_coeff} is outside the typical "
+            f"{low}-{high} %/°C magnitude; it is interpreted in %/°C, not as a "
+            "fraction per °C.",
+            UserWarning,
+            stacklevel=2,
+        )
 
 
-class PrResults(param.Parameterized):
+def validate_availability(availability):
     """
-    Results from a PR calculation.
+    Check an availability factor lies in [0, 1].
+
+    Parameters
+    ----------
+    availability : float or pd.Series
+        Scalar or per-interval availability. NaN entries of a Series are allowed
+        because the row set drops them.
+
+    Raises
+    ------
+    ValueError
+        If a scalar is not finite or any value is outside 0 ≤ A ≤ 1.
     """
+    if isinstance(availability, pd.Series):
+        if ((availability < 0) | (availability > 1)).any():
+            raise ValueError("availability must satisfy 0 ≤ A ≤ 1 in every row.")
+    elif not (math.isfinite(availability) and 0 <= availability <= 1):
+        raise ValueError(f"availability must satisfy 0 ≤ A ≤ 1; got {availability}.")
 
-    dc_nameplate = param.Number(
-        bounds=(0, None),
-        doc=("Summation of nameplate ratings (W) for all installed modules of system."),
-    )
-    pr = param.Number(doc="Performance ratio result decimal fraction.")
-    timestep = param.Tuple(doc="Timestep of series.")
-    expected_pr = param.Number(
-        bounds=(0, 1), doc="Expected Performance ratio result decimal fraction."
-    )
-    input_data = param.ClassSelector(class_=capdata.CapData)
-    results_data = param.ClassSelector(class_=pd.DataFrame)
 
-    def print_pr_result(self):
-        """Print summary of PR result - passing / failing and by how much"""
-        if self.pr >= self.expected_pr:
-            print(
-                f"The test is PASSING with a measured PR of {self.pr * 100:.2f}, "
-                f"which is {(self.pr - self.expected_pr) * 100:.2f} above the "
-                f"expected PR of {self.expected_pr * 100:.2f}"
+def expected_energy_wh(
+    poa,
+    *,
+    dc_nameplate,
+    dt_hours,
+    cell_temp=None,
+    t_ref=None,
+    power_temp_coeff=None,
+    availability=1.0,
+):
+    """
+    Compute expected interval energy in Wh from plane-of-array irradiance.
+
+    ``E = P_nameplate · (POA / G_STC) · Δt · A``, multiplied by
+    ``1 + γ·(T_cell − T_ref)`` (γ = ``power_temp_coeff`` / 100) when a
+    temperature correction is requested.
+
+    Parameters
+    ----------
+    poa : pd.Series
+        Plane-of-array irradiance in W/m².
+    dc_nameplate : float
+        DC nameplate capacity in W; must be finite and greater than 0.
+    dt_hours : float
+        Length of each interval in hours; must be finite and greater than 0.
+    cell_temp : pd.Series, optional
+        Cell temperature in °C. Supplying it selects the temperature-corrected
+        form, which also requires `t_ref` and `power_temp_coeff`.
+    t_ref : float or pd.Series, optional
+        Reference cell temperature in °C, scalar or aligned to `poa`.
+    power_temp_coeff : float, optional
+        Power temperature coefficient in %/°C; negative.
+    availability : float or pd.Series, default 1.0
+        Availability factor, 0 ≤ A ≤ 1, scalar or aligned to `poa`.
+
+    Returns
+    -------
+    pd.Series
+        Expected energy per interval in Wh.
+
+    Raises
+    ------
+    ValueError
+        If `dc_nameplate` or `dt_hours` is not a positive finite number, the
+        availability or coefficient is invalid, `t_ref` or `power_temp_coeff` is
+        given without `cell_temp`, or `cell_temp` is given without both.
+    """
+    _require_positive_finite("dc_nameplate", dc_nameplate)
+    _require_positive_finite("dt_hours", dt_hours)
+    validate_availability(availability)
+    energy = dc_nameplate * (poa / G_STC) * dt_hours * availability
+    if cell_temp is None:
+        if t_ref is not None or power_temp_coeff is not None:
+            raise ValueError(
+                "t_ref and power_temp_coeff were given without cell_temp; "
+                "a plain test takes none of them."
             )
-        else:
-            print(
-                f"The test is FAILING with a measured PR of {self.pr * 100:.2f}, "
-                f"which is {(self.expected_pr - self.pr) * 100:.2f} below the "
-                f"expected PR of {self.expected_pr * 100:.2f}"
-            )
+        return energy
+    if t_ref is None:
+        raise ValueError("t_ref is required when cell_temp is given.")
+    if power_temp_coeff is None:
+        raise ValueError("power_temp_coeff is required when cell_temp is given.")
+    validate_power_temp_coeff(power_temp_coeff)
+    return energy * (1 + power_temp_coeff / 100 * (cell_temp - t_ref))
