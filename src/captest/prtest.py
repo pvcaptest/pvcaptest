@@ -9,9 +9,10 @@ input validators. Measured and expected energy are always handled in Wh internal
 
 import calendar
 import math
+import numbers
 import re
 import warnings
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import ClassVar
 
@@ -37,6 +38,32 @@ def _require_positive_finite(name, value):
     """Raise ValueError unless `value` is a finite number greater than zero."""
     if not (math.isfinite(value) and value > 0):
         raise ValueError(f"{name} must be a finite number greater than 0; got {value}.")
+
+
+def _check_finite(name, value):
+    """Raise ValueError unless the scalar `value` is finite."""
+    if not math.isfinite(value):
+        raise ValueError(f"{name} must be finite; got {value}.")
+
+
+def _require_all_finite(**series):
+    """
+    Raise ValueError when a Series in `series` holds a NaN or +/-inf value.
+
+    A sum would skip NaN rows and so mix rows from one input that another lacks;
+    composed PR inputs must therefore already be the complete-row set. Values
+    that are not a Series (None, scalars) are skipped.
+    """
+    for name, values in series.items():
+        if not isinstance(values, pd.Series):
+            continue
+        bad = int((~np.isfinite(values.to_numpy(dtype=float))).sum())
+        if bad:
+            raise ValueError(
+                f"{name} has {bad} non-finite value(s) (NaN or +/-inf); select "
+                "the rows where every input is finite with complete_rows and "
+                "pass only those."
+            )
 
 
 def _require_same_index(reference_name, reference, **others):
@@ -75,6 +102,7 @@ def dt_hours(index):
     return common_timestep_delta(index) / pd.Timedelta(hours=1)
 
 
+# performance_ratio's `dt_hours` parameter shadows this module function.
 _index_dt_hours = dt_hours
 
 
@@ -191,8 +219,9 @@ def validate_availability(availability):
     Parameters
     ----------
     availability : float or pd.Series
-        Scalar or per-interval availability. NaN entries of a Series are allowed
-        because the row set drops them.
+        Scalar or per-interval availability. This only checks the value range,
+        so NaN entries of a Series pass; the caller's row set (`complete_rows`)
+        must drop those rows before `measured_pr`, which rejects them.
 
     Raises
     ------
@@ -251,8 +280,9 @@ def expected_energy_wh(
     ValueError
         If `dc_nameplate` or `dt_hours` is not a positive finite number, the
         availability or coefficient is invalid, `t_ref` or `power_temp_coeff` is
-        given without `cell_temp`, or `cell_temp` is given without both, or a
-        Series `cell_temp`, `t_ref` or `availability` is not indexed like `poa`.
+        given without `cell_temp`, or `cell_temp` is given without both, a
+        scalar `t_ref` is not finite, or a Series `cell_temp`, `t_ref` or
+        `availability` is not indexed like `poa`.
     """
     _require_positive_finite("dc_nameplate", dc_nameplate)
     _require_positive_finite("dt_hours", dt_hours)
@@ -270,6 +300,8 @@ def expected_energy_wh(
         return energy
     if t_ref is None:
         raise ValueError("t_ref is required when cell_temp is given.")
+    if not isinstance(t_ref, pd.Series):
+        _check_finite("t_ref", t_ref)
     if power_temp_coeff is None:
         raise ValueError("power_temp_coeff is required when cell_temp is given.")
     validate_power_temp_coeff(power_temp_coeff)
@@ -338,8 +370,8 @@ def weighted_cell_temp(poa, cell_temp):
     """
     Return the irradiance-weighted average cell temperature (NREL eq. 5).
 
-    The inputs are expected to be the caller's `complete_rows` set; rows where
-    either value is NaN are otherwise skipped by the sums.
+    The inputs must be the caller's `complete_rows` set: a NaN or infinite value
+    in either Series raises rather than being skipped by the sums.
 
     Parameters
     ----------
@@ -356,12 +388,11 @@ def weighted_cell_temp(poa, cell_temp):
     Raises
     ------
     ValueError
-        If `cell_temp` is not indexed like `poa`, no row has both values finite,
-        or the total irradiance is not greater than zero.
+        If `cell_temp` is not indexed like `poa`, any value of either is not
+        finite, or the total irradiance is not greater than zero.
     """
     _require_same_index("poa", poa, cell_temp=cell_temp)
-    if not (np.isfinite(poa) & np.isfinite(cell_temp)).any():
-        raise ValueError("no row has both poa and cell_temp finite.")
+    _require_all_finite(poa=poa, cell_temp=cell_temp)
     total = poa.sum()
     if not total > 0:
         raise ValueError("total irradiance must be greater than 0 to weight Tcell.")
@@ -371,6 +402,9 @@ def weighted_cell_temp(poa, cell_temp):
 def pr_ratio(measured_wh, expected_wh):
     """
     Compute the performance ratio as total measured over total expected energy.
+
+    Both Series must be the caller's `complete_rows` set: a NaN or infinite value
+    raises rather than being skipped by the sums.
 
     Parameters
     ----------
@@ -388,10 +422,12 @@ def pr_ratio(measured_wh, expected_wh):
     Raises
     ------
     ValueError
-        If `expected_wh` is not indexed like `measured_wh`, or the total expected
-        energy is not finite and greater than zero.
+        If `expected_wh` is not indexed like `measured_wh`, any value of either
+        is not finite, or the total expected energy is not finite and greater
+        than zero.
     """
     _require_same_index("measured_wh", measured_wh, expected_wh=expected_wh)
+    _require_all_finite(measured_wh=measured_wh, expected_wh=expected_wh)
     total_expected = expected_wh.sum()
     if not math.isfinite(total_expected):
         raise ValueError(
@@ -660,20 +696,46 @@ def _check_pr_value(name, value):
         raise ValueError(f"{name} must be a finite number greater than 0; got {value}.")
 
 
-def _check_finite(name, value):
-    if not math.isfinite(value):
-        raise ValueError(f"{name} must be finite; got {value}.")
-
-
 def _monthly_table(name, table):
-    """Return {month: value} for the stated entries of a 12-entry table."""
-    if len(table) != 12:
-        raise ValueError(
-            f"{name} must have 12 entries (January first); got {len(table)}."
+    """
+    Return {month: value} for the stated months of a monthly table.
+
+    A Mapping, or a Series whose index is not a default RangeIndex, is read by
+    month number 1-12 (missing months are not stated). A list, tuple or
+    default-indexed Series is read by position and must have 12 entries,
+    January first. None marks a month as not stated.
+    """
+    if isinstance(table, pd.Series):
+        positional = isinstance(table.index, pd.RangeIndex) and table.index.equals(
+            pd.RangeIndex(len(table))
+        )
+        table = table.tolist() if positional else table.to_dict()
+    if isinstance(table, Mapping):
+        for key in table:
+            if (
+                isinstance(key, bool)
+                or not isinstance(key, numbers.Integral)
+                or key not in _MONTHS
+            ):
+                raise ValueError(
+                    f"{name} keys must be month numbers, integers 1-12; got {key!r}."
+                )
+        entries = {int(key): value for key, value in table.items()}
+    elif isinstance(table, (list, tuple)):
+        if len(table) != 12:
+            raise ValueError(
+                f"{name} must have 12 entries (January first); got {len(table)}."
+            )
+        entries = dict(zip(_MONTHS, table, strict=True))
+    else:
+        raise TypeError(
+            f"{name} must be a mapping of month number (1-12) to value, or a "
+            f"12-entry list, tuple or pd.Series (January first); got "
+            f"{type(table).__name__}."
         )
     return {
         month: float(value)
-        for month, value in zip(_MONTHS, table, strict=True)
+        for month, value in sorted(entries.items())
         if value is not None
     }
 
@@ -690,15 +752,43 @@ class Reference:
     t_ref : float or dict of int to float or None
         Reference cell temperature in °C in the same form, None for a plain test.
     source : str
-        ``"fixed"`` (stated by the contract) or ``"derived"`` (from the simulation).
+        ``"fixed"`` (stated by the contract), ``"derived"`` (from the
+        simulation) or ``"standalone"`` (`performance_ratio`, no expected PR).
     granularity : str
         ``"single"`` or ``"monthly"``.
+
+    Raises
+    ------
+    ValueError
+        If `granularity` is unknown, or `pr` or `t_ref` is neither None nor of
+        the granularity's form: a number for ``"single"``, a dict for
+        ``"monthly"``.
     """
 
     pr: float | dict[int, float] | None
     t_ref: float | dict[int, float] | None
     source: str
     granularity: str
+
+    def __post_init__(self) -> None:
+        if self.granularity not in ("single", "monthly"):
+            raise ValueError(
+                f"granularity must be 'single' or 'monthly'; got {self.granularity!r}."
+            )
+        for name in ("pr", "t_ref"):
+            value = getattr(self, name)
+            if value is None:
+                continue
+            if self.granularity == "monthly" and not isinstance(value, dict):
+                raise ValueError(
+                    f"{name} must be a dict of month to value (or None) for "
+                    f"monthly granularity; got {type(value).__name__}."
+                )
+            if self.granularity == "single" and not isinstance(value, numbers.Real):
+                raise ValueError(
+                    f"{name} must be a number (or None) for single granularity; "
+                    f"got {type(value).__name__}."
+                )
 
     def require_months(self, months: Iterable[int], *, temp_corrected: bool) -> None:
         """
@@ -768,8 +858,8 @@ def fixed_reference(
     granularity: str = "single",
     expected_pr: float | None = None,
     t_ref: float | None = None,
-    expected_pr_monthly: list | None = None,
-    t_ref_monthly: list | None = None,
+    expected_pr_monthly: Mapping | Sequence | pd.Series | None = None,
+    t_ref_monthly: Mapping | Sequence | pd.Series | None = None,
 ) -> Reference:
     """
     Build a reference from values stated by the contract.
@@ -784,10 +874,14 @@ def fixed_reference(
         Expected PR for single granularity; finite and greater than 0.
     t_ref : float, optional
         Reference temperature in °C for single granularity.
-    expected_pr_monthly : list, optional
-        12 expected PR values, January first, None for months not stated.
-    t_ref_monthly : list, optional
-        12 reference temperatures in °C, January first, None where not stated.
+    expected_pr_monthly : dict, list, tuple or pd.Series, optional
+        Expected PR per calendar month. A dict (or a Series indexed by month)
+        maps month numbers 1-12 to values, e.g. the ``pr`` of a derived monthly
+        reference; months it omits are not stated. A list, tuple or Series with
+        a default RangeIndex holds 12 values, January first. None marks a month
+        as not stated.
+    t_ref_monthly : dict, list, tuple or pd.Series, optional
+        Reference temperature in °C per calendar month, in the same forms.
 
     Returns
     -------
@@ -799,8 +893,11 @@ def fixed_reference(
     ValueError
         If the granularity is unknown, a needed value is missing, a reference
         temperature is given for a plain test, a value is not finite (or a PR is
-        not greater than 0), a monthly table does not have 12 entries, or a
+        not greater than 0), a positional monthly table does not have 12
+        entries, a monthly mapping has a key that is not an integer 1-12, or a
         value of the other granularity is supplied.
+    TypeError
+        If a monthly table is not a mapping, list, tuple or pd.Series.
     """
     if granularity not in ("single", "monthly"):
         raise ValueError(
@@ -835,7 +932,7 @@ def fixed_reference(
         raise ValueError("expected_pr_monthly is required for monthly granularity.")
     pr_table = _monthly_table("expected_pr_monthly", expected_pr_monthly)
     for month, value in pr_table.items():
-        _check_pr_value(f"expected_pr_monthly[{month - 1}]", value)
+        _check_pr_value(f"expected_pr_monthly for month {month}", value)
     t_table = None
     if temp_corrected:
         if t_ref_monthly is None:
@@ -845,39 +942,45 @@ def fixed_reference(
             )
         t_table = _monthly_table("t_ref_monthly", t_ref_monthly)
         for month, value in t_table.items():
-            _check_finite(f"t_ref_monthly[{month - 1}]", value)
+            _check_finite(f"t_ref_monthly for month {month}", value)
     return Reference(pr_table, t_table, "fixed", "monthly")
 
 
 def _warn_partial_months(kept_index, unfiltered_index):
-    """Warn for months with a run of 7+ consecutive days without kept rows."""
-    all_days = pd.Series(unfiltered_index.normalize().unique()).sort_values()
+    """
+    Warn for each run of 7+ consecutive days without kept rows.
+
+    Runs are counted over the whole unfiltered day sequence, so a run crossing a
+    month boundary counts in full. The warning names every month the run
+    touches that still has kept rows; a month with no kept rows at all is
+    absent, not partial, and is left to `Reference.require_months`.
+    """
+    all_days = unfiltered_index.normalize().unique().sort_values()
     kept_days = set(kept_index.normalize())
     kept_months = set(kept_index.month)
-    for month, days in all_days.groupby(all_days.dt.month):
-        if month not in kept_months:
+    runs, current = [], []
+    for day in all_days:
+        missing = day not in kept_days
+        if current and (not missing or day - current[-1] != pd.Timedelta(days=1)):
+            runs.append(current)
+            current = []
+        if missing:
+            current.append(day)
+    if current:
+        runs.append(current)
+    for run in runs:
+        months = sorted({day.month for day in run} & kept_months)
+        if len(run) < _PARTIAL_MONTH_RUN_DAYS or not months:
             continue
-        run = longest = 0
-        previous = None
-        for day in days:
-            if day in kept_days:
-                run = 0
-            else:
-                contiguous = previous is not None and day - previous == pd.Timedelta(
-                    days=1
-                )
-                run = run + 1 if contiguous else 1
-                longest = max(longest, run)
-            previous = day if day not in kept_days else None
-        if longest >= _PARTIAL_MONTH_RUN_DAYS:
-            warnings.warn(
-                f"{_month_name(month)} is only partly present in the modeled rows: "
-                f"a run of {longest} consecutive days has no kept rows. A partial "
-                "month is not the contract's monthly value; check for a Time or "
-                "Days filter left on the sim pipeline.",
-                UserWarning,
-                stacklevel=3,
-            )
+        warnings.warn(
+            f"Modeled rows only partly cover {', '.join(map(_month_name, months))}: "
+            f"a run of {len(run)} consecutive days ({run[0]:%Y-%m-%d} to "
+            f"{run[-1]:%Y-%m-%d}) has no kept rows. A partial month is not the "
+            "contract's monthly value; check for a Time or Days filter left on "
+            "the sim pipeline.",
+            UserWarning,
+            stacklevel=3,
+        )
 
 
 def derive_reference(
@@ -924,16 +1027,20 @@ def derive_reference(
     Raises
     ------
     ValueError
-        If the inputs are misaligned or empty, or a derived PR or reference
-        temperature is not finite.
+        If the inputs are misaligned or empty, any value of `energy_wh`, `poa` or
+        `cell_temp` is not finite (pass the `complete_rows` set), or a derived
+        PR or reference temperature is not finite.
 
     Warns
     -----
     UserWarning
-        With `monthly` and `unfiltered_index`, when a month with kept rows has a
-        run of 7 or more consecutive days with no kept rows.
+        With `monthly` and `unfiltered_index`, when a run of 7 or more
+        consecutive days of the unfiltered data has no kept rows, naming each
+        month the run touches that has kept rows. The run is counted across
+        month boundaries.
     """
     _require_same_index("energy_wh", energy_wh, poa=poa, cell_temp=cell_temp)
+    _require_all_finite(energy_wh=energy_wh, poa=poa, cell_temp=cell_temp)
 
     def pair(energy, irradiance, temperature, label):
         expected = expected_energy_wh(
@@ -982,7 +1089,8 @@ class MeasuredPr:
         quantities that do not apply are NaN.
     monthly : pd.DataFrame
         Indexed by month number: ``intervals``, ``insolation_wh_m2`` (``sum(poa·Δt)``)
-        and ``measured_pr`` of that month.
+        and ``measured_pr`` of that month (NaN, with a warning, when the month's
+        expected energy is not greater than 0).
     """
 
     ratio: float
@@ -1035,10 +1143,22 @@ def measured_pr(
     Raises
     ------
     ValueError
-        If inputs are misaligned or invalid, the reference lacks a month present
-        in the rows, or the total expected energy is not positive and finite.
+        If inputs are misaligned or invalid, any value of `energy_wh`, `poa`,
+        `cell_temp` or a Series `availability` is not finite (pass the
+        `complete_rows` set), the reference lacks a month present in the rows,
+        or the total expected energy is not positive and finite.
+
+    Warns
+    -----
+    UserWarning
+        If a month's total expected energy is not greater than zero; that
+        month's ``measured_pr`` in the monthly table is NaN. The overall ratio
+        is unaffected.
     """
     _require_same_index("energy_wh", energy_wh, poa=poa, cell_temp=cell_temp)
+    _require_all_finite(
+        energy_wh=energy_wh, poa=poa, cell_temp=cell_temp, availability=availability
+    )
     t_ref = None
     if cell_temp is not None:
         t_ref = reference.t_ref_for(energy_wh.index)
@@ -1072,6 +1192,15 @@ def measured_pr(
     )
     by_month = intervals.groupby(intervals.index.month)
     expected_total = by_month["expected_wh"].sum()
+    undefined = expected_total.index[~(expected_total > 0)]
+    if len(undefined):
+        warnings.warn(
+            f"The measured PR of {', '.join(map(_month_name, undefined))} is "
+            "undefined (total expected energy not greater than 0); its monthly "
+            "measured_pr is NaN.",
+            UserWarning,
+            stacklevel=2,
+        )
     monthly = pd.DataFrame(
         {
             "intervals": by_month.size(),
@@ -1153,7 +1282,7 @@ class PrTestResults:
     degradation : dict or None
         ``{"rate", "years", "factor"}`` when degradation was applied.
     tolerance : str or None
-        Tolerance as given, e.g. ``"5%"``.
+        Tolerance as given, e.g. ``"- 5"``.
     threshold, margin, ratio_to_threshold : float or None
         Judgement values; see `Judgement`.
     passed : bool or None
@@ -1254,12 +1383,16 @@ def performance_ratio(
     column, a back-of-module column (cell temperature from the Sandia model), or
     ambient temperature plus wind speed (back-of-module then cell temperature).
     Any of them selects the temperature-corrected form with the reference
-    temperature `base_temp`; none gives the plain form.
+    temperature `base_temp`; none gives the plain form. Options that a call would
+    ignore raise instead: `base_temp` without a temperature source, and
+    `module_type`, `racking` or `temp_delta` without a calculated cell
+    temperature (`bom`, or `temp_amb` with `wind_speed`).
 
     Parameters
     ----------
     data : pd.DataFrame
-        Time-indexed data; rows with a missing or non-finite input are dropped.
+        Time-indexed data; rows with a missing or non-finite input are dropped
+        (counted in ``dropped_nan`` / ``dropped_nonfinite``).
     numerator : str
         Column of measured interval power or interval energy.
     poa : str
@@ -1283,11 +1416,14 @@ def performance_ratio(
         Power temperature coefficient in %/°C; required with a temperature
         source and rejected without one.
     base_temp : float, default 25.0
-        Reference cell temperature in °C.
+        Reference cell temperature in °C; finite. A value other than the
+        default needs a temperature source.
     module_type, racking : str
-        Sandia model selectors for `bom` / `temp_amb`.
+        Sandia model selectors for `bom` / `temp_amb`; a value other than the
+        default needs one of those sources.
     temp_delta : float, optional
-        Cell-to-back-of-module temperature difference at 1000 W/m².
+        Cell-to-back-of-module temperature difference at 1000 W/m²; only with
+        `bom` / `temp_amb`.
 
     Returns
     -------
@@ -1297,16 +1433,21 @@ def performance_ratio(
 
     Raises
     ------
+    KeyError
+        If a named column is not in `data`.
     ValueError
         If more than one temperature source is given, ``temp_amb`` and
         ``wind_speed`` are not given together, `power_temp_coeff` is missing
-        with a temperature source or given without one, or `dc_nameplate`,
-        `dt_hours` or the units are invalid.
+        with a temperature source or given without one, `base_temp` is not
+        finite, an option is given that the call would ignore (see above), no
+        row has every input finite, or `dc_nameplate`, `dt_hours` or the units
+        are invalid.
     """
     _require_positive_finite("dc_nameplate", dc_nameplate)
     if dt_hours is None:
         dt_hours = _index_dt_hours(data.index)
     _require_positive_finite("dt_hours", dt_hours)
+    _check_finite("base_temp", base_temp)
     if (temp_amb is None) != (wind_speed is None):
         raise ValueError("temp_amb and wind_speed must be given together.")
     sources = [
@@ -1329,6 +1470,27 @@ def performance_ratio(
         raise ValueError(
             "power_temp_coeff was given without a temperature source "
             "(cell_temp, bom, or temp_amb with wind_speed)."
+        )
+    if not corrected and base_temp != 25.0:
+        raise ValueError(
+            "base_temp was given without a temperature source (cell_temp, bom, "
+            "or temp_amb with wind_speed); a plain PR has no reference "
+            "temperature."
+        )
+    sandia_options = [
+        name
+        for name, changed in (
+            ("module_type", module_type != "glass_cell_poly"),
+            ("racking", racking != "open_rack"),
+            ("temp_delta", temp_delta is not None),
+        )
+        if changed
+    ]
+    if sandia_options and bom is None and temp_amb is None:
+        raise ValueError(
+            f"{', '.join(sandia_options)} only apply when the cell temperature "
+            "is calculated from bom, or from temp_amb with wind_speed; none of "
+            "those was given, so they would be ignored."
         )
     if corrected:
         validate_power_temp_coeff(power_temp_coeff)
@@ -1360,6 +1522,12 @@ def performance_ratio(
         inputs["cell_temp"] = data[cell_temp]
     frame = pd.DataFrame(inputs)
     rows = complete_rows(frame, label="meas")
+    if rows.index.empty:
+        raise ValueError(
+            "no complete rows remain for side 'meas': "
+            f"{rows.dropped_nan} row(s) dropped for NaN or missing inputs and "
+            f"{rows.dropped_nonfinite} for non-finite (inf) inputs."
+        )
     kept = frame.loc[rows.index]
     energy_wh = to_energy_wh(kept["energy"], kind=kind, units=units, dt_hours=dt_hours)
     measured = measured_pr(
