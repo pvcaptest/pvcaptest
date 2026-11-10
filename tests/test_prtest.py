@@ -386,3 +386,104 @@ class TestResampleIntervalEnergy:
         series = pd.Series(1.0, index=first.append(second))
         with pytest.raises(ValueError, match="aligned"):
             prtest.resample_interval_energy(series, "14min")
+
+
+class TestDegradation:
+    def test_factor_linear(self):
+        assert prtest.degradation_factor(0.4, 1.5) == pytest.approx(0.994)
+
+    def test_factor_zero_rate_is_one(self):
+        assert prtest.degradation_factor(0, 3) == 1.0
+
+    def test_factor_non_positive_raises(self):
+        with pytest.raises(ValueError, match="factor"):
+            prtest.degradation_factor(50, 3)
+
+    @pytest.mark.parametrize(
+        "rate, years",
+        [(-0.4, 1), (0.4, -1), (np.nan, 1), (0.4, np.inf), (np.inf, 1)],
+    )
+    def test_factor_bad_inputs_raise(self, rate, years):
+        with pytest.raises(ValueError, match="rate|years"):
+            prtest.degradation_factor(rate, years)
+
+    def test_years_midpoint_of_test_period(self):
+        years = prtest.degradation_years("2026-01-01", "2027-01-01", "2027-01-31")
+        assert years == pytest.approx(380 / 365)
+
+    def test_years_accepts_timestamps(self):
+        years = prtest.degradation_years(
+            pd.Timestamp("2026-01-01"),
+            pd.Timestamp("2027-01-01"),
+            pd.Timestamp("2027-01-31"),
+        )
+        assert years == pytest.approx(380 / 365)
+
+    def test_years_end_before_start_raises(self):
+        with pytest.raises(ValueError, match="test_end"):
+            prtest.degradation_years("2026-01-01", "2027-01-31", "2027-01-01")
+
+    def test_years_start_before_warranty_raises(self):
+        with pytest.raises(ValueError, match="warranty_start"):
+            prtest.degradation_years("2026-01-01", "2025-12-01", "2026-01-31")
+
+    def test_degradation_placement_equivalence(self):
+        ratio, expected, tol, factor = 0.80, 0.83, 0.03, 0.994
+        assert (ratio >= (1 - tol) * expected * factor) == (
+            ratio / factor >= (1 - tol) * expected
+        )
+        scaled = prtest.judge(ratio, expected * factor, tol)
+        corrected = prtest.judge(ratio / factor, expected, tol)
+        assert scaled.ratio_to_threshold == pytest.approx(corrected.ratio_to_threshold)
+        assert scaled.passed == corrected.passed
+
+
+class TestTolerance:
+    @pytest.mark.parametrize(
+        "text, expected", [("- 3", 0.03), ("- 2.5", 0.025), ("- 0", 0.0)]
+    )
+    def test_parses_one_sided(self, text, expected):
+        assert prtest.parse_pr_tolerance(text) == pytest.approx(expected)
+
+    def test_two_sided_raises(self):
+        with pytest.raises(ValueError, match="one-sided"):
+            prtest.parse_pr_tolerance("+/- 5")
+
+    @pytest.mark.parametrize(
+        "text", ["- 100", "-3", "- abc", "- nan", "- -1", "+ 3", "", 3]
+    )
+    def test_malformed_raises(self, text):
+        with pytest.raises(ValueError, match="test_tolerance"):
+            prtest.parse_pr_tolerance(text)
+
+
+class TestJudge:
+    def test_pass(self):
+        result = prtest.judge(0.80, 0.82, 0.03)
+        assert result.threshold == pytest.approx(0.7954)
+        assert result.margin == pytest.approx(0.0046)
+        assert result.ratio_to_threshold == pytest.approx(0.80 / 0.7954)
+        assert result.passed is True
+
+    def test_fail(self):
+        result = prtest.judge(0.79, 0.82, 0.03)
+        assert result.passed is False
+        assert result.margin < 0
+
+    def test_exactly_at_threshold_passes(self):
+        assert prtest.judge(0.5, 0.5, 0.0).passed is True
+
+    @pytest.mark.parametrize(
+        "ratio, expected, name",
+        [
+            (np.nan, 0.82, "ratio"),
+            (np.inf, 0.82, "ratio"),
+            (0.8, np.nan, "expected_ratio"),
+            (0.8, np.inf, "expected_ratio"),
+            (0.8, 0.0, "expected_ratio"),
+            (0.8, -0.5, "expected_ratio"),
+        ],
+    )
+    def test_invalid_raises_never_passes(self, ratio, expected, name):
+        with pytest.raises(ValueError, match=name):
+            prtest.judge(ratio, expected, 0.03)

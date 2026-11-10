@@ -8,6 +8,7 @@ input validators. Measured and expected energy are always handled in Wh internal
 """
 
 import math
+import re
 import warnings
 from dataclasses import dataclass
 
@@ -417,4 +418,176 @@ def resample_interval_energy(energy, freq, *, label="left", closed="left"):
         )
     return energy.resample(freq, label=label, closed=closed, origin=origin).sum(
         min_count=n
+    )
+
+
+def degradation_factor(rate, years):
+    """
+    Return the linear degradation factor ``1 − years · rate / 100``.
+
+    Parameters
+    ----------
+    rate : float
+        Annual degradation rate in %/yr; finite and not negative.
+    years : float
+        Elapsed time in years; finite and not negative.
+
+    Returns
+    -------
+    float
+        Factor applied to the expected performance ratio.
+
+    Raises
+    ------
+    ValueError
+        If `rate` or `years` is negative or not finite, or the resulting factor
+        is not greater than zero.
+    """
+    for name, value in (("rate", rate), ("years", years)):
+        if not (math.isfinite(value) and value >= 0):
+            raise ValueError(
+                f"{name} must be a finite number not less than 0; got {value}."
+            )
+    factor = 1 - years * rate / 100
+    if factor <= 0:
+        raise ValueError(
+            f"Degradation factor must be greater than 0; rate={rate} %/yr over "
+            f"years={years} gives {factor}."
+        )
+    return factor
+
+
+def degradation_years(warranty_start, test_start, test_end):
+    """
+    Return the years of degradation at the midpoint of a test period.
+
+    Computed as ``((test_start − warranty_start).days +
+    (test_end − warranty_start).days) / 2 / 365``.
+
+    Parameters
+    ----------
+    warranty_start, test_start, test_end : timestamp-like
+        Anything `pd.Timestamp` accepts.
+
+    Returns
+    -------
+    float
+        Years from the start of the warranty to the middle of the test period.
+
+    Raises
+    ------
+    ValueError
+        If `test_end` is before `test_start` or `test_start` is before
+        `warranty_start`.
+    """
+    warranty_start = pd.Timestamp(warranty_start)
+    test_start = pd.Timestamp(test_start)
+    test_end = pd.Timestamp(test_end)
+    if test_end < test_start:
+        raise ValueError(
+            f"test_end ({test_end}) must not be before test_start ({test_start})."
+        )
+    if test_start < warranty_start:
+        raise ValueError(
+            f"test_start ({test_start}) must not be before warranty_start "
+            f"({warranty_start})."
+        )
+    days = (test_start - warranty_start).days + (test_end - warranty_start).days
+    return days / 2 / 365
+
+
+_TOLERANCE_PATTERN = re.compile(r"^- (\d+(?:\.\d+)?)$")
+
+
+def parse_pr_tolerance(tolerance):
+    """
+    Parse a one-sided PR test tolerance string into a fraction.
+
+    Parameters
+    ----------
+    tolerance : str
+        ``"- N"`` with ``0 <= N < 100``, e.g. ``"- 3"`` for a 3 % shortfall.
+
+    Returns
+    -------
+    float
+        The tolerance as a fraction, e.g. 0.03.
+
+    Raises
+    ------
+    ValueError
+        If the string is two-sided (``"+/- N"``), malformed, or N is outside
+        ``[0, 100)``.
+    """
+    text = tolerance.strip() if isinstance(tolerance, str) else tolerance
+    if isinstance(text, str) and text.startswith("+/-"):
+        raise ValueError(
+            f"test_tolerance {tolerance!r} is two-sided; a PR test is one-sided, "
+            "use the form '- N', e.g. '- 3'."
+        )
+    match = _TOLERANCE_PATTERN.match(text) if isinstance(text, str) else None
+    if match is None or not float(match.group(1)) < 100:
+        raise ValueError(
+            f"test_tolerance must have the form '- N' with 0 <= N < 100, "
+            f"e.g. '- 3'; got {tolerance!r}."
+        )
+    return float(match.group(1)) / 100
+
+
+@dataclass
+class Judgement:
+    """
+    Outcome of comparing a measured PR to its tolerance-adjusted threshold.
+
+    Attributes
+    ----------
+    threshold : float
+        ``(1 − tolerance) · expected_ratio``.
+    margin : float
+        ``ratio − threshold``.
+    ratio_to_threshold : float
+        ``ratio / threshold``.
+    passed : bool
+        True when ``ratio >= threshold``.
+    """
+
+    threshold: float
+    margin: float
+    ratio_to_threshold: float
+    passed: bool
+
+
+def judge(ratio, expected_ratio, tolerance):
+    """
+    Judge a measured performance ratio against the expected ratio and tolerance.
+
+    Parameters
+    ----------
+    ratio : float
+        Measured performance ratio.
+    expected_ratio : float
+        Expected performance ratio, including any degradation factor.
+    tolerance : float
+        One-sided tolerance as a fraction, e.g. from `parse_pr_tolerance`.
+
+    Returns
+    -------
+    Judgement
+        Threshold, margin, ratio to threshold and the pass/fail result.
+
+    Raises
+    ------
+    ValueError
+        If `ratio` is not finite, or `expected_ratio` is not finite and
+        greater than zero. A non-finite input never yields a pass.
+    """
+    if not math.isfinite(ratio):
+        raise ValueError(f"ratio must be a finite number; got {ratio}.")
+    _require_positive_finite("expected_ratio", expected_ratio)
+    threshold = (1 - tolerance) * expected_ratio
+    return Judgement(
+        threshold=threshold,
+        margin=ratio - threshold,
+        ratio_to_threshold=ratio / threshold,
+        passed=bool(ratio >= threshold),
     )
