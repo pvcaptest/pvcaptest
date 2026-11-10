@@ -61,6 +61,77 @@ class TestGetCommonTimestep:
         assert time_step == "1min"
 
 
+class TestCommonTimestepDelta:
+    @staticmethod
+    def _index_from_steps(steps):
+        start = pd.Timestamp("2021-01-01 12:00")
+        return pd.DatetimeIndex([start] + list(start + pd.Series(steps).cumsum()))
+
+    @pytest.mark.parametrize(
+        "freq, expected",
+        [
+            ("15min", pd.Timedelta(minutes=15)),
+            ("30s", pd.Timedelta(seconds=30)),
+            ("90s", pd.Timedelta(seconds=90)),
+        ],
+    )
+    def test_keeps_sub_minute_precision(self, freq, expected):
+        index = pd.date_range("2021-01-01", periods=10, freq=freq)
+        assert util.common_timestep_delta(index) == expected
+
+    def test_regular_gaps_do_not_warn(self, recwarn):
+        grid = pd.date_range("2021-01-01", periods=9, freq="15min")
+        index = grid[[0, 1, 2, 4, 5, 8]]
+        assert util.common_timestep_delta(index) == pd.Timedelta(minutes=15)
+        assert len(recwarn) == 0
+
+    def test_non_multiple_step_warns(self):
+        steps = [pd.Timedelta(minutes=15)] * 9 + [pd.Timedelta(minutes=7)]
+        index = self._index_from_steps(steps)
+        with pytest.warns(UserWarning, match="not a whole multiple"):
+            result = util.common_timestep_delta(index)
+        assert result == pd.Timedelta(minutes=15)
+
+    @pytest.mark.parametrize("n", [0, 1])
+    def test_fewer_than_two_timestamps_raises(self, n):
+        index = pd.date_range("2021-01-01", periods=n, freq="15min")
+        with pytest.raises(ValueError):
+            util.common_timestep_delta(index)
+
+    def test_zero_modal_step_raises(self):
+        index = pd.DatetimeIndex(
+            ["2021-01-01 00:00"] * 5 + ["2021-01-01 00:15", "2021-01-01 00:30"]
+        )
+        with pytest.raises(ValueError, match="not strictly positive"):
+            util.common_timestep_delta(index)
+
+    def test_strict_majority_is_dominant(self, recwarn):
+        steps = [pd.Timedelta(minutes=15)] * 51 + [pd.Timedelta(minutes=1)] * 49
+        index = self._index_from_steps(steps)
+        assert util.common_timestep_delta(index) == pd.Timedelta(minutes=15)
+
+    def test_even_split_raises(self):
+        steps = [pd.Timedelta(minutes=1)] * 50 + [pd.Timedelta(minutes=5)] * 50
+        index = self._index_from_steps(steps)
+        with pytest.raises(ValueError, match="no dominant timestep"):
+            util.common_timestep_delta(index)
+
+    def test_three_way_split_raises(self):
+        steps = (
+            [pd.Timedelta(minutes=1)] * 40
+            + [pd.Timedelta(minutes=5)] * 30
+            + [pd.Timedelta(minutes=15)] * 30
+        )
+        index = self._index_from_steps(steps)
+        with pytest.raises(ValueError, match="no dominant timestep"):
+            util.common_timestep_delta(index)
+
+    def test_unsorted_index_is_sorted_first(self):
+        index = pd.date_range("2021-01-01", periods=20, freq="15min")
+        shuffled = index[np.random.default_rng(0).permutation(len(index))]
+        assert util.common_timestep_delta(shuffled) == pd.Timedelta(minutes=15)
+
+
 @pytest.fixture
 def reindex_dfs():
     df1 = pd.DataFrame(

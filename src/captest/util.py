@@ -99,6 +99,57 @@ def get_common_timestep(data, units="m", string_output=True):
         return freq
 
 
+def common_timestep_delta(index):
+    """
+    Return the dominant timestep of a datetime index without losing precision.
+
+    Unlike `get_common_timestep`, the result is not cast to whole minutes, so
+    sub-minute and non-integer-minute timesteps are preserved.
+
+    Parameters
+    ----------
+    index : pd.DatetimeIndex
+        Timestamps to difference. Sorted before differencing.
+
+    Returns
+    -------
+    pd.Timedelta
+        The most common step between consecutive timestamps.
+
+    Raises
+    ------
+    ValueError
+        If the index has fewer than two timestamps, if no step makes up a strict
+        majority of the differences, or if the dominant step is not strictly
+        positive.
+
+    Warns
+    -----
+    UserWarning
+        If any difference is not a whole multiple of the dominant step.
+    """
+    if len(index) < 2:
+        raise ValueError("At least two timestamps are required to find a timestep.")
+    diffs = pd.Series(index.sort_values()).diff().dropna()
+    counts = diffs.value_counts()
+    step = counts.index[0]
+    if counts.iloc[0] <= len(diffs) / 2:
+        raise ValueError(
+            f"There is no dominant timestep: the most common step, {step}, is "
+            f"only {counts.iloc[0]} of {len(diffs)} differences."
+        )
+    if step <= pd.Timedelta(0):
+        raise ValueError(f"The dominant timestep, {step}, is not strictly positive.")
+    n_off_grid = int((diffs % step != pd.Timedelta(0)).sum())
+    if n_off_grid:
+        warnings.warn(
+            f"{n_off_grid} timestamp difference(s) are not a whole multiple of "
+            f"the dominant timestep {step}.",
+            UserWarning,
+        )
+    return step
+
+
 def reindex_datetime(data, file_name=None, report=False):
     """
     Find dataframe index frequency and reindex to add any missing intervals.
