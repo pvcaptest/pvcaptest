@@ -300,7 +300,9 @@ def expected_energy_wh(
         return energy
     if t_ref is None:
         raise ValueError("t_ref is required when cell_temp is given.")
-    if not isinstance(t_ref, pd.Series):
+    if isinstance(t_ref, pd.Series):
+        _require_all_finite(t_ref=t_ref)
+    else:
         _check_finite("t_ref", t_ref)
     if power_temp_coeff is None:
         raise ValueError("power_temp_coeff is required when cell_temp is given.")
@@ -691,11 +693,6 @@ def _month_name(month):
     return calendar.month_name[month]
 
 
-def _check_pr_value(name, value):
-    if not (math.isfinite(value) and value > 0):
-        raise ValueError(f"{name} must be a finite number greater than 0; got {value}.")
-
-
 def _monthly_table(name, table):
     """
     Return {month: value} for the stated months of a monthly table.
@@ -784,7 +781,9 @@ class Reference:
                     f"{name} must be a dict of month to value (or None) for "
                     f"monthly granularity; got {type(value).__name__}."
                 )
-            if self.granularity == "single" and not isinstance(value, numbers.Real):
+            if self.granularity == "single" and (
+                isinstance(value, bool) or not isinstance(value, numbers.Real)
+            ):
                 raise ValueError(
                     f"{name} must be a number (or None) for single granularity; "
                     f"got {type(value).__name__}."
@@ -913,7 +912,7 @@ def fixed_reference(
             raise ValueError("Monthly tables were given with granularity='single'.")
         if expected_pr is None:
             raise ValueError("expected_pr is required for single granularity.")
-        _check_pr_value("expected_pr", expected_pr)
+        _require_positive_finite("expected_pr", expected_pr)
         if temp_corrected:
             if t_ref is None:
                 raise ValueError(
@@ -932,7 +931,7 @@ def fixed_reference(
         raise ValueError("expected_pr_monthly is required for monthly granularity.")
     pr_table = _monthly_table("expected_pr_monthly", expected_pr_monthly)
     for month, value in pr_table.items():
-        _check_pr_value(f"expected_pr_monthly for month {month}", value)
+        _require_positive_finite(f"expected_pr_monthly for month {month}", value)
     t_table = None
     if temp_corrected:
         if t_ref_monthly is None:
@@ -1057,6 +1056,8 @@ def derive_reference(
     if not monthly:
         pr, t_ref = pair(energy_wh, poa, cell_temp, "")
         return Reference(pr, t_ref, "derived", "single")
+    if energy_wh.empty:
+        raise ValueError("Cannot derive a monthly reference from empty inputs.")
     if unfiltered_index is not None:
         _warn_partial_months(energy_wh.index, unfiltered_index)
     pr_by_month, t_ref_by_month = {}, {}

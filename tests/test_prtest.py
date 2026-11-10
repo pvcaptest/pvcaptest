@@ -1415,3 +1415,31 @@ class TestPerformanceRatio:
             **self.kwargs,
         )
         assert corrected.ratio == pytest.approx(plain.ratio)
+
+
+class TestContractEdges:
+    def test_series_t_ref_must_be_finite(self):
+        idx = pd.date_range("2026-06-01 12:00", periods=2, freq="15min")
+        poa = pd.Series([1000.0, 500.0], index=idx)
+        cell = pd.Series([45.0, 25.0], index=idx)
+        t_ref = pd.Series([25.0, np.nan], index=idx)
+        with pytest.raises(ValueError, match="t_ref has 1 non-finite"):
+            prtest.expected_energy_wh(
+                poa,
+                dc_nameplate=1e6,
+                dt_hours=0.25,
+                cell_temp=cell,
+                t_ref=t_ref,
+                power_temp_coeff=-0.4,
+            )
+
+    def test_reference_rejects_bool_value(self):
+        with pytest.raises(ValueError, match="pr must be a number"):
+            prtest.Reference(True, None, "fixed", "single")
+
+    def test_derive_monthly_reference_from_empty_inputs_raises(self):
+        empty = pd.Series([], index=pd.DatetimeIndex([]), dtype=float)
+        with pytest.raises(ValueError, match="empty inputs"):
+            prtest.derive_reference(
+                empty, empty, dc_nameplate=1e6, dt_hours=0.25, monthly=True
+            )
