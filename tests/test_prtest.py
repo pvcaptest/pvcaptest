@@ -522,7 +522,7 @@ class TestInputContracts:
         index = pd.date_range("2025-01-01", periods=2, freq="1h")
         measured = pd.Series([1.0, 1.0], index=index)
         expected = pd.Series([np.inf, 50.0], index=index)
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="finite"):
             prtest.pr_ratio(measured, expected)
 
     def test_weighted_cell_temp_rejects_misaligned(self, poa):
@@ -532,7 +532,7 @@ class TestInputContracts:
 
     def test_weighted_cell_temp_rejects_all_nan(self, poa):
         cell_temp = pd.Series(np.nan, index=poa.index)
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="finite"):
             prtest.weighted_cell_temp(poa, cell_temp)
 
     def test_resample_rejects_bad_label(self):
@@ -566,3 +566,351 @@ class TestInputContracts:
     def test_judge_rejects_invalid_tolerance(self, tolerance):
         with pytest.raises(ValueError, match="tolerance"):
             prtest.judge(0.8, 0.82, tolerance)
+
+
+def _hourly(start, periods):
+    return pd.date_range(start, periods=periods, freq="1h")
+
+
+class TestFixedReference:
+    def test_plain_single_needs_only_expected_pr(self):
+        ref = prtest.fixed_reference(temp_corrected=False, expected_pr=0.8)
+        assert (ref.pr, ref.t_ref) == (0.8, None)
+        assert (ref.source, ref.granularity) == ("fixed", "single")
+
+    def test_corrected_single_requires_explicit_t_ref(self):
+        with pytest.raises(ValueError, match="explicit t_ref"):
+            prtest.fixed_reference(temp_corrected=True, expected_pr=0.8)
+
+    def test_corrected_single(self):
+        ref = prtest.fixed_reference(temp_corrected=True, expected_pr=0.8, t_ref=35.0)
+        assert ref.t_ref_for(_hourly("2025-01-01", 2)) == 35.0
+
+    @pytest.mark.parametrize(
+        "kwargs",
+        [
+            {"t_ref": 25.0},
+            {
+                "granularity": "monthly",
+                "expected_pr_monthly": [0.8] * 12,
+                "t_ref_monthly": [25.0] * 12,
+            },
+        ],
+    )
+    def test_plain_rejects_any_t_ref(self, kwargs):
+        kwargs.setdefault("expected_pr", 0.8)
+        with pytest.raises(ValueError, match="t_ref"):
+            prtest.fixed_reference(temp_corrected=False, **kwargs)
+
+    @pytest.mark.parametrize(
+        "table",
+        [[0.8] * 11, [0.8] * 11 + [np.nan], [0.8] * 11 + [np.inf]],
+    )
+    def test_bad_table_rejected(self, table):
+        with pytest.raises(ValueError, match="expected_pr_monthly"):
+            prtest.fixed_reference(
+                temp_corrected=False,
+                granularity="monthly",
+                expected_pr_monthly=table,
+            )
+
+    @pytest.mark.parametrize("value", [0.0, -0.1, np.nan, np.inf])
+    def test_bad_expected_pr_rejected(self, value):
+        with pytest.raises(ValueError, match="expected_pr"):
+            prtest.fixed_reference(temp_corrected=False, expected_pr=value)
+
+    def test_bad_granularity_rejected(self):
+        with pytest.raises(ValueError, match="granularity"):
+            prtest.fixed_reference(
+                temp_corrected=False, granularity="daily", expected_pr=0.8
+            )
+
+    def test_nonfinite_t_ref_rejected(self):
+        with pytest.raises(ValueError, match="t_ref"):
+            prtest.fixed_reference(
+                temp_corrected=True, expected_pr=0.8, t_ref=float("nan")
+            )
+
+    def test_missing_month_names_month_and_table(self):
+        table = [0.8, None] + [0.8] * 10
+        ref = prtest.fixed_reference(
+            temp_corrected=False, granularity="monthly", expected_pr_monthly=table
+        )
+        with pytest.raises(ValueError, match=r"month 2.*expected_pr_monthly"):
+            ref.require_months([1, 2], temp_corrected=False)
+
+    def test_missing_t_ref_month_names_t_ref_table_when_corrected(self):
+        ref = prtest.fixed_reference(
+            temp_corrected=True,
+            granularity="monthly",
+            expected_pr_monthly=[0.8] * 12,
+            t_ref_monthly=[30.0, None] + [30.0] * 10,
+        )
+        ref.require_months([1], temp_corrected=False)
+        with pytest.raises(ValueError, match=r"month 2.*t_ref_monthly"):
+            ref.require_months([1, 2], temp_corrected=True)
+
+    def test_monthly_t_ref_for_maps_rows_to_months(self):
+        ref = prtest.fixed_reference(
+            temp_corrected=True,
+            granularity="monthly",
+            expected_pr_monthly=[0.8] * 12,
+            t_ref_monthly=[30.0, 20.0] + [25.0] * 10,
+        )
+        index = pd.DatetimeIndex(["2025-01-31 23:00", "2025-02-01 00:00"])
+        assert ref.t_ref_for(index).tolist() == [30.0, 20.0]
+
+
+class TestDerivedReference:
+    @pytest.fixture
+    def rows(self):
+        index = _hourly("2025-01-31 08:00", 4).append(_hourly("2025-02-01 08:00", 4))
+        poa = pd.Series([200.0, 400.0, 600.0, 800.0] * 2, index=index)
+        cell = pd.Series([10.0, 20.0, 30.0, 40.0, 5.0, 10.0, 15.0, 20.0], index=index)
+        energy = pd.Series(
+            [90.0, 180.0, 270.0, 360.0, 100.0, 200.0, 300.0, 400.0], index=index
+        )
+        return energy, poa, cell
+
+    def test_single_matches_pr_ratio_and_eq5(self, rows):
+        energy, poa, cell = rows
+        ref = prtest.derive_reference(
+            energy, poa, dc_nameplate=1000.0, dt_hours=1.0, cell_temp=cell
+        )
+        expected = prtest.expected_energy_wh(poa, dc_nameplate=1000.0, dt_hours=1.0)
+        assert ref.pr == prtest.pr_ratio(energy, expected)[0]
+        assert ref.t_ref == prtest.weighted_cell_temp(poa, cell)
+        assert (ref.source, ref.granularity) == ("derived", "single")
+
+    def test_plain_derives_no_t_ref(self, rows):
+        energy, poa, _ = rows
+        ref = prtest.derive_reference(energy, poa, dc_nameplate=1000.0, dt_hours=1.0)
+        assert ref.t_ref is None
+
+    def test_monthly_equals_per_month_plain_pr(self, rows):
+        energy, poa, cell = rows
+        ref = prtest.derive_reference(
+            energy,
+            poa,
+            dc_nameplate=1000.0,
+            dt_hours=1.0,
+            cell_temp=cell,
+            monthly=True,
+        )
+        assert ref.granularity == "monthly"
+        for month in (1, 2):
+            sel = energy.index.month == month
+            expected = prtest.expected_energy_wh(
+                poa[sel], dc_nameplate=1000.0, dt_hours=1.0
+            )
+            assert ref.pr[month] == pytest.approx(
+                prtest.pr_ratio(energy[sel], expected)[0]
+            )
+            assert ref.t_ref[month] == pytest.approx(
+                prtest.weighted_cell_temp(poa[sel], cell[sel])
+            )
+
+    def test_month_number_pools_across_years(self):
+        index = _hourly("1990-01-05 10:00", 2).append(_hourly("2027-01-05 10:00", 2))
+        poa = pd.Series([500.0] * 4, index=index)
+        energy = pd.Series([400.0] * 4, index=index)
+        ref = prtest.derive_reference(
+            energy, poa, dc_nameplate=1000.0, dt_hours=1.0, monthly=True
+        )
+        assert list(ref.pr) == [1]
+        assert ref.pr[1] == pytest.approx(0.8)
+
+    def test_nonfinite_pr_raises(self, rows):
+        energy, poa, _ = rows
+        energy = energy.copy()
+        energy.iloc[0] = np.inf
+        with pytest.raises(ValueError, match="finite"):
+            prtest.derive_reference(energy, poa, dc_nameplate=1000.0, dt_hours=1.0)
+
+    def test_nonfinite_monthly_pr_raises(self, rows):
+        energy, poa, _ = rows
+        energy = energy.copy()
+        energy.iloc[-1] = np.inf
+        with pytest.raises(ValueError, match="finite"):
+            prtest.derive_reference(
+                energy, poa, dc_nameplate=1000.0, dt_hours=1.0, monthly=True
+            )
+
+    def test_nonfinite_t_ref_raises(self, rows):
+        energy, poa, cell = rows
+        cell = cell.copy()
+        cell.iloc[0] = np.inf
+        with pytest.raises(ValueError, match="finite"):
+            prtest.derive_reference(
+                energy, poa, dc_nameplate=1000.0, dt_hours=1.0, cell_temp=cell
+            )
+
+    def test_derived_missing_month_raises_naming_month(self, rows):
+        energy, poa, _ = rows
+        ref = prtest.derive_reference(
+            energy, poa, dc_nameplate=1000.0, dt_hours=1.0, monthly=True
+        )
+        with pytest.raises(ValueError, match="month 3"):
+            ref.require_months([1, 3], temp_corrected=False)
+
+
+class TestPartialModeledMonth:
+    @staticmethod
+    def _derive(kept_days):
+        unfiltered = pd.date_range("2025-01-01", "2025-01-31 23:00", freq="1h")
+        index = unfiltered[unfiltered.day.isin(kept_days)]
+        poa = pd.Series(500.0, index=index)
+        energy = pd.Series(400.0, index=index)
+        return prtest.derive_reference(
+            energy,
+            poa,
+            dc_nameplate=1000.0,
+            dt_hours=1.0,
+            monthly=True,
+            unfiltered_index=unfiltered,
+        )
+
+    def test_partial_month_warns_naming_january(self):
+        with pytest.warns(UserWarning, match="January"):
+            self._derive(range(1, 11))
+
+    def test_scattered_gaps_do_not_warn(self):
+        kept = [d for d in range(1, 32) if d % 3 != 0 or d > 31]
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            self._derive(kept)
+
+    def test_seven_day_run_warns(self):
+        with pytest.warns(UserWarning, match="January"):
+            self._derive(range(8, 32))
+
+    def test_six_day_run_does_not_warn(self):
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            self._derive(range(7, 32))
+
+
+class TestMeasuredPr:
+    @pytest.fixture
+    def rows(self):
+        index = _hourly("2025-01-31 22:00", 2).append(_hourly("2025-02-01 00:00", 2))
+        poa = pd.Series([500.0] * 4, index=index)
+        cell = pd.Series([40.0] * 4, index=index)
+        energy = pd.Series([300.0, 310.0, 320.0, 330.0], index=index)
+        return energy, poa, cell
+
+    def test_monthly_t_ref_applied_per_interval(self, rows):
+        energy, poa, cell = rows
+        ref = prtest.fixed_reference(
+            temp_corrected=True,
+            granularity="monthly",
+            expected_pr_monthly=[0.8] * 12,
+            t_ref_monthly=[30.0, 20.0] + [25.0] * 10,
+        )
+        out = prtest.measured_pr(
+            energy,
+            poa,
+            dc_nameplate=1000.0,
+            dt_hours=1.0,
+            reference=ref,
+            cell_temp=cell,
+            power_temp_coeff=-0.4,
+        )
+        assert out.intervals["t_ref"].tolist() == [30.0, 30.0, 20.0, 20.0]
+        base = 1000.0 * 0.5
+        en = [base * (1 - 0.004 * (40 - t)) for t in (30.0, 30.0, 20.0, 20.0)]
+        assert out.ratio == pytest.approx(energy.sum() / sum(en))
+        assert list(out.intervals.columns) == [
+            "energy_wh",
+            "expected_wh",
+            "poa",
+            "cell_temp",
+            "t_ref",
+            "availability",
+            "pr",
+        ]
+        assert list(out.monthly.index) == [1, 2]
+        assert out.monthly["intervals"].tolist() == [2, 2]
+        assert out.monthly["measured_pr"].iloc[0] == pytest.approx(
+            energy.iloc[:2].sum() / sum(en[:2])
+        )
+
+    def test_availability_scales_expected(self, rows):
+        energy, poa, _ = rows
+        energy, poa = energy.iloc[:2], poa.iloc[:2]
+        ref = prtest.fixed_reference(temp_corrected=False, expected_pr=0.8)
+        out = prtest.measured_pr(
+            energy,
+            poa,
+            dc_nameplate=1000.0,
+            dt_hours=1.0,
+            reference=ref,
+            availability=pd.Series([1.0, 0.5], index=energy.index),
+        )
+        assert out.ratio == pytest.approx(energy.sum() / (500.0 * 1.0 + 500.0 * 0.5))
+        assert out.ratio_without_availability == pytest.approx(energy.sum() / 1000.0)
+        assert out.intervals["availability"].tolist() == [1.0, 0.5]
+        assert out.intervals["cell_temp"].isna().all()
+        assert out.intervals["t_ref"].isna().all()
+
+    def test_insolation_weights_from_kept_rows_only(self, rows):
+        energy, poa, _ = rows
+        poa = poa.copy()
+        poa.iloc[0] = 100.0
+        ref = prtest.fixed_reference(temp_corrected=False, expected_pr=0.8)
+        out = prtest.measured_pr(
+            energy, poa, dc_nameplate=1000.0, dt_hours=0.5, reference=ref
+        )
+        assert out.monthly["insolation_wh_m2"].tolist() == [300.0, 500.0]
+
+    def test_missing_reference_month_raises(self, rows):
+        energy, poa, cell = rows
+        ref = prtest.fixed_reference(
+            temp_corrected=True,
+            granularity="monthly",
+            expected_pr_monthly=[0.8] * 12,
+            t_ref_monthly=[30.0] + [None] * 11,
+        )
+        with pytest.raises(ValueError, match="month 2"):
+            prtest.measured_pr(
+                energy,
+                poa,
+                dc_nameplate=1000.0,
+                dt_hours=1.0,
+                reference=ref,
+                cell_temp=cell,
+                power_temp_coeff=-0.4,
+            )
+
+
+class TestWeightedExpectedPr:
+    def test_monthly_weights_by_insolation(self):
+        ref = prtest.fixed_reference(
+            temp_corrected=False,
+            granularity="monthly",
+            expected_pr_monthly=[0.80, 0.84] + [0.9] * 10,
+        )
+        h = pd.Series({1: 3000.0, 2: 1000.0})
+        assert prtest.weighted_expected_pr(ref, h) == pytest.approx(0.81)
+
+    def test_zero_insolation_month_needs_no_value(self):
+        ref = prtest.fixed_reference(
+            temp_corrected=False,
+            granularity="monthly",
+            expected_pr_monthly=[0.80, None] + [0.9] * 10,
+        )
+        h = pd.Series({1: 3000.0, 2: 0.0})
+        assert prtest.weighted_expected_pr(ref, h) == pytest.approx(0.80)
+
+    def test_single_returns_pr(self):
+        ref = prtest.fixed_reference(temp_corrected=False, expected_pr=0.77)
+        assert prtest.weighted_expected_pr(ref, pd.Series({1: 5.0})) == 0.77
+
+    def test_no_insolation_raises(self):
+        ref = prtest.fixed_reference(
+            temp_corrected=False,
+            granularity="monthly",
+            expected_pr_monthly=[0.8] * 12,
+        )
+        with pytest.raises(ValueError, match="insolation"):
+            prtest.weighted_expected_pr(ref, pd.Series({1: 0.0}))

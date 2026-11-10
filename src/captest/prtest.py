@@ -7,9 +7,11 @@ energy from plane-of-array irradiance with an optional temperature correction, a
 input validators. Measured and expected energy are always handled in Wh internally.
 """
 
+import calendar
 import math
 import re
 import warnings
+from collections.abc import Iterable
 from dataclasses import dataclass
 
 import numpy as np
@@ -403,9 +405,10 @@ def resample_interval_energy(energy, freq, *, label="left", closed="left"):
     Sum interval energy into coarser bins, voiding any bin that is not complete.
 
     Bins are aligned to midnight of the first day, and the grid check assumes
-    left-anchored bins counted from ``index[0].normalize()``. A bin with a missing or NaN
-    interval (including a register reset) or with fewer native intervals than
-    it spans (an incomplete first or last bin) is NaN rather than a partial sum.
+    left-anchored bins counted from ``index[0].normalize()``. A bin with a missing
+    or NaN interval (including a register reset) or with fewer native intervals
+    than it spans (an incomplete first or last bin) is NaN rather than a partial
+    sum.
 
     Parameters
     ----------
@@ -622,7 +625,8 @@ def judge(ratio, expected_ratio, tolerance):
     ------
     ValueError
         If `ratio` is not finite, `expected_ratio` is not finite and greater
-        than zero, or `tolerance` is not finite or outside ``0 <= tolerance < 1``. A non-finite input never yields a pass.
+        than zero, or `tolerance` is not finite or outside ``0 <= tolerance < 1``.
+        A non-finite input never yields a pass.
     """
     if not math.isfinite(ratio):
         raise ValueError(f"ratio must be a finite number; got {ratio}.")
@@ -636,3 +640,478 @@ def judge(ratio, expected_ratio, tolerance):
         ratio_to_threshold=ratio / threshold,
         passed=bool(ratio >= threshold),
     )
+
+
+_MONTHS = range(1, 13)
+_PARTIAL_MONTH_RUN_DAYS = 7
+
+
+def _month_name(month):
+    return calendar.month_name[month]
+
+
+def _check_pr_value(name, value):
+    if not (math.isfinite(value) and value > 0):
+        raise ValueError(f"{name} must be a finite number greater than 0; got {value}.")
+
+
+def _check_finite(name, value):
+    if not math.isfinite(value):
+        raise ValueError(f"{name} must be finite; got {value}.")
+
+
+def _monthly_table(name, table):
+    """Return {month: value} for the stated entries of a 12-entry table."""
+    if len(table) != 12:
+        raise ValueError(
+            f"{name} must have 12 entries (January first); got {len(table)}."
+        )
+    return {
+        month: float(value)
+        for month, value in zip(_MONTHS, table, strict=True)
+        if value is not None
+    }
+
+
+@dataclass(frozen=True)
+class Reference:
+    """
+    Expected performance ratio and reference cell temperature of a PR test.
+
+    Attributes
+    ----------
+    pr : float or dict of int to float or None
+        Expected PR, a single value or ``{month: value}`` for monthly granularity.
+    t_ref : float or dict of int to float or None
+        Reference cell temperature in °C in the same form, None for a plain test.
+    source : str
+        ``"fixed"`` (stated by the contract) or ``"derived"`` (from the simulation).
+    granularity : str
+        ``"single"`` or ``"monthly"``.
+    """
+
+    pr: float | dict[int, float] | None
+    t_ref: float | dict[int, float] | None
+    source: str
+    granularity: str
+
+    def require_months(self, months: Iterable[int], *, temp_corrected: bool) -> None:
+        """
+        Check a monthly reference has a value for each month in use.
+
+        Parameters
+        ----------
+        months : iterable of int
+            Month numbers (1-12) the test needs.
+        temp_corrected : bool
+            Whether the reference temperature table must also cover the months.
+
+        Raises
+        ------
+        ValueError
+            If a month has no expected PR (or, when `temp_corrected`, no `t_ref`);
+            the message names the month and the table. A single reference needs
+            no months and never raises.
+        """
+        if self.granularity != "monthly":
+            return
+        tables = [("pr", self.pr, "expected_pr_monthly")]
+        if temp_corrected:
+            tables.append(("t_ref", self.t_ref, "t_ref_monthly"))
+        for month in sorted({int(m) for m in months}):
+            for _, values, table in tables:
+                if values is None or month not in values:
+                    where = (
+                        f"the {table} table"
+                        if self.source == "fixed"
+                        else "the modeled rows (no kept rows in that month)"
+                    )
+                    raise ValueError(
+                        f"The reference has no value for month {month} "
+                        f"({_month_name(month)}) in {where}."
+                    )
+
+    def t_ref_for(self, index: pd.DatetimeIndex) -> float | pd.Series | None:
+        """
+        Return the reference temperature applying to each row of `index`.
+
+        Parameters
+        ----------
+        index : pd.DatetimeIndex
+            Row timestamps; a monthly reference picks each row's own month.
+
+        Returns
+        -------
+        float or pd.Series or None
+            The single value, a Series aligned to `index` for a monthly
+            reference, or None for a plain reference.
+
+        Raises
+        ------
+        ValueError
+            If a monthly reference lacks a month present in `index`.
+        """
+        if self.t_ref is None or self.granularity != "monthly":
+            return self.t_ref
+        self.require_months(index.month.unique(), temp_corrected=True)
+        return pd.Series(index.month.map(self.t_ref).to_numpy(float), index=index)
+
+
+def fixed_reference(
+    *,
+    temp_corrected: bool,
+    granularity: str = "single",
+    expected_pr: float | None = None,
+    t_ref: float | None = None,
+    expected_pr_monthly: list | None = None,
+    t_ref_monthly: list | None = None,
+) -> Reference:
+    """
+    Build a reference from values stated by the contract.
+
+    Parameters
+    ----------
+    temp_corrected : bool
+        Whether the test is temperature corrected, which needs a stated t_ref.
+    granularity : {"single", "monthly"}, default "single"
+        One value pair for the whole test or one per calendar month.
+    expected_pr : float, optional
+        Expected PR for single granularity; finite and greater than 0.
+    t_ref : float, optional
+        Reference temperature in °C for single granularity.
+    expected_pr_monthly : list, optional
+        12 expected PR values, January first, None for months not stated.
+    t_ref_monthly : list, optional
+        12 reference temperatures in °C, January first, None where not stated.
+
+    Returns
+    -------
+    Reference
+        With ``source="fixed"``.
+
+    Raises
+    ------
+    ValueError
+        If the granularity is unknown, a needed value is missing, a reference
+        temperature is given for a plain test, a value is not finite (or a PR is
+        not greater than 0), a monthly table does not have 12 entries, or a
+        value of the other granularity is supplied.
+    """
+    if granularity not in ("single", "monthly"):
+        raise ValueError(
+            f"granularity must be 'single' or 'monthly'; got {granularity!r}."
+        )
+    if not temp_corrected and (t_ref is not None or t_ref_monthly is not None):
+        raise ValueError(
+            "t_ref / t_ref_monthly were given for a plain test; a reference "
+            "temperature only applies to a temperature-corrected test."
+        )
+    if granularity == "single":
+        if expected_pr_monthly is not None or t_ref_monthly is not None:
+            raise ValueError("Monthly tables were given with granularity='single'.")
+        if expected_pr is None:
+            raise ValueError("expected_pr is required for single granularity.")
+        _check_pr_value("expected_pr", expected_pr)
+        if temp_corrected:
+            if t_ref is None:
+                raise ValueError(
+                    "A temperature-corrected fixed reference needs an explicit t_ref."
+                )
+            _check_finite("t_ref", t_ref)
+        return Reference(
+            float(expected_pr),
+            None if t_ref is None else float(t_ref),
+            "fixed",
+            "single",
+        )
+    if expected_pr is not None or t_ref is not None:
+        raise ValueError("expected_pr / t_ref were given with granularity='monthly'.")
+    if expected_pr_monthly is None:
+        raise ValueError("expected_pr_monthly is required for monthly granularity.")
+    pr_table = _monthly_table("expected_pr_monthly", expected_pr_monthly)
+    for month, value in pr_table.items():
+        _check_pr_value(f"expected_pr_monthly[{month - 1}]", value)
+    t_table = None
+    if temp_corrected:
+        if t_ref_monthly is None:
+            raise ValueError(
+                "A temperature-corrected fixed reference needs an explicit "
+                "t_ref_monthly."
+            )
+        t_table = _monthly_table("t_ref_monthly", t_ref_monthly)
+        for month, value in t_table.items():
+            _check_finite(f"t_ref_monthly[{month - 1}]", value)
+    return Reference(pr_table, t_table, "fixed", "monthly")
+
+
+def _warn_partial_months(kept_index, unfiltered_index):
+    """Warn for months with a run of 7+ consecutive days without kept rows."""
+    all_days = pd.Series(unfiltered_index.normalize().unique()).sort_values()
+    kept_days = set(kept_index.normalize())
+    kept_months = set(kept_index.month)
+    for month, days in all_days.groupby(all_days.dt.month):
+        if month not in kept_months:
+            continue
+        run = longest = 0
+        previous = None
+        for day in days:
+            if day in kept_days:
+                run = 0
+            else:
+                contiguous = previous is not None and day - previous == pd.Timedelta(
+                    days=1
+                )
+                run = run + 1 if contiguous else 1
+                longest = max(longest, run)
+            previous = day if day not in kept_days else None
+        if longest >= _PARTIAL_MONTH_RUN_DAYS:
+            warnings.warn(
+                f"{_month_name(month)} is only partly present in the modeled rows: "
+                f"a run of {longest} consecutive days has no kept rows. A partial "
+                "month is not the contract's monthly value; check for a Time or "
+                "Days filter left on the sim pipeline.",
+                UserWarning,
+                stacklevel=3,
+            )
+
+
+def derive_reference(
+    energy_wh: pd.Series,
+    poa: pd.Series,
+    *,
+    dc_nameplate: float,
+    dt_hours: float,
+    cell_temp: pd.Series | None = None,
+    monthly: bool = False,
+    unfiltered_index: pd.DatetimeIndex | None = None,
+) -> Reference:
+    """
+    Derive the expected PR and reference temperature from simulated rows.
+
+    The expected PR is the plain PR of the rows (no temperature correction or
+    availability); the reference temperature is their irradiance-weighted cell
+    temperature (NREL eq. 5). With `monthly`, rows are grouped by calendar month
+    number only, so rows from different years pool together.
+
+    Parameters
+    ----------
+    energy_wh : pd.Series
+        Modeled interval energy in Wh; the complete-row set of the sim side.
+    poa : pd.Series
+        Modeled plane-of-array irradiance in W/m², same index as `energy_wh`.
+    dc_nameplate : float
+        DC nameplate capacity in W.
+    dt_hours : float
+        Interval length in hours, from the unfiltered sim index.
+    cell_temp : pd.Series, optional
+        Modeled cell temperature in °C; when given a reference temperature is
+        derived, otherwise `t_ref` is None.
+    monthly : bool, default False
+        Derive one value pair per calendar month.
+    unfiltered_index : pd.DatetimeIndex, optional
+        Unfiltered sim index, used with `monthly` to detect partly present months.
+
+    Returns
+    -------
+    Reference
+        With ``source="derived"``.
+
+    Raises
+    ------
+    ValueError
+        If the inputs are misaligned or empty, or a derived PR or reference
+        temperature is not finite.
+
+    Warns
+    -----
+    UserWarning
+        With `monthly` and `unfiltered_index`, when a month with kept rows has a
+        run of 7 or more consecutive days with no kept rows.
+    """
+    _require_same_index("energy_wh", energy_wh, poa=poa, cell_temp=cell_temp)
+
+    def pair(energy, irradiance, temperature, label):
+        expected = expected_energy_wh(
+            irradiance, dc_nameplate=dc_nameplate, dt_hours=dt_hours
+        )
+        pr = pr_ratio(energy, expected)[0]
+        _check_finite(f"derived pr{label}", pr)
+        t_ref = None
+        if temperature is not None:
+            t_ref = weighted_cell_temp(irradiance, temperature)
+            _check_finite(f"derived t_ref{label}", t_ref)
+        return pr, t_ref
+
+    if not monthly:
+        pr, t_ref = pair(energy_wh, poa, cell_temp, "")
+        return Reference(pr, t_ref, "derived", "single")
+    if unfiltered_index is not None:
+        _warn_partial_months(energy_wh.index, unfiltered_index)
+    pr_by_month, t_ref_by_month = {}, {}
+    for month, rows in energy_wh.groupby(energy_wh.index.month):
+        temperature = None if cell_temp is None else cell_temp[rows.index]
+        pr, t_ref = pair(rows, poa[rows.index], temperature, f" for month {month}")
+        pr_by_month[int(month)] = pr
+        t_ref_by_month[int(month)] = t_ref
+    return Reference(
+        pr_by_month,
+        t_ref_by_month if cell_temp is not None else None,
+        "derived",
+        "monthly",
+    )
+
+
+@dataclass
+class MeasuredPr:
+    """
+    Measured performance ratio with its per-interval and per-month detail.
+
+    Attributes
+    ----------
+    ratio : float
+        ``sum(E) / sum(EN_DC · A)`` over all rows.
+    ratio_without_availability : float
+        The same ratio with the availability factor taken as 1.
+    intervals : pd.DataFrame
+        Per row ``energy_wh, expected_wh, poa, cell_temp, t_ref, availability, pr``;
+        quantities that do not apply are NaN.
+    monthly : pd.DataFrame
+        Indexed by month number: ``intervals``, ``insolation_wh_m2`` (``sum(poa·Δt)``)
+        and ``measured_pr`` of that month.
+    """
+
+    ratio: float
+    ratio_without_availability: float
+    intervals: pd.DataFrame
+    monthly: pd.DataFrame
+
+
+def measured_pr(
+    energy_wh: pd.Series,
+    poa: pd.Series,
+    *,
+    dc_nameplate: float,
+    dt_hours: float,
+    reference: Reference,
+    cell_temp: pd.Series | None = None,
+    power_temp_coeff: float | None = None,
+    availability: float | pd.Series = 1.0,
+) -> MeasuredPr:
+    """
+    Compute the measured PR over a test period.
+
+    Expected energy uses the reference temperature of each row's own month for a
+    monthly reference; no blended temperature is ever formed.
+
+    Parameters
+    ----------
+    energy_wh : pd.Series
+        Measured interval energy in Wh; the complete-row set of the measured side.
+    poa : pd.Series
+        Measured plane-of-array irradiance in W/m², same index as `energy_wh`.
+    dc_nameplate : float
+        DC nameplate capacity in W.
+    dt_hours : float
+        Interval length in hours, from the unfiltered measured index.
+    reference : Reference
+        Supplies the reference temperature for a temperature-corrected test.
+    cell_temp : pd.Series, optional
+        Measured cell temperature in °C; selects the temperature-corrected form.
+    power_temp_coeff : float, optional
+        Power temperature coefficient in %/°C; required with `cell_temp`.
+    availability : float or pd.Series, default 1.0
+        Availability factor, 0 ≤ A ≤ 1.
+
+    Returns
+    -------
+    MeasuredPr
+        The ratio with and without availability, per-interval and per-month tables.
+
+    Raises
+    ------
+    ValueError
+        If inputs are misaligned or invalid, the reference lacks a month present
+        in the rows, or the total expected energy is not positive and finite.
+    """
+    _require_same_index("energy_wh", energy_wh, poa=poa, cell_temp=cell_temp)
+    t_ref = None
+    if cell_temp is not None:
+        t_ref = reference.t_ref_for(energy_wh.index)
+    common = {
+        "dc_nameplate": dc_nameplate,
+        "dt_hours": dt_hours,
+        "cell_temp": cell_temp,
+        "t_ref": t_ref,
+        "power_temp_coeff": power_temp_coeff,
+    }
+    expected_wh = expected_energy_wh(poa, availability=availability, **common)
+    expected_full_wh = expected_energy_wh(poa, **common)
+    ratio, interval_pr = pr_ratio(energy_wh, expected_wh)
+    ratio_without_availability = pr_ratio(energy_wh, expected_full_wh)[0]
+
+    def column(value):
+        if isinstance(value, pd.Series):
+            return value
+        return pd.Series(np.nan if value is None else value, index=energy_wh.index)
+
+    intervals = pd.DataFrame(
+        {
+            "energy_wh": energy_wh,
+            "expected_wh": expected_wh,
+            "poa": poa,
+            "cell_temp": column(cell_temp),
+            "t_ref": column(t_ref),
+            "availability": column(availability),
+            "pr": interval_pr,
+        }
+    )
+    by_month = intervals.groupby(intervals.index.month)
+    expected_total = by_month["expected_wh"].sum()
+    monthly = pd.DataFrame(
+        {
+            "intervals": by_month.size(),
+            "insolation_wh_m2": by_month["poa"].sum() * dt_hours,
+            "measured_pr": by_month["energy_wh"].sum()
+            / expected_total.where(expected_total > 0),
+        }
+    )
+    monthly.index.name = "month"
+    return MeasuredPr(ratio, ratio_without_availability, intervals, monthly)
+
+
+def weighted_expected_pr(reference: Reference, insolation_wh_m2: pd.Series) -> float:
+    """
+    Combine monthly expected PRs by measured insolation.
+
+    ``sum(H_m · EPR_m) / sum(H_m)`` over months with ``H_m > 0``; a single
+    reference returns its `pr` unchanged.
+
+    Parameters
+    ----------
+    reference : Reference
+        The expected PR reference.
+    insolation_wh_m2 : pd.Series
+        Measured insolation per month number over the kept test rows.
+
+    Returns
+    -------
+    float
+        The insolation-weighted expected PR.
+
+    Raises
+    ------
+    ValueError
+        If a month with insolation has no expected PR, or no month has positive
+        insolation.
+    """
+    if reference.granularity != "monthly":
+        return reference.pr
+    weights = insolation_wh_m2[insolation_wh_m2 > 0]
+    if weights.empty:
+        raise ValueError(
+            "No month has positive insolation; the expected PR is undefined."
+        )
+    reference.require_months(weights.index, temp_corrected=False)
+    values = pd.Series({int(m): reference.pr[int(m)] for m in weights.index})
+    values.index = weights.index
+    return float((weights * values).sum() / weights.sum())
