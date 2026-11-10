@@ -487,3 +487,82 @@ class TestJudge:
     def test_invalid_raises_never_passes(self, ratio, expected, name):
         with pytest.raises(ValueError, match=name):
             prtest.judge(ratio, expected, 0.03)
+
+
+class TestInputContracts:
+    @pytest.fixture
+    def poa(self):
+        index = pd.date_range("2025-01-01", periods=4, freq="1h")
+        return pd.Series([800.0, 900.0, 1000.0, 700.0], index=index)
+
+    @pytest.mark.parametrize("name", ["cell_temp", "t_ref", "availability"])
+    def test_expected_energy_rejects_shifted_series(self, poa, name):
+        shifted = pd.Series(
+            [25.0, 26.0, 27.0, 28.0] if name != "availability" else [1.0] * 4,
+            index=poa.index + pd.Timedelta("1h"),
+        )
+        kwargs = {"cell_temp": poa * 0 + 30.0, "t_ref": 25.0, "power_temp_coeff": -0.3}
+        kwargs[name] = shifted
+        with pytest.raises(ValueError, match=name):
+            prtest.expected_energy_wh(poa, dc_nameplate=1e6, dt_hours=1.0, **kwargs)
+
+    def test_pr_ratio_rejects_misaligned(self, poa):
+        expected = pd.Series([1.0, 2.0, 3.0, 4.0], index=poa.index + pd.Timedelta("1h"))
+        with pytest.raises(ValueError, match="expected_wh"):
+            prtest.pr_ratio(poa, expected)
+
+    def test_pr_ratio_rejects_negative_total(self):
+        index = pd.date_range("2025-01-01", periods=2, freq="1h")
+        measured = pd.Series([1.0, 1.0], index=index)
+        expected = pd.Series([-100.0, 50.0], index=index)
+        with pytest.raises(ValueError, match="not positive"):
+            prtest.pr_ratio(measured, expected)
+
+    def test_pr_ratio_rejects_nonfinite_total(self):
+        index = pd.date_range("2025-01-01", periods=2, freq="1h")
+        measured = pd.Series([1.0, 1.0], index=index)
+        expected = pd.Series([np.inf, 50.0], index=index)
+        with pytest.raises(ValueError):
+            prtest.pr_ratio(measured, expected)
+
+    def test_weighted_cell_temp_rejects_misaligned(self, poa):
+        cell_temp = pd.Series([30.0] * 4, index=poa.index + pd.Timedelta("1h"))
+        with pytest.raises(ValueError, match="cell_temp"):
+            prtest.weighted_cell_temp(poa, cell_temp)
+
+    def test_weighted_cell_temp_rejects_all_nan(self, poa):
+        cell_temp = pd.Series(np.nan, index=poa.index)
+        with pytest.raises(ValueError):
+            prtest.weighted_cell_temp(poa, cell_temp)
+
+    def test_resample_rejects_bad_label(self):
+        energy = pd.Series(
+            1.0, index=pd.date_range("2025-01-01", periods=8, freq="5min")
+        )
+        with pytest.raises(ValueError, match="label"):
+            prtest.resample_interval_energy(energy, "15min", label="center")
+
+    def test_resample_rejects_bad_closed(self):
+        energy = pd.Series(
+            1.0, index=pd.date_range("2025-01-01", periods=8, freq="5min")
+        )
+        with pytest.raises(ValueError, match="closed"):
+            prtest.resample_interval_energy(energy, "15min", closed="both")
+
+    @pytest.mark.parametrize("freq", ["MS", "M"])
+    def test_resample_rejects_non_fixed_freq(self, freq):
+        energy = pd.Series(
+            1.0, index=pd.date_range("2025-01-01", periods=8, freq="5min")
+        )
+        with pytest.raises(ValueError, match="freq"):
+            prtest.resample_interval_energy(energy, freq)
+
+    def test_resample_rejects_empty(self):
+        energy = pd.Series([], index=pd.DatetimeIndex([]), dtype=float)
+        with pytest.raises(ValueError, match="empty"):
+            prtest.resample_interval_energy(energy, "15min")
+
+    @pytest.mark.parametrize("tolerance", [1.0, 1.5, float("nan"), -0.01])
+    def test_judge_rejects_invalid_tolerance(self, tolerance):
+        with pytest.raises(ValueError, match="tolerance"):
+            prtest.judge(0.8, 0.82, tolerance)

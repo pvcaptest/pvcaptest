@@ -35,6 +35,16 @@ def _require_positive_finite(name, value):
         raise ValueError(f"{name} must be a finite number greater than 0; got {value}.")
 
 
+def _require_same_index(reference_name, reference, **others):
+    """Raise ValueError when a Series in `others` is not indexed like `reference`."""
+    for name, other in others.items():
+        if isinstance(other, pd.Series) and not other.index.equals(reference.index):
+            raise ValueError(
+                f"{name} must have the same index as {reference_name}; the indexes "
+                "differ, so the values would not line up row by row."
+            )
+
+
 def _unit_factor(units, table, label):
     """Return the multiplier for `units` from `table` or raise listing the options."""
     if units not in table:
@@ -234,11 +244,15 @@ def expected_energy_wh(
     ValueError
         If `dc_nameplate` or `dt_hours` is not a positive finite number, the
         availability or coefficient is invalid, `t_ref` or `power_temp_coeff` is
-        given without `cell_temp`, or `cell_temp` is given without both.
+        given without `cell_temp`, or `cell_temp` is given without both, or a
+        Series `cell_temp`, `t_ref` or `availability` is not indexed like `poa`.
     """
     _require_positive_finite("dc_nameplate", dc_nameplate)
     _require_positive_finite("dt_hours", dt_hours)
     validate_availability(availability)
+    _require_same_index(
+        "poa", poa, cell_temp=cell_temp, t_ref=t_ref, availability=availability
+    )
     energy = dc_nameplate * (poa / G_STC) * dt_hours * availability
     if cell_temp is None:
         if t_ref is not None or power_temp_coeff is not None:
@@ -317,12 +331,15 @@ def weighted_cell_temp(poa, cell_temp):
     """
     Return the irradiance-weighted average cell temperature (NREL eq. 5).
 
+    The inputs are expected to be the caller's `complete_rows` set; rows where
+    either value is NaN are otherwise skipped by the sums.
+
     Parameters
     ----------
     poa : pd.Series
         Plane-of-array irradiance, used as the weight.
     cell_temp : pd.Series
-        Cell temperature in °C, aligned to `poa`.
+        Cell temperature in °C, with the same index as `poa`.
 
     Returns
     -------
@@ -332,8 +349,12 @@ def weighted_cell_temp(poa, cell_temp):
     Raises
     ------
     ValueError
-        If the total irradiance is not greater than zero.
+        If `cell_temp` is not indexed like `poa`, no row has both values finite,
+        or the total irradiance is not greater than zero.
     """
+    _require_same_index("poa", poa, cell_temp=cell_temp)
+    if not (np.isfinite(poa) & np.isfinite(cell_temp)).any():
+        raise ValueError("no row has both poa and cell_temp finite.")
     total = poa.sum()
     if not total > 0:
         raise ValueError("total irradiance must be greater than 0 to weight Tcell.")
@@ -349,7 +370,7 @@ def pr_ratio(measured_wh, expected_wh):
     measured_wh : pd.Series
         Measured interval energy in Wh.
     expected_wh : pd.Series
-        Expected interval energy in Wh, aligned to `measured_wh`.
+        Expected interval energy in Wh, with the same index as `measured_wh`.
 
     Returns
     -------
@@ -360,11 +381,19 @@ def pr_ratio(measured_wh, expected_wh):
     Raises
     ------
     ValueError
-        If the total expected energy is zero.
+        If `expected_wh` is not indexed like `measured_wh`, or the total expected
+        energy is not finite and greater than zero.
     """
+    _require_same_index("measured_wh", measured_wh, expected_wh=expected_wh)
     total_expected = expected_wh.sum()
-    if total_expected == 0:
-        raise ValueError("total expected energy is zero; the PR is undefined.")
+    if not math.isfinite(total_expected):
+        raise ValueError(
+            f"total expected energy is not finite ({total_expected}); the PR is "
+            "undefined."
+        )
+    if total_expected <= 0:
+        problem = "zero" if total_expected == 0 else "not positive"
+        raise ValueError(f"total expected energy is {problem}; the PR is undefined.")
     interval = measured_wh / expected_wh.where(expected_wh != 0)
     return float(measured_wh.sum() / total_expected), interval
 
@@ -373,7 +402,8 @@ def resample_interval_energy(energy, freq, *, label="left", closed="left"):
     """
     Sum interval energy into coarser bins, voiding any bin that is not complete.
 
-    Bins are aligned to midnight of the first day. A bin with a missing or NaN
+    Bins are aligned to midnight of the first day, and the grid check assumes
+    left-anchored bins counted from ``index[0].normalize()``. A bin with a missing or NaN
     interval (including a register reset) or with fewer native intervals than
     it spans (an incomplete first or last bin) is NaN rather than a partial sum.
 
@@ -397,10 +427,16 @@ def resample_interval_energy(energy, freq, *, label="left", closed="left"):
     Raises
     ------
     ValueError
-        If the index has duplicate timestamps or timestamps off the grid counted
-        from midnight of the first day, or `freq` is not a whole multiple of the
-        native timestep.
+        If `energy` is empty, `label` or `closed` is not "left" or "right", the
+        index has duplicate timestamps or timestamps off the grid counted from
+        midnight of the first day, or `freq` is not a fixed frequency that is a
+        whole multiple of the native timestep.
     """
+    for name, value in (("label", label), ("closed", closed)):
+        if value not in ("left", "right"):
+            raise ValueError(f"{name} must be 'left' or 'right'; got {value!r}.")
+    if energy.empty:
+        raise ValueError("energy is empty; there is nothing to resample.")
     if energy.index.has_duplicates:
         raise ValueError("energy index has duplicate timestamps.")
     origin = energy.index[0].normalize()
@@ -410,7 +446,14 @@ def resample_interval_energy(energy, freq, *, label="left", closed="left"):
             f"energy timestamps are not aligned to a {native} grid counted from "
             f"{origin}; resampling would mislabel the bins."
         )
-    n_float = pd.Timedelta(freq) / native
+    try:
+        freq_delta = pd.Timedelta(freq)
+    except ValueError as err:
+        raise ValueError(
+            f"freq {freq!r} cannot be converted to a fixed duration; a fixed "
+            "frequency such as '15min' or '1h' is required."
+        ) from err
+    n_float = freq_delta / native
     n = round(n_float)
     if n < 1 or not math.isclose(n_float, n):
         raise ValueError(
@@ -578,12 +621,14 @@ def judge(ratio, expected_ratio, tolerance):
     Raises
     ------
     ValueError
-        If `ratio` is not finite, or `expected_ratio` is not finite and
-        greater than zero. A non-finite input never yields a pass.
+        If `ratio` is not finite, `expected_ratio` is not finite and greater
+        than zero, or `tolerance` is not finite or outside ``0 <= tolerance < 1``. A non-finite input never yields a pass.
     """
     if not math.isfinite(ratio):
         raise ValueError(f"ratio must be a finite number; got {ratio}.")
     _require_positive_finite("expected_ratio", expected_ratio)
+    if not (math.isfinite(tolerance) and 0 <= tolerance < 1):
+        raise ValueError(f"tolerance must satisfy 0 <= tolerance < 1; got {tolerance}.")
     threshold = (1 - tolerance) * expected_ratio
     return Judgement(
         threshold=threshold,
