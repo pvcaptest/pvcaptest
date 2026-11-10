@@ -9,7 +9,9 @@ input validators. Measured and expected energy are always handled in Wh internal
 
 import math
 import warnings
+from dataclasses import dataclass
 
+import numpy as np
 import pandas as pd
 
 from captest.util import common_timestep_delta
@@ -250,3 +252,169 @@ def expected_energy_wh(
         raise ValueError("power_temp_coeff is required when cell_temp is given.")
     validate_power_temp_coeff(power_temp_coeff)
     return energy * (1 + power_temp_coeff / 100 * (cell_temp - t_ref))
+
+
+@dataclass
+class RowSet:
+    """
+    Rows usable by a PR calculation and a count of those dropped.
+
+    Attributes
+    ----------
+    index : pd.Index
+        Index of rows where every input column is finite.
+    dropped_nan : int
+        Rows dropped because at least one input was NaN or missing.
+    dropped_nonfinite : int
+        Rows dropped because at least one input was +/-inf and none was NaN.
+    """
+
+    index: pd.Index
+    dropped_nan: int
+    dropped_nonfinite: int
+
+
+def complete_rows(frame, *, label=""):
+    """
+    Select the rows where every column of `frame` is finite.
+
+    Parameters
+    ----------
+    frame : pd.DataFrame
+        Numeric input columns of one calculation.
+    label : str, default ""
+        Prefix for the warning, e.g. ``"meas"``.
+
+    Returns
+    -------
+    RowSet
+        Kept index plus separate counts of NaN and non-finite drops. A row with
+        both NaN and inf counts as NaN.
+
+    Warns
+    -----
+    UserWarning
+        If any row is dropped; names both counts.
+    """
+    values = frame.to_numpy(dtype=float)
+    has_nan = np.isnan(values).any(axis=1)
+    has_inf = np.isinf(values).any(axis=1) & ~has_nan
+    dropped_nan = int(has_nan.sum())
+    dropped_nonfinite = int(has_inf.sum())
+    if dropped_nan or dropped_nonfinite:
+        prefix = f"{label}: " if label else ""
+        warnings.warn(
+            f"{prefix}dropped {dropped_nan} row(s) with NaN or missing inputs and "
+            f"{dropped_nonfinite} row(s) with non-finite (inf) inputs.",
+            UserWarning,
+            stacklevel=2,
+        )
+    return RowSet(frame.index[~(has_nan | has_inf)], dropped_nan, dropped_nonfinite)
+
+
+def weighted_cell_temp(poa, cell_temp):
+    """
+    Return the irradiance-weighted average cell temperature (NREL eq. 5).
+
+    Parameters
+    ----------
+    poa : pd.Series
+        Plane-of-array irradiance, used as the weight.
+    cell_temp : pd.Series
+        Cell temperature in °C, aligned to `poa`.
+
+    Returns
+    -------
+    float
+        ``sum(poa * cell_temp) / sum(poa)`` in °C.
+
+    Raises
+    ------
+    ValueError
+        If the total irradiance is not greater than zero.
+    """
+    total = poa.sum()
+    if not total > 0:
+        raise ValueError("total irradiance must be greater than 0 to weight Tcell.")
+    return float((poa * cell_temp).sum() / total)
+
+
+def pr_ratio(measured_wh, expected_wh):
+    """
+    Compute the performance ratio as total measured over total expected energy.
+
+    Parameters
+    ----------
+    measured_wh : pd.Series
+        Measured interval energy in Wh.
+    expected_wh : pd.Series
+        Expected interval energy in Wh, aligned to `measured_wh`.
+
+    Returns
+    -------
+    tuple of (float, pd.Series)
+        The ratio of the totals and the per-interval ratio, which is NaN where
+        the expected energy is zero.
+
+    Raises
+    ------
+    ValueError
+        If the total expected energy is zero.
+    """
+    total_expected = expected_wh.sum()
+    if total_expected == 0:
+        raise ValueError("total expected energy is zero; the PR is undefined.")
+    interval = measured_wh / expected_wh.where(expected_wh != 0)
+    return float(measured_wh.sum() / total_expected), interval
+
+
+def resample_interval_energy(energy, freq, *, label="left", closed="left"):
+    """
+    Sum interval energy into coarser bins, voiding any bin that is not complete.
+
+    Bins are aligned to midnight of the first day. A bin with a missing or NaN
+    interval (including a register reset) or with fewer native intervals than
+    it spans (an incomplete first or last bin) is NaN rather than a partial sum.
+
+    Parameters
+    ----------
+    energy : pd.Series
+        Interval energy on a regular grid, e.g. from
+        `captest.calcparams.register_to_interval_energy`.
+    freq : str
+        Bin width, a whole multiple of the native timestep, e.g. ``"15min"``.
+    label : {"left", "right"}, default "left"
+        Which bin edge labels the result.
+    closed : {"left", "right"}, default "left"
+        Which bin edge is inclusive.
+
+    Returns
+    -------
+    pd.Series
+        Energy per bin, NaN for incomplete bins.
+
+    Raises
+    ------
+    ValueError
+        If the index has duplicate timestamps or timestamps off the grid counted
+        from midnight of the first day, or `freq` is not a whole multiple of the
+        native timestep.
+    """
+    if energy.index.has_duplicates:
+        raise ValueError("energy index has duplicate timestamps.")
+    origin = energy.index[0].normalize()
+    native = common_timestep_delta(energy.index)
+    if ((energy.index - origin) % native != pd.Timedelta(0)).any():
+        raise ValueError(
+            f"energy timestamps are not aligned to a {native} grid counted from "
+            f"{origin}; resampling would mislabel the bins."
+        )
+    n_float = pd.Timedelta(freq) / native
+    n = round(n_float)
+    if n < 1 or not math.isclose(n_float, n):
+        raise ValueError(
+            f"freq {freq!r} is not a whole multiple of the native timestep {native}."
+        )
+    return energy.resample(freq, label=label, closed=closed, origin=origin).sum(
+        min_count=n
+    )
