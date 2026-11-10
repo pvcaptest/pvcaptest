@@ -9,6 +9,7 @@ from captest import captest as ct
 from captest.setup import TestSetup
 
 DIGESTS = Path("tests/data/setup_digests.json")
+SEMANTIC_DIGESTS = Path("tests/data/setup_semantic_digests.json")
 
 
 @pytest.mark.parametrize("preset", sorted(ct.TEST_SETUPS))
@@ -27,3 +28,16 @@ def test_digest_matches_the_stored_value(preset):
 
 def test_every_preset_has_a_stored_digest():
     assert set(json.loads(DIGESTS.read_text())) == set(ct.TEST_SETUPS)
+
+
+@pytest.mark.parametrize("preset", sorted(ct.TEST_SETUPS))
+def test_semantic_digest_matches_the_stored_value(preset):
+    stored = json.loads(SEMANTIC_DIGESTS.read_text())
+    assert ct.TEST_SETUPS[preset].semantic_digest() == stored[preset], (
+        f"{preset} changed; if intended, regenerate "
+        "tests/data/setup_semantic_digests.json"
+    )
+
+
+def test_every_preset_has_a_stored_semantic_digest():
+    assert set(json.loads(SEMANTIC_DIGESTS.read_text())) == set(ct.TEST_SETUPS)
