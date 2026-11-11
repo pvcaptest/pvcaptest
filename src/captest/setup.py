@@ -539,6 +539,162 @@ class TestSetup(_SetupDocument):
         return derive(base, **changes)
 
 
+PR_ROLES = ("power", "energy", "poa", "cell_temp", "front_poa", "availability")
+PR_SEMANTIC_FIELDS = ("kind", "temp_corrected", "meas", "sim", "params")
+_REGRESSION_ONLY_KEYS = ("reg_fml", "rep_conditions", "scatter_plots")
+
+
+class PrSetup(_SetupDocument):
+    """A performance-ratio test setup document (``kind: pr``).
+
+    Parameters
+    ----------
+    kind : {"pr"}
+        Document kind discriminator.
+    name : str
+        Setup name.
+    description : str
+        Prose description.
+    derived_from : str or None
+        Provenance only; never used to fill omitted fields.
+    temp_corrected : bool
+        Whether the PR is temperature corrected; requires a measured
+        ``cell_temp`` role.
+    meas, sim : Side
+        ``reg_cols`` keyed by PR role (``power``, ``energy``, ``poa``,
+        ``cell_temp``, ``front_poa``, ``availability``). Each side needs
+        ``poa`` and at least one of ``power`` / ``energy``. ``availability``
+        is measured-side only.
+    params : dict
+        Test-level parameters this setup requires, as for ``TestSetup``.
+    """
+
+    __test__ = False
+
+    kind: Literal["pr"]
+    _semantic_fields: ClassVar[tuple[str, ...]] = PR_SEMANTIC_FIELDS
+
+    name: str
+    description: str = ""
+    derived_from: str | None = None
+    temp_corrected: bool
+    meas: Side
+    sim: Side
+    params: dict[str, Scalar] = Field(default_factory=dict)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _no_regression_only_keys(cls, data):
+        if isinstance(data, dict):
+            for key in _REGRESSION_ONLY_KEYS:
+                if key in data:
+                    raise ValueError(
+                        f"{key} is not a field of a PR setup (kind: pr); PR "
+                        f"setups have no regression formula, reporting "
+                        f"conditions or scatter plot"
+                    )
+        return data
+
+    @field_validator("meas", "sim", mode="after")
+    @classmethod
+    def _roles_valid(cls, side, info):
+        roles = side.reg_cols
+        for role in roles:
+            if role not in PR_ROLES:
+                hint = difflib.get_close_matches(role, PR_ROLES, n=1)
+                suffix = f" Did you mean {hint[0]!r}?" if hint else ""
+                raise ValueError(f"unknown role {role!r}.{suffix}")
+        if "poa" not in roles:
+            raise ValueError("a PR side needs a 'poa' role")
+        if "power" not in roles and "energy" not in roles:
+            raise ValueError("a PR side needs at least one of 'power' or 'energy'")
+        if info.field_name == "sim" and "availability" in roles:
+            raise ValueError(
+                "availability is a measured-side input; the modeled "
+                "reference always uses A = 1"
+            )
+        return side
+
+    @field_validator("params", mode="after")
+    @classmethod
+    def _params_are_downstream(cls, params):
+        bad = sorted(set(params) - set(DOWNSTREAM_PARAMS))
+        if bad:
+            raise ValueError(f"params keys {bad} are not CapTest downstream params")
+        return params
+
+    @model_validator(mode="after")
+    def _corrected_needs_cell_temp(self):
+        if self.temp_corrected and "cell_temp" not in self.meas.reg_cols:
+            raise ValueError("temp_corrected is true but meas has no 'cell_temp' role")
+        return self
+
+
+SetupDocument = TestSetup | PrSetup
+
+_SETUP_KINDS = ("regression", "pr")
+
+
+def validate_setup(data):
+    """Validate a setup mapping as the document kind its ``kind`` names.
+
+    A mapping without ``kind`` (or with ``kind: regression``) is a
+    :class:`TestSetup`; ``kind: pr`` is a :class:`PrSetup`. The input is not
+    modified.
+
+    Parameters
+    ----------
+    data : dict
+        Setup document as plain data.
+
+    Returns
+    -------
+    TestSetup or PrSetup
+
+    Raises
+    ------
+    TypeError
+        If ``data`` is not a dict.
+    ValueError
+        If ``kind`` is not a known kind.
+    pydantic.ValidationError
+        If the document is not valid for its kind.
+    """
+    if not isinstance(data, dict):
+        raise TypeError(
+            f"a setup document must be a mapping, not {type(data).__name__}"
+        )
+    kind = data.get("kind", "regression")
+    if kind == "regression":
+        data = {k: v for k, v in data.items() if k != "kind"}
+        return TestSetup.model_validate(data)
+    if kind == "pr":
+        return PrSetup.model_validate(data)
+    raise ValueError(f"unknown setup kind {kind!r}; known kinds: {list(_SETUP_KINDS)}")
+
+
+def loads_setup(text):
+    """Build a setup document of the right kind from yaml or json text."""
+    return validate_setup(yaml.safe_load(text))
+
+
+def load_setup(source):
+    """Build a setup document of the right kind from a path or a mapping.
+
+    Parameters
+    ----------
+    source : str, pathlib.Path or dict
+        A yaml/json file path (read as UTF-8) or a plain mapping.
+
+    Returns
+    -------
+    TestSetup or PrSetup
+    """
+    if isinstance(source, dict):
+        return validate_setup(source)
+    return loads_setup(Path(source).read_text(encoding="utf-8"))
+
+
 # --- derive ------------------------------------------------------------
 
 

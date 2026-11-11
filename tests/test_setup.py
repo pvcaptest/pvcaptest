@@ -799,3 +799,151 @@ class TestSemanticDigest:
     def test_golden(self, name, digest):
         # Pinned: ctsweep stores these as setup_versions keys (spec §4, §9).
         assert TEST_SETUPS[name].semantic_digest() == digest
+
+
+def pr_doc(**changes):
+    """A minimal valid PR setup document as plain data."""
+    doc = {
+        "kind": "pr",
+        "name": "pr_basic",
+        "meas": {
+            "reg_cols": {
+                "power": {"group": "real_pwr_mtr", "agg": "sum"},
+                "poa": {"group": "irr_poa", "agg": "mean"},
+            }
+        },
+        "sim": {
+            "reg_cols": {
+                "power": {"column": "E_Grid"},
+                "poa": {"column": "GlobInc"},
+            }
+        },
+        "temp_corrected": False,
+    }
+    doc.update(changes)
+    return doc
+
+
+class TestPrSetup:
+    def test_valid_doc_loads(self):
+        pr = setup.PrSetup.model_validate(pr_doc())
+        assert pr.to_dict()["kind"] == "pr"
+        assert pr.params == {}
+
+    def test_semantic_digest_ignores_labels_not_meaning(self):
+        base = setup.PrSetup.model_validate(pr_doc())
+        relabelled = setup.PrSetup.model_validate(
+            pr_doc(name="other", description="x", derived_from="pr_basic")
+        )
+        corrected_doc = pr_doc(temp_corrected=True)
+        corrected_doc["meas"]["reg_cols"]["cell_temp"] = {"column": "tcell"}
+        corrected = setup.PrSetup.model_validate(corrected_doc)
+        assert base.semantic_digest() == relabelled.semantic_digest()
+        assert base.content_digest() != relabelled.content_digest()
+        assert base.semantic_digest() != corrected.semantic_digest()
+
+    def test_label_fields_are_exactly_the_non_semantic_ones(self):
+        labels = set(setup.PrSetup.model_fields) - set(setup.PR_SEMANTIC_FIELDS)
+        assert labels == {"name", "description", "derived_from"}
+
+    @pytest.mark.parametrize("key", ["reg_fml", "rep_conditions", "scatter_plots"])
+    def test_regression_only_key_on_pr_doc_names_key_and_kind(self, key):
+        with pytest.raises(ValidationError) as exc:
+            setup.PrSetup.model_validate(pr_doc(**{key: "x"}))
+        message = str(exc.value)
+        assert f"{key} is not a field of a PR setup (kind: pr)" in message
+
+    def test_unknown_role_has_did_you_mean(self):
+        doc = pr_doc()
+        doc["meas"]["reg_cols"]["cel_temp"] = {"column": "tcell"}
+        with pytest.raises(ValidationError, match="unknown role 'cel_temp'") as exc:
+            setup.PrSetup.model_validate(doc)
+        assert "Did you mean 'cell_temp'?" in str(exc.value)
+        assert "meas" in str(exc.value)
+
+    def test_missing_poa_rejected(self):
+        doc = pr_doc()
+        del doc["sim"]["reg_cols"]["poa"]
+        with pytest.raises(ValidationError, match="poa"):
+            setup.PrSetup.model_validate(doc)
+
+    def test_neither_power_nor_energy_rejected(self):
+        doc = pr_doc()
+        del doc["meas"]["reg_cols"]["power"]
+        with pytest.raises(ValidationError, match="power.*energy"):
+            setup.PrSetup.model_validate(doc)
+
+    def test_power_and_energy_both_accepted(self):
+        doc = pr_doc()
+        doc["meas"]["reg_cols"]["energy"] = {"column": "kwh"}
+        setup.PrSetup.model_validate(doc)
+
+    def test_corrected_without_meas_cell_temp_rejected(self):
+        with pytest.raises(ValidationError, match="cell_temp"):
+            setup.PrSetup.model_validate(pr_doc(temp_corrected=True))
+
+    def test_corrected_with_calc_cell_temp_and_literal_temp_delta(self):
+        doc = pr_doc(temp_corrected=True)
+        doc["meas"]["reg_cols"]["cell_temp"] = {
+            "calc": "cell_temp",
+            "args": {
+                "bom": {"group": "temp_bom", "agg": "mean"},
+                "poa": {"group": "irr_poa", "agg": "mean"},
+                "temp_delta": 0.5,
+            },
+        }
+        pr = setup.PrSetup.model_validate(doc)
+        assert pr.meas.reg_cols["cell_temp"].args["temp_delta"] == 0.5
+
+    def test_sim_availability_rejected_meas_accepted(self):
+        doc = pr_doc()
+        doc["meas"]["reg_cols"]["availability"] = {"column": "avail"}
+        setup.PrSetup.model_validate(doc)
+        doc["sim"]["reg_cols"]["availability"] = {"column": "avail"}
+        with pytest.raises(ValidationError, match="measured-side input"):
+            setup.PrSetup.model_validate(doc)
+
+    def test_params_must_be_downstream(self):
+        with pytest.raises(ValidationError, match="not CapTest downstream"):
+            setup.PrSetup.model_validate(pr_doc(params={"nonsense": 1}))
+
+
+class TestLoadSetup:
+    def test_no_kind_is_regression_with_unchanged_digest(self):
+        doc = e2848_doc()
+        loaded = setup.validate_setup(doc)
+        assert isinstance(loaded, TestSetup)
+        assert loaded.content_digest() == TestSetup.model_validate(doc).content_digest()
+
+    def test_kind_pr_is_pr_setup(self):
+        assert isinstance(setup.validate_setup(pr_doc()), setup.PrSetup)
+
+    def test_unknown_kind_lists_known_kinds(self):
+        with pytest.raises(ValueError, match="epi") as exc:
+            setup.validate_setup(pr_doc(kind="epi"))
+        assert "regression" in str(exc.value) and "pr" in str(exc.value)
+
+    def test_explicit_regression_kind_is_stripped(self):
+        plain = e2848_doc()
+        explicit = dict(plain, kind="regression")
+        loaded = setup.validate_setup(explicit)
+        assert isinstance(loaded, TestSetup)
+        assert loaded.content_digest() == setup.validate_setup(plain).content_digest()
+        assert "kind" in explicit
+
+    def test_non_mapping_rejected(self):
+        with pytest.raises(TypeError):
+            setup.validate_setup(["not", "a", "dict"])
+
+    def test_load_setup_reads_yaml_and_json(self, tmp_path):
+        yaml_path = tmp_path / "pr.yaml"
+        json_path = tmp_path / "pr.json"
+        yaml_path.write_text(yaml.safe_dump(pr_doc()), encoding="utf-8")
+        json_path.write_text(json.dumps(pr_doc()), encoding="utf-8")
+        assert isinstance(setup.load_setup(yaml_path), setup.PrSetup)
+        assert isinstance(setup.load_setup(str(json_path)), setup.PrSetup)
+        assert isinstance(setup.load_setup(e2848_doc()), TestSetup)
+
+    def test_loads_setup_reads_text(self):
+        assert isinstance(setup.loads_setup(yaml.safe_dump(pr_doc())), setup.PrSetup)
+        assert isinstance(setup.loads_setup(json.dumps(e2848_doc())), TestSetup)
