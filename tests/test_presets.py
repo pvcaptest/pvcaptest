@@ -6,7 +6,6 @@ from pathlib import Path
 import pytest
 
 from captest import captest as ct
-from captest.setup import TestSetup
 
 DIGESTS = Path("tests/data/setup_digests.json")
 SEMANTIC_DIGESTS = Path("tests/data/setup_semantic_digests.json")
@@ -15,7 +14,7 @@ SEMANTIC_DIGESTS = Path("tests/data/setup_semantic_digests.json")
 @pytest.mark.parametrize("preset", sorted(ct.TEST_SETUPS))
 def test_normalisation_is_idempotent(preset):
     tsd = ct.TEST_SETUPS[preset]
-    assert TestSetup.model_validate(tsd.to_dict()).to_dict() == tsd.to_dict()
+    assert type(tsd).model_validate(tsd.to_dict()).to_dict() == tsd.to_dict()
 
 
 @pytest.mark.parametrize("preset", sorted(ct.TEST_SETUPS))

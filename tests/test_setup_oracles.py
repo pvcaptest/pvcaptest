@@ -7,13 +7,13 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from captest.captest import TEST_SETUPS
+from captest.captest import regression_setups
 from tests.setup_fixtures import build_captest, snapshot
 
 ORACLES = Path("tests/data/setup_oracles")
 
 
-@pytest.mark.parametrize("preset", sorted(TEST_SETUPS))
+@pytest.mark.parametrize("preset", regression_setups())
 def test_preset_reproduces_oracle(preset):
     expected = json.loads((ORACLES / f"{preset}.json").read_text())
     actual = snapshot(build_captest(preset))
@@ -38,14 +38,17 @@ def test_oracle_files_are_pairwise_distinct():
     pair): if a later change swapped their trees, an identical pair of
     oracles would let ``test_preset_reproduces_oracle`` pass anyway.
     """
-    texts = {preset: (ORACLES / f"{preset}.json").read_text() for preset in TEST_SETUPS}
+    texts = {
+        preset: (ORACLES / f"{preset}.json").read_text()
+        for preset in regression_setups()
+    }
     seen = {}
     for preset, text in texts.items():
         assert text not in seen, f"{preset} oracle is identical to {seen[text]}"
         seen[text] = preset
 
 
-@pytest.mark.parametrize("preset", sorted(TEST_SETUPS))
+@pytest.mark.parametrize("preset", regression_setups())
 def test_preset_fixture_regressions_are_well_conditioned(preset):
     """Each preset's fixture data gives a full-rank, well-conditioned fit.
 

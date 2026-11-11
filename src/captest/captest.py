@@ -42,12 +42,15 @@ from captest.filters import wrap_year_end
 from captest.plotting import ScatterBifiPowerTc, ScatterPlot
 from captest.setup import (
     DerivationError,
+    PrSetup,
     RepConditions,
     SetupFitError,
     TestSetup,
     canonical_json,
     check_project_fit,
     derive,
+    derive_pr,
+    load_setup,
 )
 from captest.util import perc_wrap, to_native
 
@@ -261,7 +264,9 @@ def load_presets(directory=None):
     Returns
     -------
     dict
-        Preset name -> :class:`captest.setup.TestSetup`, sorted by name.
+        Preset name -> :class:`captest.setup.TestSetup` or
+        :class:`captest.setup.PrSetup` (by each document's ``kind``), sorted
+        by name.
 
     Raises
     ------
@@ -272,16 +277,41 @@ def load_presets(directory=None):
     directory = Path(directory) if directory is not None else SETUPS_DIR
     presets = {}
     for path in sorted(directory.glob("*.yaml")):
-        tsd = TestSetup.load(path)
+        tsd = load_setup(path)
         if tsd.name != path.stem:
             raise ValueError(f"{path.name}: name {tsd.name!r} must equal the file stem")
-        _check_scatter_name(tsd.scatter_plots)
+        if isinstance(tsd, TestSetup):
+            _check_scatter_name(tsd.scatter_plots)
         presets[tsd.name] = tsd
     return presets
 
 
 #: Registry of shipped capacity-test presets.
 TEST_SETUPS = load_presets()
+
+
+def regression_setups():
+    """Names of the registered regression setups, sorted.
+
+    Returns
+    -------
+    list of str
+    """
+    return sorted(
+        name for name, setup in TEST_SETUPS.items() if isinstance(setup, TestSetup)
+    )
+
+
+def pr_setups():
+    """Names of the registered PR setups, sorted.
+
+    Returns
+    -------
+    list of str
+    """
+    return sorted(
+        name for name, setup in TEST_SETUPS.items() if isinstance(setup, PrSetup)
+    )
 
 
 def test_setups(options=True, descriptions=False):
@@ -291,7 +321,8 @@ def test_setups(options=True, descriptions=False):
     Parameters
     ----------
     options: bool, default True
-        List the names of the test setups.
+        List the names of the test setups, each with its kind in brackets
+        (``regression`` or ``pr``).
     descriptions: bool, default False
         List the descriptions of the test setups.
 
@@ -302,8 +333,8 @@ def test_setups(options=True, descriptions=False):
     if options:
         print("All options")
         print("=" * 60)
-        for name in TEST_SETUPS:
-            print(name)
+        for name, setup in TEST_SETUPS.items():
+            print(f"{name} [{setup.kind}]")
 
     if descriptions:
         if options:
@@ -371,9 +402,11 @@ def resolve_test_setup(name, overrides=None):
 
     Returns
     -------
-    captest.setup.TestSetup
-        For a named preset whose overrides change nothing but provenance,
-        the ``TEST_SETUPS`` entry itself (``derived_from`` unset, same
+    captest.setup.TestSetup or captest.setup.PrSetup
+        A ``PrSetup`` when the named preset is a PR setup (only
+        ``reg_cols_meas`` / ``reg_cols_sim`` / ``params`` apply to it). For a
+        named preset whose overrides change nothing but provenance, the
+        ``TEST_SETUPS`` entry itself (``derived_from`` unset, same
         ``content_digest()``).
 
     Raises
@@ -382,7 +415,9 @@ def resolve_test_setup(name, overrides=None):
         Unknown preset name.
     ValueError
         Unknown override key, unknown ``scatter_plots`` name, missing
-        ``custom`` requirements, or a ``reg_cols`` override that cannot be
+        ``custom`` requirements, a ``reg_fml`` / ``rep_conditions`` /
+        ``scatter_plots`` override on a PR setup, or a ``reg_cols`` override
+        that cannot be
         applied (see :class:`captest.setup.DerivationError`).
     """
     overrides = dict(overrides or {})
@@ -415,6 +450,8 @@ def resolve_test_setup(name, overrides=None):
     base = TEST_SETUPS[name]
     if not any(v is not None for v in overrides.values()):
         return base  # the preset itself, provenance and digest untouched
+    if isinstance(base, PrSetup):
+        return _resolve_pr_setup(base, overrides)
     if overrides.get("scatter_plots") is not None:
         _check_scatter_name(overrides["scatter_plots"])
     rep_conditions = None
@@ -439,6 +476,62 @@ def resolve_test_setup(name, overrides=None):
     if derived.model_copy(update={"derived_from": base.derived_from}) == base:
         return base
     return derived
+
+
+def _resolve_pr_setup(base, overrides):
+    """Apply ``overrides`` to the PR preset ``base``.
+
+    Parameters
+    ----------
+    base : captest.setup.PrSetup
+    overrides : dict
+        Validated override mapping from :func:`resolve_test_setup`.
+
+    Returns
+    -------
+    captest.setup.PrSetup
+        ``base`` itself when the overrides change nothing but provenance.
+
+    Raises
+    ------
+    ValueError
+        A regression-only key is set, or a ``reg_cols`` override cannot be
+        applied.
+    """
+    for key in ("reg_fml", "rep_conditions", "scatter_plots"):
+        if overrides.get(key) is not None:
+            raise ValueError(
+                f"Override {key!r} does not apply to {base.name!r}: it is a "
+                "PR setup (kind: pr) and has no regression."
+            )
+    try:
+        derived = derive_pr(
+            base,
+            reg_cols_meas=overrides.get("reg_cols_meas"),
+            reg_cols_sim=overrides.get("reg_cols_sim"),
+            params=overrides.get("params"),
+        )
+    except DerivationError as exc:
+        raise ValueError(str(exc)) from exc
+    if derived.model_copy(update={"derived_from": base.derived_from}) == base:
+        return base
+    return derived
+
+
+def _refuse_pr_setup(resolved):
+    """Raise until CapTest can run PR setups (temporary guard).
+
+    Parameters
+    ----------
+    resolved : captest.setup.TestSetup or captest.setup.PrSetup
+
+    Raises
+    ------
+    NotImplementedError
+        If ``resolved`` is a ``PrSetup``.
+    """
+    if isinstance(resolved, PrSetup):
+        raise NotImplementedError("PR setups are not yet run by CapTest")
 
 
 def _lift_mapping(sub, key="captest"):
@@ -1091,10 +1184,10 @@ class CapTest(param.Parameterized):
         "Written to yaml as overrides.scatter_plots.",
     )
     resolved_setup = param.ClassSelector(
-        class_=TestSetup,
+        class_=(TestSetup, PrSetup),
         default=None,
         allow_None=True,
-        doc="The complete TestSetup resolved by setup(); None before setup().",
+        doc="The complete setup document resolved by setup(); None before setup().",
     )
     rep_conditions = param.Dict(
         default=None,
@@ -2497,6 +2590,11 @@ class CapTest(param.Parameterized):
         :attr:`rep_conditions` is set, including beside a ``RepCond`` step or
         a manual ``rc_source``, so the reloaded ``resolved_setup`` keeps the
         original's ``content_digest``.
+
+        Raises
+        ------
+        NotImplementedError
+            If the resolved setup is a PR setup (not yet run by CapTest).
         """
         sub = {"test_setup": self.test_setup}
 
@@ -2511,6 +2609,7 @@ class CapTest(param.Parameterized):
         # gets written, and a changed ``test_setup`` must not be paired with
         # the previous preset's document.
         resolved = resolve_test_setup(self.test_setup, self._collect_overrides())
+        _refuse_pr_setup(resolved)
         if self.test_setup == "custom":
             overrides["reg_cols_meas"] = resolved.meas.model_dump(mode="json")[
                 "reg_cols"
@@ -2779,11 +2878,14 @@ class CapTest(param.Parameterized):
             If ``side`` is invalid, or the setup cannot be resolved.
         RuntimeError
             If a ``CapData`` targeted by ``side`` is unset.
+        NotImplementedError
+            If the resolved setup is a PR setup (not yet run by CapTest).
         """
         if side not in ("meas", "sim", "both"):
             raise ValueError(f"side must be 'meas', 'sim', or 'both', got {side!r}.")
         sides = ("meas", "sim") if side == "both" else (side,)
         resolved = resolve_test_setup(self.test_setup, self._collect_overrides())
+        _refuse_pr_setup(resolved)
         for s in sides:
             if getattr(self, s) is None:
                 raise RuntimeError(f"CapTest.{s} must be set before check_fit().")
@@ -2852,6 +2954,8 @@ class CapTest(param.Parameterized):
             (tier 2); raised before any column is written.
         RuntimeError
             If a ``CapData`` targeted by ``side`` is unset.
+        NotImplementedError
+            If the resolved setup is a PR setup (not yet run by CapTest).
         """
         if side not in ("meas", "sim", "both"):
             raise ValueError(f"side must be 'meas', 'sim', or 'both', got {side!r}.")
@@ -2866,6 +2970,7 @@ class CapTest(param.Parameterized):
 
         # Resolve first: a resolution error must leave sim.data untouched.
         resolved = resolve_test_setup(self.test_setup, self._collect_overrides())
+        _refuse_pr_setup(resolved)
 
         # Auto-wrap sim.data when measured spans (within 60 days of) a year
         # boundary. Idempotent and reversible — re-running setup() or toggling
