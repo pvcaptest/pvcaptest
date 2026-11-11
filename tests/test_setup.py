@@ -751,6 +751,11 @@ class TestCheckProjectFit:
 
 
 class TestSemanticDigest:
+    def test_kind_is_a_class_constant_not_a_field(self):
+        assert TestSetup.kind == "regression"
+        assert "kind" not in TestSetup.model_fields
+        assert "kind" not in TEST_SETUPS["e2848_default"].to_dict()
+
     def test_fields_are_everything_but_metadata(self):
         assert set(TestSetup.model_fields) - set(setup.SEMANTIC_FIELDS) == {
             "name",

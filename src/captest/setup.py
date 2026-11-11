@@ -19,7 +19,7 @@ import math
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Annotated, Literal
+from typing import Annotated, ClassVar, Literal
 
 import yaml
 from patsy import ModelDesc, PatsyError
@@ -345,7 +345,85 @@ SEMANTIC_FIELDS = (
 )
 
 
-class TestSetup(_Frozen):
+class _SetupDocument(_Frozen):
+    """Serialization, digests and loading shared by setup document kinds.
+
+    A subclass declares its ``_semantic_fields`` (the fields that carry
+    meaning, as opposed to labels) and a ``kind`` class constant.
+    """
+
+    _semantic_fields: ClassVar[tuple[str, ...]]
+
+    def to_dict(self):
+        """The normalised document: every field, defaults materialised."""
+        return self.model_dump(mode="json")
+
+    def content_digest(self):
+        """sha256 of ``canonical_json(self.to_dict())``; the document's identity."""
+        return hashlib.sha256(
+            canonical_json(self.to_dict()).encode("utf-8")
+        ).hexdigest()
+
+    def semantic_digest(self):
+        """sha256 of the document's meaning, ignoring its labels.
+
+        Hashes ``canonical_json`` of the class's ``_semantic_fields`` of
+        :meth:`to_dict` only (for ``TestSetup``, :data:`SEMANTIC_FIELDS`), so
+        two documents that differ in nothing but ``name``, ``description`` or
+        ``derived_from`` share a digest. Use it to identify a document across
+        renames and rewordings;
+        :meth:`content_digest` still identifies the exact document.
+
+        Returns
+        -------
+        str
+            64-character lowercase hex digest.
+        """
+        doc = self.to_dict()
+        return hashlib.sha256(
+            canonical_json({k: doc[k] for k in type(self)._semantic_fields}).encode(
+                "utf-8"
+            )
+        ).hexdigest()
+
+    @classmethod
+    def load(cls, source):
+        """Build a setup document from a yaml/json file path or a mapping.
+
+        Always validates through the model; yaml is read with ``safe_load``
+        (json is valid yaml). Files are read as UTF-8 regardless of the
+        platform's locale. Use :meth:`loads` for document text.
+        """
+        if isinstance(source, dict):
+            return cls.model_validate(source)
+        return cls.loads(Path(source).read_text(encoding="utf-8"))
+
+    @classmethod
+    def loads(cls, text):
+        """Build a setup document from yaml or json document text."""
+        return cls.model_validate(yaml.safe_load(text))
+
+    def to_yaml(self, path):
+        """Write ``to_dict()`` as UTF-8 yaml."""
+        Path(path).write_text(
+            yaml.safe_dump(self.to_dict(), sort_keys=False, allow_unicode=True),
+            encoding="utf-8",
+        )
+
+    def to_json(self, path):
+        """Write ``to_dict()`` as UTF-8 json."""
+        Path(path).write_text(
+            json.dumps(self.to_dict(), indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+
+    @classmethod
+    def json_schema(cls):
+        """JSON Schema of the document shape (an authoring contract)."""
+        return cls.model_json_schema()
+
+
+class TestSetup(_SetupDocument):
     """A complete capacity-test setup document.
 
     Parameters
@@ -374,6 +452,9 @@ class TestSetup(_Frozen):
     #: Not a pytest test class despite the name pattern: this is imported
     #: into ``tests/test_setup.py`` and would otherwise be collected.
     __test__ = False
+
+    kind: ClassVar[str] = "regression"
+    _semantic_fields: ClassVar[tuple[str, ...]] = SEMANTIC_FIELDS
 
     name: str
     description: str = ""
@@ -425,73 +506,6 @@ class TestSetup(_Frozen):
         if bad:
             raise ValueError(f"func keys {bad} are not rhs variables of reg_fml")
         return rc
-
-    # --- serialization -------------------------------------------------
-
-    def to_dict(self):
-        """The normalised document: every field, defaults materialised."""
-        return self.model_dump(mode="json")
-
-    def content_digest(self):
-        """sha256 of ``canonical_json(self.to_dict())``; the setup's identity."""
-        return hashlib.sha256(
-            canonical_json(self.to_dict()).encode("utf-8")
-        ).hexdigest()
-
-    def semantic_digest(self):
-        """sha256 of the setup's meaning, ignoring its labels.
-
-        Hashes ``canonical_json`` of the :data:`SEMANTIC_FIELDS` of
-        :meth:`to_dict` only, so two setups that differ in nothing but
-        ``name``, ``description`` or ``derived_from`` share a digest. Use it
-        to identify a setup across renames and rewordings;
-        :meth:`content_digest` still identifies the exact document.
-
-        Returns
-        -------
-        str
-            64-character lowercase hex digest.
-        """
-        doc = self.to_dict()
-        return hashlib.sha256(
-            canonical_json({k: doc[k] for k in SEMANTIC_FIELDS}).encode("utf-8")
-        ).hexdigest()
-
-    @classmethod
-    def load(cls, source):
-        """Build a setup from a yaml/json file path or a mapping.
-
-        Always validates through the model; yaml is read with ``safe_load``
-        (json is valid yaml). Files are read as UTF-8 regardless of the
-        platform's locale. Use :meth:`loads` for document text.
-        """
-        if isinstance(source, dict):
-            return cls.model_validate(source)
-        return cls.loads(Path(source).read_text(encoding="utf-8"))
-
-    @classmethod
-    def loads(cls, text):
-        """Build a setup from yaml or json document text."""
-        return cls.model_validate(yaml.safe_load(text))
-
-    def to_yaml(self, path):
-        """Write ``to_dict()`` as UTF-8 yaml."""
-        Path(path).write_text(
-            yaml.safe_dump(self.to_dict(), sort_keys=False, allow_unicode=True),
-            encoding="utf-8",
-        )
-
-    def to_json(self, path):
-        """Write ``to_dict()`` as UTF-8 json."""
-        Path(path).write_text(
-            json.dumps(self.to_dict(), indent=2, ensure_ascii=False) + "\n",
-            encoding="utf-8",
-        )
-
-    @classmethod
-    def json_schema(cls):
-        """JSON Schema of the document shape (an authoring contract)."""
-        return cls.model_json_schema()
 
     @staticmethod
     def derive(base, **changes):
