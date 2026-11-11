@@ -257,3 +257,228 @@ class TestExtra:
         chk.threshold = float("nan")
         with pytest.raises(ValueError):
             chk.evaluate(cd, ctx(cd))
+
+
+def day_frame(runs, dt="15min", tz=None, days=1, start="2025-06-01"):
+    """Build a one-column frame of 500 W/m2 rows with ``runs`` overriding values."""
+    index = pd.date_range(start, periods=96 * days, freq=dt, tz=tz)
+    data = pd.DataFrame({"front_col": 0.0, "poa_col": 0.0}, index=index)
+    for first, last, value in runs:
+        data.iloc[first:last, :] = value
+    return data
+
+
+def day_ctx(cd, **kw):
+    return checks.CheckContext(dt_hours=0.25, pr_rows=cd.data.index, **kw)
+
+
+def run_check(chk, data, filtered=None, **kw):
+    cd = FakeCapData(data, dict(ROLES), filtered=filtered)
+    return chk.evaluate(cd, day_ctx(cd, **kw))
+
+
+class TestContinuousHoursDays:
+    def make(self, **kw):
+        return checks.ContinuousHoursDays(threshold=600, hours=3, min_days=1, **kw)
+
+    def test_default_data_mode(self):
+        assert self.make().data == "unfiltered_period"
+
+    def test_three_hour_run_qualifies(self):
+        res = run_check(self.make(), day_frame([(40, 52, 700.0)]))
+        assert res.passed
+        assert res.detail["longest_run_hours"].iloc[0] == 3.0
+        assert bool(res.detail["qualifies"].iloc[0])
+
+    def test_eleven_rows_do_not(self):
+        res = run_check(self.make(), day_frame([(40, 51, 700.0)]))
+        assert not res.passed
+        assert res.detail["longest_run_hours"].iloc[0] == 2.75
+
+    def test_boundary_is_at_or_above(self):
+        res = run_check(self.make(), day_frame([(40, 52, 600.0)]))
+        assert res.passed
+
+    def test_nan_breaks_run(self):
+        data = day_frame([(40, 52, 700.0)])
+        data.iloc[46, :] = np.nan
+        res = run_check(self.make(), data)
+        assert not res.passed
+        assert res.detail["longest_run_hours"].iloc[0] == 1.5
+
+    def test_inf_breaks_run(self):
+        data = day_frame([(40, 52, 700.0)])
+        data.iloc[46, :] = np.inf
+        res = run_check(self.make(), data)
+        assert not res.passed
+
+    def test_missing_timestamp_breaks_run(self):
+        data = day_frame([(40, 52, 700.0)]).drop(pd.Timestamp("2025-06-01 11:30"))
+        res = run_check(self.make(), data)
+        assert not res.passed
+        assert res.detail["longest_run_hours"].iloc[0] == 1.5
+
+    def test_days_are_local_dates(self):
+        data = day_frame([(88, 96, 700.0)], tz="America/Chicago", days=2)
+        data.iloc[96:100, :] = 700.0
+        res = run_check(self.make(), data)
+        assert len(res.detail) == 2
+        assert not res.detail["qualifies"].any()
+        assert not res.passed
+        assert list(res.detail["longest_run_hours"]) == [2.0, 1.0]
+
+    def test_min_days(self):
+        data = day_frame([(40, 52, 700.0), (136, 148, 700.0)], days=3)
+        chk = checks.ContinuousHoursDays(threshold=600, hours=3, min_days=2)
+        res = run_check(chk, data)
+        assert res.passed
+        assert list(res.detail["qualifies"]) == [True, True, False]
+        chk3 = checks.ContinuousHoursDays(threshold=600, hours=3, min_days=3)
+        assert not run_check(chk3, data).passed
+
+    def test_filter_does_not_break_run(self):
+        data = day_frame([(40, 52, 700.0)])
+        filtered = data.drop(data.index[44:48])
+        res = run_check(self.make(), data, filtered=filtered)
+        assert res.passed
+
+    def test_start_end_restrict_days(self):
+        data = day_frame([(40, 52, 700.0), (136, 148, 700.0)], days=3)
+        chk = self.make(start="2025-06-02", end="2025-06-02")
+        res = run_check(chk, data)
+        assert len(res.detail) == 1
+        assert res.detail.index[0] == pd.Timestamp("2025-06-02")
+
+    def test_round_trip_keeps_period(self):
+        chk = self.make(start="2025-06-01", end="2025-06-03")
+        config = chk.to_config()
+        assert config["start"] == "2025-06-01"
+        rebuilt = checks.check_from_config(config)
+        assert rebuilt.to_config() == config
+        assert isinstance(rebuilt, checks.ContinuousHoursDays)
+
+    @pytest.mark.parametrize(
+        "kw",
+        [
+            {"threshold": float("nan"), "hours": 3, "min_days": 1},
+            {"threshold": 600, "hours": -1, "min_days": 1},
+            {"threshold": 600, "hours": 3, "min_days": -1},
+            {"threshold": 600, "hours": 3},
+        ],
+    )
+    def test_validation(self, kw):
+        with pytest.raises(ValueError):
+            checks.ContinuousHoursDays(**kw)
+
+
+class TestDailyInsolationDays:
+    def test_sums_with_dt(self):
+        data = day_frame([(0, 8, 500.0)])
+        chk = checks.DailyInsolationDays(threshold_wh_m2=1000, min_days=1)
+        res = run_check(chk, data)
+        assert res.detail["insolation_wh_m2"].iloc[0] == 1000.0
+        assert res.passed
+
+    def test_nan_and_inf_contribute_zero(self):
+        data = day_frame([(0, 8, 500.0)])
+        data.iloc[0, :] = np.nan
+        data.iloc[1, :] = np.inf
+        chk = checks.DailyInsolationDays(threshold_wh_m2=0, min_days=1)
+        res = run_check(chk, data)
+        assert res.detail["insolation_wh_m2"].iloc[0] == 750.0
+
+    def test_boundary_and_min_days(self):
+        data = day_frame([(0, 8, 500.0), (96, 104, 499.0)], days=2)
+        chk = checks.DailyInsolationDays(threshold_wh_m2=1000, min_days=2)
+        res = run_check(chk, data)
+        assert list(res.detail["qualifies"]) == [True, False]
+        assert not res.passed
+
+    def test_default_data_mode_and_validation(self):
+        chk = checks.DailyInsolationDays(threshold_wh_m2=1, min_days=1)
+        assert chk.data == "unfiltered_period"
+        with pytest.raises(ValueError):
+            checks.DailyInsolationDays(threshold_wh_m2=float("inf"), min_days=1)
+        with pytest.raises(ValueError):
+            checks.DailyInsolationDays(threshold_wh_m2=1, min_days=-2)
+
+    def test_round_trip(self):
+        chk = checks.DailyInsolationDays(
+            threshold_wh_m2=1000, min_days=2, start="2025-06-01", end="2025-06-04"
+        )
+        rebuilt = checks.check_from_config(chk.to_config())
+        assert rebuilt.to_config() == chk.to_config()
+
+
+def nrel_data(spec):
+    """One day per ``spec`` entry of (insolation_high, has_run)."""
+    days = []
+    for n, (high, run) in enumerate(spec):
+        day = day_frame(
+            [], days=1, start=pd.Timestamp("2025-06-01") + pd.Timedelta(days=n)
+        )
+        if high:
+            day.iloc[8:48, :] = 100.0
+            day.iloc[48:60, :] = 700.0 if run else 590.0
+            day.iloc[60:96, :] = 100.0
+        days.append(day)
+    return pd.concat(days)
+
+
+class TestNrelMinimumIrradiance:
+    def test_defaults(self):
+        chk = checks.NrelMinimumIrradiance()
+        assert (chk.irr_threshold, chk.hours, chk.insolation_wh_m2) == (600, 3, 3000)
+        assert (chk.min_insolation_days, chk.min_irr_days) == (5, 3)
+        assert chk.data == "unfiltered_period"
+
+    def test_five_days_pass(self):
+        data = nrel_data([(True, True)] * 3 + [(True, False)] * 2)
+        res = run_check(checks.NrelMinimumIrradiance(), data)
+        assert res.passed
+        assert res.detail["insolation_ok"].all()
+        assert int(res.detail["irradiance_ok"].sum()) == 3
+
+    def test_four_insolation_days_fail(self):
+        data = nrel_data([(True, True)] * 3 + [(True, False), (False, False)])
+        res = run_check(checks.NrelMinimumIrradiance(), data)
+        assert not res.passed
+
+    def test_two_runs_fail(self):
+        data = nrel_data([(True, True)] * 2 + [(True, False)] * 3)
+        res = run_check(checks.NrelMinimumIrradiance(), data)
+        assert not res.passed
+
+    def test_seven_days_runs_counted_among_insolation_days(self):
+        data = nrel_data(
+            [(True, True)] * 3 + [(True, False)] * 2 + [(False, False)] * 2
+        )
+        assert run_check(checks.NrelMinimumIrradiance(), data).passed
+
+    def test_run_on_low_insolation_day_does_not_count(self):
+        data = nrel_data([(True, True)] * 2 + [(True, False)] * 3)
+        extra = day_frame([(40, 52, 700.0)], start="2025-06-06")
+        res = run_check(checks.NrelMinimumIrradiance(), pd.concat([data, extra]))
+        assert not res.passed
+        assert not bool(res.detail["insolation_ok"].iloc[-1])
+        assert bool(res.detail["irradiance_ok"].iloc[-1]) is False
+
+    def test_detail_columns_and_round_trip(self):
+        data = nrel_data([(True, True)] * 5)
+        res = run_check(checks.NrelMinimumIrradiance(), data)
+        assert {
+            "insolation_wh_m2",
+            "longest_run_hours",
+            "insolation_ok",
+            "irradiance_ok",
+        } <= set(res.detail.columns)
+        chk = checks.NrelMinimumIrradiance(start="2025-06-01", end="2025-06-05")
+        config = chk.to_config()
+        assert config["start"] == "2025-06-01" and config["end"] == "2025-06-05"
+        assert checks.check_from_config(config).to_config() == config
+
+    def test_validation(self):
+        with pytest.raises(ValueError):
+            checks.NrelMinimumIrradiance(min_irr_days=-1)
+        with pytest.raises(ValueError):
+            checks.NrelMinimumIrradiance(hours=float("nan"))

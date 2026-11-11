@@ -175,12 +175,66 @@ def select_rows(capdata, check, context):
     return data.loc[(data.index >= first) & (data.index < stop)]
 
 
+def qualifying_mask(irr, threshold):
+    """Flag intervals with finite irradiance at or above ``threshold``.
+
+    Non-finite values (NaN, +/-inf) never qualify.
+    """
+    return np.isfinite(irr) & (irr >= threshold)
+
+
 def qualifying_count(irr, threshold):
     """Count intervals with finite irradiance at or above ``threshold``.
 
     Non-finite values (NaN, +/-inf) never qualify.
     """
-    return int((np.isfinite(irr) & (irr >= threshold)).sum())
+    return int(qualifying_mask(irr, threshold).sum())
+
+
+def daily_longest_runs(irr, threshold, dt_hours):
+    """Longest continuous qualifying run per local calendar day.
+
+    A run is consecutive rows of the same local day (``index.normalize()`` in
+    the index's own timezone) that all qualify (finite and at or above
+    ``threshold``) and whose timestamps are exactly ``dt_hours`` apart. A
+    non-qualifying row or a missing timestamp ends the run.
+
+    Parameters
+    ----------
+    irr : pd.Series
+        Irradiance with a datetime index.
+    threshold : float
+        Irradiance threshold; a row qualifies at or above it.
+    dt_hours : float
+        Timestep in hours.
+
+    Returns
+    -------
+    pd.Series
+        Longest run in hours (run rows times ``dt_hours``) for each day present
+        in ``irr``, indexed by the day's midnight timestamp.
+    """
+    irr = irr.sort_index()
+    day = irr.index.normalize()
+    qualifies = qualifying_mask(irr, threshold).to_numpy()
+    gap_seconds = irr.index.to_series().diff().dt.total_seconds().to_numpy()
+    contiguous = np.zeros(len(irr), dtype=bool)
+    contiguous[1:] = (
+        qualifies[:-1]
+        & (day[1:] == day[:-1])
+        & np.isclose(gap_seconds[1:], dt_hours * 3600.0, rtol=0, atol=1e-6)
+    )
+    start = qualifies & ~contiguous
+    run_id = np.cumsum(start)
+    rows = pd.Series(qualifies, index=day).groupby([day, run_id]).sum()
+    longest = rows.groupby(level=0).max() * dt_hours
+    return longest.rename("longest_run_hours")
+
+
+def daily_insolation(irr, dt_hours):
+    """Insolation in Wh/m2 per local calendar day, non-finite values as 0."""
+    energy = irr.where(np.isfinite(irr), 0.0) * dt_hours
+    return energy.groupby(irr.index.normalize()).sum().rename("insolation_wh_m2")
 
 
 def _check_finite(name, value):
@@ -397,9 +451,197 @@ class Duration(BaseCheck):
         )
 
 
+class ContinuousHoursDays(BaseCheck):
+    """Pass when enough days hold a long continuous run at or above a threshold.
+
+    Days are the local calendar dates (``index.normalize()``, in the index's
+    own timezone) that hold at least one row of the selected data; a day with
+    no rows at all does not appear in the detail. A run is consecutive rows,
+    exactly one timestep apart, each with finite irradiance at or above
+    ``threshold``; its length is rows times the timestep. A day qualifies when
+    its longest run is at or above ``hours``. Reads the unfiltered data inside
+    the test period by default.
+
+    Parameters
+    ----------
+    threshold : float
+        Irradiance threshold; a row qualifies at or above it.
+    hours : float
+        Minimum run length in hours; a run qualifies at or above it.
+    min_days : int
+        Minimum number of qualifying days.
+
+    Notes
+    -----
+    The detail has one row per day with ``longest_run_hours`` and
+    ``qualifies``.
+    """
+
+    data = param.Selector(default="unfiltered_period", objects=DATA_MODES)
+    threshold = param.Number(default=None, allow_None=True)
+    hours = param.Number(default=None, allow_None=True)
+    min_days = param.Integer(default=None, allow_None=True)
+
+    def _validate(self):
+        super()._validate()
+        if None in (self.threshold, self.hours, self.min_days):
+            raise ValueError("ContinuousHoursDays requires threshold, hours, min_days.")
+        _check_finite("threshold", self.threshold)
+        _check_non_negative("hours", self.hours)
+        _check_non_negative("min_days", self.min_days)
+
+    def _evaluate(self, frame, irr, context):
+        longest = daily_longest_runs(irr, self.threshold, context.dt_hours)
+        detail = longest.to_frame()
+        detail["qualifies"] = detail["longest_run_hours"] >= self.hours
+        detail.index.name = "day"
+        days = int(detail["qualifies"].sum())
+        return CheckResult(
+            name=self.label,
+            passed=days >= self.min_days,
+            detail=detail,
+            summary=(
+                f"{days} days with a run of at least {self.hours:g} h at or above "
+                f"{self.threshold:g} W/m² (need {self.min_days})"
+            ),
+        )
+
+
+class DailyInsolationDays(BaseCheck):
+    """Pass when enough days reach a daily insolation.
+
+    Daily insolation is the sum of irradiance times the timestep over the
+    local calendar day (``index.normalize()``); non-finite irradiance (NaN,
+    +/-inf) contributes 0. Days are those holding at least one row of the
+    selected data. A day qualifies when its insolation is at or above
+    ``threshold_wh_m2``. Reads the unfiltered data inside the test period by
+    default.
+
+    Parameters
+    ----------
+    threshold_wh_m2 : float
+        Minimum daily insolation in Wh/m2; a day qualifies at or above it.
+    min_days : int
+        Minimum number of qualifying days.
+
+    Notes
+    -----
+    The detail has one row per day with ``insolation_wh_m2`` and
+    ``qualifies``.
+    """
+
+    data = param.Selector(default="unfiltered_period", objects=DATA_MODES)
+    threshold_wh_m2 = param.Number(default=None, allow_None=True)
+    min_days = param.Integer(default=None, allow_None=True)
+
+    def _validate(self):
+        super()._validate()
+        if self.threshold_wh_m2 is None or self.min_days is None:
+            raise ValueError("DailyInsolationDays requires threshold_wh_m2, min_days.")
+        _check_finite("threshold_wh_m2", self.threshold_wh_m2)
+        _check_non_negative("min_days", self.min_days)
+
+    def _evaluate(self, frame, irr, context):
+        detail = daily_insolation(irr, context.dt_hours).to_frame()
+        detail["qualifies"] = detail["insolation_wh_m2"] >= self.threshold_wh_m2
+        detail.index.name = "day"
+        days = int(detail["qualifies"].sum())
+        return CheckResult(
+            name=self.label,
+            passed=days >= self.min_days,
+            detail=detail,
+            summary=(
+                f"{days} days with insolation at or above "
+                f"{self.threshold_wh_m2:g} Wh/m² (need {self.min_days})"
+            ),
+        )
+
+
+class NrelMinimumIrradiance(BaseCheck):
+    """NREL minimum-irradiance criteria for a PR test period.
+
+    Passes when at least ``min_insolation_days`` days have insolation at or
+    above ``insolation_wh_m2`` and, among those days, at least
+    ``min_irr_days`` hold a continuous run of at least ``hours`` at or above
+    ``irr_threshold``. Days are local calendar dates holding at least one row
+    of the selected data; run and insolation rules are those of
+    `ContinuousHoursDays` and `DailyInsolationDays`. Reads the unfiltered data
+    inside the test period by default.
+
+    This is pvcaptest's count reading of an internally inconsistent passage
+    in the source paper; it equals the decided reading on a period of exactly
+    ``min_insolation_days`` (5) days, where every day must reach the insolation
+    and ``min_irr_days`` of them the run.
+
+    Parameters
+    ----------
+    irr_threshold : float, default 600
+        Irradiance threshold in W/m2 for the continuous run.
+    hours : float, default 3
+        Minimum run length in hours.
+    insolation_wh_m2 : float, default 3000
+        Minimum daily insolation in Wh/m2.
+    min_insolation_days : int, default 5
+        Minimum number of days meeting the insolation.
+    min_irr_days : int, default 3
+        Minimum number of those days that also hold the run.
+
+    Notes
+    -----
+    The detail has one row per day with ``insolation_wh_m2``,
+    ``longest_run_hours``, ``insolation_ok`` and ``irradiance_ok``;
+    ``irradiance_ok`` is only true on days with ``insolation_ok``.
+    """
+
+    data = param.Selector(default="unfiltered_period", objects=DATA_MODES)
+    irr_threshold = param.Number(default=600)
+    hours = param.Number(default=3)
+    insolation_wh_m2 = param.Number(default=3000)
+    min_insolation_days = param.Integer(default=5)
+    min_irr_days = param.Integer(default=3)
+
+    def _validate(self):
+        super()._validate()
+        _check_finite("irr_threshold", self.irr_threshold)
+        _check_non_negative("hours", self.hours)
+        _check_finite("insolation_wh_m2", self.insolation_wh_m2)
+        _check_non_negative("min_insolation_days", self.min_insolation_days)
+        _check_non_negative("min_irr_days", self.min_irr_days)
+
+    def _evaluate(self, frame, irr, context):
+        detail = daily_insolation(irr, context.dt_hours).to_frame()
+        detail["longest_run_hours"] = daily_longest_runs(
+            irr, self.irr_threshold, context.dt_hours
+        )
+        detail["insolation_ok"] = detail["insolation_wh_m2"] >= self.insolation_wh_m2
+        detail["irradiance_ok"] = detail["insolation_ok"] & (
+            detail["longest_run_hours"] >= self.hours
+        )
+        detail.index.name = "day"
+        insolation_days = int(detail["insolation_ok"].sum())
+        irradiance_days = int(detail["irradiance_ok"].sum())
+        return CheckResult(
+            name=self.label,
+            passed=(
+                insolation_days >= self.min_insolation_days
+                and irradiance_days >= self.min_irr_days
+            ),
+            detail=detail,
+            summary=(
+                f"{insolation_days} days with insolation at or above "
+                f"{self.insolation_wh_m2:g} Wh/m² (need {self.min_insolation_days}); "
+                f"{irradiance_days} of them with a {self.hours:g} h run at or above "
+                f"{self.irr_threshold:g} W/m² (need {self.min_irr_days})"
+            ),
+        )
+
+
 CHECK_REGISTRY = {
     "IntervalCount": IntervalCount,
     "Duration": Duration,
+    "ContinuousHoursDays": ContinuousHoursDays,
+    "DailyInsolationDays": DailyInsolationDays,
+    "NrelMinimumIrradiance": NrelMinimumIrradiance,
 }
 
 
