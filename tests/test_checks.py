@@ -967,6 +967,12 @@ class TestFinalReviewFixes:
                 end="2025-06-02",
             )
 
+    def test_base_from_config_rejects_unknown_keys(self):
+        with pytest.raises(ValueError, match="did you mean 'min_hours'"):
+            checks.check_from_config(
+                {"type": "Duration", "threshold": 400, "min_houar": 5}
+            )
+
     def test_from_config_rejects_unknown_keys(self):
         with pytest.raises(ValueError, match="did you mean 'checks'"):
             checks.AnyOf.from_config({"type": "AnyOf", "chekcs": []})

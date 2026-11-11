@@ -3256,7 +3256,7 @@ class CapTest(param.Parameterized):
         Raises
         ------
         NotImplementedError
-            If the resolved setup is a PR setup. Temporary: lifted once
+            If the named preset is a PR setup. Temporary: lifted once
             CapTest runs PR setups.
         """
         _refuse_pr_setup(TEST_SETUPS.get(self.test_setup))

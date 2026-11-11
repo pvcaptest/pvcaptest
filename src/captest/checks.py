@@ -436,7 +436,14 @@ class BaseCheck(util.StrictAttrs, param.Parameterized):
 
     @classmethod
     def from_config(cls, config):
-        """Build an instance from a `to_config` dict (``type`` is ignored)."""
+        """Build an instance from a `to_config` dict (``type`` is ignored).
+
+        Raises
+        ------
+        ValueError
+            If the config has unknown keys.
+        """
+        _check_config_keys(cls.__name__, config, set(cls.param) - {"name"})
         return cls(**{k: v for k, v in config.items() if k != "type"})
 
 

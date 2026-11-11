@@ -4710,6 +4710,10 @@ class TestChecks:
     def test_no_checks_returns_empty_even_without_data(self):
         assert pvc.CapData("empty").evaluate_checks() == {}
 
+    def test_explicit_bad_dt_hours_raises_even_without_checks(self, cd):
+        with pytest.raises(ValueError, match="dt_hours"):
+            cd.evaluate_checks(dt_hours=-1)
+
     @pytest.mark.parametrize("bad", [0, -1.0, float("nan"), float("inf")])
     def test_dt_hours_must_be_finite_positive(self, cd, bad):
         cd.check_duration(400, 1)

@@ -2914,6 +2914,11 @@ class CapData(param.Parameterized):
         """
         self.checks = [checks_module.check_from_config(entry) for entry in config]
 
+    @staticmethod
+    def _check_dt_hours(dt_hours):
+        if not (np.isfinite(dt_hours) and dt_hours > 0):
+            raise ValueError(f"dt_hours must be finite and positive, got {dt_hours!r}.")
+
     def evaluate_checks(self, *, dt_hours=None, pr_rows=None, period=None):
         """Evaluate every registered check; data and filters are untouched.
 
@@ -2944,12 +2949,13 @@ class CapData(param.Parameterized):
         """
         from captest import prtest
 
+        if dt_hours is not None:
+            self._check_dt_hours(dt_hours)
         if not self.checks:
             return {}
         if dt_hours is None:
             dt_hours = prtest.dt_hours(self.data.index)
-        if not (np.isfinite(dt_hours) and dt_hours > 0):
-            raise ValueError(f"dt_hours must be finite and positive, got {dt_hours!r}.")
+            self._check_dt_hours(dt_hours)
         context = checks_module.CheckContext(
             dt_hours=dt_hours, pr_rows=pr_rows, period=period
         )
