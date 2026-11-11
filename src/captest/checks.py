@@ -10,6 +10,7 @@ This module never imports :mod:`captest.capdata`; a check touches a
 the flat ``regression_cols`` mapping of role to column).
 """
 
+import copy
 import difflib
 import math
 import numbers
@@ -653,12 +654,241 @@ class NrelMinimumIrradiance(BaseCheck):
         )
 
 
+class AnyOf(BaseCheck):
+    """Pass when any member check passes.
+
+    Expresses tiered contract schemes such as "at least 60 intervals at
+    400 W/m2 or at least 40 at 600 W/m2". Members are owned by the combinator
+    and evaluated against the same dataset and context; each applies its own
+    row selection. The ``irr``, ``data``, ``start`` and ``end`` parameters
+    inherited from `BaseCheck` are not used and are never serialized.
+
+    Parameters
+    ----------
+    *checks : BaseCheck
+        One or more member checks; may include other `AnyOf` instances.
+    custom_name : str or None, default None
+        Display label; ``"AnyOf"`` when ``None``.
+
+    Raises
+    ------
+    ValueError
+        If no member is given.
+    TypeError
+        If a member is not a `BaseCheck`.
+
+    Notes
+    -----
+    The detail has one row per member with ``member`` (its label), ``passed``
+    and ``summary``.
+    """
+
+    checks = param.List(default=[], item_type=BaseCheck)
+
+    def __init__(self, *checks, custom_name=None):
+        for member in checks:
+            if not isinstance(member, BaseCheck):
+                raise TypeError(
+                    f"AnyOf members must be BaseCheck instances, got {member!r}."
+                )
+        super().__init__(checks=list(checks), custom_name=custom_name)
+
+    def _validate(self):
+        super()._validate()
+        if not self.checks:
+            raise ValueError("AnyOf requires at least one member check.")
+
+    def evaluate(self, capdata, context):
+        """Evaluate every member and pass when any member passes.
+
+        Parameters
+        ----------
+        capdata : CapData
+            Dataset to check.
+        context : CheckContext
+            Run-time facts passed unchanged to each member.
+
+        Returns
+        -------
+        CheckResult
+        """
+        self._validate()
+        results = [member.evaluate(capdata, context) for member in self.checks]
+        detail = pd.DataFrame(
+            {
+                "member": [result.name for result in results],
+                "passed": [bool(result.passed) for result in results],
+                "summary": [result.summary for result in results],
+            }
+        )
+        passed = any(result.passed for result in results)
+        satisfied = int(detail["passed"].sum())
+        return CheckResult(
+            name=self.label,
+            passed=passed,
+            detail=detail,
+            summary=f"{satisfied} of {len(results)} member checks passed",
+        )
+
+    def to_config(self):
+        """Serialize to ``{"type", "checks"}`` plus ``custom_name`` when set."""
+        config = {
+            "type": "AnyOf",
+            "checks": [member.to_config() for member in self.checks],
+        }
+        if self.custom_name is not None:
+            config["custom_name"] = self.custom_name
+        return config
+
+    @classmethod
+    def from_config(cls, config):
+        """Build an instance, rebuilding members with `check_from_config`."""
+        members = [check_from_config(member) for member in config["checks"]]
+        return cls(*members, custom_name=config.get("custom_name"))
+
+
+class CustomCheck(BaseCheck):
+    """Run a user callable on the selected rows and report its verdict.
+
+    ``func(frame, *args, **kwargs)`` receives the rows chosen by ``data`` and
+    returns either a bool (``bool`` or ``numpy.bool_``) or a
+    ``(bool, DataFrame)`` tuple whose frame becomes the detail. With a bare
+    bool the detail is an empty DataFrame. Any other return raises
+    ``TypeError`` naming the check. An exception raised by ``func`` propagates
+    unchanged; on Python 3.11+ a note naming the check is added to it. A
+    selection with no rows fails without calling ``func``. Irradiance is not
+    resolved, so ``irr`` is ignored and the data need not hold a POA column.
+
+    Config files name ``func`` by ``"module:qualname"``; loading one imports
+    that module and later calls the callable, so load configs only from
+    trusted sources. Lambdas and locally defined functions cannot be
+    serialized.
+
+    Parameters
+    ----------
+    func : callable
+        Check function taking a DataFrame first.
+    *args
+        Extra positional arguments for ``func``; must be yaml-native to
+        serialize.
+    custom_name : str or None, default None
+        Display label; ``"CustomCheck"`` when ``None``.
+    data : {"pr_rows", "filtered", "unfiltered_period"}, default "filtered"
+        Which rows ``func`` receives.
+    **kwargs
+        Extra keyword arguments for ``func``; must be yaml-native to
+        serialize.
+    """
+
+    func = param.Callable(default=None, allow_None=True)
+    args = param.List(default=[])
+    kwargs = param.Dict(default={})
+    data = param.Selector(default="filtered", objects=DATA_MODES)
+
+    def __init__(self, func, *args, custom_name=None, data="filtered", **kwargs):
+        super().__init__(
+            func=func,
+            args=list(args),
+            kwargs=dict(kwargs),
+            custom_name=custom_name,
+            data=data,
+        )
+
+    def _validate(self):
+        super()._validate()
+        if self.func is None:
+            raise ValueError("CustomCheck requires a callable func.")
+
+    def evaluate(self, capdata, context):
+        """Select rows and call ``func`` on them.
+
+        Parameters
+        ----------
+        capdata : CapData
+            Dataset to check.
+        context : CheckContext
+            Supplies ``pr_rows`` and ``period`` for row selection.
+
+        Returns
+        -------
+        CheckResult
+
+        Raises
+        ------
+        TypeError
+            If ``func`` returns anything but a bool or ``(bool, DataFrame)``.
+        """
+        self._validate()
+        frame = select_rows(capdata, self, context)
+        if len(frame) == 0:
+            return self._empty_result()
+        try:
+            outcome = self.func(frame, *self.args, **self.kwargs)
+        except Exception as exc:
+            if hasattr(exc, "add_note"):
+                exc.add_note(f"raised by custom check {self.label!r}")
+            raise
+        detail = pd.DataFrame()
+        if (
+            isinstance(outcome, tuple)
+            and len(outcome) == 2
+            and isinstance(outcome[0], (bool, np.bool_))
+            and isinstance(outcome[1], pd.DataFrame)
+        ):
+            outcome, detail = outcome
+        if not isinstance(outcome, (bool, np.bool_)):
+            raise TypeError(
+                f"Custom check {self.label!r} must return a bool or a "
+                f"(bool, DataFrame) tuple, got {type(outcome).__name__}."
+            )
+        passed = bool(outcome)
+        return CheckResult(
+            name=self.label,
+            passed=passed,
+            detail=detail,
+            summary=f"custom check {'passed' if passed else 'failed'}",
+        )
+
+    def to_config(self):
+        """Serialize with ``func`` as ``"module:qualname"``.
+
+        Raises
+        ------
+        ValueError
+            If ``func`` is a lambda or locally defined function.
+        """
+        config = {
+            "type": "CustomCheck",
+            "func": util.callable_to_qualname(self.func),
+            "args": util.to_native(copy.deepcopy(self.args)),
+            "kwargs": util.to_native(copy.deepcopy(self.kwargs)),
+            "custom_name": self.custom_name,
+        }
+        if self.data != type(self).param["data"].default:
+            config["data"] = self.data
+        return config
+
+    @classmethod
+    def from_config(cls, config):
+        """Build an instance, importing ``func`` from its qualified name."""
+        func = util.callable_from_qualname(config["func"])
+        return cls(
+            func,
+            *(config.get("args") or []),
+            custom_name=config.get("custom_name"),
+            data=config.get("data", "filtered"),
+            **(config.get("kwargs") or {}),
+        )
+
+
 CHECK_REGISTRY = {
     "IntervalCount": IntervalCount,
     "Duration": Duration,
     "ContinuousHoursDays": ContinuousHoursDays,
     "DailyInsolationDays": DailyInsolationDays,
     "NrelMinimumIrradiance": NrelMinimumIrradiance,
+    "AnyOf": AnyOf,
+    "CustomCheck": CustomCheck,
 }
 
 

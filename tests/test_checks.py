@@ -590,3 +590,162 @@ class TestDayCheckEdges:
     def test_invalid_data_mode_rejected(self, cls, kw):
         with pytest.raises(ValueError):
             cls(data="bogus", **kw)
+
+
+def enough_rows(frame, minimum=1):
+    """Module-level custom check (importable by qualified name)."""
+    return len(frame) >= minimum
+
+
+def returns_frame(frame):
+    return False, frame.head(2)
+
+
+class TestAnyOf:
+    def tiers(self):
+        return checks.AnyOf(
+            checks.IntervalCount(threshold=400, min_count=60),
+            checks.IntervalCount(threshold=600, min_count=40),
+            custom_name="insolation tiers",
+        )
+
+    def tier_data(self, high, low):
+        data = make_data(100, irr=450.0)
+        data.iloc[:high] = 700.0
+        data.iloc[high : high + low] = 450.0
+        data.iloc[high + low :] = 100.0
+        return FakeCapData(data, dict(ROLES))
+
+    def test_passes_when_only_second_tier_passes(self):
+        cd = self.tier_data(high=45, low=5)
+        res = self.tiers().evaluate(cd, ctx(cd))
+        assert res.passed
+        assert res.name == "insolation tiers"
+        assert list(res.detail["passed"]) == [False, True]
+        assert list(res.detail["member"]) == ["IntervalCount", "IntervalCount"]
+
+    def test_fails_when_no_tier_passes(self):
+        cd = self.tier_data(high=30, low=10)
+        res = self.tiers().evaluate(cd, ctx(cd))
+        assert not res.passed
+        assert list(res.detail["passed"]) == [False, False]
+
+    def test_default_label(self):
+        chk = checks.AnyOf(checks.Duration(threshold=1, min_hours=1))
+        assert chk.label == "AnyOf"
+        assert "custom_name" not in chk.to_config()
+
+    def test_requires_members(self):
+        with pytest.raises(ValueError, match="at least one"):
+            checks.AnyOf()
+
+    def test_members_must_be_checks(self):
+        with pytest.raises(TypeError, match="BaseCheck"):
+            checks.AnyOf("nope")
+
+    def test_nested_round_trip(self):
+        inner = checks.AnyOf(
+            checks.Duration(threshold=1, min_hours=2), custom_name="inner"
+        )
+        outer = checks.AnyOf(inner, checks.IntervalCount(threshold=3, min_count=4))
+        config = outer.to_config()
+        assert config["type"] == "AnyOf"
+        assert config["checks"][0]["type"] == "AnyOf"
+        assert set(config) == {"type", "checks"}
+        rebuilt = checks.check_from_config(config)
+        assert rebuilt.to_config() == config
+        assert rebuilt.checks[0].label == "inner"
+
+    def test_empty_selection_fails_each_member(self):
+        cd = FakeCapData(make_data(), dict(ROLES), filtered=make_data(0))
+        chk = checks.AnyOf(
+            checks.IntervalCount(threshold=1, min_count=1, data="filtered")
+        )
+        assert not chk.evaluate(cd, ctx(cd)).passed
+
+
+class TestCustomCheck:
+    def test_bool_return(self, cd):
+        chk = checks.CustomCheck(enough_rows, minimum=10)
+        res = chk.evaluate(cd, ctx(cd))
+        assert res.passed and res.detail.empty
+        assert res.name == "CustomCheck"
+
+    def test_numpy_bool_return(self, cd):
+        chk = checks.CustomCheck(lambda frame: np.bool_(False))
+        assert not chk.evaluate(cd, ctx(cd)).passed
+
+    def test_tuple_return_carries_detail(self, cd):
+        res = checks.CustomCheck(returns_frame, custom_name="mine").evaluate(
+            cd, ctx(cd)
+        )
+        assert not res.passed
+        assert len(res.detail) == 2
+        assert res.name == "mine"
+
+    def test_bad_return_type(self, cd):
+        chk = checks.CustomCheck(lambda frame: "yes", custom_name="mine")
+        with pytest.raises(TypeError, match="mine"):
+            chk.evaluate(cd, ctx(cd))
+
+    def test_bad_tuple_frame(self, cd):
+        chk = checks.CustomCheck(lambda frame: (True, "x"))
+        with pytest.raises(TypeError, match="CustomCheck"):
+            chk.evaluate(cd, ctx(cd))
+
+    def test_runs_without_irradiance_column(self):
+        cd = FakeCapData(pd.DataFrame({"other": [1.0, 2.0]}), {})
+        context = checks.CheckContext(dt_hours=0.25)
+        res = checks.CustomCheck(enough_rows, minimum=2, data="filtered").evaluate(
+            cd, context
+        )
+        assert res.passed
+
+    def test_empty_selection_fails(self):
+        cd = FakeCapData(make_data(), dict(ROLES), filtered=make_data(0))
+        res = checks.CustomCheck(enough_rows).evaluate(cd, ctx(cd))
+        assert not res.passed and res.summary == checks.NO_DATA_SUMMARY
+
+    def test_exception_propagates_with_note(self, cd):
+        def boom(frame):
+            raise KeyError("missing")
+
+        chk = checks.CustomCheck(boom, custom_name="mine")
+        with pytest.raises(KeyError) as info:
+            chk.evaluate(cd, ctx(cd))
+        if hasattr(info.value, "__notes__"):
+            assert any("mine" in note for note in info.value.__notes__)
+
+    def test_round_trip(self, cd):
+        chk = checks.CustomCheck(enough_rows, minimum=5, custom_name="rows")
+        config = chk.to_config()
+        assert config == {
+            "type": "CustomCheck",
+            "func": f"{enough_rows.__module__}:enough_rows",
+            "args": [],
+            "kwargs": {"minimum": 5},
+            "custom_name": "rows",
+        }
+        rebuilt = checks.check_from_config(config)
+        assert rebuilt.to_config() == config
+        assert rebuilt.evaluate(cd, ctx(cd)).passed
+
+    def test_positional_args_round_trip(self):
+        config = checks.CustomCheck(enough_rows, 7).to_config()
+        assert config["args"] == [7]
+        assert checks.check_from_config(config).args == [7]
+
+    def test_default_data_is_filtered(self):
+        assert checks.CustomCheck(enough_rows).data == "filtered"
+
+    def test_lambda_to_config_raises(self):
+        with pytest.raises(ValueError, match="lambda"):
+            checks.CustomCheck(lambda frame: True).to_config()
+
+    def test_inside_any_of(self, cd):
+        chk = checks.AnyOf(
+            checks.CustomCheck(enough_rows, minimum=10**6),
+            checks.CustomCheck(enough_rows),
+        )
+        assert chk.evaluate(cd, ctx(cd)).passed
+        assert checks.check_from_config(chk.to_config()).evaluate(cd, ctx(cd)).passed
