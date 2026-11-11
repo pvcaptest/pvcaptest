@@ -12,8 +12,10 @@ the flat ``regression_cols`` mapping of role to column).
 
 import difflib
 import math
+import numbers
 from dataclasses import dataclass
 
+import numpy as np
 import pandas as pd
 import param
 
@@ -89,10 +91,21 @@ def resolve_irradiance(capdata, irr):
         If ``irr`` is neither a role nor a column.
     """
     roles = capdata.regression_cols or {}
-    if irr in roles:
-        return roles[irr]
-    if irr == "front_poa" and "poa" in roles:
-        return roles["poa"]
+    role = (
+        irr
+        if irr in roles
+        else "poa"
+        if irr == "front_poa" and "poa" in roles
+        else None
+    )
+    if role is not None:
+        column = roles[role]
+        if column not in capdata.data.columns:
+            raise ValueError(
+                f"Irradiance role {role!r} maps to column {column!r}, which is "
+                "not a column of the data."
+            )
+        return column
     if irr in capdata.data.columns:
         return irr
     raise ValueError(
@@ -162,11 +175,19 @@ def select_rows(capdata, check, context):
     return data.loc[(data.index >= first) & (data.index < stop)]
 
 
+def qualifying_count(irr, threshold):
+    """Count intervals with finite irradiance at or above ``threshold``.
+
+    Non-finite values (NaN, +/-inf) never qualify.
+    """
+    return int((np.isfinite(irr) & (irr >= threshold)).sum())
+
+
 def _check_finite(name, value):
     """Raise ``ValueError`` unless ``value`` is a finite real number."""
     if (
         isinstance(value, bool)
-        or not isinstance(value, (int, float))
+        or not isinstance(value, numbers.Real)
         or not math.isfinite(value)
     ):
         raise ValueError(f"{name} must be a finite number, got {value!r}.")
@@ -192,7 +213,7 @@ class BaseCheck(util.StrictAttrs, param.Parameterized):
     irr : str, default "front_poa"
         Irradiance as a regression role name or a column of the data.
     data : {"pr_rows", "filtered", "unfiltered_period"}
-        Which rows the check evaluates; the default is per class.
+        Which rows the check evaluates; subclasses may override the default.
     start, end : str or None, default None
         Explicit period read only by ``data="unfiltered_period"``.
     """
@@ -209,7 +230,9 @@ class BaseCheck(util.StrictAttrs, param.Parameterized):
         return self.custom_name or type(self).__name__
 
     def _validate(self):
-        """Validate check-specific parameters; subclasses extend this."""
+        """Validate parameters; subclasses extend this via ``super()``."""
+        if (self.start is None) != (self.end is None):
+            raise ValueError("start and end must be set together or not at all.")
 
     def __init__(self, **params):
         super().__init__(**params)
@@ -301,16 +324,16 @@ class IntervalCount(BaseCheck):
 
     threshold = param.Number(default=None, allow_None=True)
     min_count = param.Integer(default=None, allow_None=True)
-    data = param.Selector(default="pr_rows", objects=DATA_MODES)
 
     def _validate(self):
+        super()._validate()
         if self.threshold is None or self.min_count is None:
             raise ValueError("IntervalCount requires threshold and min_count.")
         _check_finite("threshold", self.threshold)
         _check_non_negative("min_count", self.min_count)
 
     def _evaluate(self, frame, irr, context):
-        count = int((irr >= self.threshold).sum())
+        count = qualifying_count(irr, self.threshold)
         detail = pd.DataFrame(
             {
                 "count": [count],
@@ -345,16 +368,16 @@ class Duration(BaseCheck):
 
     threshold = param.Number(default=None, allow_None=True)
     min_hours = param.Number(default=None, allow_None=True)
-    data = param.Selector(default="pr_rows", objects=DATA_MODES)
 
     def _validate(self):
+        super()._validate()
         if self.threshold is None or self.min_hours is None:
             raise ValueError("Duration requires threshold and min_hours.")
         _check_finite("threshold", self.threshold)
         _check_non_negative("min_hours", self.min_hours)
 
     def _evaluate(self, frame, irr, context):
-        count = int((irr >= self.threshold).sum())
+        count = qualifying_count(irr, self.threshold)
         hours = count * context.dt_hours
         detail = pd.DataFrame(
             {
@@ -389,6 +412,8 @@ def check_from_config(d):
         If ``type`` is not registered; the message suggests the closest name.
     """
     d = dict(d)
+    if "type" not in d:
+        raise ValueError("check config is missing the 'type' key")
     cls_name = d.pop("type")
     if cls_name not in CHECK_REGISTRY:
         suggestion = difflib.get_close_matches(cls_name, CHECK_REGISTRY, n=1)

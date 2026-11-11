@@ -64,6 +64,13 @@ class TestDuration:
         res = checks.Duration(threshold=400, min_hours=0).evaluate(cd, ctx(cd))
         assert res.detail["hours"].iloc[0] == 27.5
 
+    def test_inf_irradiance_never_qualifies(self):
+        data = make_data(120)
+        data.iloc[:4, :] = np.inf
+        cd = FakeCapData(data, dict(ROLES))
+        res = checks.Duration(threshold=400, min_hours=0).evaluate(cd, ctx(cd))
+        assert res.detail["hours"].iloc[0] == 29.0
+
 
 class TestIntervalCount:
     def test_boundary_is_at_or_above(self):
@@ -193,3 +200,60 @@ class TestConfig:
         chk = checks.Duration(threshold=400, min_hours=30)
         with pytest.raises(AttributeError):
             chk.min_hour = 3
+
+
+class TestExtra:
+    def test_half_set_period_rejected(self):
+        with pytest.raises(ValueError, match="start and end"):
+            checks.Duration(threshold=1, min_hours=1, start="2025-06-01")
+
+    def test_missing_type(self):
+        cfg = {"threshold": 1}
+        with pytest.raises(ValueError, match="missing the 'type'"):
+            checks.check_from_config(cfg)
+        assert cfg == {"threshold": 1}
+
+    def test_numpy_numbers_accepted(self):
+        chk = checks.IntervalCount(threshold=np.float64(4), min_count=np.int64(3))
+        assert chk.min_count == 3
+
+    def test_role_with_missing_column(self):
+        cd = FakeCapData(make_data(), {"poa": "gone"})
+        with pytest.raises(ValueError, match="'poa'.*'gone'"):
+            checks.resolve_irradiance(cd, "poa")
+
+    def test_empty_filtered_unfiltered_period(self):
+        data = make_data()
+        cd = FakeCapData(data, dict(ROLES), filtered=data.iloc[:0])
+        chk = checks.Duration(threshold=1, min_hours=0, data="unfiltered_period")
+        res = chk.evaluate(cd, checks.CheckContext(dt_hours=0.25))
+        assert res.passed is False
+        assert res.summary == "no data in the selected rows"
+
+    def test_tz_aware_unfiltered_period(self):
+        index = pd.date_range(
+            "2025-06-01", "2025-06-03 23:45", freq="15min", tz="Etc/GMT+7"
+        )
+        data = pd.DataFrame({"front_col": 500.0, "poa_col": 500.0}, index=index)
+        cd = FakeCapData(data, dict(ROLES))
+        chk = checks.Duration(
+            threshold=1,
+            min_hours=0,
+            data="unfiltered_period",
+            start="2025-06-02",
+            end="2025-06-02",
+        )
+        sel = checks.select_rows(cd, chk, ctx(cd))
+        assert len(sel) == 96
+        assert sel.index.min() == pd.Timestamp("2025-06-02", tz="Etc/GMT+7")
+
+    def test_non_default_data_serialized(self):
+        chk = checks.Duration(threshold=1, min_hours=1, data="filtered")
+        assert chk.to_config()["data"] == "filtered"
+        assert checks.check_from_config(chk.to_config()).data == "filtered"
+
+    def test_validate_reruns_in_evaluate(self, cd):
+        chk = checks.Duration(threshold=1, min_hours=1)
+        chk.threshold = float("nan")
+        with pytest.raises(ValueError):
+            chk.evaluate(cd, ctx(cd))
