@@ -349,7 +349,9 @@ class _SetupDocument(_Frozen):
     """Serialization, digests and loading shared by setup document kinds.
 
     A subclass declares its ``_semantic_fields`` (the fields that carry
-    meaning, as opposed to labels) and a ``kind`` class constant.
+    meaning, as opposed to labels) and its ``kind``: a ``ClassVar`` on
+    ``TestSetup`` (so regression documents carry no ``kind`` field) and a
+    ``Literal["pr"]`` field on ``PrSetup``.
     """
 
     _semantic_fields: ClassVar[tuple[str, ...]]
@@ -716,7 +718,26 @@ def validate_setup(data):
 
 
 def loads_setup(text):
-    """Build a setup document of the right kind from yaml or json text."""
+    """Build a setup document of the right kind from yaml or json text.
+
+    Parameters
+    ----------
+    text : str
+        yaml or json document text.
+
+    Returns
+    -------
+    TestSetup or PrSetup
+
+    Raises
+    ------
+    TypeError
+        If the text does not parse to a mapping.
+    ValueError
+        If ``kind`` is not a known kind.
+    pydantic.ValidationError
+        If the document is not valid for its kind.
+    """
     return validate_setup(yaml.safe_load(text))
 
 
@@ -731,6 +752,15 @@ def load_setup(source):
     Returns
     -------
     TestSetup or PrSetup
+
+    Raises
+    ------
+    TypeError
+        If the file does not parse to a mapping.
+    ValueError
+        If ``kind`` is not a known kind.
+    pydantic.ValidationError
+        If the document is not valid for its kind.
     """
     if isinstance(source, dict):
         return validate_setup(source)
