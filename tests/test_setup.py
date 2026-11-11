@@ -947,3 +947,72 @@ class TestLoadSetup:
     def test_loads_setup_reads_text(self):
         assert isinstance(setup.loads_setup(yaml.safe_dump(pr_doc())), setup.PrSetup)
         assert isinstance(setup.loads_setup(json.dumps(e2848_doc())), TestSetup)
+
+
+class TestDerivePr:
+    @staticmethod
+    def _base():
+        return setup.PrSetup.model_validate(
+            pr_doc(
+                meas={
+                    "reg_cols": {
+                        "power": {"group": "real_pwr_mtr", "agg": "sum"},
+                        "poa": {"group": "irr_poa", "agg": "mean"},
+                        "cell_temp": {"group": "temp_bom", "agg": "mean"},
+                        "front_poa": {"group": "irr_poa", "agg": "mean"},
+                    }
+                }
+            )
+        )
+
+    def test_override_replaces_one_role_and_keeps_others(self):
+        derived = setup.derive_pr(
+            self._base(), reg_cols_meas={"cell_temp": {"column": "TArray"}}
+        )
+        assert derived.meas.reg_cols["cell_temp"] == Column(column="TArray")
+        assert set(derived.meas.reg_cols) == set(self._base().meas.reg_cols)
+        assert derived.meas.reg_cols["poa"] == self._base().meas.reg_cols["poa"]
+
+    def test_none_removes_a_role(self):
+        derived = setup.derive_pr(self._base(), reg_cols_meas={"front_poa": None})
+        assert "front_poa" not in derived.meas.reg_cols
+        assert "cell_temp" in derived.meas.reg_cols
+
+    def test_unknown_role_raises_derivation_error(self):
+        with pytest.raises(setup.DerivationError, match="meas") as exc:
+            setup.derive_pr(self._base(), reg_cols_meas={"cell_tmp": {"column": "x"}})
+        message = str(exc.value)
+        assert "cell_tmp" in message and "cell_temp" in message
+        assert "regression formula" not in message
+
+    def test_unknown_sim_role_names_the_sim_side(self):
+        with pytest.raises(setup.DerivationError, match="sim"):
+            setup.derive_pr(self._base(), reg_cols_sim={"bogus": {"column": "x"}})
+
+    def test_removing_cell_temp_from_corrected_raises(self):
+        base = setup.derive_pr(self._base(), temp_corrected=True)
+        with pytest.raises(ValidationError, match="cell_temp"):
+            setup.derive_pr(base, reg_cols_meas={"cell_temp": None})
+
+    def test_result_validates_and_records_provenance(self):
+        base = self._base()
+        derived = setup.derive_pr(
+            base, name="child", description="d", temp_corrected=True, params={}
+        )
+        assert isinstance(derived, setup.PrSetup)
+        assert derived.derived_from == base.name
+        assert derived.name == "child"
+        assert derived.description == "d"
+        assert derived.temp_corrected is True
+        assert setup.PrSetup.model_validate(derived.to_dict()) == derived
+
+    def test_name_defaults_to_base_name(self):
+        assert setup.derive_pr(self._base()).name == self._base().name
+
+    def test_classmethod_style_delegates(self):
+        derived = setup.PrSetup.derive(self._base(), reg_cols_meas={"front_poa": None})
+        assert "front_poa" not in derived.meas.reg_cols
+
+    def test_regression_derive_is_untouched(self):
+        base = TestSetup.model_validate(e2848_doc())
+        assert setup.derive(base).derived_from == base.name

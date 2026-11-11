@@ -629,6 +629,33 @@ class PrSetup(_SetupDocument):
             raise ValueError("temp_corrected is true but meas has no 'cell_temp' role")
         return self
 
+    @staticmethod
+    def derive(base, **changes):
+        """Return a new complete PR setup derived from ``base``.
+
+        A thin delegate to :func:`captest.setup.derive_pr`.
+
+        Parameters
+        ----------
+        base : PrSetup
+        **changes
+            Keyword arguments forwarded to :func:`captest.setup.derive_pr`
+            (``name``, ``description``, ``temp_corrected``,
+            ``reg_cols_meas``, ``reg_cols_sim``, ``params``).
+
+        Returns
+        -------
+        PrSetup
+
+        Raises
+        ------
+        DerivationError
+            See :func:`captest.setup.derive_pr`.
+        pydantic.ValidationError
+            If the result is not a valid PR setup.
+        """
+        return derive_pr(base, **changes)
+
 
 SetupDocument = TestSetup | PrSetup
 
@@ -817,6 +844,74 @@ def derive(
     func = dict(data["rep_conditions"].get("func") or {})
     data["rep_conditions"]["func"] = {k: v for k, v in func.items() if k not in dropped}
     return TestSetup.model_validate(data)
+
+
+def _check_pr_override_roles(side_name, override):
+    for role in override or {}:
+        if role not in PR_ROLES:
+            hint = difflib.get_close_matches(role, PR_ROLES, n=1)
+            suffix = f" Did you mean {hint[0]!r}?" if hint else ""
+            raise DerivationError(
+                f"{side_name} override key {role!r} is not a PR role; "
+                f"allowed roles are {list(PR_ROLES)}.{suffix}"
+            )
+
+
+def derive_pr(
+    base,
+    *,
+    name=None,
+    description=None,
+    temp_corrected=None,
+    reg_cols_meas=None,
+    reg_cols_sim=None,
+    params=None,
+):
+    """Return a new complete PR setup derived from ``base``.
+
+    ``reg_cols_meas`` / ``reg_cols_sim`` merge key by key by role (a present
+    key replaces that role's whole node, ``None`` removes the role); every
+    other argument replaces its field wholesale. ``derived_from`` is set to
+    ``base.name``; ``name`` defaults to ``base.name``.
+
+    Parameters
+    ----------
+    base : PrSetup
+    name, description : str or None
+    temp_corrected : bool or None
+    reg_cols_meas, reg_cols_sim : dict or None
+        PR role -> node (mapping or model), or ``None`` to remove the role.
+    params : dict or None
+
+    Returns
+    -------
+    PrSetup
+
+    Raises
+    ------
+    DerivationError
+        For an override key that is not one of ``PR_ROLES``, or ``None`` on
+        a role the base lacks.
+    pydantic.ValidationError
+        If the result is not a valid PR setup (e.g. removing ``poa``, or
+        removing ``cell_temp`` while ``temp_corrected`` is true).
+    """
+    _check_pr_override_roles("meas", reg_cols_meas)
+    _check_pr_override_roles("sim", reg_cols_sim)
+    data = base.to_dict()
+    data["derived_from"] = base.name
+    if name is not None:
+        data["name"] = name
+    if description is not None:
+        data["description"] = description
+    if temp_corrected is not None:
+        data["temp_corrected"] = temp_corrected
+    if params is not None:
+        data["params"] = dict(params)
+    roles = set(PR_ROLES)
+    data["meas"] = {"reg_cols": merge_reg_cols(base.meas, reg_cols_meas, roles)}
+    data["sim"] = {"reg_cols": merge_reg_cols(base.sim, reg_cols_sim, roles)}
+    return PrSetup.model_validate(data)
 
 
 # --- tier 2: project fit ---------------------------------------------------
