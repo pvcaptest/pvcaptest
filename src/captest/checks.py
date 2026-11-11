@@ -25,6 +25,7 @@ from captest import util
 NO_DATA_SUMMARY = "no data in the selected rows"
 DATA_MODES = ["pr_rows", "filtered", "unfiltered_period"]
 RUN_HOURS_TOLERANCE = 1e-9
+INSOLATION_RTOL = 1e-9
 
 
 @dataclass
@@ -243,6 +244,17 @@ def run_meets_hours(run_hours, hours):
     return run_hours >= hours - RUN_HOURS_TOLERANCE
 
 
+def insolation_meets(insolation, threshold):
+    """Whether insolation is at or above ``threshold``, tolerant of float error.
+
+    Insolation is a sum of irradiance times a float timestep, so a total that
+    equals the threshold in exact arithmetic can fall a few ulps short. A
+    relative tolerance of 1e-9 (against ``max(1, abs(threshold))`` Wh/m2)
+    absorbs that.
+    """
+    return insolation >= threshold - INSOLATION_RTOL * max(1.0, abs(threshold))
+
+
 def daily_insolation(irr, dt_hours):
     """Insolation in Wh/m2 per local calendar day, non-finite values as 0."""
     energy = irr.where(np.isfinite(irr), 0.0) * dt_hours
@@ -386,10 +398,18 @@ class IntervalCount(BaseCheck):
         Irradiance threshold; an interval qualifies at or above it.
     min_count : int
         Minimum number of qualifying intervals.
+
+    Notes
+    -----
+    ``threshold`` and ``min_count`` may be given positionally:
+    ``IntervalCount(400, 60)``.
     """
 
     threshold = param.Number(default=None, allow_None=True)
     min_count = param.Integer(default=None, allow_None=True)
+
+    def __init__(self, threshold=None, min_count=None, **params):
+        super().__init__(threshold=threshold, min_count=min_count, **params)
 
     def _validate(self):
         super()._validate()
@@ -434,6 +454,9 @@ class Duration(BaseCheck):
 
     threshold = param.Number(default=None, allow_None=True)
     min_hours = param.Number(default=None, allow_None=True)
+
+    def __init__(self, threshold=None, min_hours=None, **params):
+        super().__init__(threshold=threshold, min_hours=min_hours, **params)
 
     def _validate(self):
         super()._validate()
@@ -494,6 +517,9 @@ class ContinuousHoursDays(BaseCheck):
     hours = param.Number(default=None, allow_None=True)
     min_days = param.Integer(default=None, allow_None=True)
 
+    def __init__(self, threshold=None, hours=None, min_days=None, **params):
+        super().__init__(threshold=threshold, hours=hours, min_days=min_days, **params)
+
     def _validate(self):
         super()._validate()
         if None in (self.threshold, self.hours, self.min_days):
@@ -546,6 +572,9 @@ class DailyInsolationDays(BaseCheck):
     threshold_wh_m2 = param.Number(default=None, allow_None=True)
     min_days = param.Integer(default=None, allow_None=True)
 
+    def __init__(self, threshold_wh_m2=None, min_days=None, **params):
+        super().__init__(threshold_wh_m2=threshold_wh_m2, min_days=min_days, **params)
+
     def _validate(self):
         super()._validate()
         if self.threshold_wh_m2 is None or self.min_days is None:
@@ -555,7 +584,9 @@ class DailyInsolationDays(BaseCheck):
 
     def _evaluate(self, frame, irr, context):
         detail = daily_insolation(irr, context.dt_hours).to_frame()
-        detail["qualifies"] = detail["insolation_wh_m2"] >= self.threshold_wh_m2
+        detail["qualifies"] = insolation_meets(
+            detail["insolation_wh_m2"], self.threshold_wh_m2
+        )
         detail.index.name = "day"
         days = int(detail["qualifies"].sum())
         return CheckResult(
@@ -631,7 +662,9 @@ class NrelMinimumIrradiance(BaseCheck):
         detail["longest_run_hours"] = daily_longest_runs(
             irr, self.irr_threshold, context.dt_hours
         )
-        detail["insolation_ok"] = detail["insolation_wh_m2"] >= self.insolation_wh_m2
+        detail["insolation_ok"] = insolation_meets(
+            detail["insolation_wh_m2"], self.insolation_wh_m2
+        )
         detail["irradiance_ok"] = detail["insolation_ok"] & (
             run_meets_hours(detail["longest_run_hours"], self.hours)
         )
@@ -654,6 +687,15 @@ class NrelMinimumIrradiance(BaseCheck):
         )
 
 
+def _to_native_deep(value):
+    """Copy ``value`` with numpy scalars inside lists, tuples and dicts as natives."""
+    if isinstance(value, dict):
+        return {key: _to_native_deep(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_to_native_deep(item) for item in value]
+    return util.to_native(copy.deepcopy(value))
+
+
 class AnyOf(BaseCheck):
     """Pass when any member check passes.
 
@@ -661,7 +703,8 @@ class AnyOf(BaseCheck):
     400 W/m2 or at least 40 at 600 W/m2". Members are owned by the combinator
     and evaluated against the same dataset and context; each applies its own
     row selection. The ``irr``, ``data``, ``start`` and ``end`` parameters
-    inherited from `BaseCheck` are not used and are never serialized.
+    inherited from `BaseCheck` are not used: they are never serialized and a
+    non-default value raises ``ValueError``.
 
     Parameters
     ----------
@@ -673,7 +716,7 @@ class AnyOf(BaseCheck):
     Raises
     ------
     ValueError
-        If no member is given.
+        If no member is given or an inherited, unused parameter is set.
     TypeError
         If a member is not a `BaseCheck`.
 
@@ -697,6 +740,11 @@ class AnyOf(BaseCheck):
         super()._validate()
         if not self.checks:
             raise ValueError("AnyOf requires at least one member check.")
+        for name in ("irr", "data", "start", "end"):
+            if getattr(self, name) != type(self).param[name].default:
+                raise ValueError(
+                    f"AnyOf does not use {name!r}; set it on the member checks."
+                )
 
     def evaluate(self, capdata, context):
         """Evaluate every member and pass when any member passes.
@@ -763,6 +811,10 @@ class CustomCheck(BaseCheck):
     that module and later calls the callable, so load configs only from
     trusted sources. Lambdas and locally defined functions cannot be
     serialized.
+
+    Keyword arguments named like a `CustomCheck` parameter (``func``,
+    ``data``, ``custom_name``, ...) are consumed by the check and cannot be
+    passed on to ``func``.
 
     Parameters
     ----------
@@ -860,10 +912,11 @@ class CustomCheck(BaseCheck):
         config = {
             "type": "CustomCheck",
             "func": util.callable_to_qualname(self.func),
-            "args": util.to_native(copy.deepcopy(self.args)),
-            "kwargs": util.to_native(copy.deepcopy(self.kwargs)),
-            "custom_name": self.custom_name,
+            "args": _to_native_deep(self.args),
+            "kwargs": _to_native_deep(self.kwargs),
         }
+        if self.custom_name is not None:
+            config["custom_name"] = self.custom_name
         if self.data != type(self).param["data"].default:
             config["data"] = self.data
         return config

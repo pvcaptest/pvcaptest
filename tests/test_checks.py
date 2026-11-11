@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 import pytest
+import yaml
 
 from captest import checks
 
@@ -604,8 +605,8 @@ def returns_frame(frame):
 class TestAnyOf:
     def tiers(self):
         return checks.AnyOf(
-            checks.IntervalCount(threshold=400, min_count=60),
-            checks.IntervalCount(threshold=600, min_count=40),
+            checks.IntervalCount(400, 60),
+            checks.IntervalCount(600, 40),
             custom_name="insolation tiers",
         )
 
@@ -726,6 +727,7 @@ class TestCustomCheck:
             "kwargs": {"minimum": 5},
             "custom_name": "rows",
         }
+        assert "custom_name" not in checks.CustomCheck(enough_rows).to_config()
         rebuilt = checks.check_from_config(config)
         assert rebuilt.to_config() == config
         assert rebuilt.evaluate(cd, ctx(cd)).passed
@@ -749,3 +751,116 @@ class TestCustomCheck:
         )
         assert chk.evaluate(cd, ctx(cd)).passed
         assert checks.check_from_config(chk.to_config()).evaluate(cd, ctx(cd)).passed
+
+    def test_numpy_scalars_in_args_encode_for_yaml(self):
+        chk = checks.CustomCheck(
+            enough_rows,
+            np.int64(3),
+            [np.float64(1.5), (np.int64(2),)],
+            opts={"x": np.float64(2.5)},
+        )
+        config = chk.to_config()
+        text = yaml.safe_dump(config)
+        loaded = checks.check_from_config(yaml.safe_load(text))
+        assert loaded.args == [3, [1.5, [2]]]
+        assert loaded.kwargs == {"opts": {"x": 2.5}}
+        assert type(config["args"][0]) is int
+
+    def test_non_default_data_emitted_and_restored(self):
+        chk = checks.CustomCheck(enough_rows, data="pr_rows")
+        config = chk.to_config()
+        assert config["data"] == "pr_rows"
+        assert checks.check_from_config(config).data == "pr_rows"
+
+    def test_from_config_without_args_or_kwargs(self):
+        func = f"{enough_rows.__module__}:enough_rows"
+        chk = checks.check_from_config({"type": "CustomCheck", "func": func})
+        assert chk.args == [] and chk.kwargs == {}
+
+
+class TestAnyOfUnusedParams:
+    @pytest.mark.parametrize(
+        "kw",
+        [
+            {"irr": "poa"},
+            {"data": "filtered"},
+            {"start": "2025-06-01", "end": "2025-06-02"},
+        ],
+    )
+    def test_inherited_params_rejected(self, kw):
+        member = checks.Duration(1, 1)
+        chk = checks.AnyOf(member)
+        with pytest.raises(ValueError, match="does not use"):
+            chk.param.update(**kw)
+            chk.evaluate(FakeCapData(make_data(), dict(ROLES)), checks.CheckContext(1))
+
+
+class TestPositionalConstructors:
+    def test_each_positional_form_matches_keywords(self):
+        cases = [
+            (checks.IntervalCount(400, 60), {"threshold": 400, "min_count": 60}),
+            (checks.Duration(400, 30), {"threshold": 400, "min_hours": 30}),
+            (
+                checks.ContinuousHoursDays(600, 3, 4),
+                {"threshold": 600, "hours": 3, "min_days": 4},
+            ),
+            (
+                checks.DailyInsolationDays(3000, 5),
+                {"threshold_wh_m2": 3000, "min_days": 5},
+            ),
+        ]
+        for positional, keywords in cases:
+            same = type(positional)(**keywords)
+            assert positional.to_config() == same.to_config()
+            rebuilt = checks.check_from_config(positional.to_config())
+            assert rebuilt.to_config() == positional.to_config()
+
+    def test_positional_with_keyword_extras(self):
+        chk = checks.IntervalCount(400, 60, custom_name="tier", data="filtered")
+        assert chk.label == "tier" and chk.data == "filtered"
+
+    def test_missing_required_still_raises(self):
+        with pytest.raises(ValueError):
+            checks.IntervalCount(400)
+
+
+class TestInsolationTolerance:
+    def irregular(self, n):
+        index = pd.date_range("2025-06-01 10:00", periods=n, freq="1min")
+        return pd.DataFrame({"front_col": 700.0, "poa_col": 700.0}, index=index)
+
+    def run(self, chk, n):
+        data = self.irregular(n)
+        cd = FakeCapData(data, dict(ROLES))
+        return chk.evaluate(cd, checks.CheckContext(dt_hours=0.7, pr_rows=data.index))
+
+    def test_daily_insolation_equal_to_threshold_through_float_product(self):
+        raw = checks.daily_insolation(self.irregular(3)["front_col"], 0.7).iloc[0]
+        assert raw < 1470.0
+        res = self.run(checks.DailyInsolationDays(1470, 1), 3)
+        assert res.passed
+
+    def test_just_below_threshold_still_fails(self):
+        assert not self.run(checks.DailyInsolationDays(1470.001, 1), 3).passed
+
+    def test_nrel_insolation_equal_to_threshold_through_float_product(self):
+        chk = checks.NrelMinimumIrradiance(
+            insolation_wh_m2=1470,
+            min_insolation_days=1,
+            min_irr_days=1,
+            irr_threshold=600,
+            hours=0,
+        )
+        res = self.run(chk, 3)
+        assert res.passed and res.detail["insolation_ok"].all()
+
+    def test_nrel_exact_length_run_on_inexact_dt(self):
+        index = pd.date_range("2025-06-01 08:00", periods=3, freq="18min")
+        data = pd.DataFrame({"front_col": 700.0, "poa_col": 700.0}, index=index)
+        cd = FakeCapData(data, dict(ROLES))
+        chk = checks.NrelMinimumIrradiance(
+            insolation_wh_m2=0, hours=0.9, min_insolation_days=1, min_irr_days=1
+        )
+        res = chk.evaluate(cd, checks.CheckContext(dt_hours=0.3, pr_rows=data.index))
+        assert bool(res.detail["irradiance_ok"].iloc[0])
+        assert res.passed
