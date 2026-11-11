@@ -2879,6 +2879,19 @@ class CapData(param.Parameterized):
         -------
         list of dict
             Each entry is a check's yaml-safe ``to_config()``.
+
+        Raises
+        ------
+        ValueError
+            If a check cannot be serialized (for example a lambda custom check
+            or a parameter edited into an invalid state).
+
+        Notes
+        -----
+        ``CapTest.to_yaml`` / ``from_yaml`` do not yet carry CapData checks;
+        serialization of ``meas`` / ``sim`` checks arrives with CapTest PR-test
+        support. Until then, save and restore them with this method and
+        :meth:`set_checks`.
         """
         return [check.to_config() for check in self.checks]
 
@@ -2892,6 +2905,12 @@ class CapData(param.Parameterized):
         ----------
         config : list of dict
             Check configs as returned by :meth:`checks_to_config`.
+
+        Notes
+        -----
+        ``CapTest.from_yaml`` does not yet restore CapData checks; call this
+        method on ``tst.meas`` / ``tst.sim`` yourself until CapTest PR-test
+        support carries them.
         """
         self.checks = [checks_module.check_from_config(entry) for entry in config]
 
@@ -2901,8 +2920,8 @@ class CapData(param.Parameterized):
         Parameters
         ----------
         dt_hours : float, optional
-            Timestep in hours. Defaults to the dominant timestep of the
-            **unfiltered** ``data`` index.
+            Timestep in hours, finite and positive. Defaults to the dominant
+            timestep of the **unfiltered** ``data`` index.
         pr_rows : pd.Index, optional
             Rows kept by the PR calculation. When ``None``, checks that use
             ``pr_rows`` fall back to ``data_filtered``.
@@ -2914,22 +2933,36 @@ class CapData(param.Parameterized):
         -------
         dict of str to captest.checks.CheckResult
             Keyed by check label; repeated labels get `` (2)``, `` (3)``, ...
-            suffixes in registration order.
+            suffixes in registration order, skipping keys already used (also
+            by an explicit ``custom_name``). Each result's ``name`` is its
+            key. Empty when no checks are registered.
+
+        Raises
+        ------
+        ValueError
+            If ``dt_hours`` is not finite and positive.
         """
         from captest import prtest
 
+        if not self.checks:
+            return {}
         if dt_hours is None:
             dt_hours = prtest.dt_hours(self.data.index)
+        if not (np.isfinite(dt_hours) and dt_hours > 0):
+            raise ValueError(f"dt_hours must be finite and positive, got {dt_hours!r}.")
         context = checks_module.CheckContext(
             dt_hours=dt_hours, pr_rows=pr_rows, period=period
         )
         results = {}
-        seen = {}
         for check in self.checks:
             label = check.label
-            seen[label] = seen.get(label, 0) + 1
-            key = label if seen[label] == 1 else f"{label} ({seen[label]})"
-            results[key] = check.evaluate(self, context)
+            key, n = label, 1
+            while key in results:
+                n += 1
+                key = f"{label} ({n})"
+            result = check.evaluate(self, context)
+            result.name = key
+            results[key] = result
         return results
 
     def prep_convert_units(

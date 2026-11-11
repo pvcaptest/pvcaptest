@@ -4690,6 +4690,31 @@ class TestChecks:
         )
         assert len(full.detail) == 3
         assert len(one_day.detail) == 1
+        cd.filter_time(start="2025-06-02", end="2025-06-02 23:59")
+        filtered_span = next(iter(cd.evaluate_checks().values()))
+        assert list(filtered_span.detail.index) == [pd.Timestamp("2025-06-02")]
+
+    def test_result_key_collisions_keep_every_result(self, cd):
+        cd.check_interval_count(400, 1)
+        cd.check_interval_count(400, 1000, custom_name="IntervalCount (2)")
+        cd.check_interval_count(400, 1)
+        results = cd.evaluate_checks()
+        assert list(results) == [
+            "IntervalCount",
+            "IntervalCount (2)",
+            "IntervalCount (3)",
+        ]
+        assert [r.passed for r in results.values()] == [True, False, True]
+        assert all(key == r.name for key, r in results.items())
+
+    def test_no_checks_returns_empty_even_without_data(self):
+        assert pvc.CapData("empty").evaluate_checks() == {}
+
+    @pytest.mark.parametrize("bad", [0, -1.0, float("nan"), float("inf")])
+    def test_dt_hours_must_be_finite_positive(self, cd, bad):
+        cd.check_duration(400, 1)
+        with pytest.raises(ValueError, match="dt_hours"):
+            cd.evaluate_checks(dt_hours=bad)
 
     def test_config_round_trip(self, cd):
         cd.check_interval_count(400, 60)

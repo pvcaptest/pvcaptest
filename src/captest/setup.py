@@ -401,15 +401,38 @@ class _SetupDocument(_Frozen):
         Always validates through the model; yaml is read with ``safe_load``
         (json is valid yaml). Files are read as UTF-8 regardless of the
         platform's locale. Use :meth:`loads` for document text.
+
+        Raises
+        ------
+        ValueError
+            If the document has a ``kind`` key but this class has no ``kind``
+            field; use :func:`load_setup`, which dispatches on ``kind``.
         """
         if isinstance(source, dict):
-            return cls.model_validate(source)
+            return cls._validate_document(source)
         return cls.loads(Path(source).read_text(encoding="utf-8"))
 
     @classmethod
     def loads(cls, text):
-        """Build a setup document from yaml or json document text."""
-        return cls.model_validate(yaml.safe_load(text))
+        """Build a setup document from yaml or json document text.
+
+        Raises
+        ------
+        ValueError
+            If the document has a ``kind`` key but this class has no ``kind``
+            field; use :func:`loads_setup`, which dispatches on ``kind``.
+        """
+        return cls._validate_document(yaml.safe_load(text))
+
+    @classmethod
+    def _validate_document(cls, data):
+        if isinstance(data, dict) and "kind" in data and "kind" not in cls.model_fields:
+            raise ValueError(
+                f"{cls.__name__} documents carry no 'kind' key (got "
+                f"kind={data['kind']!r}); use captest.setup.load_setup / "
+                "loads_setup, which choose the document class from 'kind'."
+            )
+        return cls.model_validate(data)
 
     def to_yaml(self, path):
         """Write ``to_dict()`` as UTF-8 yaml."""

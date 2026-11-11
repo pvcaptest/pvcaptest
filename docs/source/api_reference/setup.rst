@@ -33,7 +33,9 @@ Documents
 A document with ``kind: pr`` is a performance-ratio setup
 (:py:class:`~captest.setup.PrSetup`); a document without ``kind`` is a regression
 setup. :py:func:`~captest.setup.validate_setup` and
-:py:func:`~captest.setup.load_setup` dispatch on ``kind``. A
+:py:func:`~captest.setup.loads_setup` and
+:py:func:`~captest.setup.load_setup` dispatch on ``kind``; ``TestSetup.load``
+and ``loads`` reject a document with a ``kind`` key and point to them. A
 :py:class:`~captest.CapTest` raises ``NotImplementedError`` for a PR setup until
 PR support lands.
 
@@ -41,6 +43,7 @@ PR support lands.
    :toctree: generated/
 
    setup.validate_setup
+   setup.loads_setup
    setup.load_setup
 
 Nodes

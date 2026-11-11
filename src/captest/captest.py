@@ -536,7 +536,8 @@ def _refuse_pr_setup(resolved):
 
     Parameters
     ----------
-    resolved : captest.setup.TestSetup or captest.setup.PrSetup
+    resolved : captest.setup.TestSetup, captest.setup.PrSetup or None
+        A resolved setup or a preset looked up by name (``None`` when unknown).
 
     Raises
     ------
@@ -3258,7 +3259,7 @@ class CapTest(param.Parameterized):
             If the resolved setup is a PR setup. Temporary: lifted once
             CapTest runs PR setups.
         """
-        _refuse_pr_setup(resolve_test_setup(self.test_setup, self._collect_overrides()))
+        _refuse_pr_setup(TEST_SETUPS.get(self.test_setup))
         self._require_meas_and_sim()
         if self.meas.regression_formula != self.sim.regression_formula:
             warnings.warn("CapData objects do not have the same regression formula.")

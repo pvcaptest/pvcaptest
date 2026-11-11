@@ -15,9 +15,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `check_any_of` and `check_custom` wrappers, which register a check without
   evaluating it; `CapData.evaluate_checks(dt_hours=, pr_rows=, period=)` returns
   results keyed by check label; `checks_to_config` / `set_checks` round-trip the
-  list. `copy()` carries the checks and `reset_filter()` leaves them alone.
+  list. `CapTest.to_yaml` / `from_yaml` do not yet carry CapData checks; that
+  arrives with CapTest PR-test support. `copy()` carries the checks and
+  `reset_filter()` leaves them alone.
 - `setup.PrSetup`: a performance-ratio setup document (`kind: pr`), with
-  `setup.validate_setup` / `setup.load_setup` dispatching on `kind` and
+  `setup.validate_setup` / `setup.loads_setup` / `setup.load_setup` dispatching on `kind` and
   `setup.derive_pr` for key-by-key overrides. A document without `kind` is still
   a regression setup with unchanged digests.
 - `captest.regression_setups()` and `captest.pr_setups()` list the registered

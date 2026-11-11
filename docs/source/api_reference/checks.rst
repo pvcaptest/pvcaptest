@@ -9,7 +9,12 @@ check reports a :py:class:`~captest.checks.CheckResult`; it never removes rows.
 The ``CapData.check_*`` methods are thin wrappers that build the matching check
 and register it on ``CapData.checks`` without evaluating it.
 :py:meth:`~captest.capdata.CapData.evaluate_checks` evaluates everything
-registered. Checks may also be built and evaluated directly:
+registered. ``CapTest.to_yaml`` and ``from_yaml`` do not yet carry the checks registered on
+``CapTest.meas`` and ``CapTest.sim``; that arrives with CapTest PR-test support.
+Until then, save and restore them with
+:py:meth:`~captest.capdata.CapData.checks_to_config` and
+:py:meth:`~captest.capdata.CapData.set_checks`. Checks may also be built and
+evaluated directly:
 
 .. code-block:: Python
 

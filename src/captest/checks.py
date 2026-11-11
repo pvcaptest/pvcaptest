@@ -91,7 +91,8 @@ def resolve_irradiance(capdata, irr):
     Raises
     ------
     ValueError
-        If ``irr`` is neither a role nor a column.
+        If ``irr`` is neither a role nor a column, or the role still maps to an
+        unevaluated node (regression columns not yet processed).
     """
     roles = capdata.regression_cols or {}
     role = (
@@ -103,6 +104,12 @@ def resolve_irradiance(capdata, irr):
     )
     if role is not None:
         column = roles[role]
+        if not isinstance(column, str):
+            raise ValueError(
+                f"Irradiance role {role!r} still maps to an unevaluated node "
+                f"({column!r}); call process_regression_columns() (or the "
+                "CapTest setup()) before evaluating checks."
+            )
         if column not in capdata.data.columns:
             raise ValueError(
                 f"Irradiance role {role!r} maps to column {column!r}, which is "
@@ -118,13 +125,24 @@ def resolve_irradiance(capdata, irr):
 
 
 def _to_timestamp(value, index):
-    """Convert ``value`` to a Timestamp in the timezone of ``index``."""
+    """Convert ``value`` to a Timestamp in the timezone of ``index``.
+
+    A naive value on a tz-aware index is localized to the index timezone; an
+    aware value on a tz-aware index is converted to it, so the calendar days
+    are those of the index. An aware value on a naive index is ambiguous and
+    raises ``ValueError``.
+    """
     stamp = pd.Timestamp(value)
     tz = getattr(index, "tz", None)
-    if tz is not None and stamp.tzinfo is None:
-        return stamp.tz_localize(tz)
-    if tz is None and stamp.tzinfo is not None:
-        return stamp.tz_localize(None)
+    if tz is not None:
+        if stamp.tzinfo is None:
+            return stamp.tz_localize(tz)
+        return stamp.tz_convert(tz)
+    if stamp.tzinfo is not None:
+        raise ValueError(
+            f"Period bound {value!r} is timezone-aware but the data index is "
+            "naive; give the period as naive timestamps."
+        )
     return stamp
 
 
@@ -278,6 +296,18 @@ def _check_non_negative(name, value):
         raise ValueError(f"{name} must be non-negative, got {value!r}.")
 
 
+def _check_config_keys(type_name, config, allowed):
+    """Raise ``ValueError`` for keys of ``config`` outside ``allowed``."""
+    unknown = sorted(set(config) - set(allowed) - {"type"})
+    if not unknown:
+        return
+    hints = []
+    for key in unknown:
+        close = difflib.get_close_matches(key, allowed, n=1)
+        hints.append(f"{key!r} (did you mean {close[0]!r}?)" if close else repr(key))
+    raise ValueError(f"Unknown key(s) in {type_name} config: {', '.join(hints)}.")
+
+
 class BaseCheck(util.StrictAttrs, param.Parameterized):
     """Common ancestor of validity checks.
 
@@ -293,7 +323,10 @@ class BaseCheck(util.StrictAttrs, param.Parameterized):
     data : {"pr_rows", "filtered", "unfiltered_period"}
         Which rows the check evaluates; subclasses may override the default.
     start, end : str or None, default None
-        Explicit period read only by ``data="unfiltered_period"``.
+        Explicit first and last day of the period, parseable by
+        ``pd.Timestamp`` with ``start`` not after ``end``. Set together, and
+        only with ``data="unfiltered_period"``, the only mode that reads a
+        period; any other mode raises ``ValueError``.
     """
 
     custom_name = param.String(default=None, allow_None=True)
@@ -311,6 +344,23 @@ class BaseCheck(util.StrictAttrs, param.Parameterized):
         """Validate parameters; subclasses extend this via ``super()``."""
         if (self.start is None) != (self.end is None):
             raise ValueError("start and end must be set together or not at all.")
+        if self.start is None:
+            return
+        if self.data != "unfiltered_period":
+            raise ValueError(
+                f"start and end are only used with data='unfiltered_period', "
+                f"not data={self.data!r}."
+            )
+        try:
+            first, last = pd.Timestamp(self.start), pd.Timestamp(self.end)
+            ordered = first <= last
+        except (ValueError, TypeError) as exc:
+            raise ValueError(
+                f"start {self.start!r} and end {self.end!r} must be comparable "
+                f"timestamps: {exc}"
+            ) from exc
+        if not ordered:
+            raise ValueError(f"start {self.start!r} is after end {self.end!r}.")
 
     def __init__(self, **params):
         super().__init__(**params)
@@ -374,6 +424,7 @@ class BaseCheck(util.StrictAttrs, param.Parameterized):
         ``start``, ``end`` and ``custom_name`` appear only when they differ
         from the class default.
         """
+        self._validate()
         base = set(BaseCheck.param) | {"name"}
         config = {"type": type(self).__name__}
         values = util.params_to_config(self)
@@ -450,6 +501,12 @@ class Duration(BaseCheck):
         Irradiance threshold; an interval qualifies at or above it.
     min_hours : float
         Minimum total qualifying hours.
+
+    Notes
+    -----
+    ``threshold`` and ``min_hours`` may be given positionally:
+    ``Duration(400, 30)``. The comparison is at or above, tolerant of float
+    error in the hours.
     """
 
     threshold = param.Number(default=None, allow_None=True)
@@ -477,7 +534,7 @@ class Duration(BaseCheck):
         )
         return CheckResult(
             name=self.label,
-            passed=hours >= self.min_hours,
+            passed=bool(run_meets_hours(hours, self.min_hours)),
             detail=detail,
             summary=(
                 f"{hours:g} h at or above {self.threshold:g} W/m² "
@@ -508,8 +565,9 @@ class ContinuousHoursDays(BaseCheck):
 
     Notes
     -----
-    The detail has one row per day with ``longest_run_hours`` and
-    ``qualifies``.
+    ``threshold``, ``hours`` and ``min_days`` may be given positionally:
+    ``ContinuousHoursDays(600, 3, 4)``. The detail has one row per day with
+    ``longest_run_hours`` and ``qualifies``.
     """
 
     data = param.Selector(default="unfiltered_period")
@@ -564,8 +622,9 @@ class DailyInsolationDays(BaseCheck):
 
     Notes
     -----
-    The detail has one row per day with ``insolation_wh_m2`` and
-    ``qualifies``.
+    ``threshold_wh_m2`` and ``min_days`` may be given positionally:
+    ``DailyInsolationDays(3000, 5)``. The detail has one row per day with
+    ``insolation_wh_m2`` and ``qualifies``.
     """
 
     data = param.Selector(default="unfiltered_period")
@@ -631,9 +690,11 @@ class NrelMinimumIrradiance(BaseCheck):
 
     Notes
     -----
-    The detail has one row per day with ``insolation_wh_m2``,
-    ``longest_run_hours``, ``insolation_ok`` and ``irradiance_ok``;
-    ``irradiance_ok`` is only true on days with ``insolation_ok``.
+    All parameters are keyword-only by design (several share a type and have
+    defaults, so a positional form would be easy to misread). The detail has
+    one row per day with ``insolation_wh_m2``, ``longest_run_hours``,
+    ``insolation_ok`` and ``irradiance_ok``; ``irradiance_ok`` is only true on
+    days with ``insolation_ok``.
     """
 
     data = param.Selector(default="unfiltered_period")
@@ -728,23 +789,23 @@ class AnyOf(BaseCheck):
 
     checks = param.List(default=[], item_type=BaseCheck)
 
-    def __init__(self, *checks, custom_name=None):
+    def __init__(self, *checks, custom_name=None, **params):
         for member in checks:
             if not isinstance(member, BaseCheck):
                 raise TypeError(
                     f"AnyOf members must be BaseCheck instances, got {member!r}."
                 )
-        super().__init__(checks=list(checks), custom_name=custom_name)
+        super().__init__(checks=list(checks), custom_name=custom_name, **params)
 
     def _validate(self):
-        super()._validate()
-        if not self.checks:
-            raise ValueError("AnyOf requires at least one member check.")
         for name in ("irr", "data", "start", "end"):
             if getattr(self, name) != type(self).param[name].default:
                 raise ValueError(
                     f"AnyOf does not use {name!r}; set it on the member checks."
                 )
+        super()._validate()
+        if not self.checks:
+            raise ValueError("AnyOf requires at least one member check.")
 
     def evaluate(self, capdata, context):
         """Evaluate every member and pass when any member passes.
@@ -780,6 +841,7 @@ class AnyOf(BaseCheck):
 
     def to_config(self):
         """Serialize to ``{"type", "checks"}`` plus ``custom_name`` when set."""
+        self._validate()
         config = {
             "type": "AnyOf",
             "checks": [member.to_config() for member in self.checks],
@@ -790,7 +852,16 @@ class AnyOf(BaseCheck):
 
     @classmethod
     def from_config(cls, config):
-        """Build an instance, rebuilding members with `check_from_config`."""
+        """Build an instance, rebuilding members with `check_from_config`.
+
+        Raises
+        ------
+        ValueError
+            If ``checks`` is missing or the config has unknown keys.
+        """
+        _check_config_keys("AnyOf", config, {"checks", "custom_name"})
+        if "checks" not in config:
+            raise ValueError("AnyOf config is missing the 'checks' key.")
         members = [check_from_config(member) for member in config["checks"]]
         return cls(*members, custom_name=config.get("custom_name"))
 
@@ -812,9 +883,11 @@ class CustomCheck(BaseCheck):
     trusted sources. Lambdas and locally defined functions cannot be
     serialized.
 
-    Keyword arguments named like a `CustomCheck` parameter (``func``,
-    ``data``, ``custom_name``, ...) are consumed by the check and cannot be
-    passed on to ``func``.
+    The keyword names ``func``, ``data``, ``custom_name``, ``start`` and
+    ``end`` are reserved: the check consumes them and they cannot be passed on
+    to ``func``. Every other keyword, including ``irr``, is passed to ``func``
+    (the check itself never reads ``irr``). Tuples in ``args`` and ``kwargs``
+    serialize as lists.
 
     Parameters
     ----------
@@ -827,6 +900,8 @@ class CustomCheck(BaseCheck):
         Display label; ``"CustomCheck"`` when ``None``.
     data : {"pr_rows", "filtered", "unfiltered_period"}, default "filtered"
         Which rows ``func`` receives.
+    start, end : str or None, default None
+        Explicit period for ``data="unfiltered_period"``; see `BaseCheck`.
     **kwargs
         Extra keyword arguments for ``func``; must be yaml-native to
         serialize.
@@ -837,13 +912,24 @@ class CustomCheck(BaseCheck):
     kwargs = param.Dict(default={})
     data = param.Selector(default="filtered", objects=DATA_MODES)
 
-    def __init__(self, func, *args, custom_name=None, data="filtered", **kwargs):
+    def __init__(
+        self,
+        func,
+        *args,
+        custom_name=None,
+        data="filtered",
+        start=None,
+        end=None,
+        **kwargs,
+    ):
         super().__init__(
             func=func,
             args=list(args),
             kwargs=dict(kwargs),
             custom_name=custom_name,
             data=data,
+            start=start,
+            end=end,
         )
 
     def _validate(self):
@@ -909,6 +995,7 @@ class CustomCheck(BaseCheck):
         ValueError
             If ``func`` is a lambda or locally defined function.
         """
+        self._validate()
         config = {
             "type": "CustomCheck",
             "func": util.callable_to_qualname(self.func),
@@ -919,17 +1006,33 @@ class CustomCheck(BaseCheck):
             config["custom_name"] = self.custom_name
         if self.data != type(self).param["data"].default:
             config["data"] = self.data
+        if self.start is not None:
+            config["start"] = self.start
+            config["end"] = self.end
         return config
 
     @classmethod
     def from_config(cls, config):
-        """Build an instance, importing ``func`` from its qualified name."""
+        """Build an instance, importing ``func`` from its qualified name.
+
+        Raises
+        ------
+        ValueError
+            If the config has unknown keys.
+        """
+        _check_config_keys(
+            "CustomCheck",
+            config,
+            {"func", "args", "kwargs", "custom_name", "data", "start", "end"},
+        )
         func = util.callable_from_qualname(config["func"])
         return cls(
             func,
             *(config.get("args") or []),
             custom_name=config.get("custom_name"),
             data=config.get("data", "filtered"),
+            start=config.get("start"),
+            end=config.get("end"),
             **(config.get("kwargs") or {}),
         )
 

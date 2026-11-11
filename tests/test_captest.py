@@ -148,6 +148,17 @@ class TestPrRegistry:
         with pytest.raises(NotImplementedError, match="not yet run by CapTest"):
             getattr(tst, method)()
 
+    def test_captest_results_guard_does_not_resolve_the_setup(
+        self, pr_tmp, monkeypatch
+    ):
+        def fail(*args, **kwargs):
+            raise AssertionError("resolve_test_setup must not be called")
+
+        monkeypatch.setattr(ct, "resolve_test_setup", fail)
+        tst = CapTest(test_setup="pr_tmp", meas=CapData("m"), sim=CapData("s"))
+        with pytest.raises(NotImplementedError, match="not yet run by CapTest"):
+            tst.captest_results()
+
     def test_params_override_derives_pr_setup(self, pr_tmp):
         got = ct.resolve_test_setup("pr_tmp", {"params": {"rear_shade": 0}})
         assert got.params == {"rear_shade": 0}

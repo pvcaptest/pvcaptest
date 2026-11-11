@@ -789,10 +789,8 @@ class TestAnyOfUnusedParams:
     )
     def test_inherited_params_rejected(self, kw):
         member = checks.Duration(1, 1)
-        chk = checks.AnyOf(member)
         with pytest.raises(ValueError, match="does not use"):
-            chk.param.update(**kw)
-            chk.evaluate(FakeCapData(make_data(), dict(ROLES)), checks.CheckContext(1))
+            checks.AnyOf(member, **kw)
 
 
 class TestPositionalConstructors:
@@ -864,3 +862,125 @@ class TestInsolationTolerance:
         res = chk.evaluate(cd, checks.CheckContext(dt_hours=0.3, pr_rows=data.index))
         assert bool(res.detail["irradiance_ok"].iloc[0])
         assert res.passed
+
+
+class TestFinalReviewFixes:
+    def test_to_config_validates_after_post_construction_edit(self):
+        dur = checks.Duration(400, 5)
+        dur.min_hours = -1
+        with pytest.raises(ValueError, match="min_hours"):
+            dur.to_config()
+        half = checks.Duration(400, 5, data="unfiltered_period")
+        half.start = "2025-06-01"
+        with pytest.raises(ValueError, match="start and end"):
+            half.to_config()
+        any_of = checks.AnyOf(checks.Duration(400, 5))
+        any_of.irr = "poa"
+        with pytest.raises(ValueError, match="does not use"):
+            any_of.to_config()
+        custom = checks.CustomCheck(enough_rows)
+        custom.data = "unfiltered_period"
+        custom.start = "2025-06-01"
+        with pytest.raises(ValueError, match="start and end"):
+            custom.to_config()
+
+    @pytest.mark.parametrize("data", ["pr_rows", "filtered"])
+    def test_period_requires_unfiltered_period_mode(self, data):
+        with pytest.raises(ValueError, match="unfiltered_period"):
+            checks.Duration(400, 5, data=data, start="2025-06-01", end="2025-06-02")
+
+    def test_custom_check_period(self, cd):
+        chk = checks.CustomCheck(
+            len_is, 24, data="unfiltered_period", start="2025-06-01", end="2025-06-01"
+        )
+        assert chk.evaluate(cd, ctx(cd)).passed is False
+        config = chk.to_config()
+        assert config["start"] == "2025-06-01" and config["end"] == "2025-06-01"
+        rebuilt = checks.check_from_config(config)
+        assert (rebuilt.start, rebuilt.end) == ("2025-06-01", "2025-06-01")
+        assert rebuilt.kwargs == {}
+
+    def test_custom_check_start_not_forwarded_to_func(self, cd):
+        chk = checks.CustomCheck(
+            enough_rows, data="unfiltered_period", start="2025-06-01", end="2025-06-01"
+        )
+        assert chk.kwargs == {}
+
+    def test_custom_check_period_needs_mode(self):
+        with pytest.raises(ValueError, match="unfiltered_period"):
+            checks.CustomCheck(enough_rows, start="2025-06-01", end="2025-06-01")
+
+    def test_duration_hours_tolerance(self):
+        index = pd.date_range("2025-06-01", periods=444, freq="30s")
+        data = pd.DataFrame({"poa_col": 500.0, "front_col": 500.0}, index=index)
+        cd = FakeCapData(data, dict(ROLES))
+        dt = 30 / 3600
+        assert 444 * dt < 3.7
+        res = checks.Duration(400, 3.7).evaluate(
+            cd, checks.CheckContext(dt_hours=dt, pr_rows=index)
+        )
+        assert res.passed
+
+    def test_period_in_other_timezone_is_converted(self):
+        index = pd.date_range(
+            "2025-06-01", periods=96 * 3, freq="15min", tz="America/Chicago"
+        )
+        data = pd.DataFrame({"poa_col": 500.0, "front_col": 500.0}, index=index)
+        cd = FakeCapData(data, dict(ROLES))
+        tokyo = "2025-06-02T00:00:00+09:00"  # 2025-06-01 10:00 in Chicago
+        chk = checks.ContinuousHoursDays(400, 1, 1, start=tokyo, end=tokyo)
+        sel = checks.select_rows(cd, chk, checks.CheckContext(0.25))
+        assert len(sel) == 96
+        assert sel.index.min() == pd.Timestamp("2025-06-01", tz="America/Chicago")
+
+    def test_aware_period_on_naive_index_raises(self, cd):
+        chk = checks.ContinuousHoursDays(
+            400,
+            1,
+            1,
+            start="2025-06-01T00:00:00+00:00",
+            end="2025-06-01T00:00:00+00:00",
+        )
+        with pytest.raises(ValueError, match="naive"):
+            checks.select_rows(cd, chk, checks.CheckContext(0.25))
+
+    def test_unprocessed_regression_cols_raise_value_error(self, cd):
+        cd.regression_cols = {"poa": {"group": "irr_poa", "agg": "mean"}}
+        with pytest.raises(ValueError, match="process_regression_columns"):
+            checks.IntervalCount(400, 1).evaluate(cd, ctx(cd))
+
+    def test_bad_period_strings_and_order(self):
+        with pytest.raises(ValueError, match="comparable timestamps"):
+            checks.Duration(
+                1, 1, data="unfiltered_period", start="not a date", end="2025-06-01"
+            )
+        with pytest.raises(ValueError, match="after end"):
+            checks.Duration(
+                1, 1, data="unfiltered_period", start="2025-06-02", end="2025-06-01"
+            )
+        with pytest.raises(ValueError, match="comparable timestamps"):
+            checks.Duration(
+                1,
+                1,
+                data="unfiltered_period",
+                start="2025-06-01T00:00:00+00:00",
+                end="2025-06-02",
+            )
+
+    def test_from_config_rejects_unknown_keys(self):
+        with pytest.raises(ValueError, match="did you mean 'checks'"):
+            checks.AnyOf.from_config({"type": "AnyOf", "chekcs": []})
+        with pytest.raises(ValueError, match="'checks'"):
+            checks.AnyOf.from_config({"type": "AnyOf"})
+        with pytest.raises(ValueError, match="did you mean 'kwargs'"):
+            checks.check_from_config(
+                {
+                    "type": "CustomCheck",
+                    "func": "tests.test_checks:enough_rows",
+                    "kwarg": {},
+                }
+            )
+
+
+def len_is(frame, n):
+    return len(frame) == n

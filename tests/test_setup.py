@@ -931,6 +931,18 @@ class TestLoadSetup:
         assert loaded.content_digest() == setup.validate_setup(plain).content_digest()
         assert "kind" in explicit
 
+    @pytest.mark.parametrize("kind", ["pr", "regression"])
+    def test_typed_load_of_a_kind_document_points_to_load_setup(self, kind, tmp_path):
+        doc = dict(e2848_doc(), kind=kind)
+        with pytest.raises(ValueError, match="load_setup"):
+            TestSetup.load(doc)
+        with pytest.raises(ValueError, match="loads_setup"):
+            TestSetup.loads(yaml.safe_dump(doc))
+        path = tmp_path / "doc.yaml"
+        path.write_text(yaml.safe_dump(doc))
+        with pytest.raises(ValueError, match="load_setup"):
+            TestSetup.load(path)
+
     def test_non_mapping_rejected(self):
         with pytest.raises(TypeError):
             setup.validate_setup(["not", "a", "dict"])
