@@ -1016,3 +1016,31 @@ class TestDerivePr:
     def test_regression_derive_is_untouched(self):
         base = TestSetup.model_validate(e2848_doc())
         assert setup.derive(base).derived_from == base.name
+
+    def test_regression_base_is_rejected(self):
+        base = TestSetup.model_validate(e2848_doc())
+        with pytest.raises(TypeError, match="derive"):
+            setup.derive_pr(base)
+
+    def test_removing_absent_role_raises(self):
+        with pytest.raises(setup.DerivationError, match="cannot remove"):
+            setup.derive_pr(self._base(), reg_cols_meas={"availability": None})
+
+    def test_params_replaced_wholesale(self):
+        base = setup.derive_pr(self._base(), params={"bifaciality": 0.7})
+        derived = setup.derive_pr(base, params={"base_temp": 25})
+        assert derived.params == {"base_temp": 25}
+
+    def test_temp_corrected_false_overrides_corrected_base(self):
+        base = setup.derive_pr(self._base(), temp_corrected=True)
+        assert setup.derive_pr(base, temp_corrected=False).temp_corrected is False
+
+
+class TestCrossKindDigest:
+    def test_pr_and_regression_never_share_semantic_digest(self):
+        pr = setup.PrSetup.model_validate(pr_doc())
+        reg = TestSetup.model_validate(e2848_doc())
+        assert pr.semantic_digest() != reg.semantic_digest()
+
+    def test_kind_is_part_of_pr_semantic_payload(self):
+        assert "kind" in setup.PrSetup._semantic_fields

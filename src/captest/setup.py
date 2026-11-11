@@ -354,6 +354,14 @@ class _SetupDocument(_Frozen):
 
     _semantic_fields: ClassVar[tuple[str, ...]]
 
+    @field_validator("params", mode="after", check_fields=False)
+    @classmethod
+    def _params_are_downstream(cls, params):
+        bad = sorted(set(params) - set(DOWNSTREAM_PARAMS))
+        if bad:
+            raise ValueError(f"params keys {bad} are not CapTest downstream params")
+        return params
+
     def to_dict(self):
         """The normalised document: every field, defaults materialised."""
         return self.model_dump(mode="json")
@@ -487,14 +495,6 @@ class TestSetup(_SetupDocument):
             raise ValueError(f"reg_cols is missing formula variable(s) {missing}")
         return side
 
-    @field_validator("params", mode="after")
-    @classmethod
-    def _params_are_downstream(cls, params):
-        bad = sorted(set(params) - set(DOWNSTREAM_PARAMS))
-        if bad:
-            raise ValueError(f"params keys {bad} are not CapTest downstream params")
-        return params
-
     @field_validator("rep_conditions", mode="after")
     @classmethod
     def _func_keys_are_rhs(cls, rc, info):
@@ -614,14 +614,6 @@ class PrSetup(_SetupDocument):
                 "reference always uses A = 1"
             )
         return side
-
-    @field_validator("params", mode="after")
-    @classmethod
-    def _params_are_downstream(cls, params):
-        bad = sorted(set(params) - set(DOWNSTREAM_PARAMS))
-        if bad:
-            raise ValueError(f"params keys {bad} are not CapTest downstream params")
-        return params
 
     @model_validator(mode="after")
     def _corrected_needs_cell_temp(self):
@@ -847,6 +839,10 @@ def derive(
 
 
 def _check_pr_override_roles(side_name, override):
+    """Reject non-PR override keys; run before ``merge_reg_cols``.
+
+    ``merge_reg_cols`` words its unknown-key error for a regression formula.
+    """
     for role in override or {}:
         if role not in PR_ROLES:
             hint = difflib.get_close_matches(role, PR_ROLES, n=1)
@@ -889,6 +885,8 @@ def derive_pr(
 
     Raises
     ------
+    TypeError
+        If ``base`` is not a ``PrSetup``.
     DerivationError
         For an override key that is not one of ``PR_ROLES``, or ``None`` on
         a role the base lacks.
@@ -896,6 +894,11 @@ def derive_pr(
         If the result is not a valid PR setup (e.g. removing ``poa``, or
         removing ``cell_temp`` while ``temp_corrected`` is true).
     """
+    if not isinstance(base, PrSetup):
+        raise TypeError(
+            f"derive_pr needs a PrSetup base, got {type(base).__name__}; use "
+            f"derive for regression setups"
+        )
     _check_pr_override_roles("meas", reg_cols_meas)
     _check_pr_override_roles("sim", reg_cols_sim)
     data = base.to_dict()
