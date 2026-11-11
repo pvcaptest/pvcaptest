@@ -140,20 +140,24 @@ class TestPrRegistry:
         ct.test_setups()
         assert "e2848_default [regression]" in capsys.readouterr().out
 
-    def test_captest_setup_is_guarded(self, pr_tmp):
+    @pytest.mark.parametrize(
+        "method", ["setup", "check_fit", "to_mapping", "captest_results"]
+    )
+    def test_captest_is_guarded(self, pr_tmp, method):
         tst = CapTest(test_setup="pr_tmp", meas=CapData("m"), sim=CapData("s"))
         with pytest.raises(NotImplementedError, match="not yet run by CapTest"):
-            tst.setup()
+            getattr(tst, method)()
 
-    def test_captest_check_fit_is_guarded(self, pr_tmp):
-        tst = CapTest(test_setup="pr_tmp", meas=CapData("m"), sim=CapData("s"))
-        with pytest.raises(NotImplementedError, match="not yet run by CapTest"):
-            tst.check_fit()
+    def test_params_override_derives_pr_setup(self, pr_tmp):
+        got = ct.resolve_test_setup("pr_tmp", {"params": {"rear_shade": 0}})
+        assert got.params == {"rear_shade": 0}
+        assert got.derived_from == "pr_tmp"
 
-    def test_to_mapping_is_guarded(self, pr_tmp):
-        tst = CapTest(test_setup="pr_tmp")
-        with pytest.raises(NotImplementedError, match="not yet run by CapTest"):
-            tst.to_mapping()
+    def test_test_setups_descriptions_with_pr_entry(self, pr_tmp, capsys):
+        ct.test_setups(descriptions=True)
+        out = capsys.readouterr().out
+        assert "pr_tmp [pr]" in out
+        assert "temporary PR setup" in out
 
 
 class TestTestSetupsRegistry:

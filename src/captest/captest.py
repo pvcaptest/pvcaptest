@@ -417,8 +417,7 @@ def resolve_test_setup(name, overrides=None):
         Unknown override key, unknown ``scatter_plots`` name, missing
         ``custom`` requirements, a ``reg_fml`` / ``rep_conditions`` /
         ``scatter_plots`` override on a PR setup, or a ``reg_cols`` override
-        that cannot be
-        applied (see :class:`captest.setup.DerivationError`).
+        that cannot be applied (see :class:`captest.setup.DerivationError`).
     """
     overrides = dict(overrides or {})
     allowed = set(_RESOLVE_KEYS) | ({"description"} if name == "custom" else set())
@@ -473,9 +472,23 @@ def resolve_test_setup(name, overrides=None):
         raise ValueError(str(exc)) from exc
     # Overrides that change nothing keep the preset's identity: to_yaml writes
     # only the difference, so a reload must resolve to the same setup.
-    if derived.model_copy(update={"derived_from": base.derived_from}) == base:
+    if _changes_nothing(derived, base):
         return base
     return derived
+
+
+def _changes_nothing(derived, base):
+    """Whether ``derived`` equals ``base`` apart from ``derived_from``.
+
+    Parameters
+    ----------
+    derived, base : captest.setup.TestSetup or captest.setup.PrSetup
+
+    Returns
+    -------
+    bool
+    """
+    return derived.model_copy(update={"derived_from": base.derived_from}) == base
 
 
 def _resolve_pr_setup(base, overrides):
@@ -513,7 +526,7 @@ def _resolve_pr_setup(base, overrides):
         )
     except DerivationError as exc:
         raise ValueError(str(exc)) from exc
-    if derived.model_copy(update={"derived_from": base.derived_from}) == base:
+    if _changes_nothing(derived, base):
         return base
     return derived
 
@@ -3238,7 +3251,14 @@ class CapTest(param.Parameterized):
         CapTestResults or None
             Structured results object. Returns ``None`` (after a
             ``UserWarning``) when the two regression formulas differ.
+
+        Raises
+        ------
+        NotImplementedError
+            If the resolved setup is a PR setup. Temporary: lifted once
+            CapTest runs PR setups.
         """
+        _refuse_pr_setup(resolve_test_setup(self.test_setup, self._collect_overrides()))
         self._require_meas_and_sim()
         if self.meas.regression_formula != self.sim.regression_formula:
             warnings.warn("CapData objects do not have the same regression formula.")
