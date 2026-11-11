@@ -482,3 +482,111 @@ class TestNrelMinimumIrradiance:
             checks.NrelMinimumIrradiance(min_irr_days=-1)
         with pytest.raises(ValueError):
             checks.NrelMinimumIrradiance(hours=float("nan"))
+
+
+class TestDayCheckEdges:
+    def make(self, **kw):
+        return checks.ContinuousHoursDays(threshold=600, hours=3, min_days=1, **kw)
+
+    def test_inexact_float_product_run_qualifies(self):
+        # 3 rows * 0.3 h == 0.8999999999999999 < 0.9
+        assert 3 * 0.3 < 0.9
+        index = pd.date_range("2025-06-01", periods=80, freq="18min")
+        data = pd.DataFrame({"front_col": 0.0, "poa_col": 0.0}, index=index)
+        data.iloc[10:13, :] = 700.0
+        cd = FakeCapData(data, dict(ROLES))
+        context = checks.CheckContext(dt_hours=0.3, pr_rows=data.index)
+        chk = checks.ContinuousHoursDays(threshold=600, hours=0.9, min_days=1)
+        res = chk.evaluate(cd, context)
+        assert res.passed
+        assert bool(res.detail["qualifies"].iloc[0])
+
+    @pytest.mark.parametrize("freq, dt", [("10min", 1 / 6), ("1min", 1 / 60)])
+    def test_exact_run_on_other_steps(self, freq, dt):
+        rows = round(3 / dt)
+        index = pd.date_range("2025-06-01", periods=24 * rows, freq=freq)
+        data = pd.DataFrame({"front_col": 0.0, "poa_col": 0.0}, index=index)
+        data.iloc[5 : 5 + rows, :] = 700.0
+        cd = FakeCapData(data, dict(ROLES))
+        context = checks.CheckContext(dt_hours=dt, pr_rows=data.index)
+        assert self.make().evaluate(cd, context).passed
+        data.iloc[5, :] = 0.0
+        assert not self.make().evaluate(cd, context).passed
+
+    def test_unsorted_index_matches_sorted(self):
+        data = day_frame([(40, 52, 700.0)], days=2)
+        shuffled = data.sample(frac=1, random_state=0)
+        for chk in (
+            self.make(),
+            checks.DailyInsolationDays(threshold_wh_m2=1000, min_days=1),
+            checks.NrelMinimumIrradiance(),
+        ):
+            expected = run_check(chk, data)
+            actual = run_check(chk, shuffled)
+            assert actual.passed == expected.passed
+            pd.testing.assert_frame_equal(actual.detail, expected.detail)
+
+    def test_filtered_mode_sees_filtered_rows(self):
+        data = day_frame([(40, 52, 700.0)])
+        filtered = data.drop(data.index[44:48])
+        assert run_check(self.make(), data, filtered=filtered).passed
+        chk = self.make(data="filtered")
+        assert not run_check(chk, data, filtered=filtered).passed
+        ins = checks.DailyInsolationDays(
+            threshold_wh_m2=2000, min_days=1, data="filtered"
+        )
+        res = run_check(ins, data, filtered=filtered)
+        assert res.detail["insolation_wh_m2"].iloc[0] == 8 * 700 * 0.25
+
+    def test_dst_spring_forward_day(self):
+        index = pd.date_range(
+            "2025-03-09", "2025-03-09 23:45", freq="15min", tz="America/Chicago"
+        )
+        assert len(index) == 92
+        data = pd.DataFrame({"front_col": 0.0, "poa_col": 0.0}, index=index)
+        local = index.tz_localize(None)
+        qualifying = (local >= "2025-03-09 01:00") & (local < "2025-03-09 04:45")
+        data.loc[qualifying, :] = 700.0
+        res = run_check(self.make(), data)
+        assert len(res.detail) == 1
+        assert res.detail["longest_run_hours"].iloc[0] == 2.75
+        assert not res.passed
+        data.loc[local == pd.Timestamp("2025-03-09 04:45"), :] = 700.0
+        res = run_check(self.make(), data)
+        assert res.detail["longest_run_hours"].iloc[0] == 3.0
+        assert res.passed
+
+    def test_duplicate_timestamp_breaks_run(self):
+        data = day_frame([(40, 52, 700.0)])
+        duplicated = pd.concat([data, data.iloc[[45]]]).sort_index(kind="stable")
+        res = run_check(self.make(), duplicated)
+        assert res.detail["longest_run_hours"].iloc[0] == 1.75
+        assert not res.passed
+
+    def test_trivial_thresholds_pass_on_day_count(self):
+        data = day_frame([], days=3)
+        runs = checks.ContinuousHoursDays(threshold=600, hours=0, min_days=3)
+        res = run_check(runs, data)
+        assert res.passed
+        assert res.detail["qualifies"].all()
+        ins = checks.DailyInsolationDays(threshold_wh_m2=0, min_days=3)
+        res = run_check(ins, data)
+        assert res.passed
+        assert res.detail["qualifies"].all()
+
+    def test_nrel_min_irr_days_cannot_exceed_insolation_days(self):
+        with pytest.raises(ValueError, match="min_irr_days"):
+            checks.NrelMinimumIrradiance(min_insolation_days=2, min_irr_days=3)
+        checks.NrelMinimumIrradiance(min_insolation_days=3, min_irr_days=3)
+
+    @pytest.mark.parametrize(
+        "cls, kw",
+        [
+            (checks.ContinuousHoursDays, {"threshold": 1, "hours": 1, "min_days": 1}),
+            (checks.DailyInsolationDays, {"threshold_wh_m2": 1, "min_days": 1}),
+            (checks.NrelMinimumIrradiance, {}),
+        ],
+    )
+    def test_invalid_data_mode_rejected(self, cls, kw):
+        with pytest.raises(ValueError):
+            cls(data="bogus", **kw)

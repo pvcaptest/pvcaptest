@@ -23,6 +23,7 @@ from captest import util
 
 NO_DATA_SUMMARY = "no data in the selected rows"
 DATA_MODES = ["pr_rows", "filtered", "unfiltered_period"]
+RUN_HOURS_TOLERANCE = 1e-9
 
 
 @dataclass
@@ -197,7 +198,8 @@ def daily_longest_runs(irr, threshold, dt_hours):
     A run is consecutive rows of the same local day (``index.normalize()`` in
     the index's own timezone) that all qualify (finite and at or above
     ``threshold``) and whose timestamps are exactly ``dt_hours`` apart. A
-    non-qualifying row or a missing timestamp ends the run.
+    non-qualifying row, a missing timestamp or a duplicate timestamp (zero gap)
+    ends the run.
 
     Parameters
     ----------
@@ -229,6 +231,15 @@ def daily_longest_runs(irr, threshold, dt_hours):
     rows = pd.Series(qualifies, index=day).groupby([day, run_id]).sum()
     longest = rows.groupby(level=0).max() * dt_hours
     return longest.rename("longest_run_hours")
+
+
+def run_meets_hours(run_hours, hours):
+    """Whether run lengths are at or above ``hours``, tolerant of float error.
+
+    Run lengths are rows times a float timestep, so an exact-length run can fall
+    a few ulps short of ``hours``; a tolerance of 1e-9 h absorbs that.
+    """
+    return run_hours >= hours - RUN_HOURS_TOLERANCE
 
 
 def daily_insolation(irr, dt_hours):
@@ -477,7 +488,7 @@ class ContinuousHoursDays(BaseCheck):
     ``qualifies``.
     """
 
-    data = param.Selector(default="unfiltered_period", objects=DATA_MODES)
+    data = param.Selector(default="unfiltered_period")
     threshold = param.Number(default=None, allow_None=True)
     hours = param.Number(default=None, allow_None=True)
     min_days = param.Integer(default=None, allow_None=True)
@@ -493,7 +504,7 @@ class ContinuousHoursDays(BaseCheck):
     def _evaluate(self, frame, irr, context):
         longest = daily_longest_runs(irr, self.threshold, context.dt_hours)
         detail = longest.to_frame()
-        detail["qualifies"] = detail["longest_run_hours"] >= self.hours
+        detail["qualifies"] = run_meets_hours(detail["longest_run_hours"], self.hours)
         detail.index.name = "day"
         days = int(detail["qualifies"].sum())
         return CheckResult(
@@ -530,7 +541,7 @@ class DailyInsolationDays(BaseCheck):
     ``qualifies``.
     """
 
-    data = param.Selector(default="unfiltered_period", objects=DATA_MODES)
+    data = param.Selector(default="unfiltered_period")
     threshold_wh_m2 = param.Number(default=None, allow_None=True)
     min_days = param.Integer(default=None, allow_None=True)
 
@@ -593,7 +604,7 @@ class NrelMinimumIrradiance(BaseCheck):
     ``irradiance_ok`` is only true on days with ``insolation_ok``.
     """
 
-    data = param.Selector(default="unfiltered_period", objects=DATA_MODES)
+    data = param.Selector(default="unfiltered_period")
     irr_threshold = param.Number(default=600)
     hours = param.Number(default=3)
     insolation_wh_m2 = param.Number(default=3000)
@@ -607,6 +618,12 @@ class NrelMinimumIrradiance(BaseCheck):
         _check_finite("insolation_wh_m2", self.insolation_wh_m2)
         _check_non_negative("min_insolation_days", self.min_insolation_days)
         _check_non_negative("min_irr_days", self.min_irr_days)
+        if self.min_irr_days > self.min_insolation_days:
+            raise ValueError(
+                f"min_irr_days ({self.min_irr_days}) cannot exceed "
+                f"min_insolation_days ({self.min_insolation_days}); the run days "
+                "are counted among the insolation days."
+            )
 
     def _evaluate(self, frame, irr, context):
         detail = daily_insolation(irr, context.dt_hours).to_frame()
@@ -615,7 +632,7 @@ class NrelMinimumIrradiance(BaseCheck):
         )
         detail["insolation_ok"] = detail["insolation_wh_m2"] >= self.insolation_wh_m2
         detail["irradiance_ok"] = detail["insolation_ok"] & (
-            detail["longest_run_hours"] >= self.hours
+            run_meets_hours(detail["longest_run_hours"], self.hours)
         )
         detail.index.name = "day"
         insolation_days = int(detail["insolation_ok"].sum())
