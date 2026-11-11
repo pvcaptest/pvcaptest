@@ -19,6 +19,7 @@ from captest import (
     CapTest,
     capdata as pvc,
     captest as captest_module,
+    checks as checks_module,
     clearsky,
     columngroups as cg,
     filters,
@@ -1229,6 +1230,7 @@ class TestCapDataCopyCompleteness:
                 _values_equal,
             ),
             "filters": ([filters.Irradiance(low=200, high=800)], _steps_equal),
+            "checks": ([checks_module.IntervalCount(400, 60)], _steps_equal),
             "prep": ([prep.Scale(columns=["poa"], factor=2.0)], _steps_equal),
         }
 
@@ -4592,6 +4594,139 @@ class TestPerformanceRatioMethod:
         kw = {"numerator": "energy", "poa": "poa", "dc_nameplate": 1000.0} | changes
         with pytest.raises(ValueError):
             self._cd().performance_ratio(**kw)
+
+
+class TestChecks:
+    @pytest.fixture
+    def cd(self):
+        index = pd.date_range("2025-06-01 10:00", periods=120, freq="15min")
+        irr = pd.Series(np.where(np.arange(120) < 60, 700.0, 500.0), index=index)
+        cd = pvc.CapData("checks")
+        cd.data = pd.DataFrame({"poa_col": irr}, index=index)
+        cd.regression_cols = {"poa": "poa_col"}
+        return cd
+
+    def test_wrappers_append_without_evaluating(self, cd):
+        check = cd.check_interval_count(400, 60)
+        assert cd.checks == [check]
+        assert isinstance(check, checks_module.IntervalCount)
+        assert cd.check_duration(400, 10) is cd.checks[1]
+        assert cd.check_continuous_hours(400, 2, 1) is cd.checks[2]
+        assert cd.check_daily_insolation(1000, 1) is cd.checks[3]
+        assert cd.check_nrel_irradiance() is cd.checks[4]
+        custom = cd.check_custom(_always_pass)
+        assert cd.checks[5] is custom
+        assert len(cd.checks) == 6
+
+    def test_any_of_consumes_registered_members(self, cd):
+        cd.check_any_of(
+            cd.check_interval_count(400, 60), cd.check_interval_count(600, 40)
+        )
+        assert len(cd.checks) == 1
+        assert isinstance(cd.checks[0], checks_module.AnyOf)
+
+    def test_any_of_passes_when_only_second_tier_passes(self, cd):
+        cd.check_any_of(
+            checks_module.IntervalCount(600, 100),
+            checks_module.IntervalCount(400, 60),
+        )
+        result = cd.evaluate_checks()
+        assert len(cd.checks) == 1
+        assert next(iter(result.values())).passed
+
+    def test_evaluate_keyed_by_label(self, cd):
+        check = cd.check_interval_count(400, 60)
+        results = cd.evaluate_checks()
+        assert list(results) == [check.label]
+        assert results[check.label].passed
+
+    def test_duplicate_labels_suffixed(self, cd):
+        first = cd.check_interval_count(400, 60)
+        cd.check_interval_count(400, 60)
+        cd.check_interval_count(400, 60)
+        assert list(cd.evaluate_checks()) == [
+            first.label,
+            f"{first.label} (2)",
+            f"{first.label} (3)",
+        ]
+
+    def test_evaluate_does_not_modify_data_or_filters(self, cd):
+        cd.check_interval_count(400, 60)
+        before = cd.data.copy()
+        cd.evaluate_checks()
+        assert cd.filters == []
+        pd.testing.assert_frame_equal(cd.data, before)
+
+    def test_pr_rows_default_falls_back_to_filtered(self, cd):
+        cd.filter_time(start="2025-06-01 10:00", end="2025-06-01 10:59")
+        cd.check_interval_count(400, 1, data="pr_rows")
+        result = next(iter(cd.evaluate_checks().values()))
+        assert result.detail["count"].iloc[0] == 4
+
+    def test_explicit_pr_rows_used(self, cd):
+        cd.check_interval_count(400, 1, data="pr_rows")
+        result = next(iter(cd.evaluate_checks(pr_rows=cd.data.index[:10]).values()))
+        assert result.detail["count"].iloc[0] == 10
+
+    def test_dt_hours_defaults_to_unfiltered_index_and_overridable(self, cd):
+        cd.filter_time(start="2025-06-01 10:00", end="2025-06-01 10:59")
+        cd.check_duration(400, 1, data="pr_rows")
+        default = next(iter(cd.evaluate_checks().values()))
+        assert default.detail["hours"].iloc[0] == 1.0
+        override = next(iter(cd.evaluate_checks(dt_hours=1.0).values()))
+        assert override.detail["hours"].iloc[0] == 4.0
+
+    def test_period_restricts_days_and_none_uses_filtered_span(self, cd):
+        index = pd.date_range("2025-06-01", periods=96 * 3, freq="15min")
+        cd.data = pd.DataFrame({"poa_col": 600.0}, index=index)
+        cd.check_continuous_hours(400, 1, 1, data="unfiltered_period")
+        full = next(iter(cd.evaluate_checks().values()))
+        one_day = next(
+            iter(
+                cd.evaluate_checks(
+                    period=(pd.Timestamp("2025-06-01"), pd.Timestamp("2025-06-01"))
+                ).values()
+            )
+        )
+        assert len(full.detail) == 3
+        assert len(one_day.detail) == 1
+
+    def test_config_round_trip(self, cd):
+        cd.check_interval_count(400, 60)
+        cd.check_any_of(
+            checks_module.Duration(400, 5), checks_module.IntervalCount(300, 5)
+        )
+        cd.check_custom(_always_pass)
+        config = cd.checks_to_config()
+        other = pvc.CapData("other")
+        other.set_checks(config)
+        assert other.checks_to_config() == config
+        assert yaml.safe_load(yaml.safe_dump(config)) == config
+        other.set_checks([])
+        assert other.checks == []
+
+    def test_set_checks_replaces(self, cd):
+        cd.check_duration(400, 1)
+        cd.set_checks([checks_module.IntervalCount(400, 1).to_config()])
+        assert len(cd.checks) == 1
+        assert isinstance(cd.checks[0], checks_module.IntervalCount)
+
+    def test_copy_carries_checks_deeply(self, cd):
+        check = cd.check_interval_count(400, 60)
+        cd_c = cd.copy()
+        assert len(cd_c.checks) == 1
+        assert cd_c.checks[0] is not check
+        assert cd_c.checks_to_config() == cd.checks_to_config()
+
+    def test_reset_filter_leaves_checks(self, cd):
+        cd.check_interval_count(400, 60)
+        cd.filter_time(start="2025-06-01 10:00", end="2025-06-01 10:59")
+        cd.reset_filter()
+        assert len(cd.checks) == 1
+
+
+def _always_pass(frame):
+    return True
 
 
 if __name__ == "__main__":

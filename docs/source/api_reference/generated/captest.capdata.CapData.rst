@@ -16,6 +16,14 @@
       ~CapData.__init__
       ~CapData.agg_group
       ~CapData.agg_sensors
+      ~CapData.check_any_of
+      ~CapData.check_continuous_hours
+      ~CapData.check_custom
+      ~CapData.check_daily_insolation
+      ~CapData.check_duration
+      ~CapData.check_interval_count
+      ~CapData.check_nrel_irradiance
+      ~CapData.checks_to_config
       ~CapData.column_groups_to_excel
       ~CapData.copy
       ~CapData.create_agg_attributes
@@ -26,6 +34,7 @@
       ~CapData.describe_prep
       ~CapData.drop_cols
       ~CapData.empty
+      ~CapData.evaluate_checks
       ~CapData.expand_agg_map
       ~CapData.expanded_uncert
       ~CapData.filter_abs_diff_prev
@@ -55,6 +64,7 @@
       ~CapData.get_pts_required
       ~CapData.get_reg_cols
       ~CapData.get_summary
+      ~CapData.performance_ratio
       ~CapData.plot
       ~CapData.predict_capacities
       ~CapData.prep_astype
@@ -65,6 +75,7 @@
       ~CapData.print_points_summary
       ~CapData.process_regression_columns
       ~CapData.reg_scatter_matrix
+      ~CapData.regression_curve
       ~CapData.rename_cols
       ~CapData.rep_cond
       ~CapData.rep_cond_freq
@@ -77,6 +88,7 @@
       ~CapData.scatter
       ~CapData.scatter_filters
       ~CapData.scatter_hv
+      ~CapData.set_checks
       ~CapData.set_regression_cols
       ~CapData.set_test_complete
       ~CapData.spatial_uncert
@@ -91,6 +103,7 @@
 
    .. autosummary::
    
+      ~CapData.checks
       ~CapData.data_filtered
       ~CapData.filters
       ~CapData.name

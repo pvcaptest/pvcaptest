@@ -6,6 +6,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Added
+- `captest.checks`: validity checks that report without removing rows
+  (`IntervalCount`, `Duration`, `ContinuousHoursDays`, `DailyInsolationDays`,
+  `NrelMinimumIrradiance`, the `AnyOf` combinator and `CustomCheck`), with
+  `CheckContext`, `CheckResult`, `CHECK_REGISTRY` and `check_from_config`.
+- `CapData.checks` and the `check_interval_count`, `check_duration`,
+  `check_continuous_hours`, `check_daily_insolation`, `check_nrel_irradiance`,
+  `check_any_of` and `check_custom` wrappers, which register a check without
+  evaluating it; `CapData.evaluate_checks(dt_hours=, pr_rows=, period=)` returns
+  results keyed by check label; `checks_to_config` / `set_checks` round-trip the
+  list. `copy()` carries the checks and `reset_filter()` leaves them alone.
+- `setup.PrSetup`: a performance-ratio setup document (`kind: pr`), with
+  `setup.validate_setup` / `setup.load_setup` dispatching on `kind` and
+  `setup.derive_pr` for key-by-key overrides. A document without `kind` is still
+  a regression setup with unchanged digests.
+- `captest.regression_setups()` and `captest.pr_setups()` list the registered
+  setups by kind; `TEST_SETUPS` and `resolve_test_setup` understand PR setups.
+  `CapTest` raises `NotImplementedError` for a PR setup until PR support lands.
 - `file_reader(..., header_fmt=None)` and `flatten_multi_index(columns,
   header_fmt=None)`: a `str.format` template for joining multi-row column
   headings, e.g. `"{0} ({1})"` for a heading row followed by a units row

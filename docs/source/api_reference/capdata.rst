@@ -152,6 +152,28 @@ current parameter values. See :doc:`filters` for the underlying step classes.
    capdata.CapData.run_pipeline
    capdata.CapData.rerun_filters_from
 
+Validity Checks
+---------------
+
+``CapData.checks`` holds validity checks from :doc:`checks`. The ``check_*``
+wrappers build a check and register it without evaluating it;
+``evaluate_checks`` evaluates all of them and returns a dictionary of results
+keyed by check label. Checks report; they never remove rows.
+
+.. autosummary::
+   :toctree: generated/
+
+   capdata.CapData.check_interval_count
+   capdata.CapData.check_duration
+   capdata.CapData.check_continuous_hours
+   capdata.CapData.check_daily_insolation
+   capdata.CapData.check_nrel_irradiance
+   capdata.CapData.check_any_of
+   capdata.CapData.check_custom
+   capdata.CapData.evaluate_checks
+   capdata.CapData.checks_to_config
+   capdata.CapData.set_checks
+
 Reporting Conditions
 --------------------
 

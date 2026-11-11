@@ -13,6 +13,7 @@ API Reference
    captest
    setup
    filters
+   checks
    prep
    clearsky
    prtest

@@ -26,8 +26,22 @@ Documents
    :toctree: generated/
 
    setup.TestSetup
+   setup.PrSetup
    setup.Side
    setup.RepConditions
+
+A document with ``kind: pr`` is a performance-ratio setup
+(:py:class:`~captest.setup.PrSetup`); a document without ``kind`` is a regression
+setup. :py:func:`~captest.setup.validate_setup` and
+:py:func:`~captest.setup.load_setup` dispatch on ``kind``. A
+:py:class:`~captest.CapTest` raises ``NotImplementedError`` for a PR setup until
+PR support lands.
+
+.. autosummary::
+   :toctree: generated/
+
+   setup.validate_setup
+   setup.load_setup
 
 Nodes
 -----
@@ -49,6 +63,7 @@ Deriving and Checking
    :toctree: generated/
 
    setup.derive
+   setup.derive_pr
    setup.check_project_fit
    setup.FitError
    setup.SetupFitError

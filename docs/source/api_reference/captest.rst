@@ -129,6 +129,8 @@ Standalone functions used alongside :py:class:`~captest.CapTest`.
    :toctree: generated/
 
    test_setups
+   regression_setups
+   pr_setups
    resolve_test_setup
    load_presets
    perc_wrap
