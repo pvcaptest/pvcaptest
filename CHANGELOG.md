@@ -235,6 +235,8 @@ all values pooled (`rep_cond` and `DataFrame.agg` pass it one column at a
 time, so they are unaffected).
 
 ### Removed
+- Support for Python 3.10, which reached end of life in October 2026. `captest`
+  now requires Python 3.11 or newer.
 - `util.update_by_path` and `captest.captest.validate_test_setup`.
 - The p-value-checked capacity ratio, with no deprecation cycle: the
   `check_pvalues` and `pval` arguments of `CapTest.run_test` and

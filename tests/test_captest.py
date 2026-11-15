@@ -9,7 +9,6 @@ plan).
 from __future__ import annotations
 
 import os
-import sys
 import warnings
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -3072,7 +3071,6 @@ class TestRunTest:
         with pytest.raises(RuntimeError, match="no RepCond step"):
             ct_default.run_test()
 
-    @pytest.mark.skipif(sys.version_info < (3, 11), reason="add_note")
     def test_stage_note_attached(self, ct_default):
         ct_default.meas.filter_irr(400, 1400)
         ct_default.sim.filter_irr(400, 1400)
@@ -3181,10 +3179,9 @@ class TestReplayFilters:
         assert ct_default.meas.filters == []
         assert ct_default._rc_pending_sides == set()
         assert ct_default._loading is False
-        if sys.version_info >= (3, 11):
-            notes = getattr(excinfo.value, "__notes__", [])
-            assert any("meas_filters_pending" in n for n in notes)
-            assert not any("run_test stage" in n for n in notes)
+        notes = getattr(excinfo.value, "__notes__", [])
+        assert any("meas_filters_pending" in n for n in notes)
+        assert not any("run_test stage" in n for n in notes)
 
     def test_replay_filters_requires_setup(self, meas_cd_default):
         tst = CapTest.from_params(test_setup="e2848_default", meas=meas_cd_default)
@@ -4377,9 +4374,8 @@ class TestLifecycleStaging:
         assert [d["type"] for d in ct2.meas_filters_pending] == [
             d["type"] for d in sub["meas_filters"]
         ]
-        if sys.version_info >= (3, 11):
-            notes = getattr(excinfo.value, "__notes__", [])
-            assert any("meas_filters_pending" in n for n in notes)
+        notes = getattr(excinfo.value, "__notes__", [])
+        assert any("meas_filters_pending" in n for n in notes)
 
     def test_to_mapping_serializes_pending_when_chains_empty(
         self, meas_cd_default, sim_cd_default, tmp_path

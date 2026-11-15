@@ -4,7 +4,6 @@ import datetime
 import inspect
 import math
 import re
-import sys
 import unittest.mock
 import warnings
 
@@ -2441,8 +2440,6 @@ class TestReplayRollback:
         assert mid.low == 30  # user edit kept — it is pre-call state
 
     def test_failure_note_names_step(self, make_capdata, monkeypatch):
-        if sys.version_info < (3, 11):
-            pytest.skip("add_note")
         cd = make_capdata(10)
         monkeypatch.setattr(
             Missing,

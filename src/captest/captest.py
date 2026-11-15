@@ -3678,7 +3678,6 @@ class CapTest(param.Parameterized):
             self._set_run_fingerprint()
             return results
         except Exception as e:
-            # add_note exists on 3.11+; the project floor is 3.10.
             if hasattr(e, "add_note"):
                 e.add_note(f"[CapTest.run_test stage: {stage}]")
             raise

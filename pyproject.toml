@@ -9,7 +9,7 @@ authors = [
 ]
 description = "Framework and methods to facilitate photovoltaic facility capacity testing following ASTM E2848."
 readme = "README.rst"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 license = "MIT"
 license-files=["LICENSE.txt"]
 classifiers = [

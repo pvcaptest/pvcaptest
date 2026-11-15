@@ -3,7 +3,6 @@ import contextlib
 import copy
 import json
 import os
-import sys
 import unittest
 
 import holoviews as hv
@@ -4241,7 +4240,6 @@ class TestPrepSurface:
         assert {k: list(v) for k, v in cd.column_groups.items()} == before_groups
         assert cd.prep == []
 
-    @pytest.mark.skipif(sys.version_info < (3, 11), reason="add_note")
     def test_run_prep_failure_note_names_the_step(self, cd):
         config = [{"type": "Scale", "columns": ["not_a_column"], "factor": 1.0}]
         with pytest.raises(ValueError) as excinfo:
