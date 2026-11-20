@@ -6418,6 +6418,57 @@ class TestPrRunTest:
             {"type": "Duration", "min_hours": 1000, "threshold": 400}
         ]
 
+    def test_programmatic_data_has_no_fingerprint(self, monkeypatch):
+        tst = make_pr_pair(monkeypatch)
+        results = tst.run_test()
+        assert tst.last_results is results
+        assert tst.run_fingerprint is None
+        assert "load provenance unknown" in tst.run_fingerprint_error
+
+    def test_derived_without_sim_is_refused(self, monkeypatch):
+        tst = make_pr_pair(monkeypatch)
+        tst.sim = None
+        with pytest.raises(RuntimeError, match="sim must be set") as excinfo:
+            tst.run_test()
+        assert "[CapTest.run_test stage: setup]" in excinfo.value.__notes__
+
+    def test_replay_filters_rejects_rc_steps(self, monkeypatch):
+        tst = make_pr_pair(monkeypatch)
+        tst.meas.filter_irr(400, 900)
+        meas_chain = list(tst.meas.filters)
+        configs = {"meas": [{"type": "RepCond"}]}
+        with pytest.raises(ValueError, match=r"meas step 0 \(RepCond\)"):
+            tst.replay_filters(side="meas", configs=configs)
+        assert _same_steps(tst.meas.filters, meas_chain)
+        tst.meas_filters_pending = [
+            {"type": "Irradiance", "low": 0.8, "high": 1.2, "ref_val": "rep_irr"}
+        ]
+        tst.meas.filters = []
+        with pytest.raises(ValueError, match="meas step 0 \\(Irradiance"):
+            tst.replay_filters(side="meas")
+        assert tst.meas.filters == []
+
+    def test_setup_discards_pending_manual_rc(self, monkeypatch, tmp_path):
+        tst = _pr_data_regression(monkeypatch)
+        tst.rc = pd.DataFrame({"poa": [600.0]})
+        path = tmp_path / "regression.yaml"
+        tst.to_yaml(path)
+        sub = ct.load_config(path)
+        assert "reporting_conditions_values" in sub
+        sub.pop("overrides")
+        sub.update(test_setup="pr_synth", dc_nameplate=DC_NAMEPLATE)
+        pr = CapTest.from_mapping(sub, run_setup=False)
+        assert pr._pending_manual_rc is not None
+        pr.meas = _pr_capdata("meas", tst.meas.data)
+        pr.sim = _pr_capdata("sim", tst.sim.data)
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            pr.setup(verbose=False)
+            results = pr.run_test()
+        assert pr._pending_manual_rc is None
+        assert pr._rc is None
+        assert isinstance(results, prtest.PrTestResults)
+
     def test_rep_cond_is_refused(self, monkeypatch):
         tst = make_pr_pair(monkeypatch)
         with pytest.raises(
@@ -6478,7 +6529,9 @@ class TestPrMapping:
         ct_default.sim.filter_irr(400, 1000)
         ct_default.rep_cond()
         ct_default.meas.check_duration(1, 1)
-        assert sorted(ct_default.to_mapping()) == _E2848_MAPPING_KEYS
+        with pytest.warns(UserWarning, match="not saved"):
+            keys = sorted(ct_default.to_mapping())
+        assert keys == _E2848_MAPPING_KEYS
 
     def test_derived_mapping_schema(self, monkeypatch):
         tst = make_pr_pair(monkeypatch)
@@ -6548,3 +6601,51 @@ class TestPrMapping:
             == tst.resolved_setup.content_digest()
         )
         assert reloaded.mapping_fingerprint() == tst.mapping_fingerprint()
+
+    def test_regression_checks_are_not_saved(self, ct_default):
+        ct_default.sim_checks_pending = [{"type": "Duration", "min_hours": 1}]
+        with pytest.warns(UserWarning, match=r"tst\.sim .*not saved") as record:
+            mapping = ct_default.to_mapping()
+        assert len(record) == 1
+        assert "sim_checks" not in mapping
+        assert sorted(mapping) == sorted(
+            set(_E2848_MAPPING_KEYS) - {"meas_filters", "sim_filters"}
+        )
+
+    def test_regression_without_checks_does_not_warn(self, ct_default):
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            ct_default.to_mapping()
+
+    def test_invalid_settings_are_refused(self, monkeypatch, tmp_path):
+        tst = make_pr_pair(monkeypatch, reference_source="fixed", expected_pr=0.78)
+        tst.expected_pr = None
+        with pytest.raises(ValueError, match="Invalid PR test settings"):
+            tst.to_mapping()
+        path = tmp_path / "pr.yaml"
+        with pytest.raises(ValueError, match="Invalid PR test settings"):
+            tst.to_yaml(path)
+        assert not path.exists()
+
+    def test_mapping_without_data(self, pr_tmp):
+        tst = CapTest(test_setup="pr_tmp", dc_nameplate=DC_NAMEPLATE)
+        tst.test_tolerance = "- 5"
+        mapping = tst.to_mapping()
+        assert mapping["test_setup"] == "pr_tmp"
+
+    def test_params_override_round_trips(self, monkeypatch, tmp_path):
+        tst, loaders = _pr_loaded(monkeypatch)
+        tst.params = {"base_temp": 30}
+        tst.setup(verbose=False)
+        with pytest.warns(UserWarning, match="programmatic-only"):
+            mapping = tst.to_mapping()
+        assert mapping["overrides"] == {"params": {"base_temp": 30}}
+        path = tmp_path / "pr.yaml"
+        with pytest.warns(UserWarning, match="programmatic-only"):
+            tst.to_yaml(path)
+        reloaded = CapTest.from_yaml(path, **loaders)
+        assert reloaded.params == {"base_temp": 30}
+        assert (
+            reloaded.resolved_setup.content_digest()
+            == tst.resolved_setup.content_digest()
+        )

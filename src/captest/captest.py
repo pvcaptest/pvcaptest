@@ -2489,7 +2489,9 @@ class CapTest(param.Parameterized):
         written: no ``sim_path`` / ``sim_load_kwargs`` / ``sim_prep``,
         ``sim_filters``, ``sim_checks``, ``overrides.reg_cols_sim`` or
         ``sim_numerator_kind`` / ``sim_numerator_units`` /
-        ``sim_power_units``. A regression test never writes the PR keys.
+        ``sim_power_units``. A regression test never writes the PR keys, and
+        validity checks are saved only for a PR test: a regression test's
+        checks are omitted with a ``UserWarning``.
 
         Parameters
         ----------
@@ -2536,15 +2538,54 @@ class CapTest(param.Parameterized):
         inverse of :meth:`from_mapping`. Emits the same programmatic-only
         attribute warning as ``to_yaml`` (loader callables).
 
+        Validity checks are saved only for a PR test. On a regression test,
+        checks registered on ``meas`` / ``sim`` (live or pending) are not
+        written, and a ``UserWarning`` says so.
+
         Returns
         -------
         dict
             The captest sub-mapping (scalars, overrides, paths, pipelines;
             for a PR test also the PR params and check pipelines, see
             :meth:`to_yaml`).
+
+        Raises
+        ------
+        ValueError
+            If the setup cannot be resolved, or a PR test's settings are
+            invalid (see :meth:`setup`).
         """
         self._warn_unserializable()
+        self._warn_unsaved_checks()
         return self._build_yaml_sub_mapping()
+
+    def _warn_unsaved_checks(self):
+        """Warn when a regression test holds checks the mapping omits.
+
+        Warns
+        -----
+        UserWarning
+            Naming each side with live or pending validity checks; only a PR
+            test writes ``meas_checks`` / ``sim_checks``.
+        """
+        if self.test_kind == "pr":
+            return
+        sides = [
+            side
+            for side in ("meas", "sim")
+            if getattr(self, f"{side}_checks_pending")
+            or (getattr(self, side) is not None and getattr(self, side).checks)
+        ]
+        if sides:
+            names = " and ".join(f"tst.{side}" for side in sides)
+            warnings.warn(
+                f"The validity checks on {names} are not saved: to_mapping() / "
+                "to_yaml() write checks only for a PR test. Register them "
+                "again after loading.",
+                UserWarning,
+                # warn -> this helper -> to_mapping -> the user's call site.
+                stacklevel=3,
+            )
 
     def _warn_unserializable(self):
         """Warn once for any non-yaml-serializable user overrides.
@@ -2982,7 +3023,15 @@ class CapTest(param.Parameterized):
         Returns
         -------
         dict
+
+        Raises
+        ------
+        ValueError
+            If the PR settings are invalid, so an invalid configuration is
+            never written. Whether ``sim`` is set is not checked: it is data,
+            not configuration.
         """
+        self._validate_pr_settings(resolved, check_data=False)
         sides = self._pr_sides()
         sub = {"test_setup": self.test_setup}
         for side in sides:
@@ -3183,7 +3232,7 @@ class CapTest(param.Parameterized):
                 stacklevel=3,
             )
 
-    def _validate_pr_settings(self, resolved):
+    def _validate_pr_settings(self, resolved, check_data=True):
         """Check the PR parameters against a resolved PR setup.
 
         Collects every problem and raises one error listing them. Does not
@@ -3193,6 +3242,10 @@ class CapTest(param.Parameterized):
         ----------
         resolved : captest.setup.PrSetup
             The resolved PR setup.
+        check_data : bool, default True
+            Also require ``sim`` to be set for a derived reference. The
+            mapping path passes False: a configuration can be saved without
+            data.
 
         Raises
         ------
@@ -3258,7 +3311,7 @@ class CapTest(param.Parameterized):
                 )
 
         if self.reference_source == "derived":
-            if self.sim is None:
+            if check_data and self.sim is None:
                 problems.append("a derived reference requires sim to be set.")
             if corrected and "cell_temp" not in resolved.sim.reg_cols:
                 problems.append(
@@ -3518,7 +3571,9 @@ class CapTest(param.Parameterized):
         reporting-conditions values stashed by a load-only
         ``from_mapping(run_setup=False)``, validating and seeding them as
         ``rc_source='manual'``; per-side setup leaves the stash untouched
-        (validation needs both sides' regression formulas).
+        (validation needs both sides' regression formulas). A PR test never
+        seeds reporting conditions: its setup (any side) silently discards
+        the stash.
 
         With ``side='meas'`` or ``side='sim'`` only the target ``CapData``
         is re-wired; the other side's data, filter chain, and regression
@@ -3647,7 +3702,10 @@ class CapTest(param.Parameterized):
         # Consume manual reporting-conditions values stashed by a load-only
         # from_mapping (run_setup=False). Only a full setup can seed them:
         # validation needs both sides' regression formulas, wired just above.
-        if side == "both" and self._pending_manual_rc is not None:
+        if is_pr:
+            # Reporting conditions do not apply to a PR test.
+            self._pending_manual_rc = None
+        elif side == "both" and self._pending_manual_rc is not None:
             df = self._coerce_and_validate_manual_rc(self._pending_manual_rc)
             self._set_rc(df, "manual", kind="manual", warn=False)
             self._pending_manual_rc = None
@@ -4327,8 +4385,11 @@ class CapTest(param.Parameterized):
         Raises
         ------
         ValueError
-            If ``side`` is not ``'meas'``, ``'sim'``, or ``'both'``, or
-            ``configs`` has a key for a side that is not being replayed.
+            If ``side`` is not ``'meas'``, ``'sim'``, or ``'both'``,
+            ``configs`` has a key for a side that is not being replayed, or,
+            on a PR test, a pipeline to replay holds a ``RepCond`` step or an
+            ``Irradiance`` step with ``ref_val`` ``'rep_irr'`` / ``'self_val'``
+            (raised before any replay, naming the side and step index).
         RuntimeError
             If a side to replay is unset or :meth:`setup` has not wired it to
             this test.
@@ -4355,6 +4416,8 @@ class CapTest(param.Parameterized):
                     "(or tst.run_test()) before replay_filters()."
                 )
         configs = self._select_replay_configs(sides, configs)
+        if self.test_kind == "pr":
+            _reject_rc_steps(configs)
         run_sides = self._replay_order(side, configs)
         both_rep_cond = side == "both" and all(
             any(d.get("type") == "RepCond" for d in configs[s]) for s in ("meas", "sim")
@@ -4493,7 +4556,7 @@ class CapTest(param.Parameterized):
         Notes
         -----
         A completed ``side='both'`` run sets :attr:`last_results` to the
-        returned :class:`CapTestResults` and, when the mapping can reproduce
+        returned results and, when the mapping can reproduce
         it, :attr:`run_fingerprint`. Any other outcome — a per-side run, a
         raised exception, or a run whose configuration cannot be reproduced
         from the mapping — clears both; see :attr:`run_fingerprint_error`.
