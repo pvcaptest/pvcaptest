@@ -2103,7 +2103,9 @@ class CapTest(param.Parameterized):
         :attr:`sim_filters_pending`, not applied; run them with
         :meth:`run_test` (or per side via ``CapData.run_pipeline``).
         Serialized ``meas_prep`` / ``sim_prep`` pipelines, by contrast, are
-        applied at load — see :meth:`from_params`.
+        applied at load — see :meth:`from_params` — and serialized
+        ``meas_checks`` / ``sim_checks`` are adopted by the construction-time
+        ``setup()`` (see :meth:`from_mapping`).
 
         Parameters
         ----------
@@ -2158,10 +2160,14 @@ class CapTest(param.Parameterized):
         reading the file, without the file read.
 
         Serialized ``meas_filters`` / ``sim_filters`` pipelines are stored
-        as :attr:`meas_filters_pending` / :attr:`sim_filters_pending`, and
-        serialized ``meas_checks`` / ``sim_checks`` as
-        :attr:`meas_checks_pending` / :attr:`sim_checks_pending` (adopted by
-        the next ``setup()``) — nothing is replayed at load. Run the filter
+        as :attr:`meas_filters_pending` / :attr:`sim_filters_pending` —
+        nothing is replayed at load. Serialized ``meas_checks`` /
+        ``sim_checks`` are stored as :attr:`meas_checks_pending` /
+        :attr:`sim_checks_pending` and adopted into the side's ``checks`` by
+        the construction-time ``setup()`` on each side it set up (on a
+        regression test too, whose mapping never writes them back); with
+        ``run_setup=False``, or for a side that setup skipped, they stay
+        pending until the next ``setup()`` of that side. Run the filter
         pipelines with :meth:`run_test` (or per side via
         ``CapData.run_pipeline``). Serialized ``meas_prep`` /
         ``sim_prep`` pipelines are the exception: they reach
@@ -2307,6 +2313,11 @@ class CapTest(param.Parameterized):
         inst.sim_filters_pending = list(sim_filters or [])
         inst.meas_checks_pending = list(sub.get("meas_checks") or [])
         inst.sim_checks_pending = list(sub.get("sim_checks") or [])
+        # The construction-time setup() ran before the pending checks were
+        # filled; adopt them now on each side it completed, as it would have.
+        for side in ("meas", "sim"):
+            if getattr(inst, side) is not None and inst._setup_completed[side]:
+                inst._adopt_pending_checks(side)
         if inst.rc_source == "manual" and rc_values is not None:
             if inst.resolved_setup is not None:
                 df = inst._coerce_and_validate_manual_rc(rc_values)
@@ -3243,7 +3254,9 @@ class CapTest(param.Parameterized):
         resolved : captest.setup.PrSetup
             The resolved PR setup.
         check_data : bool, default True
-            Also require ``sim`` to be set for a derived reference. The
+            Also require ``sim`` to be set for a derived reference.
+            :meth:`setup` passes True only when it targets sim, so a
+            meas-only setup of a derived test works without ``sim``; the
             mapping path passes False: a configuration can be saved without
             data.
 
@@ -3623,7 +3636,8 @@ class CapTest(param.Parameterized):
         On a PR test (``test_kind == 'pr'``) the targeted sides are the
         requested ones that the test evaluates: ``meas`` only for a fixed
         reference, both for a derived one. The PR settings are validated
-        first (:meth:`_validate_pr_settings`); each side's roles are then
+        first (:meth:`_validate_pr_settings`; ``side='meas'`` on a derived
+        test does not require ``sim`` to be set); each side's roles are then
         checked against its project and evaluated, a side with an energy
         numerator and no ``power`` role getting ``power`` derived by
         ``energy_to_power`` (in ``CapData.regression_cols`` only;
@@ -3654,7 +3668,8 @@ class CapTest(param.Parameterized):
         # Resolve first: a resolution error must leave sim.data untouched.
         resolved = resolve_test_setup(self.test_setup, self._collect_overrides())
         if is_pr:
-            self._validate_pr_settings(resolved)
+            # A meas-only setup of a derived test does not need sim yet.
+            self._validate_pr_settings(resolved, check_data="sim" in sides)
         else:
             self._warn_pr_params_on_regression()
 
@@ -3767,9 +3782,9 @@ class CapTest(param.Parameterized):
         :data:`SCATTER_REGISTRY` matched to the setup's regression formula.
         This method picks ``self.meas`` or ``self.sim`` and forwards it, plus
         any keyword arguments, to that registered function. A PR setup names
-        no scatter function: a PR test always uses ``scatter_default``, which
-        plots ``power`` against ``poa`` through the ``PR_PLOT_FORMULA`` that
-        :meth:`setup` gives each side.
+        no scatter function: a PR test always uses the ``"default"`` entry
+        (:func:`scatter_default`), which plots ``power`` against ``poa``
+        through the ``PR_PLOT_FORMULA`` that :meth:`setup` gives each side.
 
         Built-in setup behavior:
 
@@ -3829,7 +3844,7 @@ class CapTest(param.Parameterized):
         cd = self._pick_cd(which)
         self._require_setup()
         if isinstance(self.resolved_setup, PrSetup):
-            return SCATTER_REGISTRY["scatter_default"](cd, **kwargs)
+            return SCATTER_REGISTRY["default"](cd, **kwargs)
         return SCATTER_REGISTRY[self.resolved_setup.scatter_plots](cd, **kwargs)
 
     def rep_cond(self, which=None, **overrides):
@@ -3869,7 +3884,10 @@ class CapTest(param.Parameterized):
             an override key is not a ``CapData.rep_cond`` option.
         """
         if self.test_kind == "pr":
-            raise ValueError("reporting conditions do not apply to a PR test")
+            raise ValueError(
+                "Reporting conditions do not apply to a PR test; tst.rep_cond() "
+                "is for regression tests."
+            )
         if which is None:
             which = self.rc_source if self.rc_source in ("meas", "sim") else "meas"
         cd = self._pick_cd(which)
@@ -4056,7 +4074,8 @@ class CapTest(param.Parameterized):
         Raises
         ------
         ValueError
-            If no row has every input finite.
+            If ``data_filtered`` is empty, or no kept row has every input
+            finite.
         """
         cd = getattr(self, side)
         roles = cd.regression_cols
@@ -4069,6 +4088,11 @@ class CapTest(param.Parameterized):
         if side == "meas" and "availability" in roles:
             columns["availability"] = roles["availability"]
         data = cd.data_filtered
+        if data.empty:
+            raise ValueError(
+                f"tst.{side}.data_filtered is empty: the filters removed every "
+                "row, so no PR row remains; loosen or remove a filter."
+            )
         frame = pd.DataFrame({name: data[col] for name, col in columns.items()})
         rows = prtest.complete_rows(frame, label=side)
         if rows.index.empty:
@@ -4110,8 +4134,9 @@ class CapTest(param.Parameterized):
             (also with none registered) and is independent of ``passed``.
             ``checks`` holds each wired side's check results keyed
             ``"meas: <label>"`` / ``"sim: <label>"``; measured checks that
-            read the test period use the first to last calendar day with a
-            measured PR row, modeled checks the span of the filtered sim data.
+            read the test period use the first to last calendar day holding a
+            kept measured row (``tst.meas.data_filtered``), modeled checks the
+            span of the filtered sim data.
             ``monthly`` is set only for monthly granularity: the measured
             monthly table with the undegraded ``expected_pr`` of each month
             and, on a temperature-corrected test, its ``t_ref``.
@@ -4119,12 +4144,13 @@ class CapTest(param.Parameterized):
         Raises
         ------
         ValueError
-            If this is not a PR test, a side has no complete row, a monthly
-            reference lacks a month of the test, or the total measured or
-            expected energy, a ratio or a reference temperature is not
-            finite.
+            If this is not a PR test, a side's ``data_filtered`` is empty or
+            has no complete row, a monthly reference lacks a month of the
+            test, or the total measured or expected energy, a ratio or a
+            reference temperature is not finite.
         RuntimeError
-            If a side the test evaluates has not been set up; run
+            If a side the test evaluates (meas alone for a fixed reference,
+            both for a derived one) is unset or has not been set up; run
             :meth:`setup`.
 
         Warns
@@ -4142,14 +4168,15 @@ class CapTest(param.Parameterized):
         if not all(getattr(self, s) is not None for s in sides) or not all(
             self.setup_completed(s) for s in sides
         ):
+            names = " and ".join(f"tst.{s}" for s in sides)
             raise RuntimeError(
-                "pr_results requires both sides to be set up; call tst.setup() first."
+                f"pr_results requires {names} to be set up; call tst.setup() first."
             )
         corrected = self.resolved_setup.temp_corrected
         power_temp_coeff = self.power_temp_coeff if corrected else None
 
         inputs = {side: self._pr_side_inputs(side) for side in sides}
-        meas_frame, meas_rows, meas_energy, meas_dt = inputs["meas"]
+        meas_frame, _, meas_energy, meas_dt = inputs["meas"]
         monthly = self.reference_granularity == "monthly"
 
         if self.reference_source == "derived":
@@ -4220,7 +4247,10 @@ class CapTest(param.Parameterized):
             prtest.parse_pr_tolerance(self.test_tolerance),
         )
 
-        first, last = meas_rows.index.min(), meas_rows.index.max()
+        # The test period spans the days holding a kept measured row
+        # (data_filtered), not only the complete PR rows.
+        kept = self.meas.data_filtered.index
+        first, last = kept.min(), kept.max()
         period = tuple(
             t.normalize().tz_localize(None) if t.tzinfo else t.normalize()
             for t in (first, last)
@@ -4369,7 +4399,8 @@ class CapTest(param.Parameterized):
         Parameters
         ----------
         side : {'both', 'meas', 'sim'}, default 'both'
-            Which side(s) to replay.
+            Which side(s) to replay. On a PR test ``'both'`` means the sides
+            the test evaluates: meas alone for ``reference_source='fixed'``.
         configs : mapping, optional
             Pipelines to replay instead of the live chain / pending config,
             as lists of filter-config dicts (the
@@ -4386,8 +4417,10 @@ class CapTest(param.Parameterized):
         ------
         ValueError
             If ``side`` is not ``'meas'``, ``'sim'``, or ``'both'``,
-            ``configs`` has a key for a side that is not being replayed, or,
-            on a PR test, a pipeline to replay holds a ``RepCond`` step or an
+            ``configs`` has a key for a side that is not being replayed,
+            ``side='sim'`` is asked of a PR test with
+            ``reference_source='fixed'``, or, on a PR test, a pipeline to
+            replay holds a ``RepCond`` step or an
             ``Irradiance`` step with ``ref_val`` ``'rep_irr'`` / ``'self_val'``
             (raised before any replay, naming the side and step index).
         RuntimeError
@@ -4400,12 +4433,17 @@ class CapTest(param.Parameterized):
         """
         if side not in ("meas", "sim", "both"):
             raise ValueError(f"side must be 'meas', 'sim', or 'both', got {side!r}.")
+        self._require_pr_side(side)
+        requested = side
+        if self.test_kind == "pr" and side == "both" and "sim" not in self._pr_sides():
+            # A fixed-reference PR test evaluates meas alone.
+            side = "meas"
         sides = ["meas", "sim"] if side == "both" else [side]
         if configs is not None:
             unknown = sorted(set(configs) - set(sides))
             if unknown:
                 raise ValueError(
-                    f"configs has pipelines for {unknown}, but side={side!r} "
+                    f"configs has pipelines for {unknown}, but side={requested!r} "
                     f"replays only {sides}."
                 )
         for s in sides:
@@ -4705,23 +4743,41 @@ class CapTest(param.Parameterized):
             raise
 
     def get_summary(self):
-        """Concatenate ``self.meas.get_summary()`` and ``self.sim.get_summary()``.
+        """Concatenate the filter summaries of the test's sides.
+
+        On a regression test, ``self.meas.get_summary()`` then
+        ``self.sim.get_summary()``. On a PR test, the sides the test
+        evaluates: meas alone for ``reference_source='fixed'``, meas then sim
+        for a derived reference.
 
         Returns
         -------
         pandas.DataFrame
-            Filter history for both CapData instances, stacked.
+            Filter history of each side, stacked.
+
+        Raises
+        ------
+        RuntimeError
+            If a side the summary reads is unset.
         """
-        self._require_meas_and_sim()
-        return pd.concat([self.meas.get_summary(), self.sim.get_summary()])
+        if self.test_kind == "pr":
+            sides = self._pr_sides()
+            for side in sides:
+                if getattr(self, side) is None:
+                    raise RuntimeError(f"CapTest.{side} must be set.")
+        else:
+            self._require_meas_and_sim()
+            sides = ("meas", "sim")
+        return pd.concat([getattr(self, side).get_summary() for side in sides])
 
     def overlay_scatters(self, expected_label="PVsyst"):
         """Overlay the final scatter plot from ``self.meas`` and ``self.sim``.
 
         Builds the scatter plot for each CapData instance via the
         :data:`SCATTER_REGISTRY` function the resolved setup's
-        ``scatter_plots`` names, then overlays the two first-panel
-        scatters with labels.
+        ``scatter_plots`` names (the ``"default"`` entry,
+        :func:`scatter_default`, on a PR test, as :meth:`scatter_plots`
+        uses), then overlays the two first-panel scatters with labels.
 
         Parameters
         ----------
@@ -4731,6 +4787,16 @@ class CapTest(param.Parameterized):
         Returns
         -------
         hv.Overlay
+
+        Raises
+        ------
+        ImportError
+            If holoviews is not installed.
+        RuntimeError
+            If :meth:`setup` has not been run.
+        ValueError
+            On a PR test with ``reference_source='fixed'``, which has no
+            modeled data to overlay; use ``tst.scatter_plots()`` instead.
         """
         if hv is None:
             raise ImportError(
@@ -4738,7 +4804,16 @@ class CapTest(param.Parameterized):
                 "`uv add holoviews` or equivalent."
             )
         self._require_setup()
-        scatter_fn = SCATTER_REGISTRY[self.resolved_setup.scatter_plots]
+        if isinstance(self.resolved_setup, PrSetup):
+            if "sim" not in self._pr_sides():
+                raise ValueError(
+                    "overlay_scatters needs modeled data, but a PR test with "
+                    "reference_source='fixed' has no sim side; use "
+                    "tst.scatter_plots() for the measured scatter."
+                )
+            scatter_fn = SCATTER_REGISTRY["default"]
+        else:
+            scatter_fn = SCATTER_REGISTRY[self.resolved_setup.scatter_plots]
         meas_layout = scatter_fn(self.meas)
         sim_layout = scatter_fn(self.sim)
         # scatter_fn returns an hv.Layout whose first element is an hv.Scatter.

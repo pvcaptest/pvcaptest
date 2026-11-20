@@ -6053,26 +6053,18 @@ class TestPrResults:
         assert results.checks == {}
         assert results.valid is True
 
-    def test_period_is_the_measured_pr_day_span(self, monkeypatch):
-        from captest import checks
-
-        tst = make_pr_pair(monkeypatch, start="2024-06-01", periods=96 * 3)
+    def test_period_is_the_kept_measured_day_span(self, monkeypatch):
+        tst = make_pr_pair(monkeypatch, start="2024-06-01", periods=96 * 4)
         data = tst.meas.data
-        data.loc[data.index.normalize() == pd.Timestamp("2024-06-01"), "p"] = np.nan
-        seen = {}
-        original = checks.CheckContext
-
-        def spy(**kwargs):
-            seen.update(kwargs)
-            return original(**kwargs)
-
-        monkeypatch.setattr(checks, "CheckContext", spy)
-        tst.meas.check_duration(400, 1)
+        days = data.index.normalize()
+        data.loc[days == pd.Timestamp("2024-06-04"), "p"] = np.nan
+        tst.meas.filter_time(start="2024-06-02", end="2024-06-04 23:45")
+        tst.meas.check_daily_insolation(0, 1)
         with pytest.warns(UserWarning, match="dropped"):
-            tst.pr_results()
-        assert seen["period"] == (
-            pd.Timestamp("2024-06-02"),
-            pd.Timestamp("2024-06-03"),
+            results = tst.pr_results()
+        (result,) = results.checks.values()
+        assert list(result.detail.index) == list(
+            pd.date_range("2024-06-02", "2024-06-04", freq="D")
         )
 
     def test_filters_narrow_the_rows(self, monkeypatch):
@@ -6094,6 +6086,42 @@ class TestPrResults:
         tst._setup_completed["sim"] = False
         with pytest.raises(RuntimeError, match="setup"):
             tst.pr_results()
+
+    def test_fixed_requires_setup_names_meas_only(self, monkeypatch):
+        base = make_pr_pair(monkeypatch, reference_source="fixed", expected_pr=0.78)
+        tst = CapTest(
+            test_setup="pr_synth",
+            meas=base.meas,
+            dc_nameplate=DC_NAMEPLATE,
+            reference_source="fixed",
+            expected_pr=0.78,
+            test_tolerance="- 5",
+        )
+        with pytest.raises(RuntimeError) as excinfo:
+            tst.pr_results()
+        message = str(excinfo.value)
+        assert "requires tst.meas to be set up" in message
+        assert "sim" not in message
+        assert "both" not in message
+
+    def test_derived_requires_setup_names_both_sides(self, monkeypatch):
+        tst = make_pr_pair(monkeypatch)
+        tst._setup_completed["sim"] = False
+        with pytest.raises(
+            RuntimeError, match=r"requires tst\.meas and tst\.sim to be set up"
+        ):
+            tst.pr_results()
+
+    def test_all_rows_filtered_names_data_filtered(self, monkeypatch):
+        tst = make_pr_pair(monkeypatch, reference_source="fixed", expected_pr=0.78)
+        with pytest.warns(UserWarning, match="removed all data"):
+            tst.meas.filter_irr(2000, 3000)
+        assert tst.meas.data_filtered.empty
+        with pytest.raises(ValueError) as excinfo:
+            tst.pr_results()
+        message = str(excinfo.value)
+        assert "tst.meas.data_filtered is empty" in message
+        assert "dropped" not in message
 
     def test_fixed_needs_only_meas_setup(self, monkeypatch):
         tst = make_pr_pair(monkeypatch, reference_source="fixed", expected_pr=0.78)
@@ -6472,21 +6500,104 @@ class TestPrRunTest:
     def test_rep_cond_is_refused(self, monkeypatch):
         tst = make_pr_pair(monkeypatch)
         with pytest.raises(
-            ValueError, match="reporting conditions do not apply to a PR test"
+            ValueError,
+            match=r"Reporting conditions do not apply to a PR test; "
+            r"tst\.rep_cond\(\) is for regression tests\.",
         ):
             tst.rep_cond()
 
-    def test_scatter_plots_use_scatter_default(self, monkeypatch):
-        tst = make_pr_pair(monkeypatch)
+    @pytest.mark.parametrize("reference_source", ["derived", "fixed"])
+    def test_scatter_plots_use_the_default_scatter(self, monkeypatch, reference_source):
+        hv = pytest.importorskip("holoviews")
+        fixed = {"expected_pr": 0.78} if reference_source == "fixed" else {}
+        tst = make_pr_pair(monkeypatch, reference_source=reference_source, **fixed)
         seen = {}
+        real = ct.SCATTER_REGISTRY["default"]
 
         def spy(cd, **kwargs):
             seen.update(cd=cd, kwargs=kwargs)
-            return "plot"
+            return real(cd, **kwargs)
 
-        monkeypatch.setitem(ct.SCATTER_REGISTRY, "scatter_default", spy)
-        assert tst.scatter_plots("sim", height=200) == "plot"
-        assert seen == {"cd": tst.sim, "kwargs": {"height": 200}}
+        monkeypatch.setitem(ct.SCATTER_REGISTRY, "default", spy)
+        layout = tst.scatter_plots("meas", height=200)
+        assert isinstance(layout, hv.Layout)
+        assert seen == {"cd": tst.meas, "kwargs": {"height": 200}}
+
+    def test_scatter_plots_unpatched_registry(self, monkeypatch):
+        hv = pytest.importorskip("holoviews")
+        tst = make_pr_pair(monkeypatch)
+        assert isinstance(tst.scatter_plots("sim"), hv.Layout)
+
+    def test_overlay_scatters_derived(self, monkeypatch):
+        hv = pytest.importorskip("holoviews")
+        tst = make_pr_pair(monkeypatch)
+        overlay = tst.overlay_scatters(expected_label="Model")
+        assert isinstance(overlay, hv.Overlay)
+        assert [child.label for child in overlay] == ["Measured", "Model"]
+
+    def test_overlay_scatters_fixed_is_refused(self, monkeypatch):
+        pytest.importorskip("holoviews")
+        tst = make_pr_pair(monkeypatch, reference_source="fixed", expected_pr=0.78)
+        with pytest.raises(ValueError, match="reference_source='fixed'"):
+            tst.overlay_scatters()
+
+    def test_replay_filters_on_a_fixed_test(self, monkeypatch):
+        tst = make_pr_pair(monkeypatch, reference_source="fixed", expected_pr=0.78)
+        tst.meas_filters_pending = [{"type": "Irradiance", "low": 400, "high": 900}]
+        assert tst.replay_filters() is tst
+        assert [type(step) for step in tst.meas.filters] == [Irradiance]
+        assert tst.meas_filters_pending == []
+        with pytest.raises(ValueError, match="reference_source='fixed'"):
+            tst.replay_filters(side="sim")
+        with pytest.raises(ValueError, match=r"replays only \['meas'\]"):
+            tst.replay_filters(configs={"sim": []})
+
+    def test_get_summary_on_a_fixed_test(self, monkeypatch):
+        tst = make_pr_pair(monkeypatch, reference_source="fixed", expected_pr=0.78)
+        tst.meas.filter_irr(400, 900)
+        pd.testing.assert_frame_equal(tst.get_summary(), tst.meas.get_summary())
+
+    def test_get_summary_on_a_derived_test(self, monkeypatch):
+        tst = make_pr_pair(monkeypatch)
+        tst.meas.filter_irr(400, 900)
+        tst.sim.filter_irr(300, 900)
+        pd.testing.assert_frame_equal(
+            tst.get_summary(),
+            pd.concat([tst.meas.get_summary(), tst.sim.get_summary()]),
+        )
+
+    def test_derived_meas_only_setup_without_sim(self, monkeypatch):
+        tst = make_pr_pair(monkeypatch)
+        tst.sim = None
+        assert tst.setup(side="meas", verbose=False) is tst
+        assert tst.setup_completed("meas") is True
+        with pytest.raises(RuntimeError, match="sim must be set"):
+            tst.setup(verbose=False)
+        with pytest.raises(RuntimeError, match="sim must be set"):
+            tst.run_test()
+
+    def test_fixed_reload_meas_keeps_the_run_fingerprint(self, monkeypatch):
+        tst, _ = _pr_loaded(monkeypatch, reference_source="fixed", expected_pr=0.78)
+        tst.meas.filter_irr(400, 900)
+        tst.run_test()
+        fingerprint = tst.run_fingerprint
+        assert fingerprint is not None
+        tst.reload("meas", verbose=False)
+        assert tst.run_fingerprint is None
+        tst.run_test()
+        assert tst.run_fingerprint == fingerprint
+
+    def test_derived_reload_sim_keeps_the_run_fingerprint(self, monkeypatch):
+        tst, _ = _pr_loaded(monkeypatch)
+        tst.meas.filter_irr(400, 900)
+        tst.sim.filter_irr(300, 900)
+        tst.run_test()
+        fingerprint = tst.run_fingerprint
+        assert fingerprint is not None
+        tst.reload("sim", verbose=False)
+        assert tst.run_fingerprint is None
+        tst.run_test()
+        assert tst.run_fingerprint == fingerprint
 
 
 # ``sorted(tst.to_mapping())`` of an ``e2848_default`` test with filters and a
@@ -6590,7 +6701,10 @@ class TestPrMapping:
             assert getattr(reloaded, key) == getattr(tst, key)
         assert reloaded.meas_filters_pending == tst.meas.filters_to_config()
         assert reloaded.sim_filters_pending == tst.sim.filters_to_config()
-        assert reloaded.meas_checks_pending == tst.meas.checks_to_config()
+        for side in ("meas", "sim"):
+            want = getattr(tst, side).checks_to_config()
+            assert getattr(reloaded, side).checks_to_config() == want
+            assert getattr(reloaded, f"{side}_checks_pending") == []
         assert isinstance(reloaded.run_test(), prtest.PrTestResults)
         for side in ("meas", "sim"):
             got, want = getattr(reloaded, side), getattr(tst, side)
@@ -6601,6 +6715,94 @@ class TestPrMapping:
             == tst.resolved_setup.content_digest()
         )
         assert reloaded.mapping_fingerprint() == tst.mapping_fingerprint()
+
+    def test_loaded_checks_are_evaluated_by_replay_and_results(
+        self, monkeypatch, tmp_path
+    ):
+        tst, loaders = _pr_loaded(monkeypatch)
+        tst.meas.check_duration(400, 1000)
+        path = tmp_path / "pr.yaml"
+        with pytest.warns(UserWarning, match="programmatic-only"):
+            tst.to_yaml(path)
+        reloaded = CapTest.from_yaml(path, **loaders)
+        assert reloaded.setup_completed() is True
+        assert reloaded.meas.checks_to_config() == tst.meas.checks_to_config()
+        results = reloaded.replay_filters().pr_results()
+        assert list(results.checks) == ["meas: Duration"]
+        assert results.valid is False
+
+    def test_loaded_checks_survive_an_added_check(self, monkeypatch, tmp_path):
+        tst, loaders = _pr_loaded(monkeypatch)
+        tst.meas.check_duration(400, 1000)
+        saved = tst.meas.checks_to_config()
+        path = tmp_path / "pr.yaml"
+        with pytest.warns(UserWarning, match="programmatic-only"):
+            tst.to_yaml(path)
+        reloaded = CapTest.from_yaml(path, **loaders)
+        reloaded.meas.check_interval_count(400, 1, custom_name="intervals")
+        results = reloaded.run_test()
+        assert sorted(results.checks) == ["meas: Duration", "meas: intervals"]
+        assert results.valid is False
+        with pytest.warns(UserWarning, match="programmatic-only"):
+            mapping = reloaded.to_mapping()
+        assert mapping["meas_checks"][0] == saved[0]
+        assert len(mapping["meas_checks"]) == 2
+
+    def test_fixed_load_adopts_meas_checks_only(self, monkeypatch, tmp_path):
+        tst, loaders = _pr_loaded(
+            monkeypatch, reference_source="fixed", expected_pr=0.78
+        )
+        tst.meas.check_duration(400, 1)
+        path = tmp_path / "pr.yaml"
+        with pytest.warns(UserWarning, match="programmatic-only"):
+            tst.to_yaml(path)
+        sub = ct.load_config(path)
+        sub["sim_checks"] = [{"type": "Duration", "threshold": 400, "min_hours": 1}]
+        reloaded = CapTest.from_mapping(sub, base_dir=tmp_path, **loaders)
+        assert reloaded.meas.checks_to_config() == tst.meas.checks_to_config()
+        assert reloaded.meas_checks_pending == []
+        assert reloaded.sim_checks_pending == sub["sim_checks"]
+
+    def test_regression_load_adopts_checks(self, monkeypatch, tmp_path):
+        base = make_pr_pair(monkeypatch)
+        frames = {"meas": base.meas.data, "sim": base.sim.data}
+
+        @loader_id("test.reg_meas")
+        def meas_loader(path, **kwargs):
+            return _pr_capdata("meas", frames["meas"])
+
+        @loader_id("test.reg_sim")
+        def sim_loader(path, **kwargs):
+            return _pr_capdata("sim", frames["sim"])
+
+        sub = {
+            "test_setup": "custom",
+            "meas_path": "meas.csv",
+            "sim_path": "sim.csv",
+            "overrides": {
+                "reg_cols_meas": _PR_COLS,
+                "reg_cols_sim": _PR_COLS,
+                "reg_fml": "power ~ poa",
+            },
+            "test_tolerance": "- 5",
+        }
+        loaders = {"meas_loader": meas_loader, "sim_loader": sim_loader}
+        plain = CapTest.from_mapping(sub, base_dir=tmp_path, **loaders)
+        with pytest.warns(UserWarning, match="programmatic-only"):
+            plain_mapping = plain.to_mapping()
+        config = [{"type": "Duration", "threshold": 400, "min_hours": 1}]
+        tst = CapTest.from_mapping(
+            {**sub, "meas_checks": config}, base_dir=tmp_path, **loaders
+        )
+        assert tst.meas.checks_to_config() == config
+        assert tst.meas_checks_pending == []
+        with (
+            pytest.warns(UserWarning, match="programmatic-only"),
+            pytest.warns(UserWarning, match=r"tst\.meas .*not saved"),
+        ):
+            mapping = tst.to_mapping()
+        assert "meas_checks" not in mapping
+        assert mapping == plain_mapping
 
     def test_regression_checks_are_not_saved(self, ct_default):
         ct_default.sim_checks_pending = [{"type": "Duration", "min_hours": 1}]
