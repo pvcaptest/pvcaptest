@@ -23,6 +23,13 @@ from captest.capdata import CapData
 from captest.captest import CapTestResults
 from captest.filters import Irradiance, RepCond, step_from_config
 from captest.setup import SetupFitError
+from tests.pr_fixtures import (
+    DC_NAMEPLATE,
+    FIXED_T_REF,
+    MEAS_PR_FACTOR,
+    SIM_PR_FACTOR,
+    make_pr_pair,
+)
 from tests.setup_fixtures import build_meas_default, build_sim_default
 
 # Presets that the shipped meas_cd_default / sim_cd_default fixtures cover
@@ -140,11 +147,10 @@ class TestPrRegistry:
         ct.test_setups()
         assert "e2848_default [regression]" in capsys.readouterr().out
 
-    @pytest.mark.parametrize("method", ["to_mapping", "captest_results"])
-    def test_captest_is_guarded(self, pr_tmp, method):
+    def test_to_mapping_is_guarded(self, pr_tmp):
         tst = CapTest(test_setup="pr_tmp", meas=CapData("m"), sim=CapData("s"))
         with pytest.raises(NotImplementedError, match="not yet run by CapTest"):
-            getattr(tst, method)()
+            tst.to_mapping()
 
     def test_captest_results_guard_does_not_resolve_the_setup(
         self, pr_tmp, monkeypatch
@@ -154,7 +160,7 @@ class TestPrRegistry:
 
         monkeypatch.setattr(ct, "resolve_test_setup", fail)
         tst = CapTest(test_setup="pr_tmp", meas=CapData("m"), sim=CapData("s"))
-        with pytest.raises(NotImplementedError, match="not yet run by CapTest"):
+        with pytest.raises(ValueError, match="regression tests.*pr_results"):
             tst.captest_results()
 
     def test_params_override_derives_pr_setup(self, pr_tmp):
@@ -5855,3 +5861,308 @@ class TestPrSetup:
         tst = CapTest.from_yaml(path, run_setup=False)
         assert tst.meas_checks_pending == config
         assert tst.sim_checks_pending == []
+
+
+class TestPrResults:
+    def test_derived_single_corrected(self, monkeypatch):
+        from captest import prtest
+
+        tst = make_pr_pair(monkeypatch, temp_corrected=True)
+        results = tst.pr_results()
+        sim = tst.sim.data_filtered
+        assert isinstance(results, prtest.PrTestResults)
+        assert results.ratio == pytest.approx(MEAS_PR_FACTOR)
+        assert results.t_ref == pytest.approx(prtest.weighted_cell_temp(sim.g, sim.tc))
+        assert results.expected_ratio == pytest.approx(SIM_PR_FACTOR)
+        assert results.reference_source == "derived"
+        assert results.temp_corrected is True
+        assert results.power_temp_coeff == -0.4
+        assert results.points_used == {"meas": 96, "sim": 96}
+        assert results.dt_hours == {"meas": 0.25, "sim": 0.25}
+        assert results.numerator == {
+            "meas": {"kind": "power", "units": "W"},
+            "sim": {"kind": "power", "units": "W"},
+        }
+        assert results.monthly is None
+
+    def test_judgement_agrees_with_judge(self, monkeypatch):
+        from captest import prtest
+
+        tst = make_pr_pair(monkeypatch, test_tolerance="- 3")
+        results = tst.pr_results()
+        expected = prtest.judge(results.ratio, results.expected_ratio, 0.03)
+        assert results.tolerance == "- 3"
+        assert results.threshold == expected.threshold
+        assert results.margin == expected.margin
+        assert results.ratio_to_threshold == expected.ratio_to_threshold
+        assert results.passed is expected.passed is True
+
+    def test_failing_ratio(self, monkeypatch):
+        tst = make_pr_pair(monkeypatch, test_tolerance="- 1")
+        tst.meas.data["p"] *= 0.9
+        assert tst.pr_results().passed is False
+
+    def test_fixed_single_plain_without_sim(self, monkeypatch):
+        tst = make_pr_pair(monkeypatch, reference_source="fixed", expected_pr=0.78)
+        assert tst.sim is None
+        results = tst.pr_results()
+        assert results.expected_ratio == results.expected_ratio_undegraded == 0.78
+        assert results.reference_source == "fixed"
+        assert results.points_used == {"meas": 96}
+        assert results.dropped_nan == {"meas": 0}
+        assert results.ratio == pytest.approx(MEAS_PR_FACTOR)
+        assert results.t_ref is None
+
+    def test_fixed_single_corrected_uses_stated_t_ref(self, monkeypatch):
+        tst = make_pr_pair(
+            monkeypatch,
+            temp_corrected=True,
+            reference_source="fixed",
+            expected_pr=0.78,
+            t_ref=FIXED_T_REF,
+        )
+        results = tst.pr_results()
+        assert results.t_ref == FIXED_T_REF
+        assert results.ratio == pytest.approx(MEAS_PR_FACTOR)
+
+    def test_fixed_monthly_corrected_missing_month(self, monkeypatch):
+        tst = make_pr_pair(
+            monkeypatch,
+            temp_corrected=True,
+            reference_source="fixed",
+            granularity="monthly",
+            expected_pr_monthly=[0.78] * 12,
+            t_ref_monthly=[FIXED_T_REF if m != 5 else None for m in range(12)],
+        )
+        with pytest.raises(ValueError, match="month 6.*June"):
+            tst.pr_results()
+
+    def test_fixed_monthly_plain_needs_no_temperature(self, monkeypatch):
+        tst = make_pr_pair(
+            monkeypatch,
+            reference_source="fixed",
+            granularity="monthly",
+            expected_pr_monthly=[0.7] * 5 + [0.78] + [0.7] * 6,
+        )
+        results = tst.pr_results()
+        assert results.expected_ratio == pytest.approx(0.78)
+        assert results.granularity == "monthly"
+        assert results.t_ref is None
+        assert list(results.monthly.index) == [6]
+        assert results.monthly.loc[6, "expected_pr"] == pytest.approx(0.78)
+        assert "t_ref" not in results.monthly.columns
+
+    def test_derived_monthly_plain_has_no_temperature_role(self, monkeypatch):
+        tst = make_pr_pair(
+            monkeypatch,
+            granularity="monthly",
+            start="2024-06-28",
+            periods=96 * 6,
+        )
+        results = tst.pr_results()
+        assert list(results.monthly.index) == [6, 7]
+        assert results.t_ref is None
+        assert results.expected_ratio == pytest.approx(SIM_PR_FACTOR)
+        assert results.monthly["expected_pr"].tolist() == pytest.approx(
+            [SIM_PR_FACTOR] * 2
+        )
+
+    def test_derived_monthly_corrected_adds_t_ref_column(self, monkeypatch):
+        tst = make_pr_pair(
+            monkeypatch,
+            temp_corrected=True,
+            granularity="monthly",
+            start="2024-06-29",
+            periods=96 * 4,
+        )
+        results = tst.pr_results()
+        assert results.t_ref is None
+        assert results.monthly["t_ref"].notna().all()
+        assert list(results.monthly.index) == [6, 7]
+
+    def test_dropped_rows_counted_per_side(self, monkeypatch):
+        tst = make_pr_pair(monkeypatch)
+        tst.meas.data.iloc[:3, tst.meas.data.columns.get_loc("p")] = np.nan
+        tst.sim.data.iloc[:2, tst.sim.data.columns.get_loc("g")] = np.inf
+        with pytest.warns(UserWarning, match="dropped"):
+            results = tst.pr_results()
+        assert results.dropped_nan == {"meas": 3, "sim": 0}
+        assert results.dropped_nonfinite == {"meas": 0, "sim": 2}
+        assert results.points_used == {"meas": 93, "sim": 94}
+
+    def test_all_nan_power_names_the_side(self, monkeypatch):
+        tst = make_pr_pair(monkeypatch)
+        tst.meas.data["p"] = np.nan
+        with (
+            pytest.warns(UserWarning, match="dropped"),
+            pytest.raises(ValueError, match="meas"),
+        ):
+            tst.pr_results()
+
+    def test_degradation(self, monkeypatch):
+        tst = make_pr_pair(monkeypatch, degradation_rate=0.4, degradation_years=1.5)
+        results = tst.pr_results()
+        assert results.expected_ratio_undegraded == pytest.approx(SIM_PR_FACTOR)
+        assert results.expected_ratio == pytest.approx(SIM_PR_FACTOR * 0.994)
+        assert results.degradation == {"rate": 0.4, "years": 1.5, "factor": 0.994}
+
+    def test_no_degradation(self, monkeypatch):
+        results = make_pr_pair(monkeypatch).pr_results()
+        assert results.degradation is None
+        assert results.expected_ratio == results.expected_ratio_undegraded
+
+    def test_availability_role(self, monkeypatch):
+        tst = make_pr_pair(monkeypatch, availability_role=True)
+        tst.meas.data["avail"] = 0.5
+        results = tst.pr_results()
+        assert results.ratio_without_availability == pytest.approx(MEAS_PR_FACTOR)
+        assert results.ratio == pytest.approx(MEAS_PR_FACTOR / 0.5)
+
+    def test_scalar_availability(self, monkeypatch):
+        results = make_pr_pair(monkeypatch, availability=0.5).pr_results()
+        assert results.ratio == pytest.approx(MEAS_PR_FACTOR / 0.5)
+
+    def test_duration_check_counts_only_pr_rows(self, monkeypatch):
+        tst = make_pr_pair(monkeypatch)
+        data = tst.meas.data
+        qualifying = data.index[data.g >= 400]
+        data.loc[qualifying[:3], "p"] = np.nan
+        needed = len(qualifying) * 0.25 - 0.25
+        tst.meas.check_duration(400, needed)
+        with pytest.warns(UserWarning, match="dropped"):
+            results = tst.pr_results()
+        (key,) = results.checks
+        assert key.startswith("meas: ")
+        assert results.checks[key].passed is False
+        assert results.valid is False
+        assert results.passed is True
+
+    def test_checks_of_both_sides_are_prefixed(self, monkeypatch):
+        tst = make_pr_pair(monkeypatch)
+        tst.meas.check_duration(400, 1)
+        tst.sim.check_duration(400, 1)
+        results = tst.pr_results()
+        assert sorted(k.split(":")[0] for k in results.checks) == ["meas", "sim"]
+        assert results.valid is True
+
+    def test_no_checks_is_valid(self, monkeypatch):
+        results = make_pr_pair(monkeypatch).pr_results()
+        assert results.checks == {}
+        assert results.valid is True
+
+    def test_period_is_the_measured_pr_day_span(self, monkeypatch):
+        from captest import checks
+
+        tst = make_pr_pair(monkeypatch, start="2024-06-01", periods=96 * 3)
+        data = tst.meas.data
+        data.loc[data.index.normalize() == pd.Timestamp("2024-06-01"), "p"] = np.nan
+        seen = {}
+        original = checks.CheckContext
+
+        def spy(**kwargs):
+            seen.update(kwargs)
+            return original(**kwargs)
+
+        monkeypatch.setattr(checks, "CheckContext", spy)
+        tst.meas.check_duration(400, 1)
+        with pytest.warns(UserWarning, match="dropped"):
+            tst.pr_results()
+        assert seen["period"] == (
+            pd.Timestamp("2024-06-02"),
+            pd.Timestamp("2024-06-03"),
+        )
+
+    def test_filters_narrow_the_rows(self, monkeypatch):
+        tst = make_pr_pair(monkeypatch)
+        tst.meas.filter_irr(500, 900)
+        results = tst.pr_results()
+        assert results.points_used["meas"] == len(tst.meas.data_filtered)
+        assert results.points_used["meas"] < 96
+
+    def test_print_res(self, monkeypatch, capsys):
+        tst = make_pr_pair(monkeypatch)
+        tst.pr_results()
+        assert capsys.readouterr().out == ""
+        results = tst.pr_results(print_res=True)
+        assert capsys.readouterr().out.strip() == str(results)
+
+    def test_requires_setup(self, monkeypatch):
+        tst = make_pr_pair(monkeypatch)
+        tst._setup_completed["sim"] = False
+        with pytest.raises(RuntimeError, match="setup"):
+            tst.pr_results()
+
+    def test_fixed_needs_only_meas_setup(self, monkeypatch):
+        tst = make_pr_pair(monkeypatch, reference_source="fixed", expected_pr=0.78)
+        tst._setup_completed["sim"] = False
+        assert tst.pr_results().reference_source == "fixed"
+
+    def test_non_finite_expected_is_refused(self, monkeypatch):
+        tst = make_pr_pair(monkeypatch, reference_source="fixed", expected_pr=0.78)
+        tst.expected_pr = np.inf
+        with pytest.raises(ValueError, match="expected"):
+            tst.pr_results()
+
+    def test_non_finite_reference_temperature_is_refused(self, monkeypatch):
+        tst = make_pr_pair(
+            monkeypatch,
+            temp_corrected=True,
+            reference_source="fixed",
+            expected_pr=0.78,
+            t_ref=FIXED_T_REF,
+        )
+        tst.t_ref = np.nan
+        with pytest.raises(ValueError, match="t_ref"):
+            tst.pr_results()
+
+    def test_regression_test_is_refused(self, tst):
+        with pytest.raises(ValueError, match="PR test"):
+            tst.pr_results()
+
+    def test_dc_nameplate_scales_expected_energy(self, monkeypatch):
+        tst = make_pr_pair(monkeypatch)
+        tst.dc_nameplate = 2 * DC_NAMEPLATE
+        assert tst.pr_results().ratio == pytest.approx(MEAS_PR_FACTOR / 2)
+
+
+class TestHeadlineAccessors:
+    def test_cap_results_headline(self):
+        results = CapTestResults(
+            cap_ratio=0.97,
+            passed=True,
+            tolerance="- 4",
+            bounds="x",
+            expected_capacity=1.0,
+            actual_capacity=0.97,
+            tested_capacity=0.97,
+            points_used={},
+            regression_tables={},
+            rc=pd.DataFrame(),
+            rc_source="meas",
+        )
+        assert results.kind == "cap_ratio"
+        assert results.ratio == 0.97
+        assert results.expected_ratio == 1.0
+
+    def test_cap_results_fields_unchanged(self):
+        import dataclasses
+
+        assert [f.name for f in dataclasses.fields(CapTestResults)] == [
+            "cap_ratio",
+            "passed",
+            "tolerance",
+            "bounds",
+            "expected_capacity",
+            "actual_capacity",
+            "tested_capacity",
+            "points_used",
+            "regression_tables",
+            "rc",
+            "rc_source",
+            "rc_kind",
+            "regression_stats",
+        ]
+
+    def test_pr_results_kind(self, monkeypatch):
+        results = make_pr_pair(monkeypatch).pr_results()
+        assert results.kind == "pr"

@@ -29,6 +29,7 @@ import weakref
 from dataclasses import dataclass
 from importlib import resources
 from pathlib import Path
+from typing import ClassVar
 
 import numpy as np
 import pandas as pd
@@ -82,6 +83,10 @@ class CapTestResults:
     Returned by :meth:`CapTest.captest_results`. ``str(results)`` (or
     :meth:`summary`) reproduces the legacy printed report;
     :meth:`styled_pvalues` reproduces the legacy p-value Styler.
+
+    ``kind``, :attr:`ratio` and :attr:`expected_ratio` are the headline
+    accessors shared with :class:`captest.prtest.PrTestResults`, so code that
+    reports a result need not know which kind of test produced it.
 
     Attributes
     ----------
@@ -137,6 +142,18 @@ class CapTestResults:
     rc_source: str | None
     rc_kind: str | None = None
     regression_stats: dict | None = None
+
+    kind: ClassVar[str] = "cap_ratio"
+
+    @property
+    def ratio(self):
+        """float: The headline ratio, ``cap_ratio``."""
+        return self.cap_ratio
+
+    @property
+    def expected_ratio(self):
+        """float: The ratio a perfect system scores, always 1.0."""
+        return 1.0
 
     def summary(self):
         """Return the legacy printed report as a string."""
@@ -2311,8 +2328,8 @@ class CapTest(param.Parameterized):
         ------
         ValueError
             If ``side`` is invalid, ``side='sim'`` on a PR test with a fixed
-            reference, or no path is stored for that side and none was passed (instance constructed from pre-built ``CapData``
-            objects).
+            reference, or no path is stored for that side and none was passed
+            (instance constructed from pre-built ``CapData`` objects).
         """
         if side not in ("meas", "sim"):
             raise ValueError(f"side must be 'meas' or 'sim', got {side!r}.")
@@ -3750,11 +3767,14 @@ class CapTest(param.Parameterized):
 
         Raises
         ------
-        NotImplementedError
-            If the named preset is a PR setup. Temporary: lifted once
-            CapTest runs PR setups.
+        ValueError
+            If the test is a PR test; use :meth:`pr_results`.
         """
-        _refuse_pr_setup(TEST_SETUPS.get(self.test_setup))
+        if self.test_kind == "pr":
+            raise ValueError(
+                "captest_results applies to regression tests; this is a PR "
+                "test, use tst.pr_results()."
+            )
         self._require_meas_and_sim()
         if self.meas.regression_formula != self.sim.regression_formula:
             warnings.warn("CapData objects do not have the same regression formula.")
@@ -3830,6 +3850,249 @@ class CapTest(param.Parameterized):
                 "meas": regression_statistics(self.meas.regression_results, rc),
                 "sim": regression_statistics(self.sim.regression_results, rc),
             },
+        )
+        if print_res:
+            print(results)
+        return results
+
+    def _pr_side_inputs(self, side):
+        """Gather one side's PR inputs from its filtered data.
+
+        Parameters
+        ----------
+        side : {"meas", "sim"}
+            Which side.
+
+        Returns
+        -------
+        tuple
+            ``(frame, rows, energy_wh, dt)``: the numeric input columns of
+            the kept rows, the :class:`captest.prtest.RowSet`, the interval
+            energy in Wh of the complete rows and the unfiltered timestep in
+            hours.
+
+        Raises
+        ------
+        ValueError
+            If no row has every input finite.
+        """
+        cd = getattr(self, side)
+        roles = cd.regression_cols
+        kind = getattr(self, f"{side}_numerator_kind")
+        columns = {"energy": roles[kind], "poa": roles["poa"]}
+        if self.resolved_setup.temp_corrected and (
+            side == "meas" or self.reference_source == "derived"
+        ):
+            columns["cell_temp"] = roles["cell_temp"]
+        if side == "meas" and "availability" in roles:
+            columns["availability"] = roles["availability"]
+        data = cd.data_filtered
+        frame = pd.DataFrame({name: data[col] for name, col in columns.items()})
+        rows = prtest.complete_rows(frame, label=side)
+        if rows.index.empty:
+            raise ValueError(
+                f"no complete rows remain for side {side!r}: {rows.dropped_nan} "
+                f"row(s) dropped for NaN or missing inputs and "
+                f"{rows.dropped_nonfinite} for non-finite (inf) inputs."
+            )
+        frame = frame.loc[rows.index]
+        dt = prtest.dt_hours(cd.data.index)
+        energy_wh = prtest.to_energy_wh(
+            frame["energy"],
+            kind=kind,
+            units=getattr(self, f"{side}_numerator_units"),
+            dt_hours=dt,
+        )
+        return frame, rows, energy_wh, dt
+
+    def pr_results(self, print_res=False):
+        """Compute the performance ratio test result.
+
+        Uses each side's filtered data (``data_filtered``), restricted to the
+        rows where every input is finite, and ``self.dc_nameplate``,
+        ``self.test_tolerance``, the degradation and availability settings.
+        The expected PR comes from the modeled rows (``reference_source ==
+        'derived'``) or from the stated values (``'fixed'``); a monthly
+        reference is combined by the measured insolation of each month.
+
+        Parameters
+        ----------
+        print_res : bool, default False
+            When True, prints ``str(results)``.
+
+        Returns
+        -------
+        captest.prtest.PrTestResults
+            Measured and expected PR, judgement, per-side counts and checks.
+            ``valid`` is True when every registered validity check passed
+            (also with none registered) and is independent of ``passed``.
+            ``checks`` holds each wired side's check results keyed
+            ``"meas: <label>"`` / ``"sim: <label>"``; measured checks that
+            read the test period use the first to last calendar day with a
+            measured PR row, modeled checks the span of the filtered sim data.
+            ``monthly`` is set only for monthly granularity: the measured
+            monthly table with the undegraded ``expected_pr`` of each month
+            and, on a temperature-corrected test, its ``t_ref``.
+
+        Raises
+        ------
+        ValueError
+            If this is not a PR test, a side has no complete row, a monthly
+            reference lacks a month of the test, or the total measured or
+            expected energy, a ratio or a reference temperature is not
+            finite.
+        RuntimeError
+            If a side the test evaluates has not been set up; run
+            :meth:`setup`.
+
+        Warns
+        -----
+        UserWarning
+            Naming the side and the counts of rows dropped for NaN, missing
+            or non-finite inputs.
+        """
+        if self.test_kind != "pr":
+            raise ValueError(
+                "pr_results applies to PR tests; this is a regression test, "
+                "use tst.captest_results()."
+            )
+        sides = self._pr_sides()
+        if not all(getattr(self, s) is not None for s in sides) or not all(
+            self.setup_completed(s) for s in sides
+        ):
+            raise RuntimeError(
+                "pr_results requires both sides to be set up; call tst.setup() first."
+            )
+        corrected = self.resolved_setup.temp_corrected
+        power_temp_coeff = self.power_temp_coeff if corrected else None
+
+        inputs = {side: self._pr_side_inputs(side) for side in sides}
+        meas_frame, meas_rows, meas_energy, meas_dt = inputs["meas"]
+        monthly = self.reference_granularity == "monthly"
+
+        if self.reference_source == "derived":
+            sim_frame, sim_rows, sim_energy, sim_dt = inputs["sim"]
+            reference = prtest.derive_reference(
+                sim_energy,
+                sim_frame["poa"],
+                dc_nameplate=self.dc_nameplate,
+                dt_hours=sim_dt,
+                cell_temp=sim_frame["cell_temp"] if corrected else None,
+                monthly=monthly,
+                unfiltered_index=self.sim.data.index,
+            )
+        else:
+            reference = prtest.fixed_reference(
+                temp_corrected=corrected,
+                granularity=self.reference_granularity,
+                expected_pr=self.expected_pr,
+                t_ref=self.t_ref,
+                expected_pr_monthly=self.expected_pr_monthly,
+                t_ref_monthly=self.t_ref_monthly,
+            )
+        reference.require_months(
+            meas_frame.index.month.unique(), temp_corrected=corrected
+        )
+
+        availability = self.availability
+        if "availability" in meas_frame:
+            availability = meas_frame["availability"]
+        measured = prtest.measured_pr(
+            meas_energy,
+            meas_frame["poa"],
+            dc_nameplate=self.dc_nameplate,
+            dt_hours=meas_dt,
+            reference=reference,
+            cell_temp=meas_frame["cell_temp"] if corrected else None,
+            power_temp_coeff=power_temp_coeff,
+            availability=availability,
+        )
+
+        expected_undegraded = prtest.weighted_expected_pr(
+            reference, measured.monthly["insolation_wh_m2"]
+        )
+        rate, years = self.degradation_rate, self.degradation_years
+        degradation = None
+        factor = 1.0
+        if rate is not None:
+            factor = prtest.degradation_factor(rate, years)
+            degradation = {"rate": rate, "years": years, "factor": factor}
+        expected_ratio = expected_undegraded * factor
+
+        quantities = {
+            "total measured energy": meas_energy.sum(),
+            "total expected energy": measured.intervals["expected_wh"].sum(),
+            "ratio": measured.ratio,
+            "expected ratio": expected_ratio,
+        }
+        if corrected:
+            # A sum is non-finite when any applied Tref is NaN or infinite.
+            quantities["reference temperature"] = measured.intervals["t_ref"].sum()
+        for name, value in quantities.items():
+            if not np.isfinite(value):
+                raise ValueError(f"The {name} is not finite ({value}).")
+
+        judgement = prtest.judge(
+            measured.ratio,
+            expected_ratio,
+            prtest.parse_pr_tolerance(self.test_tolerance),
+        )
+
+        first, last = meas_rows.index.min(), meas_rows.index.max()
+        period = tuple(
+            t.normalize().tz_localize(None) if t.tzinfo else t.normalize()
+            for t in (first, last)
+        )
+        checks = {}
+        for side in sides:
+            _, rows, _, dt = inputs[side]
+            results = getattr(self, side).evaluate_checks(
+                dt_hours=dt,
+                pr_rows=rows.index,
+                period=period if side == "meas" else None,
+            )
+            checks.update({f"{side}: {key}": value for key, value in results.items()})
+
+        monthly_table = None
+        if monthly:
+            monthly_table = measured.monthly.assign(
+                expected_pr=measured.monthly.index.map(reference.pr)
+            )
+            if corrected:
+                monthly_table["t_ref"] = measured.monthly.index.map(reference.t_ref)
+
+        results = prtest.PrTestResults(
+            ratio=measured.ratio,
+            ratio_without_availability=measured.ratio_without_availability,
+            temp_corrected=corrected,
+            dc_nameplate=self.dc_nameplate,
+            power_temp_coeff=power_temp_coeff,
+            intervals=measured.intervals,
+            points_used={s: len(inputs[s][1].index) for s in sides},
+            dropped_nan={s: inputs[s][1].dropped_nan for s in sides},
+            dropped_nonfinite={s: inputs[s][1].dropped_nonfinite for s in sides},
+            dt_hours={s: inputs[s][3] for s in sides},
+            numerator={
+                s: {
+                    "kind": getattr(self, f"{s}_numerator_kind"),
+                    "units": getattr(self, f"{s}_numerator_units"),
+                }
+                for s in sides
+            },
+            t_ref=reference.t_ref if corrected and not monthly else None,
+            expected_ratio=expected_ratio,
+            expected_ratio_undegraded=expected_undegraded,
+            degradation=degradation,
+            tolerance=self.test_tolerance,
+            threshold=judgement.threshold,
+            margin=judgement.margin,
+            ratio_to_threshold=judgement.ratio_to_threshold,
+            passed=judgement.passed,
+            valid=all(result.passed for result in checks.values()),
+            checks=checks,
+            reference_source=self.reference_source,
+            granularity=self.reference_granularity,
+            monthly=monthly_table,
         )
         if print_res:
             print(results)
