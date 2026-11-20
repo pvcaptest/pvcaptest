@@ -949,6 +949,7 @@ _CAPTEST_YAML_KEYS = frozenset(
         "sim_prep",
         "reporting_conditions_values",
         *_PR_SCALAR_KEYS,
+        # Per-side check pipelines; they become CapTest instance state later.
         *_PR_CHECK_KEYS,
     }
 )
@@ -3020,6 +3021,7 @@ class CapTest(param.Parameterized):
                 f"PR-only parameter(s) {', '.join(changed)} are ignored on a "
                 "regression test and not saved.",
                 UserWarning,
+                # warn -> this helper -> setup -> the user's call site.
                 stacklevel=3,
             )
 

@@ -247,10 +247,12 @@ class TestPrParams:
         with pytest.raises(ValueError, match="dc_nameplate"):
             tst._validate_pr_settings(setup)
 
-    @pytest.mark.parametrize("tol", ["+/- 4", "4", "- 100"])
-    def test_tolerance_rejected(self, monkeypatch, tol):
+    @pytest.mark.parametrize(
+        "tol, phrase", [("+/- 4", "two-sided"), ("4", "form"), ("- 100", "form")]
+    )
+    def test_tolerance_rejected(self, monkeypatch, tol, phrase):
         tst, setup = _pr_tst(monkeypatch, test_tolerance=tol)
-        with pytest.raises(ValueError, match="test_tolerance"):
+        with pytest.raises(ValueError, match=f"test_tolerance.*{phrase}"):
             tst._validate_pr_settings(setup)
 
     def test_numerator_unit_wrong_for_kind(self, monkeypatch):
@@ -433,6 +435,92 @@ class TestPrParams:
             meas_power_units="W",
         )
         tst._validate_pr_settings(setup)
+
+    @pytest.mark.parametrize(
+        "kwargs, phrase",
+        [
+            (
+                {"reference_granularity": "single", "expected_pr_monthly": [0.8] * 12},
+                "Monthly tables were given",
+            ),
+            (
+                {"reference_granularity": "monthly", "expected_pr": 0.8},
+                "given with granularity='monthly'",
+            ),
+            (
+                {"reference_granularity": "monthly", "expected_pr_monthly": [0.8] * 11},
+                "12 entries",
+            ),
+            (
+                {"reference_granularity": "monthly"},
+                "expected_pr_monthly is required",
+            ),
+            (
+                {"expected_pr": 0.8, "t_ref": 20.0},
+                "plain test",
+            ),
+            (
+                {
+                    "reference_granularity": "monthly",
+                    "expected_pr_monthly": [0.8] * 12,
+                    "t_ref_monthly": [20.0] * 12,
+                },
+                "plain test",
+            ),
+        ],
+    )
+    def test_fixed_granularity_mismatches(self, monkeypatch, kwargs, phrase):
+        tst, setup = _pr_tst(monkeypatch, reference_source="fixed", **kwargs)
+        with pytest.raises(ValueError, match=f"fixed reference:.*{phrase}"):
+            tst._validate_pr_settings(setup)
+
+    def test_fixed_monthly_not_stated_months_pass(self, monkeypatch):
+        tst, setup = _pr_tst(
+            monkeypatch,
+            reference_source="fixed",
+            reference_granularity="monthly",
+            expected_pr_monthly=[0.8, None] + [0.8] * 10,
+        )
+        tst._validate_pr_settings(setup)
+
+    def test_sim_numerator_units_must_match_power_units(self, monkeypatch):
+        tst, setup = _pr_tst(monkeypatch, sim_numerator_units="kW", sim_power_units="W")
+        with pytest.raises(ValueError, match="sim_numerator_units.*sim_power_units"):
+            tst._validate_pr_settings(setup)
+
+    @pytest.mark.parametrize("side", ["meas", "sim"])
+    def test_invalid_power_units(self, monkeypatch, side):
+        tst, setup = _pr_tst(monkeypatch, **{f"{side}_power_units": "GW"})
+        with pytest.raises(ValueError, match=f"{side}_power_units 'GW' is not valid"):
+            tst._validate_pr_settings(setup)
+
+    def test_energy_to_power_self_reference_on_sim_side(self, monkeypatch):
+        doc = pr_setup_doc()
+        del doc["sim"]["reg_cols"]["power"]
+        doc["sim"]["reg_cols"]["energy"] = {"column": "e"}
+        doc["sim"]["reg_cols"]["poa"] = {"column": "energy_to_power"}
+        tst, setup = _pr_tst(
+            monkeypatch,
+            doc,
+            sim_numerator_kind="energy",
+            sim_numerator_units="kWh",
+        )
+        with pytest.raises(ValueError, match="the sim side.*energy_to_power"):
+            tst._validate_pr_settings(setup)
+
+    def test_regression_warning_names_every_changed_param(self):
+        tst = CapTest(
+            test_setup="e2848_default",
+            dc_nameplate=7e6,
+            availability=0.9,
+            degradation_rate=0.5,
+        )
+        with pytest.warns(UserWarning) as record:
+            tst._warn_pr_params_on_regression()
+        text = str(record[0].message)
+        for name in ("dc_nameplate", "availability", "degradation_rate"):
+            assert name in text
+        assert "reference_source" not in text
 
     def test_all_problems_in_one_message(self, monkeypatch):
         tst, setup = _pr_tst(monkeypatch, dc_nameplate=-1, availability=2.0)
