@@ -36,8 +36,8 @@ setup. :py:func:`~captest.setup.validate_setup` and
 :py:func:`~captest.setup.loads_setup` and
 :py:func:`~captest.setup.load_setup` dispatch on ``kind``; ``TestSetup.load``
 and ``loads`` reject a document with a ``kind`` key and point to them. A
-:py:class:`~captest.CapTest` raises ``NotImplementedError`` for a PR setup until
-PR support lands.
+:py:class:`~captest.CapTest` runs a PR setup as a PR test; see :ref:`pr_test` in
+the user guide.
 
 .. autosummary::
    :toctree: generated/

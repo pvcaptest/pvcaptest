@@ -15,8 +15,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `check_any_of` and `check_custom` wrappers, which register a check without
   evaluating it; `CapData.evaluate_checks(dt_hours=, pr_rows=, period=)` returns
   results keyed by check label; `checks_to_config` / `set_checks` round-trip the
-  list. `CapTest.to_yaml` / `from_yaml` do not yet carry CapData checks; that
-  arrives with CapTest PR-test support. `copy()` carries the checks and
+  list. `CapTest.to_yaml` / `from_yaml` carry the checks of a PR test
+  (`meas_checks` / `sim_checks`) and not those of a regression test, which
+  warns that they are not saved. `copy()` carries the checks and
   `reset_filter()` leaves them alone.
 - `setup.PrSetup`: a performance-ratio setup document (`kind: pr`), with
   `setup.validate_setup` / `setup.loads_setup` / `setup.load_setup` dispatching on `kind` and
@@ -24,7 +25,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a regression setup with unchanged digests.
 - `captest.regression_setups()` and `captest.pr_setups()` list the registered
   setups by kind; `TEST_SETUPS` and `resolve_test_setup` understand PR setups.
-  `CapTest` raises `NotImplementedError` for a PR setup until PR support lands.
+- The performance ratio (PR) test as a `CapTest` kind. A PR preset as
+  `test_setup` makes `CapTest.test_kind` `"pr"`; `setup()`, the filter
+  pipelines on `tst.meas` / `tst.sim`, `run_test()` and the new
+  `CapTest.pr_results()` run it and return a `prtest.PrTestResults` (`kind ==
+  "pr"`, sharing the `ratio` / `expected_ratio` / `passed` accessors with
+  `CapTestResults`, whose `kind` is now `"cap_ratio"`). New parameters:
+  `dc_nameplate`, `reference_source` (`"derived"` or `"fixed"`),
+  `reference_granularity` (`"single"` or `"monthly"`), `expected_pr`,
+  `expected_pr_monthly`, `t_ref`, `t_ref_monthly`, `meas_` / `sim_`
+  `numerator_kind`, `numerator_units` and `power_units`, `degradation_rate`,
+  `degradation_years` and `availability`. The pass criterion is
+  `PRm >= (1 - N / 100) * PRexp` for `test_tolerance="- N"`. A `sim` is needed
+  only for a derived reference. `to_yaml` / `to_mapping` write the PR keys and
+  the validity checks for PR tests only, so a regression mapping and its
+  fingerprint are unchanged. Reporting conditions do not apply: `rep_cond()`
+  raises on a PR test and a `RepCond` step, or an `Irradiance` step with
+  `ref_val` `"rep_irr"` / `"self_val"`, in a PR pipeline is rejected before
+  replay. With an energy numerator and no `power` role, `power` is derived
+  through the new `energy_to_power` calculation.
+- Six PR presets: `pr_plain`, `pr_plain_bifi`, `pr_tc_meas_bom`,
+  `pr_tc_meas_bom_bifi`, `pr_tc_calc_bom` and `pr_tc_calc_bom_bifi`.
+- A user guide page for PR tests, covering references, numerators, registers,
+  availability, degradation, validity checks and a migration table from
+  `perf_ratio`.
 - `file_reader(..., header_fmt=None)` and `flatten_multi_index(columns,
   header_fmt=None)`: a `str.format` template for joining multi-row column
   headings, e.g. `"{0} ({1})"` for a heading row followed by a units row
@@ -135,6 +159,10 @@ directory); `util.canonical_json` and `util.reg_col_label`.
 - `calcparams.cell_temp(..., temp_delta=)`.
 
 ### Changed
+- `TEST_SETUPS` now holds two kinds of document, `TestSetup` and `PrSetup`.
+  Code that iterates it and reads `reg_fml`, `rep_conditions` or
+  `scatter_plots` must branch on `kind` (or use `regression_setups()` /
+  `pr_setups()`). `test_setups()` lists both.
 - `CapTest.replay_filters`: a side given an empty config (`configs={"meas":
   []}`) now resets its chain, where it previously kept the existing one. A side
   with no entry in `configs` still replays its live chain, else its pending
@@ -275,8 +303,8 @@ time, so they are unaffected).
     `prtest.degradation_factor(rate, years)` applied to the expected PR passed
     to `prtest.judge(...)`. Degradation is now linear, `1 - years * rate / 100`,
     where the old code compounded `(1 - d) ** year`.
-  - The CapTest PR test kind (coming) will handle availability and
-    degradation for you.
+  - The CapTest PR test kind handles availability and degradation for you; see
+    the PR test user guide.
 
 ### Fixed
 - `calcparams.avg_typ_cell_temp` ignores rows with a missing temperature
