@@ -1,0 +1,40 @@
+{
+  "meas": {
+    "cell_temp": {
+      "column": "cell_temp",
+      "mean": 29.01155667257509,
+      "sum": 41776.64160850813
+    },
+    "poa": {
+      "column": "irr_poa_mean_agg",
+      "mean": 255.29248680119724,
+      "sum": 367621.18099372403
+    },
+    "power": {
+      "column": "real_pwr_mtr_sum_agg",
+      "mean": 1530185.2337036927,
+      "sum": 2203466736.5333176
+    }
+  },
+  "reference": {
+    "pr": 0.8806565792157653,
+    "t_ref": 49.43945319300332
+  },
+  "sim": {
+    "cell_temp": {
+      "column": "TArray",
+      "mean": 18.9004347260274,
+      "sum": 165567.8082
+    },
+    "poa": {
+      "column": "GlobInc",
+      "mean": 204.85834818493151,
+      "sum": 1794559.1301
+    },
+    "power": {
+      "column": "E_Grid",
+      "mean": 1262868.9649543378,
+      "sum": 11062732133.0
+    }
+  }
+}

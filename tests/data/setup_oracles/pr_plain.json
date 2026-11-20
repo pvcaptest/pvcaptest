@@ -1,0 +1,30 @@
+{
+  "meas": {
+    "poa": {
+      "column": "irr_poa_mean_agg",
+      "mean": 255.29248680119724,
+      "sum": 367621.18099372403
+    },
+    "power": {
+      "column": "real_pwr_mtr_sum_agg",
+      "mean": 1530185.2337036927,
+      "sum": 2203466736.5333176
+    }
+  },
+  "reference": {
+    "pr": 0.8806565792157653,
+    "t_ref": null
+  },
+  "sim": {
+    "poa": {
+      "column": "GlobInc",
+      "mean": 204.85834818493151,
+      "sum": 1794559.1301
+    },
+    "power": {
+      "column": "E_Grid",
+      "mean": 1262868.9649543378,
+      "sum": 11062732133.0
+    }
+  }
+}

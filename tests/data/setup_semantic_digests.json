@@ -8,5 +8,11 @@
   "bifi_power_tc_etotal_rear_shade_sim": "4e2a1c0e7b3806d7dce154cce502daced11427dfb84ef27ed95e773acd7ef717",
   "bifi_power_tc_meas_tbom": "8e0baab34eea64e79f61372d45cb5c57060d5113eb165757398f320c8d2a13b0",
   "e2848_default": "387b8cd29816d3352183027e1e5e6eedc1d85d18b58463a1a569414e224f6bd8",
-  "e2848_spec_corrected_poa": "17ea98458f0d73b6e0dbcd8c804410af2cdd5517bb5839c9281a455fbc41db81"
+  "e2848_spec_corrected_poa": "17ea98458f0d73b6e0dbcd8c804410af2cdd5517bb5839c9281a455fbc41db81",
+  "pr_plain": "c7a24075efe5406e9a16c10fa8f06e15e2c5508941220ad004826888a5f40dc4",
+  "pr_plain_bifi": "0e4b70ac8d77f3413178f1ad03e72993155dd32406ca9812a8a152e493d470dc",
+  "pr_tc_calc_bom": "9e80e533b06587c53350d71e2d73e0fec797717461022970c9ad7a720e383818",
+  "pr_tc_calc_bom_bifi": "69dbd3c3a69f51c9eedacf62d331068da87cae0313327e9773a99dc70bf57ccf",
+  "pr_tc_meas_bom": "a8b7dac416d31fcabfda420b021bb512a584385d51f17d9f2842feaf59084c94",
+  "pr_tc_meas_bom_bifi": "2dcd4a0042fa70b69d06b8bdd8c8c8158cf1de809dc203a798e261d45b1ddbad"
 }
