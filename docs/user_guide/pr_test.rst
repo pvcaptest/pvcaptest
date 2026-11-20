@@ -145,7 +145,8 @@ temperature :math:`T_{ref}`) come from one of two sources, chosen together by
    ``expected_pr`` and, on a temperature-corrected test, ``t_ref``. No modeled
    side is needed, so ``sim`` can be left out entirely. Because
    ``base_temp`` defaults to 25, a fixed temperature-corrected test must set
-   ``t_ref`` explicitly so it never corrects to STC by accident.
+   ``t_ref`` explicitly; leaving it out raises, so the test never corrects to
+   STC by accident.
 
 .. code-block:: Python
 
@@ -223,9 +224,9 @@ unreliable. Switching is a configuration change: name the numerator and its
 units per side with ``meas_numerator_kind`` / ``meas_numerator_units`` (and
 ``sim_numerator_kind`` / ``sim_numerator_units`` for the modeled side).
 Units are ``W`` / ``kW`` / ``MW`` for power and ``Wh`` / ``kWh`` / ``MWh`` for
-energy. A power numerator is converted to energy with the timestep of the side's
-*unfiltered* index, so filtering never changes it (an energy numerator, where
-the timestep matters most, would otherwise be off by the thinning factor).
+energy. Each side's timestep comes from that side's *unfiltered* index, so filtering
+never changes it. The timestep cancels for a power numerator but not for an
+energy numerator, where a wrong value would change the PR directly.
 
 A PR setup names its inputs as *roles*: ``power``, ``energy``, ``poa``,
 ``cell_temp``, ``front_poa`` and ``availability``. Filters and plots keep
@@ -297,7 +298,10 @@ the PR drops from every sum and counts:
 ``label`` says where the value is stamped. ``register[t + dt] - register[t]``
 (``label="start"``) matches interval-average power and irradiance stamped at the
 interval start, which is the pandas resample default. Use ``label="end"`` when
-the timestamps mark the end of the interval. Whichever you choose should match
+the timestamps mark the end of the interval. These correspond to the
+``"left"`` and ``"right"`` labels of
+:py:func:`~captest.prtest.resample_interval_energy` (and of pandas
+``resample``): ``"start"`` is ``"left"``, ``"end"`` is ``"right"``. Whichever you choose should match
 the convention of the irradiance, and it also decides which month an interval at
 a month boundary belongs to.
 
@@ -392,8 +396,8 @@ ratio ``PR_m / threshold``. It does not hold for an absolute margin
 Temperature settings
 --------------------
 **Sign of the coefficient.** ``power_temp_coeff`` is in %/degC and **negative**
-for crystalline silicon (for example ``-0.35``). A positive value on a
-temperature-corrected test raises, because it would move the correction the
+for crystalline silicon (for example ``-0.35``). A zero or positive value on a
+temperature-corrected test raises; a positive one would move the correction the
 wrong way. A contract that states the coefficient unsigned in a form such as
 ``1 + β·(Tref − Tmeas)`` uses the same equation as pvcaptest's
 ``1 + γ·(Tcell − Tref)`` with the sign folded in: an unsigned β of 0.32 is
@@ -453,10 +457,10 @@ overall ``results.valid``. ``valid`` is independent of ``passed``.
      - At least H hours (intervals times the timestep) at or above a
        threshold, not necessarily continuous.
    * - :py:meth:`~captest.capdata.CapData.check_continuous_hours`
-     - At least N days holding a continuous run of at least H hours above a
-       threshold.
+     - At least N days holding a continuous run of at least H hours at or
+       above a threshold.
    * - :py:meth:`~captest.capdata.CapData.check_daily_insolation`
-     - At least N days with daily insolation above a threshold.
+     - At least N days with daily insolation at or above a threshold.
    * - :py:meth:`~captest.capdata.CapData.check_nrel_irradiance`
      - The NREL minimum-irradiance criteria (see below).
    * - :py:meth:`~captest.capdata.CapData.check_any_of`
@@ -513,7 +517,7 @@ function's ``module:qualname``.
 consistent ("at least three days..." and later "five days that meet these
 criteria"). pvcaptest reads it as counts over the test period: at least five days
 with daily insolation of 3000 Wh/m² or more, and among those at least three with
-3 continuous hours above 600 W/m². On a period of exactly five days this is the
+3 continuous hours at or above 600 W/m². On a period of exactly five days this is the
 reading that every one of the five days reaches the insolation and three of them
 the continuous run. The thresholds, day counts and hours are parameters.
 
@@ -544,6 +548,10 @@ reporting-condition values), and a regression mapping never contains a PR key.
    tst.to_yaml("pr_test.yaml")
    reloaded = ct.CapTest.from_yaml("pr_test.yaml")
    results = reloaded.run_test()
+
+``from_yaml`` followed by ``run_test()`` reloads the data only for a test built
+from ``meas_path`` / ``sim_path`` (or loaders). A test built from pre-built
+``CapData`` reloads without data; see :ref:`saving_reproducing`.
 
 See :ref:`saving_reproducing` for loaders and the other things a config does
 and does not carry.
@@ -592,28 +600,31 @@ deprecation shims.
 
    * - Old
      - New
-   * - ``perf_ratio(ac_energy, dc_nameplate, poa)``
+   * - ``perf_ratio(ac_energy, dc_nameplate, poa)`` (``ac_energy`` is interval
+       energy in Wh)
      - ``cd.performance_ratio(numerator=..., poa=..., dc_nameplate=...,
-       kind=..., units=...)``, or ``prtest.performance_ratio(df, ...)`` on a
+       kind="energy", units="Wh")``, or ``prtest.performance_ratio(df, ...)`` on a
        DataFrame. Pass column names, not Series.
    * - ``unit_adj=1000``
      - ``kind="power"`` or ``"energy"`` plus ``units`` (``W`` / ``kW`` / ``MW``,
        ``Wh`` / ``kWh`` / ``MWh``).
    * - ``perf_ratio_temp_corr_nrel(..., temp_bom=, temp_amb=, wind_speed=)``
-     - The same call with ``cell_temp=``, ``bom=``, or ``temp_amb=`` with
+     - The same call with ``cell_temp=``, ``bom=`` (was ``temp_bom=``), or ``temp_amb=`` with
        ``wind_speed=``, and ``power_temp_coeff=`` (%/degC, negative).
    * - ``base_temp=25``
      - ``base_temp=``, only with a temperature source.
    * - ``availability=``
      - ``prtest.measured_pr(..., availability=...)``. In a CapTest PR test, the
        ``availability`` parameter or role.
-   * - ``degradation=``, ``year=`` (compounded ``(1 - d) ** year``)
+   * - ``perf_ratio(..., degradation=, year=)`` (compounded ``(1 - d) ** year``;
+       ``perf_ratio_temp_corr_nrel`` accepted these but did not apply them)
      - ``degradation_rate`` (%/yr) and ``degradation_years`` on
        :py:class:`~captest.CapTest`, or ``prtest.degradation_factor(rate, years)``
        applied to the expected PR. The derate is now linear,
        ``1 - years * rate / 100``.
-   * - ``PrResults``
-     - :py:class:`~captest.prtest.PrTestResults`.
+   * - ``PrResults`` and ``print_pr_result``
+     - :py:class:`~captest.prtest.PrTestResults`; ``print(results)`` or
+       ``results.summary()`` replaces ``print_pr_result``.
    * - A PR test assembled in a notebook
      - A PR preset and :py:meth:`~captest.CapTest.run_test`, as above.
 

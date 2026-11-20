@@ -65,5 +65,6 @@ Utilities
    :toctree: generated/
 
    calcparams.register_to_interval_energy
+   calcparams.energy_to_power
    calcparams.scale
    calcparams.multiply
