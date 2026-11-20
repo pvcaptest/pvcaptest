@@ -6,7 +6,7 @@ description: >-
   Performance Model from the POA irradiance and the measured back of module
   temperature (temp_bom). The modeled cell temperature is the PVsyst 'TArray'
   output variable, which supplies the reference temperature for the
-  correction. Requires CapTest's 'power_temp_coeff'. For a protocol that uses
+  correction. Not the NREL protocol. Requires CapTest's 'power_temp_coeff'. For a protocol that uses
   the same heat-transfer model on both sides, see 'pr_tc_calc_bom'.
 temp_corrected: true
 meas:

@@ -218,12 +218,13 @@ PR_PRESET_FIXTURES = {
     ),
 }
 
+#: every preset (regression and PR) -> fixture entry
+ALL_PRESET_FIXTURES = {**PRESET_FIXTURES, **PR_PRESET_FIXTURES}
+
 
 def build_captest(preset):
     """Build and set up the CapTest for ``preset`` on its fixture data."""
-    meas_builder, sim_builder, kwargs = {**PRESET_FIXTURES, **PR_PRESET_FIXTURES}[
-        preset
-    ]
+    meas_builder, sim_builder, kwargs = ALL_PRESET_FIXTURES[preset]
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", message="Propagating meas.site")
         return CapTest.from_params(
@@ -260,14 +261,19 @@ def snapshot(tst):
 
 
 def snapshot_pr(tst):
-    """Numbers a PR setup computes, independent of the grammar behind it.
+    """Numbers a PR setup computes, independent of CapTest's PR internals.
 
-    Per wired side: the column each role resolved to and that column's sum and
-    mean. Plus the derived single reference, ``{"pr", "t_ref"}``, from the
-    unfiltered modeled rows.
+    Per wired side (both when ``reference_source`` is ``"derived"``, else
+    ``meas``): the column each role resolved to and that column's sum and mean
+    over the unfiltered ``data``. Plus ``reference``, the derived single
+    ``{"pr", "t_ref"}``, built with the public ``prtest`` functions from the
+    complete unfiltered rows of the modeled ``poa``, ``power`` and, when the
+    setup is temperature corrected, ``cell_temp`` columns.
     """
+    sides = ("meas", "sim") if tst.reference_source == "derived" else ("meas",)
     out = {}
-    for side in tst._pr_sides():
+    for side in sides:
+        assert tst.setup_completed(side), side
         cd = getattr(tst, side)
         out[side] = {
             role: {
@@ -278,13 +284,25 @@ def snapshot_pr(tst):
             for role, column in cd.regression_cols.items()
         }
     corrected = tst.resolved_setup.temp_corrected
-    frame, _, energy_wh, dt = tst._pr_side_inputs("sim")
+    sim = tst.sim
+    roles = sim.regression_cols
+    kind = tst.sim_numerator_kind
+    columns = {"energy": roles[kind], "poa": roles["poa"]}
+    if corrected:
+        columns["cell_temp"] = roles["cell_temp"]
+    frame = pd.DataFrame({name: sim.data[col] for name, col in columns.items()})
+    frame = frame.loc[prtest.complete_rows(frame, label="sim").index]
+    dt = prtest.dt_hours(sim.data.index)
+    energy_wh = prtest.to_energy_wh(
+        frame["energy"], kind=kind, units=tst.sim_numerator_units, dt_hours=dt
+    )
     reference = prtest.derive_reference(
         energy_wh,
         frame["poa"],
         dc_nameplate=tst.dc_nameplate,
         dt_hours=dt,
         cell_temp=frame["cell_temp"] if corrected else None,
+        unfiltered_index=sim.data.index,
     )
     out["reference"] = {"pr": reference.pr, "t_ref": reference.t_ref}
     return out

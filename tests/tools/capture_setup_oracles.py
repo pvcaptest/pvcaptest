@@ -12,8 +12,8 @@ from pathlib import Path
 
 from captest.captest import TEST_SETUPS
 from tests.setup_fixtures import (
+    ALL_PRESET_FIXTURES,
     PR_PRESET_FIXTURES,
-    PRESET_FIXTURES,
     build_captest,
     snapshot,
     snapshot_pr,
@@ -24,7 +24,7 @@ OUT_DIR = Path("tests/data/setup_oracles")
 
 def main():
     """Capture and write the oracle snapshot for every shipped preset."""
-    missing = set(TEST_SETUPS) - set(PRESET_FIXTURES) - set(PR_PRESET_FIXTURES)
+    missing = set(TEST_SETUPS) - set(ALL_PRESET_FIXTURES)
     if missing:
         raise SystemExit(f"no fixture mapping for presets: {sorted(missing)}")
     OUT_DIR.mkdir(parents=True, exist_ok=True)

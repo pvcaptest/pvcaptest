@@ -7,8 +7,8 @@ description: >-
   CapTest's 'rear_shade' to be 0). The measured cell temperature is
   calculated with the Sandia PV Array Performance Model from the front POA
   irradiance and the measured back of module temperature (temp_bom); the
-  modeled cell temperature is the PVsyst 'TArray' output variable. Requires
-  CapTest's 'power_temp_coeff'. See also 'pr_tc_meas_bom'.
+  modeled cell temperature is the PVsyst 'TArray' output variable. Not the NREL
+  protocol. Requires CapTest's 'power_temp_coeff'. See also 'pr_tc_meas_bom'.
 temp_corrected: true
 params: {rear_shade: 0}
 meas:
