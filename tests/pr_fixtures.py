@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 
 from captest import captest as ct, columngroups as cg
+from captest.calcparams import EMP_HEAT_COEFF
 from captest.capdata import CapData
 from captest.setup import PrSetup
 
@@ -138,3 +139,177 @@ def make_pr_pair(
     tst = ct.CapTest(meas=meas, sim=sim, **kwargs)
     tst.setup(verbose=False)
     return tst
+
+
+def bell_irradiance(index, peak=1000.0):
+    """Daily half-sine irradiance, zero from 18:00 to 06:00.
+
+    Parameters
+    ----------
+    index : pd.DatetimeIndex
+        Timestamps to evaluate.
+    peak : float, default 1000.0
+        Irradiance at solar noon (12:00) in W/m².
+
+    Returns
+    -------
+    pd.Series
+        ``peak * sin(pi * (hour - 6) / 12)`` between 06:00 and 18:00, else 0.
+    """
+    hour = index.hour + index.minute / 60.0
+    shape = np.sin(np.pi * (hour - 6.0) / 12.0)
+    return pd.Series(peak * np.where((hour >= 6.0) & (hour <= 18.0), shape, 0.0), index)
+
+
+def _by_month(value, index):
+    """A scalar or a ``{month: value}`` mapping as a Series aligned to ``index``."""
+    if isinstance(value, dict):
+        return pd.Series(index.month.map(value).to_numpy(float), index=index)
+    return pd.Series(float(value), index=index)
+
+
+def make_meas_pr(
+    index,
+    *,
+    dc_nameplate,
+    pr,
+    t_ref,
+    coeff,
+    bifacial=False,
+    availability=None,
+    bifaciality=0.7,
+    temp_delta=None,
+    peak=1000.0,
+):
+    """Measured ``CapData`` whose PR is exactly ``pr`` by construction.
+
+    Power (W) is ``pr`` times the expected power of the PR definition:
+    ``dc_nameplate * irradiance / 1000 * (1 + coeff / 100 * (cell - t_ref))
+    * availability``, so the availability-weighted measured PR over any rows is
+    ``pr``. The irradiance is the front POA, or with ``bifacial`` the total
+    effective irradiance ``poa + bifaciality * rpoa``; the cell temperature is
+    the back-of-module temperature plus ``poa / 1000 * temp_delta``.
+
+    Column groups are ``real_pwr_mtr`` (``meter_w``), ``irr_poa`` (``poa_1``,
+    ``poa_2``), ``temp_bom`` (``bom_1``) and, with ``bifacial``, ``irr_rpoa``
+    (``rpoa_1``, 15 % of the front POA). With ``availability`` an ``avail``
+    column is added.
+
+    Parameters
+    ----------
+    index : pd.DatetimeIndex
+        Measured timestamps.
+    dc_nameplate : float
+        DC nameplate capacity in W.
+    pr : float
+        Measured PR to build in.
+    t_ref : float or dict or None
+        Reference temperature in °C, or ``{month: value}``; None for a plain
+        (not temperature-corrected) PR.
+    coeff : float
+        Power temperature coefficient in %/°C.
+    bifacial : bool, default False
+        Add a rear irradiance column and use the total effective irradiance.
+    availability : float or pd.Series, optional
+        Per-interval availability factor applied to the power and stored in
+        the ``avail`` column.
+    bifaciality : float, default 0.7
+        Bifaciality used in the total effective irradiance.
+    temp_delta : float, optional
+        Cell-to-back-of-module temperature difference at 1000 W/m²; defaults
+        to the open-rack glass/cell/poly value of the cell temperature
+        calculation.
+    peak : float, default 1000.0
+        Noon front irradiance in W/m².
+
+    Returns
+    -------
+    captest.capdata.CapData
+        With ``data`` and ``column_groups`` set.
+    """
+    if temp_delta is None:
+        temp_delta = EMP_HEAT_COEFF["open_rack"]["glass_cell_poly"]["del_tcnd"]
+    poa = bell_irradiance(index, peak)
+    rpoa = 0.15 * poa
+    bom = 20.0 + 0.02 * poa + 2.0 * (index.day_of_year % 3)
+    cell = bom + poa / 1000.0 * temp_delta
+    irradiance = poa + bifaciality * rpoa if bifacial else poa
+    expected_w = dc_nameplate * irradiance / 1000.0
+    if t_ref is not None:
+        expected_w = expected_w * (1 + coeff / 100.0 * (cell - _by_month(t_ref, index)))
+    frame = pd.DataFrame({"poa_1": poa, "poa_2": poa, "bom_1": bom}, index=index)
+    groups = {
+        "real_pwr_mtr": ["meter_w"],
+        "irr_poa": ["poa_1", "poa_2"],
+        "temp_bom": ["bom_1"],
+    }
+    if bifacial:
+        frame["rpoa_1"] = rpoa
+        groups["irr_rpoa"] = ["rpoa_1"]
+    if availability is not None:
+        frame["avail"] = availability
+        expected_w = expected_w * frame["avail"]
+    frame["meter_w"] = pr * expected_w
+    cd = CapData("meas")
+    cd.data = frame
+    cd.column_groups = cg.ColumnGroups(groups)
+    return cd
+
+
+def make_sim_pr(
+    year_index,
+    *,
+    pr_by_month,
+    dc_nameplate=DC_NAMEPLATE,
+    bifacial=False,
+    bifaciality=0.7,
+    t_array=45.0,
+    peak=950.0,
+):
+    """Modeled (PVsyst-shaped) ``CapData`` with a known PR in each month.
+
+    ``E_Grid`` (W) is ``pr_by_month[month]`` times ``dc_nameplate`` times the
+    effective irradiance over 1000, so the plain PR of the rows of a month is
+    that month's value. Columns are ``GlobInc``, ``TArray``, ``E_Grid`` and,
+    with ``bifacial``, ``GlobBak`` (20 % of ``GlobInc``) and ``BackShd``
+    (-5 %), whose sum is the rear irradiance.
+
+    Parameters
+    ----------
+    year_index : pd.DatetimeIndex
+        Modeled timestamps (typically hourly).
+    pr_by_month : dict
+        ``{month number: PR}`` for every month of the index.
+    dc_nameplate : float, default DC_NAMEPLATE
+        DC nameplate capacity in W.
+    bifacial : bool, default False
+        Add the rear irradiance columns and use the total effective
+        irradiance for ``E_Grid``.
+    bifaciality : float, default 0.7
+        Bifaciality used in the total effective irradiance.
+    t_array : float or dict, default 45.0
+        Modeled cell temperature in °C, or ``{month: value}``.
+    peak : float, default 950.0
+        Noon front irradiance in W/m².
+
+    Returns
+    -------
+    captest.capdata.CapData
+        With ``data`` and ``column_groups`` set.
+    """
+    glob_inc = bell_irradiance(year_index, peak)
+    frame = pd.DataFrame(
+        {"GlobInc": glob_inc, "TArray": _by_month(t_array, year_index)},
+        index=year_index,
+    )
+    irradiance = glob_inc
+    if bifacial:
+        frame["GlobBak"] = 0.20 * glob_inc
+        frame["BackShd"] = -0.05 * glob_inc
+        irradiance = glob_inc + bifaciality * (frame["GlobBak"] + frame["BackShd"])
+    pr = _by_month(pr_by_month, year_index)
+    frame["E_Grid"] = pr * dc_nameplate * irradiance / 1000.0
+    cd = CapData("sim")
+    cd.data = frame
+    cd.column_groups = cg.ColumnGroups({})
+    return cd
