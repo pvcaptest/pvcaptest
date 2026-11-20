@@ -98,8 +98,9 @@ expected PR.
    print(results)
 
 :py:func:`~captest.io.load_pvsyst` stamps the PVsyst typical year as 1990, so
-the modeled-side date filter names a 1990 date (here 30 days centered on the
-test's 12 June).
+the modeled-side date filter takes a 1990 date: ``test_date="1990-06-12"`` keeps
+30 days centered on 12 June, the same month and day as the measured test period,
+in PVsyst's 1990 year.
 
 ``run_test`` runs :py:meth:`~captest.CapTest.setup`, replays the filters you
 applied on each side, derives the reference, computes the measured PR, evaluates

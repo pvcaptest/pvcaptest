@@ -288,8 +288,9 @@ class TestPrParams:
     def test_derived_without_sim(self, monkeypatch):
         setup = _register_pr(monkeypatch)
         tst = CapTest(test_setup="pr_params", meas=CapData("m"), dc_nameplate=5e6)
-        with pytest.raises(ValueError, match="derived.*sim"):
-            tst._validate_pr_settings(setup)
+        tst._validate_pr_settings(setup)
+        with pytest.raises(RuntimeError, match=r"derived reference requires tst\.sim"):
+            tst.setup(verbose=False)
 
     def test_derived_corrected_needs_sim_cell_temp(self, monkeypatch):
         doc = pr_setup_doc(temp_corrected=True)
@@ -6112,6 +6113,16 @@ class TestPrResults:
         ):
             tst.pr_results()
 
+    def test_empty_data_without_filters_says_the_data_is_empty(self, monkeypatch):
+        tst = make_pr_pair(monkeypatch, reference_source="fixed", expected_pr=0.78)
+        tst.meas.data = tst.meas.data.iloc[0:0]
+        assert tst.meas.filters == []
+        with pytest.raises(ValueError) as excinfo:
+            tst.pr_results()
+        message = str(excinfo.value)
+        assert "tst.meas.data is empty" in message
+        assert "filters" not in message
+
     def test_all_rows_filtered_names_data_filtered(self, monkeypatch):
         tst = make_pr_pair(monkeypatch, reference_source="fixed", expected_pr=0.78)
         with pytest.warns(UserWarning, match="removed all data"):
@@ -6535,6 +6546,14 @@ class TestPrRunTest:
         assert isinstance(overlay, hv.Overlay)
         assert [child.label for child in overlay] == ["Measured", "Model"]
 
+    def test_overlay_scatters_derived_without_sim(self, monkeypatch):
+        pytest.importorskip("holoviews")
+        tst = make_pr_pair(monkeypatch)
+        tst.sim = None
+        tst.setup(side="meas", verbose=False)
+        with pytest.raises(RuntimeError, match=r"^CapTest\.sim must be set\.$"):
+            tst.overlay_scatters()
+
     def test_overlay_scatters_fixed_is_refused(self, monkeypatch):
         pytest.importorskip("holoviews")
         tst = make_pr_pair(monkeypatch, reference_source="fixed", expected_pr=0.78)
@@ -6571,10 +6590,20 @@ class TestPrRunTest:
         tst.sim = None
         assert tst.setup(side="meas", verbose=False) is tst
         assert tst.setup_completed("meas") is True
-        with pytest.raises(RuntimeError, match="sim must be set"):
+        hint = (
+            r"CapTest\.sim must be set before setup\(\); a derived reference "
+            r"requires tst\.sim; use reference_source='fixed' to run without it\."
+        )
+        with pytest.raises(RuntimeError, match=hint):
             tst.setup(verbose=False)
-        with pytest.raises(RuntimeError, match="sim must be set"):
+        with pytest.raises(RuntimeError, match=hint):
             tst.run_test()
+
+    def test_regression_setup_without_sim_message_unchanged(self, ct_default):
+        ct_default.sim = None
+        with pytest.raises(RuntimeError) as excinfo:
+            ct_default.setup(verbose=False)
+        assert str(excinfo.value) == "CapTest.sim must be set before setup()."
 
     def test_fixed_reload_meas_keeps_the_run_fingerprint(self, monkeypatch):
         tst, _ = _pr_loaded(monkeypatch, reference_source="fixed", expected_pr=0.78)

@@ -3042,7 +3042,7 @@ class CapTest(param.Parameterized):
             never written. Whether ``sim`` is set is not checked: it is data,
             not configuration.
         """
-        self._validate_pr_settings(resolved, check_data=False)
+        self._validate_pr_settings(resolved)
         sides = self._pr_sides()
         sub = {"test_setup": self.test_setup}
         for side in sides:
@@ -3243,7 +3243,7 @@ class CapTest(param.Parameterized):
                 stacklevel=3,
             )
 
-    def _validate_pr_settings(self, resolved, check_data=True):
+    def _validate_pr_settings(self, resolved):
         """Check the PR parameters against a resolved PR setup.
 
         Collects every problem and raises one error listing them. Does not
@@ -3253,12 +3253,6 @@ class CapTest(param.Parameterized):
         ----------
         resolved : captest.setup.PrSetup
             The resolved PR setup.
-        check_data : bool, default True
-            Also require ``sim`` to be set for a derived reference.
-            :meth:`setup` passes True only when it targets sim, so a
-            meas-only setup of a derived test works without ``sim``; the
-            mapping path passes False: a configuration can be saved without
-            data.
 
         Raises
         ------
@@ -3324,8 +3318,6 @@ class CapTest(param.Parameterized):
                 )
 
         if self.reference_source == "derived":
-            if check_data and self.sim is None:
-                problems.append("a derived reference requires sim to be set.")
             if corrected and "cell_temp" not in resolved.sim.reg_cols:
                 problems.append(
                     "a derived temperature-corrected reference requires a "
@@ -3629,7 +3621,8 @@ class CapTest(param.Parameterized):
             If the resolved setup does not fit a targeted side's project
             (tier 2); raised before any column is written.
         RuntimeError
-            If a ``CapData`` targeted by ``side`` is unset.
+            If a ``CapData`` targeted by ``side`` is unset (on a derived PR
+            test, an unset ``sim`` says to use ``reference_source='fixed'``).
 
         Notes
         -----
@@ -3637,7 +3630,8 @@ class CapTest(param.Parameterized):
         requested ones that the test evaluates: ``meas`` only for a fixed
         reference, both for a derived one. The PR settings are validated
         first (:meth:`_validate_pr_settings`; ``side='meas'`` on a derived
-        test does not require ``sim`` to be set); each side's roles are then
+        test does not require ``sim`` to be set, while a setup targeting sim
+        raises ``RuntimeError`` without it); each side's roles are then
         checked against its project and evaluated, a side with an energy
         numerator and no ``power`` role getting ``power`` derived by
         ``energy_to_power`` (in ``CapData.regression_cols`` only;
@@ -3663,13 +3657,18 @@ class CapTest(param.Parameterized):
             self._setup_completed[s] = False
         for s in sides:
             if getattr(self, s) is None:
+                if is_pr and s == "sim":
+                    raise RuntimeError(
+                        "CapTest.sim must be set before setup(); a derived "
+                        "reference requires tst.sim; use reference_source='fixed' "
+                        "to run without it."
+                    )
                 raise RuntimeError(f"CapTest.{s} must be set before setup().")
 
         # Resolve first: a resolution error must leave sim.data untouched.
         resolved = resolve_test_setup(self.test_setup, self._collect_overrides())
         if is_pr:
-            # A meas-only setup of a derived test does not need sim yet.
-            self._validate_pr_settings(resolved, check_data="sim" in sides)
+            self._validate_pr_settings(resolved)
         else:
             self._warn_pr_params_on_regression()
 
@@ -4074,8 +4073,9 @@ class CapTest(param.Parameterized):
         Raises
         ------
         ValueError
-            If ``data_filtered`` is empty, or no kept row has every input
-            finite.
+            If ``data_filtered`` is empty (the message says whether the
+            filters removed every row or ``data`` itself is empty), or no kept
+            row has every input finite.
         """
         cd = getattr(self, side)
         roles = cd.regression_cols
@@ -4089,10 +4089,12 @@ class CapTest(param.Parameterized):
             columns["availability"] = roles["availability"]
         data = cd.data_filtered
         if data.empty:
-            raise ValueError(
-                f"tst.{side}.data_filtered is empty: the filters removed every "
-                "row, so no PR row remains; loosen or remove a filter."
-            )
+            if cd.filters:
+                raise ValueError(
+                    f"tst.{side}.data_filtered is empty: the filters removed "
+                    "every row, so no PR row remains; loosen or remove a filter."
+                )
+            raise ValueError(f"tst.{side}.data is empty, so no PR row remains.")
         frame = pd.DataFrame({name: data[col] for name, col in columns.items()})
         rows = prtest.complete_rows(frame, label=side)
         if rows.index.empty:
@@ -4793,7 +4795,8 @@ class CapTest(param.Parameterized):
         ImportError
             If holoviews is not installed.
         RuntimeError
-            If :meth:`setup` has not been run.
+            If :meth:`setup` has not been run, or ``meas`` or ``sim`` is unset
+            (a derived PR test set up on meas alone).
         ValueError
             On a PR test with ``reference_source='fixed'``, which has no
             modeled data to overlay; use ``tst.scatter_plots()`` instead.
@@ -4814,6 +4817,7 @@ class CapTest(param.Parameterized):
             scatter_fn = SCATTER_REGISTRY["default"]
         else:
             scatter_fn = SCATTER_REGISTRY[self.resolved_setup.scatter_plots]
+        self._require_meas_and_sim()
         meas_layout = scatter_fn(self.meas)
         sim_layout = scatter_fn(self.sim)
         # scatter_fn returns an hv.Layout whose first element is an hv.Scatter.
