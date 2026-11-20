@@ -47,6 +47,7 @@ from captest.setup import (
     PrSetup,
     RepConditions,
     SetupFitError,
+    Side,
     TestSetup,
     canonical_json,
     check_project_fit,
@@ -563,6 +564,11 @@ def _references_column(roles, name):
     return False
 
 
+#: Regression formula a PR test's ``CapData`` carries so that the scatter and
+#: plot lookups (which resolve ``power`` and ``poa`` through it) work.
+PR_PLOT_FORMULA = "power ~ poa"
+
+
 def _refuse_pr_setup(resolved):
     """Raise until CapTest can run PR setups (temporary guard).
 
@@ -600,8 +606,8 @@ def _lift_mapping(sub, key="captest"):
         Keyword arguments for :meth:`CapTest.from_params`, minus the loaders,
         with ``overrides.*`` lifted to top level (``overrides.scatter_plots``
         becomes ``scatter_plots_name``) and ``meas_filters`` /
-        ``sim_filters`` / ``reporting_conditions_values`` / ``overrides``
-        removed.
+        ``sim_filters`` / ``meas_checks`` / ``sim_checks`` /
+        ``reporting_conditions_values`` / ``overrides`` removed.
 
     Raises
     ------
@@ -643,6 +649,8 @@ def _lift_mapping(sub, key="captest"):
             "overrides",
             "meas_filters",
             "sim_filters",
+            "meas_checks",
+            "sim_checks",
             "reporting_conditions_values",
         )
     }
@@ -1626,6 +1634,10 @@ class CapTest(param.Parameterized):
         # filter-config dicts, public so users can inspect or edit them.
         self.meas_filters_pending = []
         self.sim_filters_pending = []
+        # Serialized validity-check configs (PR tests) stored at load and
+        # adopted by the next setup() into a side's empty ``checks``.
+        self.meas_checks_pending = []
+        self.sim_checks_pending = []
         # Manual reporting-conditions values stashed at load when setup()
         # has not run yet; consumed by the next full setup() (spec R1).
         self._pending_manual_rc = None
@@ -1914,15 +1926,16 @@ class CapTest(param.Parameterized):
         skipped steps.
 
         When both ``meas`` and ``sim`` end up populated and ``run_setup``
-        is True, ``setup()`` is called automatically. Otherwise the
-        partially-initialized instance is returned and the caller finishes
-        the workflow manually.
+        is True, ``setup()`` is called automatically. A PR test with
+        ``reference_source='fixed'`` needs no ``sim``, so ``meas`` alone
+        triggers it. Otherwise the partially-initialized instance is
+        returned and the caller finishes the workflow manually.
 
         Parameters
         ----------
         run_setup : bool, default True
-            When False, skip the automatic ``setup()`` even when both
-            ``meas`` and ``sim`` are populated (load-only construction).
+            When False, skip the automatic ``setup()`` even when the sides it
+            needs are populated (load-only construction).
             Nothing setup produces is present: no scalar propagation, no
             derived-parameter calculation, no regression-column
             processing, no ``_captest`` back-references. A later
@@ -2001,7 +2014,8 @@ class CapTest(param.Parameterized):
             inst._replay_prep("sim")
             inst._record_load_snapshot("sim", loader)
 
-        if run_setup and inst.meas is not None and inst.sim is not None:
+        fixed_pr = inst.test_kind == "pr" and inst.reference_source == "fixed"
+        if run_setup and inst.meas is not None and (inst.sim is not None or fixed_pr):
             inst.setup(verbose=verbose)
 
         return inst
@@ -2075,8 +2089,10 @@ class CapTest(param.Parameterized):
         reading the file, without the file read.
 
         Serialized ``meas_filters`` / ``sim_filters`` pipelines are stored
-        as :attr:`meas_filters_pending` / :attr:`sim_filters_pending` —
-        nothing is replayed at load. Run them with :meth:`run_test` (or per
+        as :attr:`meas_filters_pending` / :attr:`sim_filters_pending`, and
+        serialized ``meas_checks`` / ``sim_checks`` as
+        :attr:`meas_checks_pending` / :attr:`sim_checks_pending` (adopted by
+        the next ``setup()``) — nothing is replayed at load. Run them with :meth:`run_test` (or per
         side via ``CapData.run_pipeline``). Serialized ``meas_prep`` /
         ``sim_prep`` pipelines are the exception: they reach
         :meth:`from_params` as parameters and are applied to each
@@ -2219,6 +2235,8 @@ class CapTest(param.Parameterized):
 
         inst.meas_filters_pending = list(meas_filters or [])
         inst.sim_filters_pending = list(sim_filters or [])
+        inst.meas_checks_pending = list(sub.get("meas_checks") or [])
+        inst.sim_checks_pending = list(sub.get("sim_checks") or [])
         if inst.rc_source == "manual" and rc_values is not None:
             if inst.resolved_setup is not None:
                 df = inst._coerce_and_validate_manual_rc(rc_values)
@@ -2256,7 +2274,10 @@ class CapTest(param.Parameterized):
         snapshot into ``<side>_filters_pending`` before the data is
         replaced, so a follow-up ``run_test(side=side)`` re-applies the same
         filters against the fresh data. When the outgoing chain is empty, an
-        existing pending config is left untouched.
+        existing pending config is left untouched. The outgoing side's
+        registered validity checks are stashed the same way, into
+        ``<side>_checks_pending``, and the per-side ``setup()`` re-adopts them
+        onto the fresh ``CapData``.
 
         The outgoing side's applied prep chain is preserved the same way,
         into ``<side>_prep``, and — unlike the filters — is replayed
@@ -2319,6 +2340,8 @@ class CapTest(param.Parameterized):
         outgoing = getattr(self, side)
         if outgoing is not None and outgoing.filters:
             setattr(self, f"{side}_filters_pending", outgoing.filters_to_config())
+        if outgoing is not None and outgoing.checks:
+            setattr(self, f"{side}_checks_pending", outgoing.checks_to_config())
         if outgoing is not None and outgoing.prep:
             setattr(self, f"{side}_prep", outgoing.prep_to_config())
         if side == "meas":
@@ -3182,6 +3205,53 @@ class CapTest(param.Parameterized):
         )
         return _setup_overrides({n: getattr(self, n) for n in names})
 
+    def _side_roles(self, resolved, side):
+        """The PR roles of one side, with the derived ``power`` role added.
+
+        A side whose numerator kind is ``energy`` and that has no ``power``
+        role gets ``power`` as an ``energy_to_power`` calculation over its
+        energy role, in the side's ``*_numerator_units`` and ``*_power_units``.
+        The added node lives only in the returned mapping (and so in
+        ``CapData.regression_cols``); ``resolved`` is not changed.
+
+        Parameters
+        ----------
+        resolved : captest.setup.PrSetup
+            The resolved PR setup.
+        side : {"meas", "sim"}
+            Which side.
+
+        Returns
+        -------
+        dict
+            Role name -> node.
+        """
+        roles = dict(getattr(resolved, side).reg_cols)
+        if getattr(self, f"{side}_numerator_kind") == "energy" and "power" not in roles:
+            roles["power"] = Calc(
+                calc="energy_to_power",
+                args={
+                    "energy": roles["energy"],
+                    "energy_units": getattr(self, f"{side}_numerator_units"),
+                    "power_units": getattr(self, f"{side}_power_units"),
+                },
+            )
+        return roles
+
+    def _adopt_pending_checks(self, side):
+        """Move a side's pending check configs into its empty ``checks``.
+
+        Parameters
+        ----------
+        side : {"meas", "sim"}
+            Which side.
+        """
+        pending = getattr(self, f"{side}_checks_pending")
+        cd = getattr(self, side)
+        if pending and not cd.checks:
+            cd.set_checks(pending)
+            setattr(self, f"{side}_checks_pending", [])
+
     def _prepare_sides(self, sides):
         """Propagate downstream params and ``meas.site`` onto ``sides``.
 
@@ -3208,6 +3278,9 @@ class CapTest(param.Parameterized):
         :meth:`setup` would, and returns
         :func:`captest.setup.check_project_fit`'s findings for each side.
         Nothing is written to ``data`` and ``resolved_setup`` is untouched.
+        On a PR test only the sides the test evaluates are checked (meas for
+        a fixed reference, both for a derived one), and a side whose
+        ``power`` role is derived is checked with that derived node.
 
         Parameters
         ----------
@@ -3225,21 +3298,28 @@ class CapTest(param.Parameterized):
             If ``side`` is invalid, or the setup cannot be resolved.
         RuntimeError
             If a ``CapData`` targeted by ``side`` is unset.
-        NotImplementedError
-            If the resolved setup is a PR setup (not yet run by CapTest).
         """
         if side not in ("meas", "sim", "both"):
             raise ValueError(f"side must be 'meas', 'sim', or 'both', got {side!r}.")
         sides = ("meas", "sim") if side == "both" else (side,)
         resolved = resolve_test_setup(self.test_setup, self._collect_overrides())
-        _refuse_pr_setup(resolved)
+        if isinstance(resolved, PrSetup):
+            sides = tuple(s for s in sides if s in self._pr_sides())
         for s in sides:
             if getattr(self, s) is None:
                 raise RuntimeError(f"CapTest.{s} must be set before check_fit().")
         self._prepare_sides(sides)
         errors = []
         for s in sides:
-            errors.extend(check_project_fit(resolved, s, getattr(self, s)))
+            roles = (
+                self._side_roles(resolved, s) if isinstance(resolved, PrSetup) else None
+            )
+            fit_setup = (
+                resolved
+                if roles is None
+                else resolved.model_copy(update={s: Side(reg_cols=roles)})
+            )
+            errors.extend(check_project_fit(fit_setup, s, getattr(self, s)))
         return errors
 
     def setup(self, verbose=True, side="both"):
@@ -3294,19 +3374,42 @@ class CapTest(param.Parameterized):
         Raises
         ------
         ValueError
-            If ``side`` is not ``'meas'``, ``'sim'``, or ``'both'``, or the
-            setup cannot be resolved.
+            If ``side`` is not ``'meas'``, ``'sim'``, or ``'both'``, the
+            setup cannot be resolved, a PR test's settings are invalid, or
+            ``side='sim'`` is requested on a PR test with a fixed reference.
         captest.setup.SetupFitError
             If the resolved setup does not fit a targeted side's project
             (tier 2); raised before any column is written.
         RuntimeError
             If a ``CapData`` targeted by ``side`` is unset.
-        NotImplementedError
-            If the resolved setup is a PR setup (not yet run by CapTest).
+
+        Notes
+        -----
+        On a PR test (``test_kind == 'pr'``) the targeted sides are the
+        requested ones that the test evaluates: ``meas`` only for a fixed
+        reference, both for a derived one. The PR settings are validated
+        first (:meth:`_validate_pr_settings`); each side's roles are then
+        checked against its project and evaluated, a side with an energy
+        numerator and no ``power`` role getting ``power`` derived by
+        ``energy_to_power`` (in ``CapData.regression_cols`` only;
+        :attr:`resolved_setup` is unchanged). Each side's
+        ``regression_formula`` is ``PR_PLOT_FORMULA`` (``"power ~ poa"``) so
+        scatter and plot lookups resolve, and nothing is computed for
+        reporting conditions. A side's pending checks
+        (:attr:`meas_checks_pending` / :attr:`sim_checks_pending`) are
+        adopted into its ``checks`` when that is empty.
         """
         if side not in ("meas", "sim", "both"):
             raise ValueError(f"side must be 'meas', 'sim', or 'both', got {side!r}.")
         sides = ("meas", "sim") if side == "both" else (side,)
+        is_pr = self.test_kind == "pr"
+        if is_pr:
+            if side == "sim" and "sim" not in self._pr_sides():
+                raise ValueError(
+                    "side='sim' is not evaluated by a PR test with "
+                    "reference_source='fixed'; only meas is set up."
+                )
+            sides = tuple(s for s in sides if s in self._pr_sides())
         # A processed side is incomplete until its processing finishes below;
         # a side this call does not process keeps its flag.
         for s in sides:
@@ -3317,8 +3420,10 @@ class CapTest(param.Parameterized):
 
         # Resolve first: a resolution error must leave sim.data untouched.
         resolved = resolve_test_setup(self.test_setup, self._collect_overrides())
-        _refuse_pr_setup(resolved)
-        self._warn_pr_params_on_regression()
+        if is_pr:
+            self._validate_pr_settings(resolved)
+        else:
+            self._warn_pr_params_on_regression()
 
         # Auto-wrap sim.data when measured spans (within 60 days of) a year
         # boundary. Idempotent and reversible — re-running setup() or toggling
@@ -3332,9 +3437,15 @@ class CapTest(param.Parameterized):
 
         # Tier 2 runs against the prepared CapData and before any column is
         # written, so a setup that does not fit leaves ``data`` untouched.
+        pr_roles = {s: self._side_roles(resolved, s) for s in sides} if is_pr else {}
         fit_errors = []
         for s in sides:
-            fit_errors.extend(check_project_fit(resolved, s, getattr(self, s)))
+            fit_setup = (
+                resolved.model_copy(update={s: Side(reg_cols=pr_roles[s])})
+                if is_pr
+                else resolved
+            )
+            fit_errors.extend(check_project_fit(fit_setup, s, getattr(self, s)))
         if fit_errors:
             raise SetupFitError(fit_errors)
         self.resolved_setup = resolved
@@ -3344,10 +3455,16 @@ class CapTest(param.Parameterized):
         # process_regression_columns replaces (never mutates) the values.
         for s in sides:
             cd = getattr(self, s)
-            cd.regression_cols = dict(getattr(resolved, s).reg_cols)
-            cd.regression_formula = resolved.reg_fml
+            if is_pr:
+                cd.regression_cols = dict(pr_roles[s])
+                cd.regression_formula = PR_PLOT_FORMULA
+            else:
+                cd.regression_cols = dict(getattr(resolved, s).reg_cols)
+                cd.regression_formula = resolved.reg_fml
             cd.tolerance = self.test_tolerance
             cd.process_regression_columns(verbose=verbose)
+            if is_pr:
+                self._adopt_pending_checks(s)
             # Wire the CapData back to this CapTest so
             # filter_irr(ref_val='rep_irr') resolves against the single test
             # RC (ct.rc) and cd.rep_cond can update it. Runtime reference

@@ -767,6 +767,56 @@ def register_to_interval_energy(data, register, label="start", verbose=True):
     return end.shift(freq=-dt).reindex(data.index)
 
 
+@register_calc()
+def energy_to_power(data, energy, energy_units="Wh", power_units="W", verbose=True):
+    """Convert interval energy to average interval power.
+
+    Divides each interval's energy by the timestep of the unfiltered
+    ``data.index`` (its dominant timestep, :func:`captest.prtest.dt_hours`)
+    and expresses the result in ``power_units``. A PR test uses it to derive
+    the ``power`` role of a side whose numerator is interval energy.
+
+    Like any registered calculation it writes a column named for its registry
+    key, ``energy_to_power``, and so overwrites a raw column of that name.
+
+    Parameters
+    ----------
+    data : DataFrame
+        Source DataFrame with a DatetimeIndex.
+    energy : str
+        Column name of the interval energy.
+    energy_units : str, default 'Wh'
+        Units of ``energy``; one of ``captest.prtest.ENERGY_UNITS``.
+    power_units : str, default 'W'
+        Units of the result; one of ``captest.prtest.POWER_UNITS``.
+    verbose : bool, default True
+        Set to False to suppress the explanatory print message.
+
+    Returns
+    -------
+    Series
+        Average power over each interval in ``power_units``.
+
+    Raises
+    ------
+    ValueError
+        If a unit is not recognized or the index has no usable timestep.
+    """
+    from captest import prtest
+
+    if verbose:
+        print(
+            f'Calculating and adding "{energy_to_power.__name__}" column as '
+            f"({energy} [{energy_units}]) / interval hours, in {power_units}."
+        )
+    return prtest.power_from_energy(
+        data[energy],
+        energy_units=energy_units,
+        power_units=power_units,
+        dt_hours=prtest.dt_hours(data.index),
+    )
+
+
 @register_calc(requires_params=("spectral_module_type",), requires_import=("pvlib",))
 def spectral_factor_firstsolar(
     data,

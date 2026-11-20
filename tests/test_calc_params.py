@@ -798,6 +798,7 @@ PUBLIC_CALCS = [
     "spectral_factor_firstsolar",
     "multiply",
     "poa_spec_corrected",
+    "energy_to_power",
 ]
 
 

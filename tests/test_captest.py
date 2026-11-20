@@ -22,6 +22,7 @@ from captest import CapTest, captest as ct, columngroups as cg, load_pvsyst, uti
 from captest.capdata import CapData
 from captest.captest import CapTestResults
 from captest.filters import Irradiance, RepCond, step_from_config
+from captest.setup import SetupFitError
 from tests.setup_fixtures import build_meas_default, build_sim_default
 
 # Presets that the shipped meas_cd_default / sim_cd_default fixtures cover
@@ -139,9 +140,7 @@ class TestPrRegistry:
         ct.test_setups()
         assert "e2848_default [regression]" in capsys.readouterr().out
 
-    @pytest.mark.parametrize(
-        "method", ["setup", "check_fit", "to_mapping", "captest_results"]
-    )
+    @pytest.mark.parametrize("method", ["to_mapping", "captest_results"])
     def test_captest_is_guarded(self, pr_tmp, method):
         tst = CapTest(test_setup="pr_tmp", meas=CapData("m"), sim=CapData("s"))
         with pytest.raises(NotImplementedError, match="not yet run by CapTest"):
@@ -5366,3 +5365,363 @@ def test_setup_completed_run_test_internal_vs_later_failure(tst, monkeypatch):
         tst.run_test()
     # regression raises after setup -> setup_completed() True
     assert tst.setup_completed() is True
+
+
+def _pr_cd(name, *, power_mw=None, freq="5min"):
+    """Synthetic PR CapData: ``p`` (MW), ``e`` (kWh) and an ``irr_poa`` group."""
+    index = pd.date_range("2024-06-01", periods=288, freq=freq)
+    rng = np.random.default_rng(3)
+    if power_mw is None:
+        power_mw = rng.uniform(1.0, 5.0, len(index))
+    dt = pd.Timedelta(freq) / pd.Timedelta(hours=1)
+    data = pd.DataFrame(
+        {
+            "p": power_mw,
+            "e": power_mw * dt * 1000.0,
+            "g1": rng.uniform(300, 900, len(index)),
+            "g2": rng.uniform(300, 900, len(index)),
+        },
+        index=index,
+    )
+    cd = CapData(name)
+    cd.data = data
+    cd.column_groups = cg.ColumnGroups({"irr_poa": ["g1", "g2"]})
+    return cd
+
+
+def _pr_energy_doc(*, power_role=False):
+    side = {"energy": {"column": "e"}, "poa": {"group": "irr_poa", "agg": "mean"}}
+    if power_role:
+        side["power"] = {"column": "p"}
+    return {
+        "kind": "pr",
+        "name": "pr_params",
+        "description": "PR energy test setup",
+        "temp_corrected": False,
+        "meas": {"reg_cols": dict(side)},
+        "sim": {"reg_cols": dict(side)},
+    }
+
+
+def _energy_tst(monkeypatch, **params):
+    kwargs = {
+        "dc_nameplate": 5e6,
+        "meas_numerator_kind": "energy",
+        "meas_numerator_units": "kWh",
+        "meas_power_units": "MW",
+        "sim_numerator_kind": "energy",
+        "sim_numerator_units": "kWh",
+        "sim_power_units": "MW",
+    }
+    kwargs.update(params)
+    _register_pr(monkeypatch, _pr_energy_doc())
+    return CapTest(
+        test_setup="pr_params",
+        meas=_pr_cd("meas"),
+        sim=_pr_cd("sim"),
+        **kwargs,
+    )
+
+
+class TestPrSetup:
+    def test_setup_wires_both_sides(self, monkeypatch):
+        _register_pr(monkeypatch)
+        tst = CapTest(
+            test_setup="pr_params",
+            meas=_pr_cd("meas"),
+            sim=_pr_cd("sim"),
+            dc_nameplate=5e6,
+            meas_numerator_units="MW",
+            meas_power_units="MW",
+        )
+        tst.setup(verbose=False)
+        for cd in (tst.meas, tst.sim):
+            assert cd.regression_cols == {"power": "p", "poa": "irr_poa_mean_agg"}
+            assert cd.regression_formula == ct.PR_PLOT_FORMULA
+            assert cd.regression_formula == "power ~ poa"
+            assert cd.tolerance == tst.test_tolerance
+            assert cd._captest is tst
+        assert tst.setup_completed()
+
+    def test_filters_run_without_naming_columns(self, monkeypatch):
+        _register_pr(monkeypatch)
+        tst = CapTest(
+            test_setup="pr_params",
+            meas=_pr_cd("meas"),
+            sim=_pr_cd("sim"),
+            dc_nameplate=5e6,
+        )
+        tst.setup(verbose=False)
+        tst.meas.filter_irr(400, 800)
+        tst.meas.filter_power(4.0)
+        assert 0 < len(tst.meas.data_filtered) < len(tst.meas.data)
+
+    def test_fixed_without_sim_wires_meas_only(self, monkeypatch):
+        _register_pr(monkeypatch)
+        tst = ct.CapTest.from_params(
+            test_setup="pr_params",
+            meas=_pr_cd("meas"),
+            dc_nameplate=5e6,
+            reference_source="fixed",
+            expected_pr=0.8,
+            verbose=False,
+        )
+        assert tst.meas.regression_cols["power"] == "p"
+        assert tst.setup_completed("meas")
+        assert tst.sim is None
+        with pytest.raises(ValueError, match="sim"):
+            tst.setup(side="sim")
+
+    def test_energy_numerator_derives_power(self, monkeypatch):
+        tst = _energy_tst(monkeypatch)
+        before = tst.meas.data.copy()
+        tst.setup(verbose=False)
+        assert tst.meas.regression_cols["power"] == "energy_to_power"
+        derived = tst.meas.data["energy_to_power"]
+        np.testing.assert_allclose(derived, before["e"] * 12 / 1000.0)
+        assert tst.resolved_setup is ct.TEST_SETUPS["pr_params"]
+        assert "power" not in tst.resolved_setup.meas.reg_cols
+
+    def test_one_kwh_is_0_012_mw(self, monkeypatch):
+        tst = _energy_tst(monkeypatch)
+        tst.meas.data["e"] = 1.0
+        tst.setup(verbose=False)
+        np.testing.assert_allclose(tst.meas.data["energy_to_power"], 0.012)
+
+    def test_power_role_present_is_not_derived(self, monkeypatch):
+        _register_pr(monkeypatch, _pr_energy_doc(power_role=True))
+        tst = CapTest(
+            test_setup="pr_params",
+            meas=_pr_cd("meas"),
+            sim=_pr_cd("sim"),
+            dc_nameplate=5e6,
+            meas_numerator_kind="energy",
+            meas_numerator_units="kWh",
+            meas_power_units="MW",
+        )
+        tst.setup(verbose=False)
+        assert tst.meas.regression_cols["power"] == "p"
+        assert "energy_to_power" not in tst.meas.data
+
+    def test_clipping_filter_parity_energy_vs_power(self, monkeypatch):
+        power = np.random.default_rng(9).uniform(1.0, 5.0, 288)
+        peak = power.max()
+        _register_pr(monkeypatch)
+        by_power = CapTest(
+            test_setup="pr_params",
+            meas=_pr_cd("meas", power_mw=power),
+            sim=_pr_cd("sim", power_mw=power),
+            dc_nameplate=5e6,
+            meas_numerator_units="MW",
+            meas_power_units="MW",
+        )
+        by_power.setup(verbose=False)
+        by_power.meas.filter_power(0.985 * peak)
+        _register_pr(monkeypatch, _pr_energy_doc())
+        by_energy = CapTest(
+            test_setup="pr_params",
+            meas=_pr_cd("meas", power_mw=power),
+            sim=_pr_cd("sim", power_mw=power),
+            dc_nameplate=5e6,
+            meas_numerator_kind="energy",
+            meas_numerator_units="kWh",
+            meas_power_units="MW",
+            sim_numerator_kind="energy",
+            sim_numerator_units="kWh",
+            sim_power_units="MW",
+        )
+        by_energy.setup(verbose=False)
+        by_energy.meas.filter_power(0.985 * peak)
+        kept = by_power.meas.data_filtered.index
+        assert len(kept) < 288
+        assert kept.equals(by_energy.meas.data_filtered.index)
+
+    def test_node_error_raised_before_any_column_is_written(self, monkeypatch):
+        doc = pr_setup_doc()
+        doc["meas"]["reg_cols"]["poa"] = {"group": "missing_group", "agg": "mean"}
+        _register_pr(monkeypatch, doc)
+        tst = CapTest(
+            test_setup="pr_params",
+            meas=_pr_cd("meas"),
+            sim=_pr_cd("sim"),
+            dc_nameplate=5e6,
+        )
+        columns = list(tst.meas.data.columns)
+        with pytest.raises(SetupFitError):
+            tst.setup(verbose=False)
+        assert list(tst.meas.data.columns) == columns
+        assert not tst.setup_completed()
+
+    def test_validation_error_precedes_evaluation(self, monkeypatch):
+        tst = _energy_tst(monkeypatch, dc_nameplate=None)
+        with pytest.raises(ValueError, match="dc_nameplate"):
+            tst.setup(verbose=False)
+        assert "energy_to_power" not in tst.meas.data
+        assert tst.meas.regression_cols == {}
+
+    def test_unit_change_recomputes(self, monkeypatch):
+        tst = _energy_tst(monkeypatch)
+        tst.meas.data["e"] = 1.0
+        tst.setup(verbose=False)
+        assert tst.meas.data["energy_to_power"].iloc[0] == pytest.approx(0.012)
+        tst.meas_power_units = "kW"
+        tst.setup(verbose=False)
+        assert tst.meas.data["energy_to_power"].iloc[0] == pytest.approx(12.0)
+
+    def test_energy_node_change_recomputes(self, monkeypatch):
+        tst = _energy_tst(monkeypatch)
+        tst.meas.data["e"] = 1.0
+        tst.setup(verbose=False)
+        tst.reg_cols_meas = {
+            "energy": {"calc": "scale", "args": {"col": {"column": "e"}, "factor": 2}}
+        }
+        tst.setup(verbose=False)
+        assert tst.meas.data["energy_to_power"].iloc[0] == pytest.approx(0.024)
+
+    def test_copied_capdata_derives_its_own_values(self, monkeypatch):
+        tst = _energy_tst(monkeypatch)
+        tst.meas.data["e"] = 1.0
+        tst.setup(verbose=False)
+        other = CapTest(
+            test_setup="pr_params",
+            meas=tst.meas.copy(),
+            sim=_pr_cd("sim"),
+            dc_nameplate=5e6,
+            meas_numerator_kind="energy",
+            meas_numerator_units="kWh",
+            meas_power_units="kW",
+            sim_numerator_kind="energy",
+            sim_numerator_units="kWh",
+            sim_power_units="MW",
+        )
+        other.setup(verbose=False)
+        assert other.meas.data["energy_to_power"].iloc[0] == pytest.approx(12.0)
+        assert tst.meas.data["energy_to_power"].iloc[0] == pytest.approx(0.012)
+
+    def test_group_named_energy_to_power_is_a_fit_error(self, monkeypatch):
+        tst = _energy_tst(monkeypatch)
+        tst.meas.column_groups["energy_to_power"] = ["g1"]
+        columns = list(tst.meas.data.columns)
+        with pytest.raises(SetupFitError, match="energy_to_power"):
+            tst.setup(verbose=False)
+        assert list(tst.meas.data.columns) == columns
+
+    @pytest.mark.parametrize(
+        "energy",
+        [
+            {"column": "energy_to_power"},
+            {
+                "calc": "scale",
+                "args": {"col": {"column": "energy_to_power"}, "factor": 1},
+            },
+        ],
+    )
+    def test_energy_role_using_the_derived_name_is_rejected(self, monkeypatch, energy):
+        doc = _pr_energy_doc()
+        doc["meas"]["reg_cols"]["energy"] = energy
+        _register_pr(monkeypatch, doc)
+        tst = CapTest(
+            test_setup="pr_params",
+            meas=_pr_cd("meas"),
+            sim=_pr_cd("sim"),
+            dc_nameplate=5e6,
+            meas_numerator_kind="energy",
+            meas_numerator_units="kWh",
+            meas_power_units="MW",
+            sim_numerator_kind="energy",
+            sim_numerator_units="kWh",
+            sim_power_units="MW",
+        )
+        tst.meas.data["energy_to_power"] = 1.0
+        columns = list(tst.meas.data.columns)
+        with pytest.raises(ValueError, match="energy_to_power"):
+            tst.setup(verbose=False)
+        assert list(tst.meas.data.columns) == columns
+
+    def test_raw_unreferenced_column_is_overwritten(self, monkeypatch):
+        tst = _energy_tst(monkeypatch)
+        tst.meas.data["energy_to_power"] = -1.0
+        tst.setup(verbose=False)
+        assert (tst.meas.data["energy_to_power"] != -1.0).all()
+
+    def test_pending_checks_adopted_once(self, monkeypatch):
+        _register_pr(monkeypatch)
+        tst = CapTest(
+            test_setup="pr_params",
+            meas=_pr_cd("meas"),
+            sim=_pr_cd("sim"),
+            dc_nameplate=5e6,
+        )
+        config = [{"type": "Duration", "threshold": 400, "min_hours": 1}]
+        tst.meas_checks_pending = list(config)
+        assert tst.sim_checks_pending == []
+        tst.setup(verbose=False)
+        assert tst.meas.checks_to_config() == config
+        assert tst.meas_checks_pending == []
+
+    def test_pending_checks_do_not_replace_existing(self, monkeypatch):
+        _register_pr(monkeypatch)
+        tst = CapTest(
+            test_setup="pr_params",
+            meas=_pr_cd("meas"),
+            sim=_pr_cd("sim"),
+            dc_nameplate=5e6,
+        )
+        tst.meas.check_duration(400, 2)
+        existing = tst.meas.checks_to_config()
+        tst.meas_checks_pending = [{"type": "Duration", "threshold": 1, "min_hours": 1}]
+        tst.setup(verbose=False)
+        assert tst.meas.checks_to_config() == existing
+
+    def test_from_mapping_fills_pending_checks(self, monkeypatch):
+        _register_pr(monkeypatch)
+        config = [{"type": "Duration", "threshold": 400, "min_hours": 1}]
+        tst = CapTest.from_mapping(
+            {
+                "test_setup": "pr_params",
+                "dc_nameplate": 5e6,
+                "meas_checks": config,
+                "sim_checks": config,
+            },
+            run_setup=False,
+        )
+        assert tst.meas_checks_pending == config
+        assert tst.sim_checks_pending == config
+
+    def test_check_fit_checks_only_pr_sides(self, monkeypatch):
+        _register_pr(monkeypatch)
+        tst = CapTest(
+            test_setup="pr_params",
+            meas=_pr_cd("meas"),
+            dc_nameplate=5e6,
+            reference_source="fixed",
+            expected_pr=0.8,
+        )
+        assert tst.check_fit() == []
+
+    def test_reload_keeps_checks(self, monkeypatch, tmp_path):
+        _register_pr(monkeypatch)
+        path = tmp_path / "meas.csv"
+        _pr_cd("meas").data.to_csv(path)
+
+        def loader(file, **kwargs):
+            cd = CapData("meas")
+            cd.data = pd.read_csv(file, index_col=0, parse_dates=True)
+            cd.column_groups = cg.ColumnGroups({"irr_poa": ["g1", "g2"]})
+            return cd
+
+        tst = CapTest(
+            test_setup="pr_params",
+            meas=_pr_cd("meas"),
+            sim=_pr_cd("sim"),
+            dc_nameplate=5e6,
+            meas_loader=loader,
+        )
+        tst._meas_path = str(path)
+        tst.setup(verbose=False)
+        tst.meas.check_duration(400, 2)
+        config = tst.meas.checks_to_config()
+        expected = tst.meas.evaluate_checks()
+        tst.reload("meas", verbose=False)
+        assert tst.meas.checks_to_config() == config
+        assert tst.meas.evaluate_checks().keys() == expected.keys()
