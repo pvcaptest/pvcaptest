@@ -2092,8 +2092,9 @@ class CapTest(param.Parameterized):
         as :attr:`meas_filters_pending` / :attr:`sim_filters_pending`, and
         serialized ``meas_checks`` / ``sim_checks`` as
         :attr:`meas_checks_pending` / :attr:`sim_checks_pending` (adopted by
-        the next ``setup()``) — nothing is replayed at load. Run them with :meth:`run_test` (or per
-        side via ``CapData.run_pipeline``). Serialized ``meas_prep`` /
+        the next ``setup()``) — nothing is replayed at load. Run the filter
+        pipelines with :meth:`run_test` (or per side via
+        ``CapData.run_pipeline``). Serialized ``meas_prep`` /
         ``sim_prep`` pipelines are the exception: they reach
         :meth:`from_params` as parameters and are applied to each
         path-loaded side at load, before any ``setup()``. Manual
@@ -2309,12 +2310,13 @@ class CapTest(param.Parameterized):
         Raises
         ------
         ValueError
-            If ``side`` is invalid, or no path is stored for that side and
-            none was passed (instance constructed from pre-built ``CapData``
+            If ``side`` is invalid, ``side='sim'`` on a PR test with a fixed
+            reference, or no path is stored for that side and none was passed (instance constructed from pre-built ``CapData``
             objects).
         """
         if side not in ("meas", "sim"):
             raise ValueError(f"side must be 'meas' or 'sim', got {side!r}.")
+        self._require_pr_side(side)
         if path is None and getattr(self, f"_{side}_path") is None:
             raise ValueError(
                 f"CapTest holds no stored data path for '{side}'. Pass "
@@ -3108,12 +3110,18 @@ class CapTest(param.Parameterized):
             if (
                 kind == "energy"
                 and "power" not in roles
-                and _references_column(roles, "energy_to_power")
+                and (
+                    _references_column(roles, "energy_to_power")
+                    or any(
+                        isinstance(node, Calc) and node.calc == "energy_to_power"
+                        for _, node in walk_nodes(roles)
+                    )
+                )
             ):
                 problems.append(
                     f"the {side} side derives its 'power' role as a column "
                     "named 'energy_to_power', but one of its roles also "
-                    "uses a column of that name as an input."
+                    "reads or writes a column of that name."
                 )
 
         if self.reference_source == "derived":
@@ -3238,8 +3246,53 @@ class CapTest(param.Parameterized):
             )
         return roles
 
+    def _fit_setup(self, resolved, side):
+        """The setup tier 2 checks for ``side``.
+
+        ``resolved`` itself for a regression test; for a PR test a copy whose
+        ``side`` holds the roles :meth:`_side_roles` yields, so the derived
+        ``power`` node is checked too.
+
+        Parameters
+        ----------
+        resolved : captest.setup.TestSetup or captest.setup.PrSetup
+            The resolved setup.
+        side : {"meas", "sim"}
+            Which side is checked.
+
+        Returns
+        -------
+        captest.setup.TestSetup or captest.setup.PrSetup
+        """
+        if not isinstance(resolved, PrSetup):
+            return resolved
+        roles = self._side_roles(resolved, side)
+        return resolved.model_copy(update={side: Side(reg_cols=roles)})
+
+    def _require_pr_side(self, side):
+        """Raise when ``side='sim'`` is asked of a fixed-reference PR test.
+
+        Parameters
+        ----------
+        side : {"both", "meas", "sim"}
+
+        Raises
+        ------
+        ValueError
+            If this is a PR test with ``reference_source='fixed'`` and
+            ``side == 'sim'``.
+        """
+        if self.test_kind == "pr" and side == "sim" and "sim" not in self._pr_sides():
+            raise ValueError(
+                "side='sim' is not evaluated by a PR test with "
+                "reference_source='fixed'; only meas is set up."
+            )
+
     def _adopt_pending_checks(self, side):
         """Move a side's pending check configs into its empty ``checks``.
+
+        Runs for regression and PR tests alike. When ``checks`` is not empty
+        nothing is adopted and the pending list is left as it was.
 
         Parameters
         ----------
@@ -3302,6 +3355,7 @@ class CapTest(param.Parameterized):
         if side not in ("meas", "sim", "both"):
             raise ValueError(f"side must be 'meas', 'sim', or 'both', got {side!r}.")
         sides = ("meas", "sim") if side == "both" else (side,)
+        self._require_pr_side(side)
         resolved = resolve_test_setup(self.test_setup, self._collect_overrides())
         if isinstance(resolved, PrSetup):
             sides = tuple(s for s in sides if s in self._pr_sides())
@@ -3311,14 +3365,7 @@ class CapTest(param.Parameterized):
         self._prepare_sides(sides)
         errors = []
         for s in sides:
-            roles = (
-                self._side_roles(resolved, s) if isinstance(resolved, PrSetup) else None
-            )
-            fit_setup = (
-                resolved
-                if roles is None
-                else resolved.model_copy(update={s: Side(reg_cols=roles)})
-            )
+            fit_setup = self._fit_setup(resolved, s)
             errors.extend(check_project_fit(fit_setup, s, getattr(self, s)))
         return errors
 
@@ -3395,20 +3442,18 @@ class CapTest(param.Parameterized):
         :attr:`resolved_setup` is unchanged). Each side's
         ``regression_formula`` is ``PR_PLOT_FORMULA`` (``"power ~ poa"``) so
         scatter and plot lookups resolve, and nothing is computed for
-        reporting conditions. A side's pending checks
-        (:attr:`meas_checks_pending` / :attr:`sim_checks_pending`) are
-        adopted into its ``checks`` when that is empty.
+        reporting conditions.
+
+        On either kind of test a side's pending checks
+        (:attr:`meas_checks_pending` / :attr:`sim_checks_pending`) are adopted
+        into its ``checks`` when that is empty.
         """
         if side not in ("meas", "sim", "both"):
             raise ValueError(f"side must be 'meas', 'sim', or 'both', got {side!r}.")
         sides = ("meas", "sim") if side == "both" else (side,)
         is_pr = self.test_kind == "pr"
+        self._require_pr_side(side)
         if is_pr:
-            if side == "sim" and "sim" not in self._pr_sides():
-                raise ValueError(
-                    "side='sim' is not evaluated by a PR test with "
-                    "reference_source='fixed'; only meas is set up."
-                )
             sides = tuple(s for s in sides if s in self._pr_sides())
         # A processed side is incomplete until its processing finishes below;
         # a side this call does not process keeps its flag.
@@ -3437,14 +3482,9 @@ class CapTest(param.Parameterized):
 
         # Tier 2 runs against the prepared CapData and before any column is
         # written, so a setup that does not fit leaves ``data`` untouched.
-        pr_roles = {s: self._side_roles(resolved, s) for s in sides} if is_pr else {}
         fit_errors = []
         for s in sides:
-            fit_setup = (
-                resolved.model_copy(update={s: Side(reg_cols=pr_roles[s])})
-                if is_pr
-                else resolved
-            )
+            fit_setup = self._fit_setup(resolved, s)
             fit_errors.extend(check_project_fit(fit_setup, s, getattr(self, s)))
         if fit_errors:
             raise SetupFitError(fit_errors)
@@ -3456,15 +3496,14 @@ class CapTest(param.Parameterized):
         for s in sides:
             cd = getattr(self, s)
             if is_pr:
-                cd.regression_cols = dict(pr_roles[s])
+                cd.regression_cols = self._side_roles(resolved, s)
                 cd.regression_formula = PR_PLOT_FORMULA
             else:
                 cd.regression_cols = dict(getattr(resolved, s).reg_cols)
                 cd.regression_formula = resolved.reg_fml
             cd.tolerance = self.test_tolerance
             cd.process_regression_columns(verbose=verbose)
-            if is_pr:
-                self._adopt_pending_checks(s)
+            self._adopt_pending_checks(s)
             # Wire the CapData back to this CapTest so
             # filter_irr(ref_val='rep_irr') resolves against the single test
             # RC (ct.rc) and cd.rep_cond can update it. Runtime reference
@@ -3495,7 +3534,9 @@ class CapTest(param.Parameterized):
         Parameters
         ----------
         side : {'both', 'meas', 'sim'}, default 'both'
-            Which side(s) to check; ``'both'`` is true only when both are.
+            Which side(s) to check; ``'both'`` is true only when both are
+            (on a PR test, both of the sides it evaluates: meas alone for a
+            fixed reference).
 
         Returns
         -------
@@ -3508,7 +3549,10 @@ class CapTest(param.Parameterized):
         """
         if side not in ("meas", "sim", "both"):
             raise ValueError(f"side must be 'meas', 'sim', or 'both', got {side!r}.")
-        sides = ("meas", "sim") if side == "both" else (side,)
+        if side == "both":
+            sides = self._pr_sides() if self.test_kind == "pr" else ("meas", "sim")
+        else:
+            sides = (side,)
         return all(self._setup_completed[s] for s in sides)
 
     def scatter_plots(self, which="meas", **kwargs):

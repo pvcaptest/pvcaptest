@@ -1775,6 +1775,15 @@ class TestReload:
         with pytest.raises(ValueError, match="no stored data path"):
             ct_default.reload("meas")
 
+    def test_reload_keeps_checks_on_a_regression_test(self, ct_default):
+        ct_default._meas_path = "sentinel.csv"
+        ct_default.meas.check_duration(400, 2)
+        config = ct_default.meas.checks_to_config()
+        ct_default.meas_loader = lambda path, **kwargs: build_meas_default()
+        ct_default.reload("meas", verbose=False)
+        assert ct_default.meas.checks_to_config() == config
+        assert ct_default.meas_checks_pending == []
+
     def test_reload_invalid_side_raises(self, ct_default):
         with pytest.raises(ValueError):
             ct_default.reload("both")
@@ -5672,6 +5681,9 @@ class TestPrSetup:
         tst.meas_checks_pending = [{"type": "Duration", "threshold": 1, "min_hours": 1}]
         tst.setup(verbose=False)
         assert tst.meas.checks_to_config() == existing
+        assert tst.meas_checks_pending == [
+            {"type": "Duration", "threshold": 1, "min_hours": 1}
+        ]
 
     def test_from_mapping_fills_pending_checks(self, monkeypatch):
         _register_pr(monkeypatch)
@@ -5724,4 +5736,122 @@ class TestPrSetup:
         expected = tst.meas.evaluate_checks()
         tst.reload("meas", verbose=False)
         assert tst.meas.checks_to_config() == config
-        assert tst.meas.evaluate_checks().keys() == expected.keys()
+        got = tst.meas.evaluate_checks()
+        assert got.keys() == expected.keys()
+        for label, result in got.items():
+            assert result.passed == expected[label].passed
+            pd.testing.assert_frame_equal(result.detail, expected[label].detail)
+
+    def test_setup_completed_on_a_fixed_test(self, monkeypatch):
+        _register_pr(monkeypatch)
+        tst = ct.CapTest.from_params(
+            test_setup="pr_params",
+            meas=_pr_cd("meas"),
+            dc_nameplate=5e6,
+            reference_source="fixed",
+            expected_pr=0.8,
+            verbose=False,
+        )
+        assert tst.setup_completed()
+        assert not tst.setup_completed("sim")
+
+    def test_check_fit_sim_on_a_fixed_test_raises(self, monkeypatch):
+        _register_pr(monkeypatch)
+        tst = CapTest(
+            test_setup="pr_params",
+            meas=_pr_cd("meas"),
+            dc_nameplate=5e6,
+            reference_source="fixed",
+            expected_pr=0.8,
+        )
+        with pytest.raises(ValueError, match="side='sim'"):
+            tst.check_fit(side="sim")
+
+    def test_reload_sim_on_a_fixed_test_changes_nothing(self, monkeypatch):
+        _register_pr(monkeypatch)
+        tst = CapTest(
+            test_setup="pr_params",
+            meas=_pr_cd("meas"),
+            dc_nameplate=5e6,
+            reference_source="fixed",
+            expected_pr=0.8,
+        )
+        tst._sim_path = "sim.csv"
+        tst.sim_loader = lambda path, **kwargs: pytest.fail("loader must not run")
+        with pytest.raises(ValueError, match="side='sim'"):
+            tst.reload("sim", verbose=False)
+        assert tst.sim is None
+
+    def test_energy_role_that_is_an_energy_to_power_calc_is_rejected(self, monkeypatch):
+        doc = _pr_energy_doc()
+        doc["meas"]["reg_cols"]["energy"] = {
+            "calc": "energy_to_power",
+            "args": {"energy": {"column": "e"}},
+        }
+        _register_pr(monkeypatch, doc)
+        tst = CapTest(
+            test_setup="pr_params",
+            meas=_pr_cd("meas"),
+            sim=_pr_cd("sim"),
+            dc_nameplate=5e6,
+            meas_numerator_kind="energy",
+            meas_numerator_units="kWh",
+            meas_power_units="MW",
+            sim_numerator_kind="energy",
+            sim_numerator_units="kWh",
+            sim_power_units="MW",
+        )
+        columns = list(tst.meas.data.columns)
+        with pytest.raises(ValueError, match="energy_to_power"):
+            tst.setup(verbose=False)
+        assert list(tst.meas.data.columns) == columns
+
+    def test_energy_role_through_a_registered_calc_is_rejected(self, monkeypatch):
+        from captest.calcparams import CALC_REGISTRY, CalcEntry
+
+        def sum_cols(data, cols=None, verbose=True):
+            return data[cols].sum(axis=1)
+
+        monkeypatch.setitem(CALC_REGISTRY, "sum_cols", CalcEntry(sum_cols, (), ()))
+        doc = _pr_energy_doc()
+        doc["meas"]["reg_cols"]["energy"] = {
+            "calc": "sum_cols",
+            "args": {"cols": ["energy_to_power"]},
+        }
+        _register_pr(monkeypatch, doc)
+        tst = CapTest(
+            test_setup="pr_params",
+            meas=_pr_cd("meas"),
+            sim=_pr_cd("sim"),
+            dc_nameplate=5e6,
+            meas_numerator_kind="energy",
+            meas_numerator_units="kWh",
+            meas_power_units="MW",
+            sim_numerator_kind="energy",
+            sim_numerator_units="kWh",
+            sim_power_units="MW",
+        )
+        tst.meas.data["energy_to_power"] = 1.0
+        columns = list(tst.meas.data.columns)
+        with pytest.raises(ValueError, match="energy_to_power"):
+            tst.setup(verbose=False)
+        assert list(tst.meas.data.columns) == columns
+
+    def test_from_yaml_fills_pending_checks(self, monkeypatch, tmp_path):
+        _register_pr(monkeypatch)
+        config = [{"type": "Duration", "threshold": 400, "min_hours": 1}]
+        path = tmp_path / "pr.yaml"
+        path.write_text(
+            yaml.safe_dump(
+                {
+                    "captest": {
+                        "test_setup": "pr_params",
+                        "dc_nameplate": 5e6,
+                        "meas_checks": config,
+                    }
+                }
+            )
+        )
+        tst = CapTest.from_yaml(path, run_setup=False)
+        assert tst.meas_checks_pending == config
+        assert tst.sim_checks_pending == []
