@@ -35,12 +35,14 @@ import pandas as pd
 import param
 import yaml
 
-from captest import util
+from captest import prtest, util
 from captest.calcparams import DOWNSTREAM_PARAMS
 from captest.capdata import CapData
 from captest.filters import wrap_year_end
 from captest.plotting import ScatterBifiPowerTc, ScatterPlot
 from captest.setup import (
+    Calc,
+    Column,
     DerivationError,
     PrSetup,
     RepConditions,
@@ -51,6 +53,7 @@ from captest.setup import (
     derive,
     derive_pr,
     load_setup,
+    walk_nodes,
 )
 from captest.util import perc_wrap, to_native
 
@@ -531,6 +534,35 @@ def _resolve_pr_setup(base, overrides):
     return derived
 
 
+def _references_column(roles, name):
+    """Whether any node of a PR side reads a column called ``name``.
+
+    Looks at ``Column`` nodes at any depth and at literal string arguments
+    (or string elements of literal list arguments) of ``Calc`` nodes.
+
+    Parameters
+    ----------
+    roles : dict
+        A side's ``reg_cols`` (role -> node).
+    name : str
+        Column name to look for.
+
+    Returns
+    -------
+    bool
+    """
+    for _, node in walk_nodes(roles):
+        if isinstance(node, Column) and node.column == name:
+            return True
+        if isinstance(node, Calc):
+            for value in node.args.values():
+                if value == name:
+                    return True
+                if isinstance(value, (list, tuple)) and name in value:
+                    return True
+    return False
+
+
 def _refuse_pr_setup(resolved):
     """Raise until CapTest can run PR setups (temporary guard).
 
@@ -843,6 +875,35 @@ def _join_base_and_relative(base_dir, relative):
 
 # --- CapTest class --------------------------------------------------------
 
+# PR-test scalar params. They are test-level configuration that only a PR test
+# reads; a regression test ignores (and never writes) them.
+_PR_SCALAR_KEYS = (
+    "dc_nameplate",
+    "reference_source",
+    "reference_granularity",
+    "expected_pr",
+    "expected_pr_monthly",
+    "t_ref",
+    "t_ref_monthly",
+    "meas_numerator_kind",
+    "sim_numerator_kind",
+    "meas_numerator_units",
+    "sim_numerator_units",
+    "meas_power_units",
+    "sim_power_units",
+    "degradation_rate",
+    "degradation_years",
+    "availability",
+)
+# The subset describing the modeled side, unused with a fixed reference.
+_PR_SIM_SCALAR_KEYS = (
+    "sim_numerator_kind",
+    "sim_numerator_units",
+    "sim_power_units",
+)
+# Per-side validity-check pipelines of a PR test.
+_PR_CHECK_KEYS = ("meas_checks", "sim_checks")
+
 # Keys of ``captest.captest.CapTest`` params that may appear directly under the
 # yaml captest sub-mapping. Used by ``from_yaml`` for unknown-key detection.
 _CAPTEST_YAML_KEYS = frozenset(
@@ -887,6 +948,8 @@ _CAPTEST_YAML_KEYS = frozenset(
         "meas_prep",
         "sim_prep",
         "reporting_conditions_values",
+        *_PR_SCALAR_KEYS,
+        *_PR_CHECK_KEYS,
     }
 )
 
@@ -1395,6 +1458,91 @@ class CapTest(param.Parameterized):
             "set to None to respect the site's own altitude. Propagated onto "
             "both CapData instances at setup()."
         ),
+    )
+
+    # PR test (kind: pr) parameters; ignored by a regression test.
+    dc_nameplate = param.Number(
+        default=None,
+        allow_None=True,
+        doc="Nameplate DC capacity in W (the P_nom of the PR equation). "
+        "Required by a PR test.",
+    )
+    reference_source = param.Selector(
+        default="derived",
+        objects=["derived", "fixed"],
+        doc="PR test reference: 'derived' computes the expected PR from the "
+        "modeled data; 'fixed' uses the contract-stated expected_pr / t_ref "
+        "values and needs no modeled data.",
+    )
+    reference_granularity = param.Selector(
+        default="single",
+        objects=["single", "monthly"],
+        doc="One reference value for the whole test or one per calendar month.",
+    )
+    expected_pr = param.Number(
+        default=None,
+        allow_None=True,
+        doc="Fixed-reference expected PR (single granularity).",
+    )
+    expected_pr_monthly = param.List(
+        default=None,
+        allow_None=True,
+        doc="Fixed-reference expected PR per calendar month (12 values, "
+        "January first, None for a month not stated).",
+    )
+    t_ref = param.Number(
+        default=None,
+        allow_None=True,
+        doc="Fixed-reference temperature (deg C) of a temperature-corrected "
+        "PR test (single granularity).",
+    )
+    t_ref_monthly = param.List(
+        default=None,
+        allow_None=True,
+        doc="Fixed-reference temperature (deg C) per calendar month.",
+    )
+    meas_numerator_kind = param.Selector(
+        default="power",
+        objects=["power", "energy"],
+        doc="What the measured side's PR numerator holds: interval 'power' "
+        "or interval 'energy'.",
+    )
+    sim_numerator_kind = param.Selector(
+        default="power",
+        objects=["power", "energy"],
+        doc="What the modeled side's PR numerator holds.",
+    )
+    meas_numerator_units = param.String(
+        default="W",
+        doc="Units of the measured numerator: W, kW, MW for a power numerator; "
+        "Wh, kWh, MWh for an energy numerator.",
+    )
+    sim_numerator_units = param.String(
+        default="W", doc="Units of the modeled numerator, as meas_numerator_units."
+    )
+    meas_power_units = param.String(
+        default="W",
+        doc="Units of the measured 'power' role (W, kW or MW). For a power "
+        "numerator this must equal meas_numerator_units.",
+    )
+    sim_power_units = param.String(
+        default="W", doc="Units of the modeled 'power' role."
+    )
+    degradation_rate = param.Number(
+        default=None,
+        allow_None=True,
+        doc="Annual degradation rate in %/yr; set together with degradation_years.",
+    )
+    degradation_years = param.Number(
+        default=None,
+        allow_None=True,
+        doc="Years of degradation applied to the expected PR; set together "
+        "with degradation_rate.",
+    )
+    availability = param.Number(
+        default=1.0,
+        doc="Scalar measured-side availability factor (0 to 1). Use an "
+        "'availability' role instead for a per-interval factor.",
     )
 
     # Data-loader injection (programmatic-only; never serialized to yaml).
@@ -2825,6 +2973,189 @@ class CapTest(param.Parameterized):
         self.sim.data = wrapped
         self.sim.filters = []
 
+    @property
+    def test_kind(self):
+        """Kind of the selected setup: ``"pr"`` or ``"regression"``.
+
+        Returns
+        -------
+        {"pr", "regression"}
+            ``"pr"`` when ``test_setup`` names a :class:`captest.setup.PrSetup`
+            preset; everything else, including ``"custom"``, is a regression
+            test.
+        """
+        if isinstance(TEST_SETUPS.get(self.test_setup), PrSetup):
+            return "pr"
+        return "regression"
+
+    def _pr_sides(self):
+        """Sides a PR test evaluates.
+
+        Returns
+        -------
+        tuple of str
+            ``("meas", "sim")`` for a derived reference, ``("meas",)`` for a
+            fixed one.
+        """
+        if self.reference_source == "derived":
+            return ("meas", "sim")
+        return ("meas",)
+
+    def _warn_pr_params_on_regression(self):
+        """Warn about PR-only params that differ from their default.
+
+        Warns
+        -----
+        UserWarning
+            Naming every PR-only parameter that is set on a regression test,
+            where it is ignored and not saved.
+        """
+        changed = [
+            name
+            for name in _PR_SCALAR_KEYS
+            if getattr(self, name) != self.param[name].default
+        ]
+        if changed:
+            warnings.warn(
+                f"PR-only parameter(s) {', '.join(changed)} are ignored on a "
+                "regression test and not saved.",
+                UserWarning,
+                stacklevel=3,
+            )
+
+    def _validate_pr_settings(self, resolved):
+        """Check the PR parameters against a resolved PR setup.
+
+        Collects every problem and raises one error listing them. Does not
+        look at data.
+
+        Parameters
+        ----------
+        resolved : captest.setup.PrSetup
+            The resolved PR setup.
+
+        Raises
+        ------
+        ValueError
+            One message listing each invalid or inconsistent PR setting.
+        """
+        problems = []
+        sides = self._pr_sides()
+        corrected = resolved.temp_corrected
+
+        nameplate = self.dc_nameplate
+        if nameplate is None or not np.isfinite(nameplate) or nameplate <= 0:
+            problems.append(
+                f"dc_nameplate must be a finite number greater than 0 (W); "
+                f"got {nameplate!r}."
+            )
+        try:
+            prtest.parse_pr_tolerance(self.test_tolerance)
+        except ValueError as exc:
+            problems.append(str(exc))
+
+        for side in sides:
+            kind = getattr(self, f"{side}_numerator_kind")
+            units = getattr(self, f"{side}_numerator_units")
+            power_units = getattr(self, f"{side}_power_units")
+            table = prtest.POWER_UNITS if kind == "power" else prtest.ENERGY_UNITS
+            if units not in table:
+                problems.append(
+                    f"{side}_numerator_units {units!r} is not valid for a "
+                    f"{kind} numerator; use one of {', '.join(table)}."
+                )
+            if power_units not in prtest.POWER_UNITS:
+                problems.append(
+                    f"{side}_power_units {power_units!r} is not valid; use one "
+                    f"of {', '.join(prtest.POWER_UNITS)}."
+                )
+            elif kind == "power" and units in table and units != power_units:
+                problems.append(
+                    f"{side}_numerator_units {units!r} must equal "
+                    f"{side}_power_units {power_units!r} for a power numerator."
+                )
+            roles = getattr(resolved, side).reg_cols
+            if kind not in roles:
+                problems.append(
+                    f"the {side} side has no {kind!r} role, which the "
+                    f"{side}_numerator_kind={kind!r} numerator needs."
+                )
+            if (
+                kind == "energy"
+                and "power" not in roles
+                and _references_column(roles, "energy_to_power")
+            ):
+                problems.append(
+                    f"the {side} side derives its 'power' role as a column "
+                    "named 'energy_to_power', but one of its roles also "
+                    "uses a column of that name as an input."
+                )
+
+        if self.reference_source == "derived":
+            if self.sim is None:
+                problems.append("a derived reference requires sim to be set.")
+            if corrected and "cell_temp" not in resolved.sim.reg_cols:
+                problems.append(
+                    "a derived temperature-corrected reference requires a "
+                    "'cell_temp' role on the sim side."
+                )
+            fixed_values = {
+                "expected_pr": self.expected_pr,
+                "expected_pr_monthly": self.expected_pr_monthly,
+                "t_ref": self.t_ref,
+                "t_ref_monthly": self.t_ref_monthly,
+            }
+            given = [name for name, value in fixed_values.items() if value is not None]
+            if given:
+                problems.append(
+                    f"derived and fixed reference values cannot be mixed; "
+                    f"{', '.join(given)} set with reference_source='derived'."
+                )
+        else:
+            try:
+                prtest.fixed_reference(
+                    temp_corrected=corrected,
+                    granularity=self.reference_granularity,
+                    expected_pr=self.expected_pr,
+                    t_ref=self.t_ref,
+                    expected_pr_monthly=self.expected_pr_monthly,
+                    t_ref_monthly=self.t_ref_monthly,
+                )
+            except (ValueError, TypeError) as exc:
+                problems.append(f"fixed reference: {exc}")
+
+        if corrected:
+            try:
+                prtest.validate_power_temp_coeff(self.power_temp_coeff)
+            except ValueError as exc:
+                problems.append(str(exc))
+
+        try:
+            prtest.validate_availability(self.availability)
+        except ValueError as exc:
+            problems.append(str(exc))
+        else:
+            if self.availability != 1 and "availability" in resolved.meas.reg_cols:
+                problems.append(
+                    "availability is set to a scalar but the meas side also has "
+                    "an availability role; use one or the other."
+                )
+
+        rate, years = self.degradation_rate, self.degradation_years
+        if (rate is None) != (years is None):
+            problems.append(
+                "degradation_rate and degradation_years must be set together; "
+                "got only one."
+            )
+        elif rate is not None:
+            try:
+                prtest.degradation_factor(rate, years)
+            except ValueError as exc:
+                problems.append(f"degradation: {exc}")
+
+        if problems:
+            raise ValueError("Invalid PR test settings:\n- " + "\n- ".join(problems))
+
     def _collect_overrides(self):
         """The setup overrides currently set on this instance.
 
@@ -2985,6 +3316,7 @@ class CapTest(param.Parameterized):
         # Resolve first: a resolution error must leave sim.data untouched.
         resolved = resolve_test_setup(self.test_setup, self._collect_overrides())
         _refuse_pr_setup(resolved)
+        self._warn_pr_params_on_regression()
 
         # Auto-wrap sim.data when measured spans (within 60 days of) a year
         # boundary. Idempotent and reversible — re-running setup() or toggling

@@ -170,6 +170,305 @@ class TestPrRegistry:
         assert "temporary PR setup" in out
 
 
+def pr_setup_doc(temp_corrected=False):
+    """A PR setup document with power, poa (and cell_temp when corrected)."""
+    side = {
+        "power": {"column": "p"},
+        "poa": {"group": "irr_poa", "agg": "mean"},
+    }
+    if temp_corrected:
+        side["cell_temp"] = {"column": "tc"}
+    return {
+        "kind": "pr",
+        "name": "pr_params",
+        "description": "PR params test setup",
+        "temp_corrected": temp_corrected,
+        "meas": {"reg_cols": dict(side)},
+        "sim": {"reg_cols": dict(side)},
+    }
+
+
+def _register_pr(monkeypatch, doc=None, *, temp_corrected=False):
+    from captest.setup import PrSetup
+
+    setup = PrSetup.model_validate(doc or pr_setup_doc(temp_corrected))
+    monkeypatch.setitem(ct.TEST_SETUPS, "pr_params", setup)
+    return setup
+
+
+def _pr_tst(monkeypatch, doc=None, *, temp_corrected=False, **params):
+    setup = _register_pr(monkeypatch, doc, temp_corrected=temp_corrected)
+    kwargs = {"dc_nameplate": 5e6}
+    kwargs.update(params)
+    tst = CapTest(test_setup="pr_params", meas=CapData("m"), sim=CapData("s"), **kwargs)
+    return tst, setup
+
+
+class TestPrParams:
+    def test_defaults(self):
+        tst = CapTest()
+        assert tst.dc_nameplate is None
+        assert tst.reference_source == "derived"
+        assert tst.reference_granularity == "single"
+        assert tst.expected_pr is None and tst.t_ref is None
+        assert tst.expected_pr_monthly is None and tst.t_ref_monthly is None
+        assert tst.meas_numerator_kind == tst.sim_numerator_kind == "power"
+        assert tst.meas_numerator_units == tst.sim_numerator_units == "W"
+        assert tst.meas_power_units == tst.sim_power_units == "W"
+        assert tst.degradation_rate is None and tst.degradation_years is None
+        assert tst.availability == 1.0
+
+    def test_yaml_keys_include_pr_keys(self):
+        assert set(ct._PR_SCALAR_KEYS) <= ct._CAPTEST_YAML_KEYS
+        assert set(ct._PR_CHECK_KEYS) <= ct._CAPTEST_YAML_KEYS
+        assert set(ct._PR_SIM_SCALAR_KEYS) <= set(ct._PR_SCALAR_KEYS)
+
+    def test_test_kind(self, monkeypatch):
+        assert CapTest(test_setup="e2848_default").test_kind == "regression"
+        assert CapTest(test_setup="custom").test_kind == "regression"
+        _register_pr(monkeypatch)
+        assert CapTest(test_setup="pr_params").test_kind == "pr"
+
+    def test_pr_sides(self):
+        assert CapTest()._pr_sides() == ("meas", "sim")
+        assert CapTest(reference_source="fixed")._pr_sides() == ("meas",)
+
+    def test_valid_derived_passes(self, monkeypatch):
+        tst, setup = _pr_tst(monkeypatch)
+        tst._validate_pr_settings(setup)
+
+    def test_valid_fixed_passes(self, monkeypatch):
+        tst, setup = _pr_tst(monkeypatch, reference_source="fixed", expected_pr=0.8)
+        tst._validate_pr_settings(setup)
+
+    @pytest.mark.parametrize("value", [None, 0, -5.0, float("nan"), float("inf")])
+    def test_dc_nameplate_invalid(self, monkeypatch, value):
+        tst, setup = _pr_tst(monkeypatch, dc_nameplate=value)
+        with pytest.raises(ValueError, match="dc_nameplate"):
+            tst._validate_pr_settings(setup)
+
+    @pytest.mark.parametrize("tol", ["+/- 4", "4", "- 100"])
+    def test_tolerance_rejected(self, monkeypatch, tol):
+        tst, setup = _pr_tst(monkeypatch, test_tolerance=tol)
+        with pytest.raises(ValueError, match="test_tolerance"):
+            tst._validate_pr_settings(setup)
+
+    def test_numerator_unit_wrong_for_kind(self, monkeypatch):
+        tst, setup = _pr_tst(
+            monkeypatch, meas_numerator_kind="energy", meas_numerator_units="kW"
+        )
+        with pytest.raises(ValueError, match="meas_numerator_units"):
+            tst._validate_pr_settings(setup)
+
+    def test_numerator_role_missing(self, monkeypatch):
+        tst, setup = _pr_tst(monkeypatch, meas_numerator_kind="energy")
+        with pytest.raises(ValueError, match="'energy' role.*meas"):
+            tst._validate_pr_settings(setup)
+
+    def test_sim_role_not_needed_when_fixed(self, monkeypatch):
+        tst, setup = _pr_tst(
+            monkeypatch,
+            reference_source="fixed",
+            expected_pr=0.8,
+            sim_numerator_kind="energy",
+            sim_numerator_units="kWh",
+        )
+        tst._validate_pr_settings(setup)
+
+    def test_derived_without_sim(self, monkeypatch):
+        setup = _register_pr(monkeypatch)
+        tst = CapTest(test_setup="pr_params", meas=CapData("m"), dc_nameplate=5e6)
+        with pytest.raises(ValueError, match="derived.*sim"):
+            tst._validate_pr_settings(setup)
+
+    def test_derived_corrected_needs_sim_cell_temp(self, monkeypatch):
+        doc = pr_setup_doc(temp_corrected=True)
+        del doc["sim"]["reg_cols"]["cell_temp"]
+        tst, setup = _pr_tst(monkeypatch, doc)
+        with pytest.raises(ValueError, match="cell_temp"):
+            tst._validate_pr_settings(setup)
+
+    @pytest.mark.parametrize(
+        "kwargs",
+        [
+            {"expected_pr": 0.8},
+            {"expected_pr_monthly": [0.8] * 12},
+            {"t_ref": 20.0},
+            {"t_ref_monthly": [20.0] * 12},
+        ],
+    )
+    def test_derived_and_fixed_values_mixed(self, monkeypatch, kwargs):
+        tst, setup = _pr_tst(monkeypatch, **kwargs)
+        with pytest.raises(ValueError, match="cannot be mixed"):
+            tst._validate_pr_settings(setup)
+
+    def test_fixed_reference_error_included(self, monkeypatch):
+        tst, setup = _pr_tst(monkeypatch, reference_source="fixed")
+        with pytest.raises(ValueError, match="expected_pr is required"):
+            tst._validate_pr_settings(setup)
+
+    def test_corrected_power_temp_coeff(self, monkeypatch):
+        tst, setup = _pr_tst(monkeypatch, temp_corrected=True, power_temp_coeff=0.32)
+        with pytest.raises(ValueError, match="power_temp_coeff must be negative"):
+            tst._validate_pr_settings(setup)
+
+    @pytest.mark.parametrize("value", [-0.1, 1.5, float("nan")])
+    def test_availability_range(self, monkeypatch, value):
+        tst, setup = _pr_tst(monkeypatch, availability=value)
+        with pytest.raises(ValueError, match="availability"):
+            tst._validate_pr_settings(setup)
+
+    def test_scalar_availability_with_role(self, monkeypatch):
+        doc = pr_setup_doc()
+        doc["meas"]["reg_cols"]["availability"] = {"column": "a"}
+        tst, setup = _pr_tst(monkeypatch, doc, availability=0.9)
+        with pytest.raises(ValueError, match="availability role"):
+            tst._validate_pr_settings(setup)
+
+    def test_availability_role_with_default_scalar_passes(self, monkeypatch):
+        doc = pr_setup_doc()
+        doc["meas"]["reg_cols"]["availability"] = {"column": "a"}
+        tst, setup = _pr_tst(monkeypatch, doc)
+        tst._validate_pr_settings(setup)
+
+    @pytest.mark.parametrize(
+        "kwargs",
+        [
+            {"degradation_rate": 0.5},
+            {"degradation_years": 2.0},
+            {"degradation_rate": 200.0, "degradation_years": 1.0},
+        ],
+    )
+    def test_degradation_invalid(self, monkeypatch, kwargs):
+        tst, setup = _pr_tst(monkeypatch, **kwargs)
+        with pytest.raises(ValueError, match="degradation"):
+            tst._validate_pr_settings(setup)
+
+    def test_degradation_pair_passes(self, monkeypatch):
+        tst, setup = _pr_tst(monkeypatch, degradation_rate=0.5, degradation_years=2.0)
+        tst._validate_pr_settings(setup)
+
+    def test_power_numerator_units_must_match_power_units(self, monkeypatch):
+        tst, setup = _pr_tst(
+            monkeypatch, meas_numerator_units="MW", meas_power_units="W"
+        )
+        with pytest.raises(ValueError, match="meas_numerator_units.*meas_power_units"):
+            tst._validate_pr_settings(setup)
+
+    def test_power_numerator_mw_matches(self, monkeypatch):
+        tst, setup = _pr_tst(
+            monkeypatch,
+            meas_numerator_units="MW",
+            meas_power_units="MW",
+            sim_numerator_units="MW",
+            sim_power_units="MW",
+        )
+        tst._validate_pr_settings(setup)
+
+    def test_energy_numerator_may_differ_from_power_units(self, monkeypatch):
+        doc = pr_setup_doc()
+        doc["meas"]["reg_cols"]["energy"] = {"column": "e"}
+        tst, setup = _pr_tst(
+            monkeypatch,
+            doc,
+            meas_numerator_kind="energy",
+            meas_numerator_units="kWh",
+            meas_power_units="kW",
+        )
+        tst._validate_pr_settings(setup)
+
+    @pytest.mark.parametrize(
+        "role_node",
+        [
+            {"column": "energy_to_power"},
+            {"calc": "multiply", "args": {"a": {"column": "energy_to_power"}, "b": 2}},
+        ],
+    )
+    def test_energy_to_power_self_reference_column(self, monkeypatch, role_node):
+        doc = pr_setup_doc()
+        del doc["meas"]["reg_cols"]["power"]
+        doc["meas"]["reg_cols"]["energy"] = {"column": "e"}
+        doc["meas"]["reg_cols"]["poa"] = role_node
+        tst, setup = _pr_tst(
+            monkeypatch,
+            doc,
+            reference_source="fixed",
+            expected_pr=0.8,
+            meas_numerator_kind="energy",
+            meas_numerator_units="kWh",
+        )
+        with pytest.raises(ValueError, match="energy_to_power"):
+            tst._validate_pr_settings(setup)
+
+    @pytest.mark.parametrize("literal", ["energy_to_power", ["a", "energy_to_power"]])
+    def test_energy_to_power_self_reference_literal(self, monkeypatch, literal):
+        doc = pr_setup_doc()
+        del doc["meas"]["reg_cols"]["power"]
+        doc["meas"]["reg_cols"]["energy"] = {"column": "e"}
+        doc["meas"]["reg_cols"]["poa"] = {
+            "calc": "multiply",
+            "args": {"a": literal, "b": {"column": "g"}},
+        }
+        tst, setup = _pr_tst(
+            monkeypatch,
+            doc,
+            reference_source="fixed",
+            expected_pr=0.8,
+            meas_numerator_kind="energy",
+            meas_numerator_units="kWh",
+        )
+        with pytest.raises(ValueError, match="energy_to_power"):
+            tst._validate_pr_settings(setup)
+
+    def test_energy_to_power_not_flagged_when_power_role_present(self, monkeypatch):
+        doc = pr_setup_doc()
+        doc["meas"]["reg_cols"]["energy"] = {"column": "energy_to_power"}
+        tst, setup = _pr_tst(
+            monkeypatch,
+            doc,
+            reference_source="fixed",
+            expected_pr=0.8,
+            meas_numerator_kind="energy",
+            meas_numerator_units="kWh",
+            meas_power_units="W",
+        )
+        tst._validate_pr_settings(setup)
+
+    def test_all_problems_in_one_message(self, monkeypatch):
+        tst, setup = _pr_tst(monkeypatch, dc_nameplate=-1, availability=2.0)
+        with pytest.raises(ValueError) as exc:
+            tst._validate_pr_settings(setup)
+        assert "dc_nameplate" in str(exc.value)
+        assert "availability" in str(exc.value)
+
+    def test_pr_param_on_regression_test_warns_and_is_not_written(self):
+        from tests.setup_fixtures import PRESET_FIXTURES
+
+        meas_builder, sim_builder, kwargs = PRESET_FIXTURES["e2848_default"]
+        baseline = CapTest.from_params(
+            test_setup="e2848_default",
+            meas=meas_builder(),
+            sim=sim_builder(),
+            **kwargs,
+        ).to_mapping()
+        with pytest.warns(UserWarning, match="dc_nameplate.*ignored"):
+            tst = CapTest.from_params(
+                test_setup="e2848_default",
+                meas=meas_builder(),
+                sim=sim_builder(),
+                dc_nameplate=7e6,
+                **kwargs,
+            )
+        mapping = tst.to_mapping()
+        assert not (set(ct._PR_SCALAR_KEYS) & set(mapping))
+        assert mapping == baseline
+
+    def test_default_pr_params_do_not_warn_on_regression(self, recwarn):
+        tst = CapTest(test_setup="e2848_default")
+        tst._warn_pr_params_on_regression()
+        assert not [w for w in recwarn if "ignored on a regression" in str(w.message)]
+
+
 class TestTestSetupsRegistry:
     @pytest.mark.parametrize("preset", sorted(ct.TEST_SETUPS))
     def test_each_preset_is_a_test_setup(self, preset):
