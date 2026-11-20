@@ -586,23 +586,6 @@ def _references_column(roles, name):
 PR_PLOT_FORMULA = "power ~ poa"
 
 
-def _refuse_pr_setup(resolved):
-    """Raise until CapTest can run PR setups (temporary guard).
-
-    Parameters
-    ----------
-    resolved : captest.setup.TestSetup, captest.setup.PrSetup or None
-        A resolved setup or a preset looked up by name (``None`` when unknown).
-
-    Raises
-    ------
-    NotImplementedError
-        If ``resolved`` is a ``PrSetup``.
-    """
-    if isinstance(resolved, PrSetup):
-        raise NotImplementedError("PR setups are not yet run by CapTest")
-
-
 def _lift_mapping(sub, key="captest"):
     """Validate a captest sub-mapping and lift it into constructor kwargs.
 
@@ -928,6 +911,35 @@ _PR_SIM_SCALAR_KEYS = (
 )
 # Per-side validity-check pipelines of a PR test.
 _PR_CHECK_KEYS = ("meas_checks", "sim_checks")
+# Scalar params every mapping writes, in order. A PR mapping skips
+# ``rc_source``: reporting conditions do not apply to a PR test.
+_GENERIC_SCALAR_KEYS = (
+    "rc_source",
+    "ac_nameplate",
+    "inv_ac_nameplate",
+    "test_tolerance",
+    "sim_days",
+    "shade_filter_start",
+    "shade_filter_end",
+    "min_irr",
+    "max_irr",
+    "clipping_irr",
+    "rep_irr_filter",
+    "fshdbm",
+    "irrad_stability",
+    "irrad_stability_threshold",
+    "hrs_req",
+    "bifaciality",
+    "bifacial_frac",
+    "rear_shade",
+    "power_temp_coeff",
+    "base_temp",
+    "module_type",
+    "racking",
+    "spectral_module_type",
+    "airmass_model",
+    "altitude_override",
+)
 
 # Keys of ``captest.captest.CapTest`` params that may appear directly under the
 # yaml captest sub-mapping. Used by ``from_yaml`` for unknown-key detection.
@@ -974,7 +986,7 @@ _CAPTEST_YAML_KEYS = frozenset(
         "sim_prep",
         "reporting_conditions_values",
         *_PR_SCALAR_KEYS,
-        # Per-side check pipelines; they become CapTest instance state later.
+        # Per-side check pipelines; stored pending until setup() adopts them.
         *_PR_CHECK_KEYS,
     }
 )
@@ -1042,6 +1054,46 @@ def _warn_repcond_values(rc_source, configs):
             f"RepCond on {names}: the step that runs later overwrites the "
             "reporting conditions of the one before it, so typed-in values "
             "can be lost. Keep one RepCond step."
+        )
+
+
+def _reject_rc_steps(configs):
+    """Refuse reporting-conditions steps in the pipelines of a PR test.
+
+    A PR test has no reporting conditions, so a ``RepCond`` step, or an
+    ``Irradiance`` step whose ``ref_val`` is ``"rep_irr"`` (or its legacy
+    alias ``"self_val"``), cannot run in it.
+
+    Parameters
+    ----------
+    configs : mapping
+        Lists of filter-config dicts keyed by side.
+
+    Raises
+    ------
+    ValueError
+        Naming the side and step index of every such step.
+    """
+    found = []
+    for side, config in configs.items():
+        for i, step in enumerate(config):
+            kind = step.get("type")
+            if kind == "RepCond":
+                found.append(f"{side} step {i} (RepCond)")
+            elif kind == "Irradiance" and step.get("ref_val") in (
+                "rep_irr",
+                "self_val",
+            ):
+                found.append(
+                    f"{side} step {i} (Irradiance with ref_val={step['ref_val']!r})"
+                )
+    if found:
+        raise ValueError(
+            "Reporting conditions do not apply to a PR test, so its filter "
+            "pipelines cannot hold a RepCond step or an Irradiance step with "
+            f"ref_val 'rep_irr' / 'self_val'. Remove {', '.join(found)} from "
+            "the applied chain (tst.<side>.filters) or the pending config "
+            "(tst.<side>_filters_pending)."
         )
 
 
@@ -2424,6 +2476,21 @@ class CapTest(param.Parameterized):
         ``regression_results``, :attr:`resolved_setup`, and the loader
         callables are never serialized.
 
+        A PR test (``test_kind == 'pr'``) writes the same load keys,
+        pipelines and generic scalars, plus every PR parameter (the
+        fixed-reference ``expected_pr`` / ``t_ref`` values and tables as
+        ``null`` when unset) and the registered validity checks as
+        ``meas_checks`` / ``sim_checks`` (the live checks, else the pending
+        configs, each only when non-empty). It never writes ``rc_source``,
+        ``reporting_conditions_values`` or the ``reg_fml`` /
+        ``rep_conditions`` / ``scatter_plots`` overrides; ``overrides`` holds
+        only the ``reg_cols_*`` differences from the preset and ``params``.
+        With ``reference_source='fixed'`` nothing of the modeled side is
+        written: no ``sim_path`` / ``sim_load_kwargs`` / ``sim_prep``,
+        ``sim_filters``, ``sim_checks``, ``overrides.reg_cols_sim`` or
+        ``sim_numerator_kind`` / ``sim_numerator_units`` /
+        ``sim_power_units``. A regression test never writes the PR keys.
+
         Parameters
         ----------
         path : str or Path
@@ -2472,7 +2539,9 @@ class CapTest(param.Parameterized):
         Returns
         -------
         dict
-            The captest sub-mapping (scalars, overrides, paths, pipelines).
+            The captest sub-mapping (scalars, overrides, paths, pipelines;
+            for a PR test also the PR params and check pipelines, see
+            :meth:`to_yaml`).
         """
         self._warn_unserializable()
         return self._build_yaml_sub_mapping()
@@ -2606,15 +2675,17 @@ class CapTest(param.Parameterized):
     def run_fingerprint(self):
         """Fingerprint of the configuration that produced the last results.
 
-        Set only by a ``run_test()`` of both sides that completes: the sha256
+        Set only by a ``run_test(side='both')`` that completes: the sha256
         hex of ``canonical_json`` of ``to_mapping()`` taken at the end of that
-        run, with each side's load keys (path, ``*_load_kwargs``, ``*_prep``)
-        replaced by what was in force when that side's data was loaded. It
-        equals :meth:`mapping_fingerprint` exactly when nothing that feeds
-        the results has changed since, including load settings that need a
-        reload to take effect. ``None`` otherwise, including once ``meas`` or
-        ``sim`` has been replaced by a different ``CapData`` since the run;
-        see :attr:`run_fingerprint_error`.
+        run, with each used side's load keys (path, ``*_load_kwargs``,
+        ``*_prep``) replaced by what was in force when that side's data was
+        loaded. The used sides are ``meas`` and ``sim``, or ``meas`` alone for
+        a fixed-reference PR test. It equals :meth:`mapping_fingerprint`
+        exactly when nothing that feeds the results has changed since,
+        including load settings that need a reload to take effect. ``None``
+        otherwise, including once a used side has been replaced by a
+        different ``CapData`` since the run; see
+        :attr:`run_fingerprint_error`.
 
         Returns
         -------
@@ -2639,18 +2710,19 @@ class CapTest(param.Parameterized):
 
     @property
     def last_results(self):
-        """The ``CapTestResults`` the last completed ``run_test()`` returned.
+        """The results the last completed ``run_test()`` returned.
 
         The same object, not a recomputation. Cleared when any ``run_test``
-        starts and on :meth:`reload`, and reads ``None`` while ``meas`` or
-        ``sim`` is a different ``CapData`` from the one the run used, so it
+        starts and on :meth:`reload`, and reads ``None`` while a side the run
+        used (``meas`` and ``sim``; ``meas`` alone for a fixed-reference PR
+        test) is a different ``CapData`` from the one the run used, so it
         always describes the current data. ``None`` after a single-side or
         failed run. A copied ``CapTest`` (``copy.deepcopy``) does not carry
         the run over; re-run ``run_test()`` on the copy.
 
         Returns
         -------
-        CapTestResults or None
+        CapTestResults, captest.prtest.PrTestResults or None
         """
         if self._replaced_since_run() is not None:
             return None
@@ -2678,8 +2750,10 @@ class CapTest(param.Parameterized):
         """Why the last run no longer describes the live sides, else ``None``."""
         if self._run_capdata is None:
             return None
-        for side in ("meas", "sim"):
-            used = self._run_capdata[side]()
+        # The sides the run used: both for a regression test, those a PR
+        # test evaluates for a PR test.
+        for side, ref in self._run_capdata.items():
+            used = ref()
             if used is None:
                 # The run's CapData is gone, so the side cannot still hold it.
                 return self._replaced_message(side)
@@ -2708,21 +2782,27 @@ class CapTest(param.Parameterized):
             canonical_json(self._build_yaml_sub_mapping()).encode("utf-8")
         ).hexdigest()
 
-    def _set_run_fingerprint(self):
-        """Compute :attr:`run_fingerprint` after a completed both-side run.
+    def _set_run_fingerprint(self, sides=("meas", "sim")):
+        """Compute :attr:`run_fingerprint` after a completed full run.
 
         Never raises: an unknown provenance, an execution option the mapping
         cannot carry, or a mapping that cannot be canonicalised leaves the
         fingerprint ``None`` with the reason in :attr:`run_fingerprint_error`.
+
+        Parameters
+        ----------
+        sides : tuple of {'meas', 'sim'}, default ('meas', 'sim')
+            The sides the run used; only their load snapshots are checked and
+            substituted (a fixed-reference PR test uses meas alone).
         """
         self._run_fingerprint = None
-        if not self.auto_wrap_sim:
+        if "sim" in sides and not self.auto_wrap_sim:
             self._run_fingerprint_error = (
                 "auto_wrap_sim=False is not serialized by to_mapping(), so the "
                 "results cannot be reproduced from the mapping"
             )
             return
-        for side in ("meas", "sim"):
+        for side in sides:
             snap = self._load_snapshots.get(side)
             if snap is None:
                 self._run_fingerprint_error = (
@@ -2738,7 +2818,7 @@ class CapTest(param.Parameterized):
                 return
         try:
             mapping = self._build_yaml_sub_mapping()
-            for side in ("meas", "sim"):
+            for side in sides:
                 for k in (f"{side}_path", f"{side}_load_kwargs", f"{side}_prep"):
                     mapping.pop(k, None)
                 mapping.update(copy.deepcopy(self._load_snapshots[side]["keys"]))
@@ -2794,13 +2874,17 @@ class CapTest(param.Parameterized):
         one normal form. Writes ``overrides.rep_conditions`` whenever
         :attr:`rep_conditions` is set, including beside a ``RepCond`` step or
         a manual ``rc_source``, so the reloaded ``resolved_setup`` keeps the
-        original's ``content_digest``.
-
-        Raises
-        ------
-        NotImplementedError
-            If the resolved setup is a PR setup (not yet run by CapTest).
+        original's ``content_digest``. A PR setup is written by
+        :meth:`_build_pr_sub_mapping`.
         """
+        # Always resolve from the *current* params, never from the cached
+        # ``resolved_setup``: an override edited after setup() must be what
+        # gets written, and a changed ``test_setup`` must not be paired with
+        # the previous preset's document.
+        resolved = resolve_test_setup(self.test_setup, self._collect_overrides())
+        if isinstance(resolved, PrSetup):
+            return self._build_pr_sub_mapping(resolved)
+
         sub = {"test_setup": self.test_setup}
 
         # Path, load kwargs and prep are written only when present; see
@@ -2809,12 +2893,6 @@ class CapTest(param.Parameterized):
         sub.update(self._side_load_keys("sim"))
 
         overrides = {}
-        # Always resolve from the *current* params, never from the cached
-        # ``resolved_setup``: an override edited after setup() must be what
-        # gets written, and a changed ``test_setup`` must not be paired with
-        # the previous preset's document.
-        resolved = resolve_test_setup(self.test_setup, self._collect_overrides())
-        _refuse_pr_setup(resolved)
         if self.test_setup == "custom":
             overrides["reg_cols_meas"] = resolved.meas.model_dump(mode="json")[
                 "reg_cols"
@@ -2856,34 +2934,7 @@ class CapTest(param.Parameterized):
             sub["overrides"] = overrides
 
         # Remaining scalar params (always written).
-        scalar_names = (
-            "rc_source",
-            "ac_nameplate",
-            "inv_ac_nameplate",
-            "test_tolerance",
-            "sim_days",
-            "shade_filter_start",
-            "shade_filter_end",
-            "min_irr",
-            "max_irr",
-            "clipping_irr",
-            "rep_irr_filter",
-            "fshdbm",
-            "irrad_stability",
-            "irrad_stability_threshold",
-            "hrs_req",
-            "bifaciality",
-            "bifacial_frac",
-            "rear_shade",
-            "power_temp_coeff",
-            "base_temp",
-            "module_type",
-            "racking",
-            "spectral_module_type",
-            "airmass_model",
-            "altitude_override",
-        )
-        for name in scalar_names:
+        for name in _GENERIC_SCALAR_KEYS:
             sub[name] = getattr(self, name)
 
         if meas_filters:
@@ -2905,6 +2956,71 @@ class CapTest(param.Parameterized):
             elif self._pending_manual_rc is not None:
                 sub["reporting_conditions_values"] = dict(self._pending_manual_rc)
 
+        return sub
+
+    def _build_pr_sub_mapping(self, resolved):
+        """Build the :meth:`to_yaml` sub-mapping of a PR test.
+
+        Writes only the sides the test evaluates (:meth:`_pr_sides`): the
+        modeled side's load keys, ``overrides.reg_cols_sim``,
+        ``sim_filters``, ``sim_checks`` and the ``_PR_SIM_SCALAR_KEYS``
+        appear only with a derived reference. Keys, in order:
+        ``test_setup``; each side's load keys (:meth:`_side_load_keys`);
+        ``overrides`` (``reg_cols_<side>`` differences from the preset and
+        ``params`` when set); every generic scalar except ``rc_source``;
+        every PR scalar (the fixed-reference values too, ``None`` when
+        unset); ``<side>_filters`` (the live chain, else the pending config,
+        each only when non-empty); ``<side>_checks`` (the live checks'
+        ``checks_to_config()``, else the pending configs, each only when
+        non-empty). Reporting conditions are never written.
+
+        Parameters
+        ----------
+        resolved : captest.setup.PrSetup
+            The setup resolved from the current params.
+
+        Returns
+        -------
+        dict
+        """
+        sides = self._pr_sides()
+        sub = {"test_setup": self.test_setup}
+        for side in sides:
+            sub.update(self._side_load_keys(side))
+
+        overrides = {}
+        preset = TEST_SETUPS[self.test_setup]
+        for side in sides:
+            diff = _reg_cols_diff(
+                getattr(preset, side).reg_cols, getattr(resolved, side).reg_cols
+            )
+            if diff:
+                overrides[f"reg_cols_{side}"] = diff
+        if self.params is not None:
+            overrides["params"] = {k: to_native(v) for k, v in self.params.items()}
+        if overrides:
+            sub["overrides"] = overrides
+
+        for name in _GENERIC_SCALAR_KEYS:
+            if name != "rc_source":
+                sub[name] = getattr(self, name)
+        for name in _PR_SCALAR_KEYS:
+            if "sim" in sides or name not in _PR_SIM_SCALAR_KEYS:
+                sub[name] = copy.deepcopy(getattr(self, name))
+
+        filters = self._select_replay_configs(sides)
+        for side in sides:
+            if filters[side]:
+                sub[f"{side}_filters"] = filters[side]
+        for side in sides:
+            cd = getattr(self, side)
+            checks = (
+                cd.checks_to_config()
+                if cd is not None and cd.checks
+                else list(getattr(self, f"{side}_checks_pending"))
+            )
+            if checks:
+                sub[f"{side}_checks"] = checks
         return sub
 
     # --- workflow methods ------------------------------------------------
@@ -3592,7 +3708,10 @@ class CapTest(param.Parameterized):
         that resolved setup's ``scatter_plots`` field names a function in
         :data:`SCATTER_REGISTRY` matched to the setup's regression formula.
         This method picks ``self.meas`` or ``self.sim`` and forwards it, plus
-        any keyword arguments, to that registered function.
+        any keyword arguments, to that registered function. A PR setup names
+        no scatter function: a PR test always uses ``scatter_default``, which
+        plots ``power`` against ``poa`` through the ``PR_PLOT_FORMULA`` that
+        :meth:`setup` gives each side.
 
         Built-in setup behavior:
 
@@ -3651,6 +3770,8 @@ class CapTest(param.Parameterized):
         """
         cd = self._pick_cd(which)
         self._require_setup()
+        if isinstance(self.resolved_setup, PrSetup):
+            return SCATTER_REGISTRY["scatter_default"](cd, **kwargs)
         return SCATTER_REGISTRY[self.resolved_setup.scatter_plots](cd, **kwargs)
 
     def rep_cond(self, which=None, **overrides):
@@ -3686,8 +3807,11 @@ class CapTest(param.Parameterized):
         Raises
         ------
         ValueError
-            If an override key is not a ``CapData.rep_cond`` option.
+            If this is a PR test (reporting conditions do not apply to it), or
+            an override key is not a ``CapData.rep_cond`` option.
         """
+        if self.test_kind == "pr":
+            raise ValueError("reporting conditions do not apply to a PR test")
         if which is None:
             which = self.rc_source if self.rc_source in ("meas", "sim") else "meas"
         cd = self._pick_cd(which)
@@ -4333,21 +4457,31 @@ class CapTest(param.Parameterized):
         ``process_regression_columns`` lost-filters warning is suppressed
         for this intentional orchestrated clearing.
 
+        A PR test (``test_kind == 'pr'``) runs a different sequence; see
+        the Notes.
+
         Parameters
         ----------
         side : {'both', 'meas', 'sim'}, default 'both'
         print_res : bool, default False
-            Forwarded to :meth:`captest_results` (``side='both'`` only).
+            Forwarded to :meth:`captest_results` (:meth:`pr_results` on a PR
+            test); ``side='both'`` only.
 
         Returns
         -------
-        CapTestResults or CapTest
-            Results for ``side='both'``; ``self`` for per-side runs.
+        CapTestResults, captest.prtest.PrTestResults or CapTest
+            Results for ``side='both'`` (:class:`captest.prtest.PrTestResults`
+            on a PR test); ``self`` for per-side runs.
 
         Raises
         ------
         ValueError
-            If ``side`` is not ``'meas'``, ``'sim'``, or ``'both'``.
+            If ``side`` is not ``'meas'``, ``'sim'``, or ``'both'``. On a PR
+            test, also for ``side='sim'`` with ``reference_source='fixed'``,
+            and when a targeted pipeline holds a ``RepCond`` step or an
+            ``Irradiance`` step with ``ref_val`` ``'rep_irr'`` / ``'self_val'``
+            (raised before any setup or replay, naming the side and step
+            index).
         RuntimeError
             For ``side='both'``: a computed ``rc_source`` whose replayed
             pipeline contains no RepCond step, ``rc_source='manual'``
@@ -4363,6 +4497,17 @@ class CapTest(param.Parameterized):
         it, :attr:`run_fingerprint`. Any other outcome — a per-side run, a
         raised exception, or a run whose configuration cannot be reproduced
         from the mapping — clears both; see :attr:`run_fingerprint_error`.
+
+        On a PR test the targeted sides are the requested ones the test
+        evaluates (meas alone for ``reference_source='fixed'``, so
+        ``side='both'`` targets meas only there). Their pipelines are
+        selected as above and checked for reporting-conditions steps, then
+        ``setup`` and :meth:`replay_filters` run on those sides only; an
+        untargeted side's data, chain and pending config are untouched. No
+        regression is fitted and no reporting conditions are computed or
+        verified. ``side='both'`` returns :meth:`pr_results` and records
+        :attr:`last_results` / :attr:`run_fingerprint` over the evaluated
+        sides; ``side='meas'`` / ``'sim'`` only replays and returns ``self``.
         """
         if side not in ("meas", "sim", "both"):
             raise ValueError(f"side must be 'meas', 'sim', or 'both', got {side!r}.")
@@ -4371,6 +4516,8 @@ class CapTest(param.Parameterized):
             if side == "both"
             else f"the last run_test was single-side (side={side!r})"
         )
+        if self.test_kind == "pr":
+            return self._run_pr_test(side, print_res)
         run_sides = ["meas", "sim"] if side == "both" else [side]
         # Select each side's replay source BEFORE setup:
         # process_regression_columns clears each targeted side's applied
@@ -4434,6 +4581,60 @@ class CapTest(param.Parameterized):
                 "sim": weakref.ref(self.sim),
             }
             self._set_run_fingerprint()
+            return results
+        except Exception as e:
+            if hasattr(e, "add_note"):
+                e.add_note(f"[CapTest.run_test stage: {stage}]")
+            raise
+
+    def _run_pr_test(self, side, print_res):
+        """The PR branch of :meth:`run_test`, after the run is invalidated.
+
+        The targeted sides are the requested ones the test evaluates
+        (:meth:`_pr_sides`). Their pipelines are selected and checked for
+        reporting-conditions steps before :meth:`setup` and
+        :meth:`replay_filters` run on those sides only; an untargeted side's
+        data, chain and pending config are left as they were. Only
+        ``side='both'`` computes :meth:`pr_results` and records the run.
+
+        Parameters
+        ----------
+        side : {'both', 'meas', 'sim'}
+        print_res : bool
+            Forwarded to :meth:`pr_results`.
+
+        Returns
+        -------
+        captest.prtest.PrTestResults or CapTest
+        """
+        self._require_pr_side(side)
+        requested = ("meas", "sim") if side == "both" else (side,)
+        targets = tuple(s for s in requested if s in self._pr_sides())
+        target_side = "both" if len(targets) == 2 else targets[0]
+        configs = self._select_replay_configs(targets)
+        _reject_rc_steps(configs)
+
+        stage = "setup"
+        try:
+            with warnings.catch_warnings():
+                # The chains were snapshotted above; see run_test.
+                warnings.filterwarnings(
+                    "ignore",
+                    message="The data_filtered attribute has been overwritten",
+                )
+                self.setup(verbose=False, side=target_side)
+
+            stage = "filter pipelines"
+            self.replay_filters(side=target_side, configs=configs)
+
+            if side != "both":
+                return self
+
+            stage = "results"
+            results = self.pr_results(print_res=print_res)
+            self._last_results = results
+            self._run_capdata = {s: weakref.ref(getattr(self, s)) for s in targets}
+            self._set_run_fingerprint(sides=targets)
             return results
         except Exception as e:
             if hasattr(e, "add_note"):
