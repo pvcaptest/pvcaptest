@@ -375,3 +375,25 @@ class TestDerivedAcrossMonths:
             _plain_pr(january, january["GlobInc"]), rel=1e-9
         )
         assert isinstance(results, prtest.PrTestResults)
+
+
+class TestFixtureGuards:
+    def test_availability_series_must_match_index(self):
+        index = pd.date_range("2025-01-29", periods=8, freq="15min")
+        shifted = pd.Series(1.0, index=index + pd.Timedelta("1min"))
+        with pytest.raises(ValueError, match="indexed like index"):
+            make_meas_pr(
+                index,
+                dc_nameplate=DC_NAMEPLATE,
+                pr=0.8,
+                t_ref=40.0,
+                coeff=COEFF,
+                availability=shifted,
+            )
+
+    def test_missing_month_is_named(self):
+        index = pd.date_range("2025-01-30", "2025-02-02", freq="h")
+        with pytest.raises(ValueError, match=r"month\(s\) \[2\]"):
+            make_sim_pr(index, pr_by_month={1: 0.8})
+        with pytest.raises(ValueError, match=r"month\(s\) \[2\]"):
+            make_sim_pr(index, pr_by_month={1: 0.8, 2: 0.8}, t_array={1: 30.0})

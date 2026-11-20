@@ -164,6 +164,9 @@ def bell_irradiance(index, peak=1000.0):
 def _by_month(value, index):
     """A scalar or a ``{month: value}`` mapping as a Series aligned to ``index``."""
     if isinstance(value, dict):
+        missing = sorted(set(index.month) - set(value))
+        if missing:
+            raise ValueError(f"No value for month(s) {missing} in {value!r}.")
         return pd.Series(index.month.map(value).to_numpy(float), index=index)
     return pd.Series(float(value), index=index)
 
@@ -213,6 +216,7 @@ def make_meas_pr(
     availability : float or pd.Series, optional
         Per-interval availability factor applied to the power and stored in
         the ``avail`` column.
+        A Series must have an index equal to ``index``.
     bifaciality : float, default 0.7
         Bifaciality used in the total effective irradiance.
     temp_delta : float, optional
@@ -226,6 +230,12 @@ def make_meas_pr(
     -------
     captest.capdata.CapData
         With ``data`` and ``column_groups`` set.
+
+    Raises
+    ------
+    ValueError
+        If ``availability`` is a Series not indexed like ``index``, or a
+        ``t_ref`` mapping lacks a month of ``index``.
     """
     if temp_delta is None:
         temp_delta = EMP_HEAT_COEFF["open_rack"]["glass_cell_poly"]["del_tcnd"]
@@ -247,6 +257,8 @@ def make_meas_pr(
         frame["rpoa_1"] = rpoa
         groups["irr_rpoa"] = ["rpoa_1"]
     if availability is not None:
+        if isinstance(availability, pd.Series) and not availability.index.equals(index):
+            raise ValueError("availability must be indexed like index.")
         frame["avail"] = availability
         expected_w = expected_w * frame["avail"]
     frame["meter_w"] = pr * expected_w
@@ -296,6 +308,12 @@ def make_sim_pr(
     -------
     captest.capdata.CapData
         With ``data`` and ``column_groups`` set.
+
+    Raises
+    ------
+    ValueError
+        If ``pr_by_month`` or a ``t_array`` mapping lacks a month of
+        ``year_index``.
     """
     glob_inc = bell_irradiance(year_index, peak)
     frame = pd.DataFrame(
