@@ -167,6 +167,12 @@ directory); `util.canonical_json` and `util.reg_col_label`.
   []}`) now resets its chain, where it previously kept the existing one. A side
   with no entry in `configs` still replays its live chain, else its pending
   list.
+- Validity checks on regression tests: `CapTest.reload()` now keeps a side's
+  registered checks (stashed and re-adopted by the per-side `setup()`) on
+  regression tests too, not only on PR tests. A regression yaml's
+  `meas_checks` / `sim_checks` keys are accepted and adopted onto the loaded
+  sides by `from_yaml` / `from_mapping`, but are not written back: `to_mapping`
+  / `to_yaml` omit them and warn that the checks are not saved.
 - statsmodels 0.15 is supported. statsmodels 0.15 fits formulas with
   formulaic by default instead of patsy, so `model.data.design_info` no longer
   exists. The new `capdata.design_matrix(results, frame)` builds the

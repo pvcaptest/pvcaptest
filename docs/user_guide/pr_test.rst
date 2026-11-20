@@ -90,12 +90,16 @@ expected PR.
        test_tolerance="- 5",
    )
 
-   tst.sim.filter_time(days=30, test_date="2025-06-12")
+   tst.sim.filter_time(days=30, test_date="1990-06-12")
    tst.sim.filter_irr(200, 2000, col_name="GlobInc")
    tst.meas.filter_irr(300, 1200, col_name="irr_poa_mean_agg")
 
    results = tst.run_test()
    print(results)
+
+:py:func:`~captest.io.load_pvsyst` stamps the PVsyst typical year as 1990, so
+the modeled-side date filter names a 1990 date (here 30 days centered on the
+test's 12 June).
 
 ``run_test`` runs :py:meth:`~captest.CapTest.setup`, replays the filters you
 applied on each side, derives the reference, computes the measured PR, evaluates
