@@ -36,5 +36,6 @@
       ~Time.param
       ~Time.start
       ~Time.test_date
+      ~Time.tz
    
    

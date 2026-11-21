@@ -7,6 +7,8 @@ CapTest
 :py:class:`~captest.capdata.CapData` objects (measured and simulated) along
 with test configuration, and provides methods for computing reporting
 conditions, running the ASTM E2848 capacity test, and evaluating pass/fail.
+It also runs performance ratio (PR) tests: a ``test_setup`` naming a PR preset
+makes the test a PR test (see :ref:`pr_test` in the user guide).
 
 .. autosummary::
    :toctree: generated/
@@ -79,6 +81,45 @@ is used for.
 
    CapTest.rear_shade
    CapTest.auto_wrap_sim
+
+PR Test
+-------
+
+Parameters and methods of a performance ratio test, ignored by a regression
+test. :py:attr:`~captest.CapTest.test_kind` is ``"pr"`` when ``test_setup``
+names a PR preset. :py:meth:`~captest.CapTest.run_test` dispatches on it and
+returns a :py:class:`~captest.prtest.PrTestResults`;
+:py:meth:`~captest.CapTest.pr_results` computes the result from the data as it
+stands. The reference is chosen with ``reference_source`` (``'derived'`` from
+the modeled data or ``'fixed'`` from stated values) and ``reference_granularity``
+(``'single'`` or ``'monthly'``); ``expected_pr`` / ``t_ref`` and their
+``*_monthly`` lists hold fixed values. ``dc_nameplate`` is required. Numerator
+kind and units are set per side with ``meas_`` / ``sim_`` ``numerator_kind``,
+``numerator_units`` and ``power_units``. ``degradation_rate`` and
+``degradation_years`` derate the expected PR, and ``availability`` is a scalar
+measured-side factor. The tolerance is ``test_tolerance`` in the form ``"- N"``.
+
+.. autosummary::
+   :toctree: generated/
+
+   CapTest.test_kind
+   CapTest.pr_results
+   CapTest.dc_nameplate
+   CapTest.reference_source
+   CapTest.reference_granularity
+   CapTest.expected_pr
+   CapTest.expected_pr_monthly
+   CapTest.t_ref
+   CapTest.t_ref_monthly
+   CapTest.meas_numerator_kind
+   CapTest.sim_numerator_kind
+   CapTest.meas_numerator_units
+   CapTest.sim_numerator_units
+   CapTest.meas_power_units
+   CapTest.sim_power_units
+   CapTest.degradation_rate
+   CapTest.degradation_years
+   CapTest.availability
 
 Results
 -------
@@ -156,7 +197,14 @@ Predefined Test Setups
 ----------------------
 
 :data:`~captest.captest.TEST_SETUPS` is a dict that maps preset names to
-validated test-setup documents. Each document bundles a regression formula,
+validated test-setup documents of two kinds: regression setups
+(:py:class:`~captest.setup.TestSetup`) and performance ratio setups
+(:py:class:`~captest.setup.PrSetup`, ``kind: pr``). Code that iterates the
+registry and reads regression fields (``reg_fml``, ``rep_conditions``,
+``scatter_plots``) must branch on ``kind``;
+:py:func:`~captest.captest.regression_setups` and
+:py:func:`~captest.captest.pr_setups` list the names of each kind. Each
+regression document bundles a regression formula,
 regression-column trees for measured and modeled data, default reporting
 conditions, the name of a scatter-plot function, and any test-level parameters
 the setup requires. Pass the preset name as ``test_setup`` when constructing a
@@ -164,8 +212,9 @@ the setup requires. Pass the preset name as ``test_setup`` when constructing a
 
 .. data:: captest.captest.TEST_SETUPS
 
-   Registry of predefined capacity-test presets. Keys are preset-name strings;
-   values are :py:class:`captest.setup.TestSetup` documents loaded from
+   Registry of predefined test presets. Keys are preset-name strings;
+   values are :py:class:`captest.setup.TestSetup` or
+   :py:class:`captest.setup.PrSetup` documents loaded from
    ``setups/*.yaml`` (:data:`~captest.captest.SETUPS_DIR`) when ``captest`` is
    imported. Also available as ``captest.TEST_SETUPS``.
 
@@ -174,7 +223,7 @@ Read it programmatically with, e.g.,
 ``captest.TEST_SETUPS["bifi_e2848_etotal_rear_shade_sim"].description``. The
 summaries below mirror those descriptions.
 
-The built-in presets are:
+The built-in regression presets are:
 
 ``e2848_default``
    Standard ASTM E2848 regression of AC power against front-side POA irradiance,
@@ -251,6 +300,41 @@ The built-in presets are:
    unshaded ``GlobBak``.
    :math:`E_{Total} = E_{POA} + E_{Rear} \cdot \varphi \cdot (1 - s)` on the
    measured side, where :math:`s` is the ``rear_shade`` fraction.
+
+The built-in performance ratio presets are described in the
+:ref:`PR test user guide <pr_test>`:
+
+``pr_plain``
+   Performance ratio without temperature correction. Measured PR is the summed
+   meter power over the energy expected at the POA irradiance and the DC
+   nameplate; the modeled reference is PVsyst ``E_Grid`` over ``GlobInc``.
+
+``pr_plain_bifi``
+   As ``pr_plain`` with total effective irradiance,
+   :math:`E_{Total} = E_{POA} + E_{Rear} \cdot \varphi`. Rear shading is carried
+   by the modeled ``rpoa_pvsyst``, so ``rear_shade`` must be ``0``. The front POA
+   is kept as the ``front_poa`` role.
+
+``pr_tc_meas_bom``
+   Temperature-corrected PR, contract variant. The measured cell temperature is
+   calculated with the Sandia model from POA and the measured back-of-module
+   temperature; the modeled cell temperature is the PVsyst ``TArray`` output,
+   which supplies the reference temperature. Not the NREL protocol. Requires
+   ``power_temp_coeff``.
+
+``pr_tc_meas_bom_bifi``
+   As ``pr_tc_meas_bom`` with total effective irradiance; requires
+   ``rear_shade`` of ``0``.
+
+``pr_tc_calc_bom``
+   Temperature-corrected PR following the NREL protocol, with the same
+   heat-transfer model on both sides: back-of-module and cell temperature are
+   calculated with the Sandia model from POA, ambient temperature and wind speed
+   on the measured and modeled data alike. Requires ``power_temp_coeff``.
+
+``pr_tc_calc_bom_bifi``
+   As ``pr_tc_calc_bom`` with total effective irradiance, the temperature chain
+   using front POA; requires ``rear_shade`` of ``0``.
 
 .. warning::
 

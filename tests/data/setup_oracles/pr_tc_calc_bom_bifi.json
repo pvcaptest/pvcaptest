@@ -1,0 +1,50 @@
+{
+  "meas": {
+    "cell_temp": {
+      "column": "cell_temp",
+      "mean": 28.799602181744994,
+      "sum": 41471.42714171279
+    },
+    "front_poa": {
+      "column": "irr_poa_mean_agg",
+      "mean": 255.29248680119724,
+      "sum": 367621.18099372403
+    },
+    "poa": {
+      "column": "e_total",
+      "mean": 261.16191451101724,
+      "sum": 376073.1568958649
+    },
+    "power": {
+      "column": "real_pwr_mtr_sum_agg",
+      "mean": 1530185.2337036927,
+      "sum": 2203466736.5333176
+    }
+  },
+  "reference": {
+    "pr": 0.861384549977666,
+    "t_ref": 40.928428983914124
+  },
+  "sim": {
+    "cell_temp": {
+      "column": "cell_temp",
+      "mean": 25.3785568367288,
+      "sum": 222316.1578897443
+    },
+    "front_poa": {
+      "column": "GlobInc",
+      "mean": 204.85834818493151,
+      "sum": 1794559.1301
+    },
+    "poa": {
+      "column": "e_total",
+      "mean": 209.4417088639582,
+      "sum": 1834709.369648274
+    },
+    "power": {
+      "column": "E_Grid",
+      "mean": 1262868.9649543378,
+      "sum": 11062732133.0
+    }
+  }
+}

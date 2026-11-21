@@ -1,0 +1,25 @@
+kind: pr
+name: pr_tc_meas_bom
+description: >-
+  Temperature-corrected performance ratio, contract variant, Tref from PVsyst
+  TArray. The measured cell temperature is calculated with the Sandia PV Array
+  Performance Model from the POA irradiance and the measured back of module
+  temperature (temp_bom). The modeled cell temperature is the PVsyst 'TArray'
+  output variable, which supplies the reference temperature for the
+  correction. Not the NREL protocol. Requires CapTest's 'power_temp_coeff'. For a protocol that uses
+  the same heat-transfer model on both sides, see 'pr_tc_calc_bom'.
+temp_corrected: true
+meas:
+  reg_cols:
+    power: {group: real_pwr_mtr, agg: sum}
+    poa: {group: irr_poa, agg: mean}
+    cell_temp:
+      calc: cell_temp
+      args:
+        bom: {group: temp_bom, agg: mean}
+        poa: {group: irr_poa, agg: mean}
+sim:
+  reg_cols:
+    power: {column: E_Grid}
+    poa: {column: GlobInc}
+    cell_temp: {column: TArray}

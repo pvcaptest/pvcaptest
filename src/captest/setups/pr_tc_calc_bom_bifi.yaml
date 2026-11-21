@@ -1,0 +1,55 @@
+kind: pr
+name: pr_tc_calc_bom_bifi
+description: >-
+  Bifacial temperature-corrected performance ratio following the NREL
+  protocol, same heat-transfer model on both sides. The irradiance is the
+  total effective irradiance, with rear shading carried by the modeled
+  rpoa_pvsyst (this setup requires CapTest's 'rear_shade' to be 0). The back
+  of module and cell temperatures are calculated with the Sandia PV Array
+  Performance Model from the front POA irradiance, ambient temperature and
+  wind speed, on the measured and modeled data alike. Requires CapTest's
+  'power_temp_coeff'. See also 'pr_tc_calc_bom'.
+temp_corrected: true
+params: {rear_shade: 0}
+meas:
+  reg_cols:
+    power: {group: real_pwr_mtr, agg: sum}
+    poa:
+      calc: e_total
+      args:
+        poa: {group: irr_poa, agg: mean}
+        rpoa: {group: irr_rpoa, agg: mean}
+    front_poa: {group: irr_poa, agg: mean}
+    cell_temp:
+      calc: cell_temp
+      args:
+        bom:
+          calc: bom_temp
+          args:
+            poa: {group: irr_poa, agg: mean}
+            temp_amb: {group: temp_amb, agg: mean}
+            wind_speed: {group: wind_speed, agg: mean}
+        poa: {group: irr_poa, agg: mean}
+sim:
+  reg_cols:
+    power: {column: E_Grid}
+    poa:
+      calc: e_total
+      args:
+        poa: {column: GlobInc}
+        rpoa:
+          calc: rpoa_pvsyst
+          args:
+            globbak: {column: GlobBak}
+            backshd: {column: BackShd}
+    front_poa: {column: GlobInc}
+    cell_temp:
+      calc: cell_temp
+      args:
+        bom:
+          calc: bom_temp
+          args:
+            poa: {column: GlobInc}
+            temp_amb: {column: T_Amb}
+            wind_speed: {column: WindVel}
+        poa: {column: GlobInc}

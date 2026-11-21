@@ -18,10 +18,26 @@ import pandas as pd
 import pytest
 import yaml
 
-from captest import CapTest, captest as ct, columngroups as cg, load_pvsyst, util
+from captest import (
+    CapTest,
+    captest as ct,
+    columngroups as cg,
+    load_pvsyst,
+    prtest,
+    util,
+)
 from captest.capdata import CapData
 from captest.captest import CapTestResults
 from captest.filters import Irradiance, RepCond, step_from_config
+from captest.io import loader_id
+from captest.setup import SetupFitError
+from tests.pr_fixtures import (
+    DC_NAMEPLATE,
+    FIXED_T_REF,
+    MEAS_PR_FACTOR,
+    SIM_PR_FACTOR,
+    make_pr_pair,
+)
 from tests.setup_fixtures import build_meas_default, build_sim_default
 
 # Presets that the shipped meas_cd_default / sim_cd_default fixtures cover
@@ -139,14 +155,6 @@ class TestPrRegistry:
         ct.test_setups()
         assert "e2848_default [regression]" in capsys.readouterr().out
 
-    @pytest.mark.parametrize(
-        "method", ["setup", "check_fit", "to_mapping", "captest_results"]
-    )
-    def test_captest_is_guarded(self, pr_tmp, method):
-        tst = CapTest(test_setup="pr_tmp", meas=CapData("m"), sim=CapData("s"))
-        with pytest.raises(NotImplementedError, match="not yet run by CapTest"):
-            getattr(tst, method)()
-
     def test_captest_results_guard_does_not_resolve_the_setup(
         self, pr_tmp, monkeypatch
     ):
@@ -155,7 +163,7 @@ class TestPrRegistry:
 
         monkeypatch.setattr(ct, "resolve_test_setup", fail)
         tst = CapTest(test_setup="pr_tmp", meas=CapData("m"), sim=CapData("s"))
-        with pytest.raises(NotImplementedError, match="not yet run by CapTest"):
+        with pytest.raises(ValueError, match="regression tests.*pr_results"):
             tst.captest_results()
 
     def test_params_override_derives_pr_setup(self, pr_tmp):
@@ -168,6 +176,394 @@ class TestPrRegistry:
         out = capsys.readouterr().out
         assert "pr_tmp [pr]" in out
         assert "temporary PR setup" in out
+
+
+def pr_setup_doc(temp_corrected=False):
+    """A PR setup document with power, poa (and cell_temp when corrected)."""
+    side = {
+        "power": {"column": "p"},
+        "poa": {"group": "irr_poa", "agg": "mean"},
+    }
+    if temp_corrected:
+        side["cell_temp"] = {"column": "tc"}
+    return {
+        "kind": "pr",
+        "name": "pr_params",
+        "description": "PR params test setup",
+        "temp_corrected": temp_corrected,
+        "meas": {"reg_cols": dict(side)},
+        "sim": {"reg_cols": dict(side)},
+    }
+
+
+def _register_pr(monkeypatch, doc=None, *, temp_corrected=False):
+    from captest.setup import PrSetup
+
+    setup = PrSetup.model_validate(doc or pr_setup_doc(temp_corrected))
+    monkeypatch.setitem(ct.TEST_SETUPS, "pr_params", setup)
+    return setup
+
+
+def _pr_tst(monkeypatch, doc=None, *, temp_corrected=False, **params):
+    setup = _register_pr(monkeypatch, doc, temp_corrected=temp_corrected)
+    kwargs = {"dc_nameplate": 5e6}
+    kwargs.update(params)
+    tst = CapTest(test_setup="pr_params", meas=CapData("m"), sim=CapData("s"), **kwargs)
+    return tst, setup
+
+
+class TestPrParams:
+    def test_defaults(self):
+        tst = CapTest()
+        assert tst.dc_nameplate is None
+        assert tst.reference_source == "derived"
+        assert tst.reference_granularity == "single"
+        assert tst.expected_pr is None and tst.t_ref is None
+        assert tst.expected_pr_monthly is None and tst.t_ref_monthly is None
+        assert tst.meas_numerator_kind == tst.sim_numerator_kind == "power"
+        assert tst.meas_numerator_units == tst.sim_numerator_units == "W"
+        assert tst.meas_power_units == tst.sim_power_units == "W"
+        assert tst.degradation_rate is None and tst.degradation_years is None
+        assert tst.availability == 1.0
+
+    def test_yaml_keys_include_pr_keys(self):
+        assert set(ct._PR_SCALAR_KEYS) <= ct._CAPTEST_YAML_KEYS
+        assert set(ct._PR_CHECK_KEYS) <= ct._CAPTEST_YAML_KEYS
+        assert set(ct._PR_SIM_SCALAR_KEYS) <= set(ct._PR_SCALAR_KEYS)
+
+    def test_test_kind(self, monkeypatch):
+        assert CapTest(test_setup="e2848_default").test_kind == "regression"
+        assert CapTest(test_setup="custom").test_kind == "regression"
+        _register_pr(monkeypatch)
+        assert CapTest(test_setup="pr_params").test_kind == "pr"
+
+    def test_pr_sides(self):
+        assert CapTest()._pr_sides() == ("meas", "sim")
+        assert CapTest(reference_source="fixed")._pr_sides() == ("meas",)
+
+    def test_valid_derived_passes(self, monkeypatch):
+        tst, setup = _pr_tst(monkeypatch)
+        tst._validate_pr_settings(setup)
+
+    def test_valid_fixed_passes(self, monkeypatch):
+        tst, setup = _pr_tst(monkeypatch, reference_source="fixed", expected_pr=0.8)
+        tst._validate_pr_settings(setup)
+
+    @pytest.mark.parametrize("value", [None, 0, -5.0, float("nan"), float("inf")])
+    def test_dc_nameplate_invalid(self, monkeypatch, value):
+        tst, setup = _pr_tst(monkeypatch, dc_nameplate=value)
+        with pytest.raises(ValueError, match="dc_nameplate"):
+            tst._validate_pr_settings(setup)
+
+    @pytest.mark.parametrize(
+        "tol, phrase", [("+/- 4", "two-sided"), ("4", "form"), ("- 100", "form")]
+    )
+    def test_tolerance_rejected(self, monkeypatch, tol, phrase):
+        tst, setup = _pr_tst(monkeypatch, test_tolerance=tol)
+        with pytest.raises(ValueError, match=f"test_tolerance.*{phrase}"):
+            tst._validate_pr_settings(setup)
+
+    def test_numerator_unit_wrong_for_kind(self, monkeypatch):
+        tst, setup = _pr_tst(
+            monkeypatch, meas_numerator_kind="energy", meas_numerator_units="kW"
+        )
+        with pytest.raises(ValueError, match="meas_numerator_units"):
+            tst._validate_pr_settings(setup)
+
+    def test_numerator_role_missing(self, monkeypatch):
+        tst, setup = _pr_tst(monkeypatch, meas_numerator_kind="energy")
+        with pytest.raises(ValueError, match="'energy' role.*meas"):
+            tst._validate_pr_settings(setup)
+
+    def test_sim_role_not_needed_when_fixed(self, monkeypatch):
+        tst, setup = _pr_tst(
+            monkeypatch,
+            reference_source="fixed",
+            expected_pr=0.8,
+            sim_numerator_kind="energy",
+            sim_numerator_units="kWh",
+        )
+        tst._validate_pr_settings(setup)
+
+    def test_derived_without_sim(self, monkeypatch):
+        setup = _register_pr(monkeypatch)
+        tst = CapTest(test_setup="pr_params", meas=CapData("m"), dc_nameplate=5e6)
+        tst._validate_pr_settings(setup)
+        with pytest.raises(RuntimeError, match=r"derived reference requires tst\.sim"):
+            tst.setup(verbose=False)
+
+    def test_derived_corrected_needs_sim_cell_temp(self, monkeypatch):
+        doc = pr_setup_doc(temp_corrected=True)
+        del doc["sim"]["reg_cols"]["cell_temp"]
+        tst, setup = _pr_tst(monkeypatch, doc)
+        with pytest.raises(ValueError, match="cell_temp"):
+            tst._validate_pr_settings(setup)
+
+    @pytest.mark.parametrize(
+        "kwargs",
+        [
+            {"expected_pr": 0.8},
+            {"expected_pr_monthly": [0.8] * 12},
+            {"t_ref": 20.0},
+            {"t_ref_monthly": [20.0] * 12},
+        ],
+    )
+    def test_derived_and_fixed_values_mixed(self, monkeypatch, kwargs):
+        tst, setup = _pr_tst(monkeypatch, **kwargs)
+        with pytest.raises(ValueError, match="cannot be mixed"):
+            tst._validate_pr_settings(setup)
+
+    def test_fixed_reference_error_included(self, monkeypatch):
+        tst, setup = _pr_tst(monkeypatch, reference_source="fixed")
+        with pytest.raises(ValueError, match="expected_pr is required"):
+            tst._validate_pr_settings(setup)
+
+    def test_corrected_power_temp_coeff(self, monkeypatch):
+        tst, setup = _pr_tst(monkeypatch, temp_corrected=True, power_temp_coeff=0.32)
+        with pytest.raises(ValueError, match="power_temp_coeff must be negative"):
+            tst._validate_pr_settings(setup)
+
+    @pytest.mark.parametrize("value", [-0.1, 1.5, float("nan")])
+    def test_availability_range(self, monkeypatch, value):
+        tst, setup = _pr_tst(monkeypatch, availability=value)
+        with pytest.raises(ValueError, match="availability"):
+            tst._validate_pr_settings(setup)
+
+    def test_scalar_availability_with_role(self, monkeypatch):
+        doc = pr_setup_doc()
+        doc["meas"]["reg_cols"]["availability"] = {"column": "a"}
+        tst, setup = _pr_tst(monkeypatch, doc, availability=0.9)
+        with pytest.raises(ValueError, match="availability role"):
+            tst._validate_pr_settings(setup)
+
+    def test_availability_role_with_default_scalar_passes(self, monkeypatch):
+        doc = pr_setup_doc()
+        doc["meas"]["reg_cols"]["availability"] = {"column": "a"}
+        tst, setup = _pr_tst(monkeypatch, doc)
+        tst._validate_pr_settings(setup)
+
+    @pytest.mark.parametrize(
+        "kwargs",
+        [
+            {"degradation_rate": 0.5},
+            {"degradation_years": 2.0},
+            {"degradation_rate": 200.0, "degradation_years": 1.0},
+        ],
+    )
+    def test_degradation_invalid(self, monkeypatch, kwargs):
+        tst, setup = _pr_tst(monkeypatch, **kwargs)
+        with pytest.raises(ValueError, match="degradation"):
+            tst._validate_pr_settings(setup)
+
+    def test_degradation_pair_passes(self, monkeypatch):
+        tst, setup = _pr_tst(monkeypatch, degradation_rate=0.5, degradation_years=2.0)
+        tst._validate_pr_settings(setup)
+
+    def test_power_numerator_units_must_match_power_units(self, monkeypatch):
+        tst, setup = _pr_tst(
+            monkeypatch, meas_numerator_units="MW", meas_power_units="W"
+        )
+        with pytest.raises(ValueError, match="meas_numerator_units.*meas_power_units"):
+            tst._validate_pr_settings(setup)
+
+    def test_power_numerator_mw_matches(self, monkeypatch):
+        tst, setup = _pr_tst(
+            monkeypatch,
+            meas_numerator_units="MW",
+            meas_power_units="MW",
+            sim_numerator_units="MW",
+            sim_power_units="MW",
+        )
+        tst._validate_pr_settings(setup)
+
+    def test_energy_numerator_may_differ_from_power_units(self, monkeypatch):
+        doc = pr_setup_doc()
+        doc["meas"]["reg_cols"]["energy"] = {"column": "e"}
+        tst, setup = _pr_tst(
+            monkeypatch,
+            doc,
+            meas_numerator_kind="energy",
+            meas_numerator_units="kWh",
+            meas_power_units="kW",
+        )
+        tst._validate_pr_settings(setup)
+
+    @pytest.mark.parametrize(
+        "role_node",
+        [
+            {"column": "energy_to_power"},
+            {"calc": "multiply", "args": {"a": {"column": "energy_to_power"}, "b": 2}},
+        ],
+    )
+    def test_energy_to_power_self_reference_column(self, monkeypatch, role_node):
+        doc = pr_setup_doc()
+        del doc["meas"]["reg_cols"]["power"]
+        doc["meas"]["reg_cols"]["energy"] = {"column": "e"}
+        doc["meas"]["reg_cols"]["poa"] = role_node
+        tst, setup = _pr_tst(
+            monkeypatch,
+            doc,
+            reference_source="fixed",
+            expected_pr=0.8,
+            meas_numerator_kind="energy",
+            meas_numerator_units="kWh",
+        )
+        with pytest.raises(ValueError, match="energy_to_power"):
+            tst._validate_pr_settings(setup)
+
+    @pytest.mark.parametrize("literal", ["energy_to_power", ["a", "energy_to_power"]])
+    def test_energy_to_power_self_reference_literal(self, monkeypatch, literal):
+        doc = pr_setup_doc()
+        del doc["meas"]["reg_cols"]["power"]
+        doc["meas"]["reg_cols"]["energy"] = {"column": "e"}
+        doc["meas"]["reg_cols"]["poa"] = {
+            "calc": "multiply",
+            "args": {"a": literal, "b": {"column": "g"}},
+        }
+        tst, setup = _pr_tst(
+            monkeypatch,
+            doc,
+            reference_source="fixed",
+            expected_pr=0.8,
+            meas_numerator_kind="energy",
+            meas_numerator_units="kWh",
+        )
+        with pytest.raises(ValueError, match="energy_to_power"):
+            tst._validate_pr_settings(setup)
+
+    def test_energy_to_power_not_flagged_when_power_role_present(self, monkeypatch):
+        doc = pr_setup_doc()
+        doc["meas"]["reg_cols"]["energy"] = {"column": "energy_to_power"}
+        tst, setup = _pr_tst(
+            monkeypatch,
+            doc,
+            reference_source="fixed",
+            expected_pr=0.8,
+            meas_numerator_kind="energy",
+            meas_numerator_units="kWh",
+            meas_power_units="W",
+        )
+        tst._validate_pr_settings(setup)
+
+    @pytest.mark.parametrize(
+        "kwargs, phrase",
+        [
+            (
+                {"reference_granularity": "single", "expected_pr_monthly": [0.8] * 12},
+                "Monthly tables were given",
+            ),
+            (
+                {"reference_granularity": "monthly", "expected_pr": 0.8},
+                "given with granularity='monthly'",
+            ),
+            (
+                {"reference_granularity": "monthly", "expected_pr_monthly": [0.8] * 11},
+                "12 entries",
+            ),
+            (
+                {"reference_granularity": "monthly"},
+                "expected_pr_monthly is required",
+            ),
+            (
+                {"expected_pr": 0.8, "t_ref": 20.0},
+                "plain test",
+            ),
+            (
+                {
+                    "reference_granularity": "monthly",
+                    "expected_pr_monthly": [0.8] * 12,
+                    "t_ref_monthly": [20.0] * 12,
+                },
+                "plain test",
+            ),
+        ],
+    )
+    def test_fixed_granularity_mismatches(self, monkeypatch, kwargs, phrase):
+        tst, setup = _pr_tst(monkeypatch, reference_source="fixed", **kwargs)
+        with pytest.raises(ValueError, match=f"fixed reference:.*{phrase}"):
+            tst._validate_pr_settings(setup)
+
+    def test_fixed_monthly_not_stated_months_pass(self, monkeypatch):
+        tst, setup = _pr_tst(
+            monkeypatch,
+            reference_source="fixed",
+            reference_granularity="monthly",
+            expected_pr_monthly=[0.8, None] + [0.8] * 10,
+        )
+        tst._validate_pr_settings(setup)
+
+    def test_sim_numerator_units_must_match_power_units(self, monkeypatch):
+        tst, setup = _pr_tst(monkeypatch, sim_numerator_units="kW", sim_power_units="W")
+        with pytest.raises(ValueError, match="sim_numerator_units.*sim_power_units"):
+            tst._validate_pr_settings(setup)
+
+    @pytest.mark.parametrize("side", ["meas", "sim"])
+    def test_invalid_power_units(self, monkeypatch, side):
+        tst, setup = _pr_tst(monkeypatch, **{f"{side}_power_units": "GW"})
+        with pytest.raises(ValueError, match=f"{side}_power_units 'GW' is not valid"):
+            tst._validate_pr_settings(setup)
+
+    def test_energy_to_power_self_reference_on_sim_side(self, monkeypatch):
+        doc = pr_setup_doc()
+        del doc["sim"]["reg_cols"]["power"]
+        doc["sim"]["reg_cols"]["energy"] = {"column": "e"}
+        doc["sim"]["reg_cols"]["poa"] = {"column": "energy_to_power"}
+        tst, setup = _pr_tst(
+            monkeypatch,
+            doc,
+            sim_numerator_kind="energy",
+            sim_numerator_units="kWh",
+        )
+        with pytest.raises(ValueError, match="the sim side.*energy_to_power"):
+            tst._validate_pr_settings(setup)
+
+    def test_regression_warning_names_every_changed_param(self):
+        tst = CapTest(
+            test_setup="e2848_default",
+            dc_nameplate=7e6,
+            availability=0.9,
+            degradation_rate=0.5,
+        )
+        with pytest.warns(UserWarning) as record:
+            tst._warn_pr_params_on_regression()
+        text = str(record[0].message)
+        for name in ("dc_nameplate", "availability", "degradation_rate"):
+            assert name in text
+        assert "reference_source" not in text
+
+    def test_all_problems_in_one_message(self, monkeypatch):
+        tst, setup = _pr_tst(monkeypatch, dc_nameplate=-1, availability=2.0)
+        with pytest.raises(ValueError) as exc:
+            tst._validate_pr_settings(setup)
+        assert "dc_nameplate" in str(exc.value)
+        assert "availability" in str(exc.value)
+
+    def test_pr_param_on_regression_test_warns_and_is_not_written(self):
+        from tests.setup_fixtures import PRESET_FIXTURES
+
+        meas_builder, sim_builder, kwargs = PRESET_FIXTURES["e2848_default"]
+        baseline = CapTest.from_params(
+            test_setup="e2848_default",
+            meas=meas_builder(),
+            sim=sim_builder(),
+            **kwargs,
+        ).to_mapping()
+        with pytest.warns(UserWarning, match="dc_nameplate.*ignored"):
+            tst = CapTest.from_params(
+                test_setup="e2848_default",
+                meas=meas_builder(),
+                sim=sim_builder(),
+                dc_nameplate=7e6,
+                **kwargs,
+            )
+        mapping = tst.to_mapping()
+        assert not (set(ct._PR_SCALAR_KEYS) & set(mapping))
+        assert mapping == baseline
+
+    def test_default_pr_params_do_not_warn_on_regression(self, recwarn):
+        tst = CapTest(test_setup="e2848_default")
+        tst._warn_pr_params_on_regression()
+        assert not [w for w in recwarn if "ignored on a regression" in str(w.message)]
 
 
 class TestTestSetupsRegistry:
@@ -1388,6 +1784,15 @@ class TestReload:
     def test_reload_requires_stored_path(self, ct_default):
         with pytest.raises(ValueError, match="no stored data path"):
             ct_default.reload("meas")
+
+    def test_reload_keeps_checks_on_a_regression_test(self, ct_default):
+        ct_default._meas_path = "sentinel.csv"
+        ct_default.meas.check_duration(400, 2)
+        config = ct_default.meas.checks_to_config()
+        ct_default.meas_loader = lambda path, **kwargs: build_meas_default()
+        ct_default.reload("meas", verbose=False)
+        assert ct_default.meas.checks_to_config() == config
+        assert ct_default.meas_checks_pending == []
 
     def test_reload_invalid_side_raises(self, ct_default):
         with pytest.raises(ValueError):
@@ -4979,3 +5384,1499 @@ def test_setup_completed_run_test_internal_vs_later_failure(tst, monkeypatch):
         tst.run_test()
     # regression raises after setup -> setup_completed() True
     assert tst.setup_completed() is True
+
+
+def _pr_cd(name, *, power_mw=None, freq="5min"):
+    """Synthetic PR CapData: ``p`` (MW), ``e`` (kWh) and an ``irr_poa`` group."""
+    index = pd.date_range("2024-06-01", periods=288, freq=freq)
+    rng = np.random.default_rng(3)
+    if power_mw is None:
+        power_mw = rng.uniform(1.0, 5.0, len(index))
+    dt = pd.Timedelta(freq) / pd.Timedelta(hours=1)
+    data = pd.DataFrame(
+        {
+            "p": power_mw,
+            "e": power_mw * dt * 1000.0,
+            "g1": rng.uniform(300, 900, len(index)),
+            "g2": rng.uniform(300, 900, len(index)),
+        },
+        index=index,
+    )
+    cd = CapData(name)
+    cd.data = data
+    cd.column_groups = cg.ColumnGroups({"irr_poa": ["g1", "g2"]})
+    return cd
+
+
+def _pr_energy_doc(*, power_role=False):
+    side = {"energy": {"column": "e"}, "poa": {"group": "irr_poa", "agg": "mean"}}
+    if power_role:
+        side["power"] = {"column": "p"}
+    return {
+        "kind": "pr",
+        "name": "pr_params",
+        "description": "PR energy test setup",
+        "temp_corrected": False,
+        "meas": {"reg_cols": dict(side)},
+        "sim": {"reg_cols": dict(side)},
+    }
+
+
+def _energy_tst(monkeypatch, **params):
+    kwargs = {
+        "dc_nameplate": 5e6,
+        "meas_numerator_kind": "energy",
+        "meas_numerator_units": "kWh",
+        "meas_power_units": "MW",
+        "sim_numerator_kind": "energy",
+        "sim_numerator_units": "kWh",
+        "sim_power_units": "MW",
+    }
+    kwargs.update(params)
+    _register_pr(monkeypatch, _pr_energy_doc())
+    return CapTest(
+        test_setup="pr_params",
+        meas=_pr_cd("meas"),
+        sim=_pr_cd("sim"),
+        **kwargs,
+    )
+
+
+class TestPrSetup:
+    def test_setup_wires_both_sides(self, monkeypatch):
+        _register_pr(monkeypatch)
+        tst = CapTest(
+            test_setup="pr_params",
+            meas=_pr_cd("meas"),
+            sim=_pr_cd("sim"),
+            dc_nameplate=5e6,
+            meas_numerator_units="MW",
+            meas_power_units="MW",
+        )
+        tst.setup(verbose=False)
+        for cd in (tst.meas, tst.sim):
+            assert cd.regression_cols == {"power": "p", "poa": "irr_poa_mean_agg"}
+            assert cd.regression_formula == ct.PR_PLOT_FORMULA
+            assert cd.regression_formula == "power ~ poa"
+            assert cd.tolerance == tst.test_tolerance
+            assert cd._captest is tst
+        assert tst.setup_completed()
+
+    def test_filters_run_without_naming_columns(self, monkeypatch):
+        _register_pr(monkeypatch)
+        tst = CapTest(
+            test_setup="pr_params",
+            meas=_pr_cd("meas"),
+            sim=_pr_cd("sim"),
+            dc_nameplate=5e6,
+        )
+        tst.setup(verbose=False)
+        tst.meas.filter_irr(400, 800)
+        tst.meas.filter_power(4.0)
+        assert 0 < len(tst.meas.data_filtered) < len(tst.meas.data)
+
+    def test_fixed_without_sim_wires_meas_only(self, monkeypatch):
+        _register_pr(monkeypatch)
+        tst = ct.CapTest.from_params(
+            test_setup="pr_params",
+            meas=_pr_cd("meas"),
+            dc_nameplate=5e6,
+            reference_source="fixed",
+            expected_pr=0.8,
+            verbose=False,
+        )
+        assert tst.meas.regression_cols["power"] == "p"
+        assert tst.setup_completed("meas")
+        assert tst.sim is None
+        with pytest.raises(ValueError, match="sim"):
+            tst.setup(side="sim")
+
+    def test_energy_numerator_derives_power(self, monkeypatch):
+        tst = _energy_tst(monkeypatch)
+        before = tst.meas.data.copy()
+        tst.setup(verbose=False)
+        assert tst.meas.regression_cols["power"] == "energy_to_power"
+        derived = tst.meas.data["energy_to_power"]
+        np.testing.assert_allclose(derived, before["e"] * 12 / 1000.0)
+        assert tst.resolved_setup is ct.TEST_SETUPS["pr_params"]
+        assert "power" not in tst.resolved_setup.meas.reg_cols
+
+    def test_one_kwh_is_0_012_mw(self, monkeypatch):
+        tst = _energy_tst(monkeypatch)
+        tst.meas.data["e"] = 1.0
+        tst.setup(verbose=False)
+        np.testing.assert_allclose(tst.meas.data["energy_to_power"], 0.012)
+
+    def test_power_role_present_is_not_derived(self, monkeypatch):
+        _register_pr(monkeypatch, _pr_energy_doc(power_role=True))
+        tst = CapTest(
+            test_setup="pr_params",
+            meas=_pr_cd("meas"),
+            sim=_pr_cd("sim"),
+            dc_nameplate=5e6,
+            meas_numerator_kind="energy",
+            meas_numerator_units="kWh",
+            meas_power_units="MW",
+        )
+        tst.setup(verbose=False)
+        assert tst.meas.regression_cols["power"] == "p"
+        assert "energy_to_power" not in tst.meas.data
+
+    def test_clipping_filter_parity_energy_vs_power(self, monkeypatch):
+        power = np.random.default_rng(9).uniform(1.0, 5.0, 288)
+        peak = power.max()
+        _register_pr(monkeypatch)
+        by_power = CapTest(
+            test_setup="pr_params",
+            meas=_pr_cd("meas", power_mw=power),
+            sim=_pr_cd("sim", power_mw=power),
+            dc_nameplate=5e6,
+            meas_numerator_units="MW",
+            meas_power_units="MW",
+        )
+        by_power.setup(verbose=False)
+        by_power.meas.filter_power(0.985 * peak)
+        _register_pr(monkeypatch, _pr_energy_doc())
+        by_energy = CapTest(
+            test_setup="pr_params",
+            meas=_pr_cd("meas", power_mw=power),
+            sim=_pr_cd("sim", power_mw=power),
+            dc_nameplate=5e6,
+            meas_numerator_kind="energy",
+            meas_numerator_units="kWh",
+            meas_power_units="MW",
+            sim_numerator_kind="energy",
+            sim_numerator_units="kWh",
+            sim_power_units="MW",
+        )
+        by_energy.setup(verbose=False)
+        by_energy.meas.filter_power(0.985 * peak)
+        kept = by_power.meas.data_filtered.index
+        assert len(kept) < 288
+        assert kept.equals(by_energy.meas.data_filtered.index)
+
+    def test_node_error_raised_before_any_column_is_written(self, monkeypatch):
+        doc = pr_setup_doc()
+        doc["meas"]["reg_cols"]["poa"] = {"group": "missing_group", "agg": "mean"}
+        _register_pr(monkeypatch, doc)
+        tst = CapTest(
+            test_setup="pr_params",
+            meas=_pr_cd("meas"),
+            sim=_pr_cd("sim"),
+            dc_nameplate=5e6,
+        )
+        columns = list(tst.meas.data.columns)
+        with pytest.raises(SetupFitError):
+            tst.setup(verbose=False)
+        assert list(tst.meas.data.columns) == columns
+        assert not tst.setup_completed()
+
+    def test_validation_error_precedes_evaluation(self, monkeypatch):
+        tst = _energy_tst(monkeypatch, dc_nameplate=None)
+        with pytest.raises(ValueError, match="dc_nameplate"):
+            tst.setup(verbose=False)
+        assert "energy_to_power" not in tst.meas.data
+        assert tst.meas.regression_cols == {}
+
+    def test_unit_change_recomputes(self, monkeypatch):
+        tst = _energy_tst(monkeypatch)
+        tst.meas.data["e"] = 1.0
+        tst.setup(verbose=False)
+        assert tst.meas.data["energy_to_power"].iloc[0] == pytest.approx(0.012)
+        tst.meas_power_units = "kW"
+        tst.setup(verbose=False)
+        assert tst.meas.data["energy_to_power"].iloc[0] == pytest.approx(12.0)
+
+    def test_energy_node_change_recomputes(self, monkeypatch):
+        tst = _energy_tst(monkeypatch)
+        tst.meas.data["e"] = 1.0
+        tst.setup(verbose=False)
+        tst.reg_cols_meas = {
+            "energy": {"calc": "scale", "args": {"col": {"column": "e"}, "factor": 2}}
+        }
+        tst.setup(verbose=False)
+        assert tst.meas.data["energy_to_power"].iloc[0] == pytest.approx(0.024)
+
+    def test_copied_capdata_derives_its_own_values(self, monkeypatch):
+        tst = _energy_tst(monkeypatch)
+        tst.meas.data["e"] = 1.0
+        tst.setup(verbose=False)
+        other = CapTest(
+            test_setup="pr_params",
+            meas=tst.meas.copy(),
+            sim=_pr_cd("sim"),
+            dc_nameplate=5e6,
+            meas_numerator_kind="energy",
+            meas_numerator_units="kWh",
+            meas_power_units="kW",
+            sim_numerator_kind="energy",
+            sim_numerator_units="kWh",
+            sim_power_units="MW",
+        )
+        other.setup(verbose=False)
+        assert other.meas.data["energy_to_power"].iloc[0] == pytest.approx(12.0)
+        assert tst.meas.data["energy_to_power"].iloc[0] == pytest.approx(0.012)
+
+    def test_group_named_energy_to_power_is_a_fit_error(self, monkeypatch):
+        tst = _energy_tst(monkeypatch)
+        tst.meas.column_groups["energy_to_power"] = ["g1"]
+        columns = list(tst.meas.data.columns)
+        with pytest.raises(SetupFitError, match="energy_to_power"):
+            tst.setup(verbose=False)
+        assert list(tst.meas.data.columns) == columns
+
+    @pytest.mark.parametrize(
+        "energy",
+        [
+            {"column": "energy_to_power"},
+            {
+                "calc": "scale",
+                "args": {"col": {"column": "energy_to_power"}, "factor": 1},
+            },
+        ],
+    )
+    def test_energy_role_using_the_derived_name_is_rejected(self, monkeypatch, energy):
+        doc = _pr_energy_doc()
+        doc["meas"]["reg_cols"]["energy"] = energy
+        _register_pr(monkeypatch, doc)
+        tst = CapTest(
+            test_setup="pr_params",
+            meas=_pr_cd("meas"),
+            sim=_pr_cd("sim"),
+            dc_nameplate=5e6,
+            meas_numerator_kind="energy",
+            meas_numerator_units="kWh",
+            meas_power_units="MW",
+            sim_numerator_kind="energy",
+            sim_numerator_units="kWh",
+            sim_power_units="MW",
+        )
+        tst.meas.data["energy_to_power"] = 1.0
+        columns = list(tst.meas.data.columns)
+        with pytest.raises(ValueError, match="energy_to_power"):
+            tst.setup(verbose=False)
+        assert list(tst.meas.data.columns) == columns
+
+    def test_raw_unreferenced_column_is_overwritten(self, monkeypatch):
+        tst = _energy_tst(monkeypatch)
+        tst.meas.data["energy_to_power"] = -1.0
+        tst.setup(verbose=False)
+        assert (tst.meas.data["energy_to_power"] != -1.0).all()
+
+    def test_pending_checks_adopted_once(self, monkeypatch):
+        _register_pr(monkeypatch)
+        tst = CapTest(
+            test_setup="pr_params",
+            meas=_pr_cd("meas"),
+            sim=_pr_cd("sim"),
+            dc_nameplate=5e6,
+        )
+        config = [{"type": "Duration", "threshold": 400, "min_hours": 1}]
+        tst.meas_checks_pending = list(config)
+        assert tst.sim_checks_pending == []
+        tst.setup(verbose=False)
+        assert tst.meas.checks_to_config() == config
+        assert tst.meas_checks_pending == []
+
+    def test_pending_checks_do_not_replace_existing(self, monkeypatch):
+        _register_pr(monkeypatch)
+        tst = CapTest(
+            test_setup="pr_params",
+            meas=_pr_cd("meas"),
+            sim=_pr_cd("sim"),
+            dc_nameplate=5e6,
+        )
+        tst.meas.check_duration(400, 2)
+        existing = tst.meas.checks_to_config()
+        tst.meas_checks_pending = [{"type": "Duration", "threshold": 1, "min_hours": 1}]
+        tst.setup(verbose=False)
+        assert tst.meas.checks_to_config() == existing
+        assert tst.meas_checks_pending == [
+            {"type": "Duration", "threshold": 1, "min_hours": 1}
+        ]
+
+    def test_from_mapping_fills_pending_checks(self, monkeypatch):
+        _register_pr(monkeypatch)
+        config = [{"type": "Duration", "threshold": 400, "min_hours": 1}]
+        tst = CapTest.from_mapping(
+            {
+                "test_setup": "pr_params",
+                "dc_nameplate": 5e6,
+                "meas_checks": config,
+                "sim_checks": config,
+            },
+            run_setup=False,
+        )
+        assert tst.meas_checks_pending == config
+        assert tst.sim_checks_pending == config
+
+    def test_check_fit_checks_only_pr_sides(self, monkeypatch):
+        _register_pr(monkeypatch)
+        tst = CapTest(
+            test_setup="pr_params",
+            meas=_pr_cd("meas"),
+            dc_nameplate=5e6,
+            reference_source="fixed",
+            expected_pr=0.8,
+        )
+        assert tst.check_fit() == []
+
+    def test_reload_keeps_checks(self, monkeypatch, tmp_path):
+        _register_pr(monkeypatch)
+        path = tmp_path / "meas.csv"
+        _pr_cd("meas").data.to_csv(path)
+
+        def loader(file, **kwargs):
+            cd = CapData("meas")
+            cd.data = pd.read_csv(file, index_col=0, parse_dates=True)
+            cd.column_groups = cg.ColumnGroups({"irr_poa": ["g1", "g2"]})
+            return cd
+
+        tst = CapTest(
+            test_setup="pr_params",
+            meas=_pr_cd("meas"),
+            sim=_pr_cd("sim"),
+            dc_nameplate=5e6,
+            meas_loader=loader,
+        )
+        tst._meas_path = str(path)
+        tst.setup(verbose=False)
+        tst.meas.check_duration(400, 2)
+        config = tst.meas.checks_to_config()
+        expected = tst.meas.evaluate_checks()
+        tst.reload("meas", verbose=False)
+        assert tst.meas.checks_to_config() == config
+        got = tst.meas.evaluate_checks()
+        assert got.keys() == expected.keys()
+        for label, result in got.items():
+            assert result.passed == expected[label].passed
+            pd.testing.assert_frame_equal(result.detail, expected[label].detail)
+
+    def test_setup_completed_on_a_fixed_test(self, monkeypatch):
+        _register_pr(monkeypatch)
+        tst = ct.CapTest.from_params(
+            test_setup="pr_params",
+            meas=_pr_cd("meas"),
+            dc_nameplate=5e6,
+            reference_source="fixed",
+            expected_pr=0.8,
+            verbose=False,
+        )
+        assert tst.setup_completed()
+        assert not tst.setup_completed("sim")
+
+    def test_check_fit_sim_on_a_fixed_test_raises(self, monkeypatch):
+        _register_pr(monkeypatch)
+        tst = CapTest(
+            test_setup="pr_params",
+            meas=_pr_cd("meas"),
+            dc_nameplate=5e6,
+            reference_source="fixed",
+            expected_pr=0.8,
+        )
+        with pytest.raises(ValueError, match="side='sim'"):
+            tst.check_fit(side="sim")
+
+    def test_reload_sim_on_a_fixed_test_changes_nothing(self, monkeypatch):
+        _register_pr(monkeypatch)
+        tst = CapTest(
+            test_setup="pr_params",
+            meas=_pr_cd("meas"),
+            dc_nameplate=5e6,
+            reference_source="fixed",
+            expected_pr=0.8,
+        )
+        tst._sim_path = "sim.csv"
+        tst.sim_loader = lambda path, **kwargs: pytest.fail("loader must not run")
+        with pytest.raises(ValueError, match="side='sim'"):
+            tst.reload("sim", verbose=False)
+        assert tst.sim is None
+
+    def test_energy_role_that_is_an_energy_to_power_calc_is_rejected(self, monkeypatch):
+        doc = _pr_energy_doc()
+        doc["meas"]["reg_cols"]["energy"] = {
+            "calc": "energy_to_power",
+            "args": {"energy": {"column": "e"}},
+        }
+        _register_pr(monkeypatch, doc)
+        tst = CapTest(
+            test_setup="pr_params",
+            meas=_pr_cd("meas"),
+            sim=_pr_cd("sim"),
+            dc_nameplate=5e6,
+            meas_numerator_kind="energy",
+            meas_numerator_units="kWh",
+            meas_power_units="MW",
+            sim_numerator_kind="energy",
+            sim_numerator_units="kWh",
+            sim_power_units="MW",
+        )
+        columns = list(tst.meas.data.columns)
+        with pytest.raises(ValueError, match="energy_to_power"):
+            tst.setup(verbose=False)
+        assert list(tst.meas.data.columns) == columns
+
+    def test_energy_role_through_a_registered_calc_is_rejected(self, monkeypatch):
+        from captest.calcparams import CALC_REGISTRY, CalcEntry
+
+        def sum_cols(data, cols=None, verbose=True):
+            return data[cols].sum(axis=1)
+
+        monkeypatch.setitem(CALC_REGISTRY, "sum_cols", CalcEntry(sum_cols, (), ()))
+        doc = _pr_energy_doc()
+        doc["meas"]["reg_cols"]["energy"] = {
+            "calc": "sum_cols",
+            "args": {"cols": ["energy_to_power"]},
+        }
+        _register_pr(monkeypatch, doc)
+        tst = CapTest(
+            test_setup="pr_params",
+            meas=_pr_cd("meas"),
+            sim=_pr_cd("sim"),
+            dc_nameplate=5e6,
+            meas_numerator_kind="energy",
+            meas_numerator_units="kWh",
+            meas_power_units="MW",
+            sim_numerator_kind="energy",
+            sim_numerator_units="kWh",
+            sim_power_units="MW",
+        )
+        tst.meas.data["energy_to_power"] = 1.0
+        columns = list(tst.meas.data.columns)
+        with pytest.raises(ValueError, match="energy_to_power"):
+            tst.setup(verbose=False)
+        assert list(tst.meas.data.columns) == columns
+
+    def test_from_yaml_fills_pending_checks(self, monkeypatch, tmp_path):
+        _register_pr(monkeypatch)
+        config = [{"type": "Duration", "threshold": 400, "min_hours": 1}]
+        path = tmp_path / "pr.yaml"
+        path.write_text(
+            yaml.safe_dump(
+                {
+                    "captest": {
+                        "test_setup": "pr_params",
+                        "dc_nameplate": 5e6,
+                        "meas_checks": config,
+                    }
+                }
+            )
+        )
+        tst = CapTest.from_yaml(path, run_setup=False)
+        assert tst.meas_checks_pending == config
+        assert tst.sim_checks_pending == []
+
+
+class TestPrResults:
+    def test_derived_single_corrected(self, monkeypatch):
+        from captest import prtest
+
+        tst = make_pr_pair(monkeypatch, temp_corrected=True)
+        results = tst.pr_results()
+        sim = tst.sim.data_filtered
+        assert isinstance(results, prtest.PrTestResults)
+        assert results.ratio == pytest.approx(MEAS_PR_FACTOR)
+        assert results.t_ref == pytest.approx(prtest.weighted_cell_temp(sim.g, sim.tc))
+        assert results.expected_ratio == pytest.approx(SIM_PR_FACTOR)
+        assert results.reference_source == "derived"
+        assert results.temp_corrected is True
+        assert results.power_temp_coeff == -0.4
+        assert results.points_used == {"meas": 96, "sim": 96}
+        assert results.dt_hours == {"meas": 0.25, "sim": 0.25}
+        assert results.numerator == {
+            "meas": {"kind": "power", "units": "W"},
+            "sim": {"kind": "power", "units": "W"},
+        }
+        assert results.monthly is None
+
+    def test_judgement_agrees_with_judge(self, monkeypatch):
+        from captest import prtest
+
+        tst = make_pr_pair(monkeypatch, test_tolerance="- 3")
+        results = tst.pr_results()
+        expected = prtest.judge(results.ratio, results.expected_ratio, 0.03)
+        assert results.tolerance == "- 3"
+        assert results.threshold == expected.threshold
+        assert results.margin == expected.margin
+        assert results.ratio_to_threshold == expected.ratio_to_threshold
+        assert results.passed is expected.passed is True
+
+    def test_failing_ratio(self, monkeypatch):
+        tst = make_pr_pair(monkeypatch, test_tolerance="- 1")
+        tst.meas.data["p"] *= 0.9
+        assert tst.pr_results().passed is False
+
+    def test_fixed_single_plain_without_sim(self, monkeypatch):
+        tst = make_pr_pair(monkeypatch, reference_source="fixed", expected_pr=0.78)
+        assert tst.sim is None
+        results = tst.pr_results()
+        assert results.expected_ratio == results.expected_ratio_undegraded == 0.78
+        assert results.reference_source == "fixed"
+        assert results.points_used == {"meas": 96}
+        assert results.dropped_nan == {"meas": 0}
+        assert results.ratio == pytest.approx(MEAS_PR_FACTOR)
+        assert results.t_ref is None
+
+    def test_fixed_single_corrected_uses_stated_t_ref(self, monkeypatch):
+        tst = make_pr_pair(
+            monkeypatch,
+            temp_corrected=True,
+            reference_source="fixed",
+            expected_pr=0.78,
+            t_ref=FIXED_T_REF,
+        )
+        results = tst.pr_results()
+        assert results.t_ref == FIXED_T_REF
+        assert results.ratio == pytest.approx(MEAS_PR_FACTOR)
+
+    def test_fixed_monthly_corrected_missing_month(self, monkeypatch):
+        tst = make_pr_pair(
+            monkeypatch,
+            temp_corrected=True,
+            reference_source="fixed",
+            granularity="monthly",
+            expected_pr_monthly=[0.78] * 12,
+            t_ref_monthly=[FIXED_T_REF if m != 5 else None for m in range(12)],
+        )
+        with pytest.raises(ValueError, match="month 6.*June"):
+            tst.pr_results()
+
+    def test_fixed_monthly_plain_needs_no_temperature(self, monkeypatch):
+        tst = make_pr_pair(
+            monkeypatch,
+            reference_source="fixed",
+            granularity="monthly",
+            expected_pr_monthly=[0.7] * 5 + [0.78] + [0.7] * 6,
+        )
+        results = tst.pr_results()
+        assert results.expected_ratio == pytest.approx(0.78)
+        assert results.granularity == "monthly"
+        assert results.t_ref is None
+        assert list(results.monthly.index) == [6]
+        assert results.monthly.loc[6, "expected_pr"] == pytest.approx(0.78)
+        assert "t_ref" not in results.monthly.columns
+
+    def test_derived_monthly_plain_has_no_temperature_role(self, monkeypatch):
+        tst = make_pr_pair(
+            monkeypatch,
+            granularity="monthly",
+            start="2024-06-28",
+            periods=96 * 6,
+        )
+        results = tst.pr_results()
+        assert list(results.monthly.index) == [6, 7]
+        assert results.t_ref is None
+        assert results.expected_ratio == pytest.approx(SIM_PR_FACTOR)
+        assert results.monthly["expected_pr"].tolist() == pytest.approx(
+            [SIM_PR_FACTOR] * 2
+        )
+
+    def test_derived_monthly_corrected_adds_t_ref_column(self, monkeypatch):
+        tst = make_pr_pair(
+            monkeypatch,
+            temp_corrected=True,
+            granularity="monthly",
+            start="2024-06-29",
+            periods=96 * 4,
+        )
+        results = tst.pr_results()
+        assert results.t_ref is None
+        assert results.monthly["t_ref"].notna().all()
+        assert list(results.monthly.index) == [6, 7]
+
+    def test_dropped_rows_counted_per_side(self, monkeypatch):
+        tst = make_pr_pair(monkeypatch)
+        tst.meas.data.iloc[:3, tst.meas.data.columns.get_loc("p")] = np.nan
+        tst.sim.data.iloc[:2, tst.sim.data.columns.get_loc("g")] = np.inf
+        with pytest.warns(UserWarning, match="dropped"):
+            results = tst.pr_results()
+        assert results.dropped_nan == {"meas": 3, "sim": 0}
+        assert results.dropped_nonfinite == {"meas": 0, "sim": 2}
+        assert results.points_used == {"meas": 93, "sim": 94}
+
+    def test_all_nan_power_names_the_side(self, monkeypatch):
+        tst = make_pr_pair(monkeypatch)
+        tst.meas.data["p"] = np.nan
+        with (
+            pytest.warns(UserWarning, match="dropped"),
+            pytest.raises(ValueError, match="meas"),
+        ):
+            tst.pr_results()
+
+    def test_degradation(self, monkeypatch):
+        tst = make_pr_pair(monkeypatch, degradation_rate=0.4, degradation_years=1.5)
+        results = tst.pr_results()
+        assert results.expected_ratio_undegraded == pytest.approx(SIM_PR_FACTOR)
+        assert results.expected_ratio == pytest.approx(SIM_PR_FACTOR * 0.994)
+        assert results.degradation == {"rate": 0.4, "years": 1.5, "factor": 0.994}
+
+    def test_no_degradation(self, monkeypatch):
+        results = make_pr_pair(monkeypatch).pr_results()
+        assert results.degradation is None
+        assert results.expected_ratio == results.expected_ratio_undegraded
+
+    def test_availability_role(self, monkeypatch):
+        tst = make_pr_pair(monkeypatch, availability_role=True)
+        tst.meas.data["avail"] = 0.5
+        results = tst.pr_results()
+        assert results.ratio_without_availability == pytest.approx(MEAS_PR_FACTOR)
+        assert results.ratio == pytest.approx(MEAS_PR_FACTOR / 0.5)
+
+    def test_scalar_availability(self, monkeypatch):
+        results = make_pr_pair(monkeypatch, availability=0.5).pr_results()
+        assert results.ratio == pytest.approx(MEAS_PR_FACTOR / 0.5)
+
+    def test_duration_check_counts_only_pr_rows(self, monkeypatch):
+        tst = make_pr_pair(monkeypatch)
+        data = tst.meas.data
+        qualifying = data.index[data.g >= 400]
+        data.loc[qualifying[:3], "p"] = np.nan
+        needed = len(qualifying) * 0.25 - 0.25
+        tst.meas.check_duration(400, needed)
+        with pytest.warns(UserWarning, match="dropped"):
+            results = tst.pr_results()
+        (key,) = results.checks
+        assert key.startswith("meas: ")
+        assert results.checks[key].passed is False
+        assert results.valid is False
+        assert results.passed is True
+
+    def test_checks_of_both_sides_are_prefixed(self, monkeypatch):
+        tst = make_pr_pair(monkeypatch)
+        tst.meas.check_duration(400, 1)
+        tst.sim.check_duration(400, 1)
+        results = tst.pr_results()
+        assert sorted(k.split(":")[0] for k in results.checks) == ["meas", "sim"]
+        assert results.valid is True
+
+    def test_no_checks_is_valid(self, monkeypatch):
+        results = make_pr_pair(monkeypatch).pr_results()
+        assert results.checks == {}
+        assert results.valid is True
+
+    def test_period_is_the_kept_measured_day_span(self, monkeypatch):
+        tst = make_pr_pair(monkeypatch, start="2024-06-01", periods=96 * 4)
+        data = tst.meas.data
+        days = data.index.normalize()
+        data.loc[days == pd.Timestamp("2024-06-04"), "p"] = np.nan
+        tst.meas.filter_time(start="2024-06-02", end="2024-06-04 23:45")
+        tst.meas.check_daily_insolation(0, 1)
+        with pytest.warns(UserWarning, match="dropped"):
+            results = tst.pr_results()
+        (result,) = results.checks.values()
+        assert list(result.detail.index) == list(
+            pd.date_range("2024-06-02", "2024-06-04", freq="D")
+        )
+
+    def test_filters_narrow_the_rows(self, monkeypatch):
+        tst = make_pr_pair(monkeypatch)
+        tst.meas.filter_irr(500, 900)
+        results = tst.pr_results()
+        assert results.points_used["meas"] == len(tst.meas.data_filtered)
+        assert results.points_used["meas"] < 96
+
+    def test_print_res(self, monkeypatch, capsys):
+        tst = make_pr_pair(monkeypatch)
+        tst.pr_results()
+        assert capsys.readouterr().out == ""
+        results = tst.pr_results(print_res=True)
+        assert capsys.readouterr().out.strip() == str(results)
+
+    def test_requires_setup(self, monkeypatch):
+        tst = make_pr_pair(monkeypatch)
+        tst._setup_completed["sim"] = False
+        with pytest.raises(RuntimeError, match="setup"):
+            tst.pr_results()
+
+    def test_fixed_requires_setup_names_meas_only(self, monkeypatch):
+        base = make_pr_pair(monkeypatch, reference_source="fixed", expected_pr=0.78)
+        tst = CapTest(
+            test_setup="pr_synth",
+            meas=base.meas,
+            dc_nameplate=DC_NAMEPLATE,
+            reference_source="fixed",
+            expected_pr=0.78,
+            test_tolerance="- 5",
+        )
+        with pytest.raises(RuntimeError) as excinfo:
+            tst.pr_results()
+        message = str(excinfo.value)
+        assert "requires tst.meas to be set up" in message
+        assert "sim" not in message
+        assert "both" not in message
+
+    def test_derived_requires_setup_names_both_sides(self, monkeypatch):
+        tst = make_pr_pair(monkeypatch)
+        tst._setup_completed["sim"] = False
+        with pytest.raises(
+            RuntimeError, match=r"requires tst\.meas and tst\.sim to be set up"
+        ):
+            tst.pr_results()
+
+    def test_empty_data_without_filters_says_the_data_is_empty(self, monkeypatch):
+        tst = make_pr_pair(monkeypatch, reference_source="fixed", expected_pr=0.78)
+        tst.meas.data = tst.meas.data.iloc[0:0]
+        assert tst.meas.filters == []
+        with pytest.raises(ValueError) as excinfo:
+            tst.pr_results()
+        message = str(excinfo.value)
+        assert "tst.meas.data is empty" in message
+        assert "filters" not in message
+
+    def test_all_rows_filtered_names_data_filtered(self, monkeypatch):
+        tst = make_pr_pair(monkeypatch, reference_source="fixed", expected_pr=0.78)
+        with pytest.warns(UserWarning, match="removed all data"):
+            tst.meas.filter_irr(2000, 3000)
+        assert tst.meas.data_filtered.empty
+        with pytest.raises(ValueError) as excinfo:
+            tst.pr_results()
+        message = str(excinfo.value)
+        assert "tst.meas.data_filtered is empty" in message
+        assert "dropped" not in message
+
+    def test_fixed_needs_only_meas_setup(self, monkeypatch):
+        tst = make_pr_pair(monkeypatch, reference_source="fixed", expected_pr=0.78)
+        tst._setup_completed["sim"] = False
+        assert tst.pr_results().reference_source == "fixed"
+
+    def test_non_finite_expected_is_refused(self, monkeypatch):
+        tst = make_pr_pair(monkeypatch, reference_source="fixed", expected_pr=0.78)
+        tst.expected_pr = np.inf
+        with pytest.raises(ValueError, match="expected"):
+            tst.pr_results()
+
+    def test_non_finite_reference_temperature_is_refused(self, monkeypatch):
+        tst = make_pr_pair(
+            monkeypatch,
+            temp_corrected=True,
+            reference_source="fixed",
+            expected_pr=0.78,
+            t_ref=FIXED_T_REF,
+        )
+        tst.t_ref = np.nan
+        with pytest.raises(ValueError, match="t_ref"):
+            tst.pr_results()
+
+    def test_regression_test_is_refused(self, tst):
+        with pytest.raises(ValueError, match="PR test"):
+            tst.pr_results()
+
+    def test_dc_nameplate_scales_expected_energy(self, monkeypatch):
+        tst = make_pr_pair(monkeypatch)
+        tst.dc_nameplate = 2 * DC_NAMEPLATE
+        assert tst.pr_results().ratio == pytest.approx(MEAS_PR_FACTOR / 2)
+
+
+class TestHeadlineAccessors:
+    def test_cap_results_headline(self):
+        results = CapTestResults(
+            cap_ratio=0.97,
+            passed=True,
+            tolerance="- 4",
+            bounds="x",
+            expected_capacity=1.0,
+            actual_capacity=0.97,
+            tested_capacity=0.97,
+            points_used={},
+            regression_tables={},
+            rc=pd.DataFrame(),
+            rc_source="meas",
+        )
+        assert results.kind == "cap_ratio"
+        assert results.ratio == 0.97
+        assert results.expected_ratio == 1.0
+
+    def test_cap_results_fields_unchanged(self):
+        import dataclasses
+
+        assert [f.name for f in dataclasses.fields(CapTestResults)] == [
+            "cap_ratio",
+            "passed",
+            "tolerance",
+            "bounds",
+            "expected_capacity",
+            "actual_capacity",
+            "tested_capacity",
+            "points_used",
+            "regression_tables",
+            "rc",
+            "rc_source",
+            "rc_kind",
+            "regression_stats",
+        ]
+
+    def test_pr_results_kind(self, monkeypatch):
+        results = make_pr_pair(monkeypatch).pr_results()
+        assert results.kind == "pr"
+
+
+def _pr_capdata(name, frame):
+    cd = CapData(name)
+    cd.data = frame.copy()
+    cd.column_groups = cg.ColumnGroups({})
+    return cd
+
+
+def _pr_loaded(monkeypatch, reference_source="derived", **params):
+    """A PR test whose sides come from ``loader_id``-labelled loaders.
+
+    The measured frame gains a ``g2`` copy of ``g`` for override tests.
+
+    Returns
+    -------
+    tuple
+        ``(tst, loaders)``; ``loaders`` holds the ``meas_loader`` (and, for
+        a derived reference, ``sim_loader``) keywords for ``from_yaml``.
+    """
+    base = make_pr_pair(monkeypatch, reference_source=reference_source, **params)
+    frames = {"meas": base.meas.data.assign(g2=base.meas.data["g"])}
+    if base.sim is not None:
+        frames["sim"] = base.sim.data
+
+    @loader_id("test.pr_meas")
+    def meas_loader(path, **kwargs):
+        return _pr_capdata("meas", frames["meas"])
+
+    @loader_id("test.pr_sim")
+    def sim_loader(path, **kwargs):
+        return _pr_capdata("sim", frames["sim"])
+
+    kwargs = {
+        "test_setup": "pr_synth",
+        "meas_path": "meas.csv",
+        "meas_loader": meas_loader,
+        "dc_nameplate": DC_NAMEPLATE,
+        "reference_source": reference_source,
+        "test_tolerance": "- 5",
+    }
+    loaders = {"meas_loader": meas_loader}
+    if reference_source == "derived":
+        kwargs.update(sim_path="sim.csv", sim_loader=sim_loader)
+        loaders["sim_loader"] = sim_loader
+    kwargs.update(params)
+    return CapTest.from_params(verbose=False, **kwargs), loaders
+
+
+_PR_COLS = {"power": {"column": "p"}, "poa": {"column": "g"}}
+
+
+def _pr_data_regression(monkeypatch):
+    """A ``custom`` regression test on the synthetic PR frames."""
+    base = make_pr_pair(monkeypatch)
+    return CapTest.from_params(
+        test_setup="custom",
+        meas=_pr_capdata("meas", base.meas.data),
+        sim=_pr_capdata("sim", base.sim.data),
+        reg_cols_meas=_PR_COLS,
+        reg_cols_sim=_PR_COLS,
+        reg_fml="power ~ poa",
+        test_tolerance="- 5",
+        verbose=False,
+    )
+
+
+def _switch_to_pr(tst):
+    """Point a ``custom`` regression test at the ``pr_synth`` PR setup."""
+    tst.reg_cols_meas = None
+    tst.reg_cols_sim = None
+    tst.reg_fml = None
+    tst.test_setup = "pr_synth"
+    tst.dc_nameplate = DC_NAMEPLATE
+
+
+def _same_steps(chain, before):
+    return len(chain) == len(before) and all(a is b for a, b in zip(chain, before))
+
+
+class TestPrRunTest:
+    def test_derived_run_returns_results_and_fingerprint(self, monkeypatch):
+        tst, _ = _pr_loaded(monkeypatch)
+        tst.meas.filter_irr(400, 900)
+        results = tst.run_test()
+        assert isinstance(results, prtest.PrTestResults)
+        assert tst.last_results is results
+        assert tst.run_fingerprint is not None
+        assert tst.run_fingerprint == tst.mapping_fingerprint()
+        tst.meas.filter_irr(500, 900)
+        assert tst.run_fingerprint != tst.mapping_fingerprint()
+
+    def test_fixed_without_sim_round_trips_fingerprint(self, monkeypatch, tmp_path):
+        tst, loaders = _pr_loaded(
+            monkeypatch, reference_source="fixed", expected_pr=0.78
+        )
+        tst.meas.filter_irr(400, 900)
+        tst.run_test()
+        fingerprint = tst.run_fingerprint
+        assert fingerprint is not None
+        path = tmp_path / "pr.yaml"
+        with pytest.warns(UserWarning, match="programmatic-only"):
+            tst.to_yaml(path)
+        with pytest.warns(UserWarning, match="programmatic-only"):
+            mapping = tst.to_mapping()
+        for key in (
+            "sim_path",
+            "sim_load_kwargs",
+            "sim_prep",
+            "sim_filters",
+            "sim_checks",
+            "sim_numerator_kind",
+            "sim_numerator_units",
+            "sim_power_units",
+        ):
+            assert key not in mapping
+        reloaded = CapTest.from_yaml(path, **loaders)
+        assert reloaded.sim is None
+        assert isinstance(reloaded.run_test(), prtest.PrTestResults)
+        assert reloaded.run_fingerprint == fingerprint
+
+    def test_meas_run_leaves_sim_untouched(self, monkeypatch):
+        tst = make_pr_pair(monkeypatch)
+        tst.sim.filter_irr(400, 900)
+        chain = list(tst.sim.filters)
+        pending = [{"type": "Irradiance", "low": 300, "high": 800}]
+        tst.sim_filters_pending = list(pending)
+        data = tst.sim.data
+        tst.meas.filter_irr(400, 900)
+        assert tst.run_test("meas") is tst
+        assert _same_steps(tst.sim.filters, chain)
+        assert tst.sim_filters_pending == pending
+        assert tst.sim.data is data
+        assert len(tst.meas.filters) == 1
+        assert tst.last_results is None
+        assert tst.run_fingerprint is None
+
+    def test_fixed_meas_run_then_full_run(self, monkeypatch):
+        tst = make_pr_pair(monkeypatch, reference_source="fixed", expected_pr=0.78)
+        assert tst.run_test("meas") is tst
+        assert tst.last_results is None
+        results = tst.run_test()
+        assert isinstance(results, prtest.PrTestResults)
+        assert results.reference_source == "fixed"
+        assert tst.last_results is results
+
+    def test_fixed_sim_run_is_refused(self, monkeypatch):
+        tst = make_pr_pair(monkeypatch, reference_source="fixed", expected_pr=0.78)
+        with pytest.raises(ValueError, match="reference_source='fixed'"):
+            tst.run_test("sim")
+
+    def test_last_results_cleared(self, monkeypatch):
+        tst = make_pr_pair(monkeypatch)
+        tst.run_test()
+        assert tst.last_results is not None
+        tst.run_test("meas")
+        assert tst.last_results is None
+        tst.run_test()
+        assert tst.last_results is not None
+        tst.meas = _pr_capdata("meas", tst.meas.data)
+        assert tst.last_results is None
+
+    def test_print_res(self, monkeypatch, capsys):
+        tst = make_pr_pair(monkeypatch)
+        results = tst.run_test(print_res=True)
+        assert capsys.readouterr().out.strip() == str(results)
+
+    def test_results_stage_note(self, monkeypatch):
+        tst = make_pr_pair(monkeypatch)
+
+        def fail(self, print_res=False):
+            raise ValueError("boom")
+
+        monkeypatch.setattr(CapTest, "pr_results", fail)
+        with pytest.raises(ValueError, match="boom") as excinfo:
+            tst.run_test()
+        assert "[CapTest.run_test stage: results]" in excinfo.value.__notes__
+
+    def test_switch_to_pr_with_repcond_step(self, monkeypatch):
+        tst = _pr_data_regression(monkeypatch)
+        tst.meas.filter_irr(200, 1000)
+        tst.sim.filter_irr(200, 1000)
+        tst.rep_cond()
+        assert isinstance(tst.meas.filters[1], RepCond)
+        _switch_to_pr(tst)
+        meas_chain = list(tst.meas.filters)
+        sim_chain = list(tst.sim.filters)
+        with pytest.raises(ValueError, match=r"meas step 1 \(RepCond\)"):
+            tst.run_test()
+        assert _same_steps(tst.meas.filters, meas_chain)
+        assert _same_steps(tst.sim.filters, sim_chain)
+        tst.meas.filters = tst.meas.filters[:1]
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            results = tst.run_test()
+        assert isinstance(results, prtest.PrTestResults)
+
+    @pytest.mark.parametrize("ref_val", ["rep_irr", "self_val"])
+    def test_switch_to_pr_with_rc_irradiance_step(self, monkeypatch, ref_val):
+        tst = _pr_data_regression(monkeypatch)
+        tst.rep_cond("sim")
+        tst.meas.filter_irr(0.8, 1.2, ref_val=ref_val)
+        _switch_to_pr(tst)
+        sim_chain = list(tst.sim.filters)
+        with pytest.raises(ValueError) as excinfo:
+            tst.run_test()
+        message = str(excinfo.value)
+        assert f"meas step 0 (Irradiance with ref_val={ref_val!r})" in message
+        assert "sim step 0 (RepCond)" in message
+        assert _same_steps(tst.sim.filters, sim_chain)
+
+    @pytest.mark.parametrize("ref_val", ["rep_irr", "self_val"])
+    def test_rc_steps_rejected_after_yaml_round_trip(
+        self, monkeypatch, tmp_path, ref_val
+    ):
+        tst = _pr_data_regression(monkeypatch)
+        tst.meas.filter_irr(200, 1000)
+        tst.rep_cond()
+        tst.meas.filter_irr(0.8, 1.2, ref_val=ref_val)
+        path = tmp_path / "regression.yaml"
+        tst.to_yaml(path)
+        sub = ct.load_config(path)
+        for key in ("overrides", "rc_source"):
+            sub.pop(key)
+        sub.update(test_setup="pr_synth", dc_nameplate=DC_NAMEPLATE)
+        pr = CapTest.from_mapping(sub)
+        pr.meas = _pr_capdata("meas", tst.meas.data)
+        pr.sim = _pr_capdata("sim", tst.sim.data)
+        with pytest.raises(ValueError) as excinfo:
+            pr.run_test()
+        message = str(excinfo.value)
+        assert "meas step 1 (RepCond)" in message
+        assert f"meas step 2 (Irradiance with ref_val={ref_val!r})" in message
+        assert pr.meas_filters_pending == sub["meas_filters"]
+        assert pr.meas.filters == []
+        assert pr.setup_completed() is False
+
+    def test_reload_keeps_checks_through_run(self, monkeypatch):
+        tst, _ = _pr_loaded(monkeypatch)
+        tst.meas.check_duration(400, 1000)
+        tst.reload("meas", verbose=False)
+        results = tst.run_test()
+        assert results.valid is False
+        with pytest.warns(UserWarning, match="programmatic-only"):
+            mapping = tst.to_mapping()
+        assert mapping["meas_checks"] == [
+            {"type": "Duration", "min_hours": 1000, "threshold": 400}
+        ]
+
+    def test_programmatic_data_has_no_fingerprint(self, monkeypatch):
+        tst = make_pr_pair(monkeypatch)
+        results = tst.run_test()
+        assert tst.last_results is results
+        assert tst.run_fingerprint is None
+        assert "load provenance unknown" in tst.run_fingerprint_error
+
+    def test_derived_without_sim_is_refused(self, monkeypatch):
+        tst = make_pr_pair(monkeypatch)
+        tst.sim = None
+        with pytest.raises(RuntimeError, match="sim must be set") as excinfo:
+            tst.run_test()
+        assert "[CapTest.run_test stage: setup]" in excinfo.value.__notes__
+
+    def test_replay_filters_rejects_rc_steps(self, monkeypatch):
+        tst = make_pr_pair(monkeypatch)
+        tst.meas.filter_irr(400, 900)
+        meas_chain = list(tst.meas.filters)
+        configs = {"meas": [{"type": "RepCond"}]}
+        with pytest.raises(ValueError, match=r"meas step 0 \(RepCond\)"):
+            tst.replay_filters(side="meas", configs=configs)
+        assert _same_steps(tst.meas.filters, meas_chain)
+        tst.meas_filters_pending = [
+            {"type": "Irradiance", "low": 0.8, "high": 1.2, "ref_val": "rep_irr"}
+        ]
+        tst.meas.filters = []
+        with pytest.raises(ValueError, match="meas step 0 \\(Irradiance"):
+            tst.replay_filters(side="meas")
+        assert tst.meas.filters == []
+
+    def test_setup_discards_pending_manual_rc(self, monkeypatch, tmp_path):
+        tst = _pr_data_regression(monkeypatch)
+        tst.rc = pd.DataFrame({"poa": [600.0]})
+        path = tmp_path / "regression.yaml"
+        tst.to_yaml(path)
+        sub = ct.load_config(path)
+        assert "reporting_conditions_values" in sub
+        sub.pop("overrides")
+        sub.update(test_setup="pr_synth", dc_nameplate=DC_NAMEPLATE)
+        pr = CapTest.from_mapping(sub, run_setup=False)
+        assert pr._pending_manual_rc is not None
+        pr.meas = _pr_capdata("meas", tst.meas.data)
+        pr.sim = _pr_capdata("sim", tst.sim.data)
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            pr.setup(verbose=False)
+            results = pr.run_test()
+        assert pr._pending_manual_rc is None
+        assert pr._rc is None
+        assert isinstance(results, prtest.PrTestResults)
+
+    def test_rep_cond_is_refused(self, monkeypatch):
+        tst = make_pr_pair(monkeypatch)
+        with pytest.raises(
+            ValueError,
+            match=r"Reporting conditions do not apply to a PR test; "
+            r"tst\.rep_cond\(\) is for regression tests\.",
+        ):
+            tst.rep_cond()
+
+    @pytest.mark.parametrize("reference_source", ["derived", "fixed"])
+    def test_scatter_plots_use_the_default_scatter(self, monkeypatch, reference_source):
+        hv = pytest.importorskip("holoviews")
+        fixed = {"expected_pr": 0.78} if reference_source == "fixed" else {}
+        tst = make_pr_pair(monkeypatch, reference_source=reference_source, **fixed)
+        seen = {}
+        real = ct.SCATTER_REGISTRY["default"]
+
+        def spy(cd, **kwargs):
+            seen.update(cd=cd, kwargs=kwargs)
+            return real(cd, **kwargs)
+
+        monkeypatch.setitem(ct.SCATTER_REGISTRY, "default", spy)
+        layout = tst.scatter_plots("meas", height=200)
+        assert isinstance(layout, hv.Layout)
+        assert seen == {"cd": tst.meas, "kwargs": {"height": 200}}
+
+    def test_scatter_plots_unpatched_registry(self, monkeypatch):
+        hv = pytest.importorskip("holoviews")
+        tst = make_pr_pair(monkeypatch)
+        assert isinstance(tst.scatter_plots("sim"), hv.Layout)
+
+    def test_overlay_scatters_derived(self, monkeypatch):
+        hv = pytest.importorskip("holoviews")
+        tst = make_pr_pair(monkeypatch)
+        overlay = tst.overlay_scatters(expected_label="Model")
+        assert isinstance(overlay, hv.Overlay)
+        assert [child.label for child in overlay] == ["Measured", "Model"]
+
+    def test_overlay_scatters_derived_without_sim(self, monkeypatch):
+        pytest.importorskip("holoviews")
+        tst = make_pr_pair(monkeypatch)
+        tst.sim = None
+        tst.setup(side="meas", verbose=False)
+        with pytest.raises(RuntimeError, match=r"^CapTest\.sim must be set\.$"):
+            tst.overlay_scatters()
+
+    def test_overlay_scatters_fixed_is_refused(self, monkeypatch):
+        pytest.importorskip("holoviews")
+        tst = make_pr_pair(monkeypatch, reference_source="fixed", expected_pr=0.78)
+        with pytest.raises(ValueError, match="reference_source='fixed'"):
+            tst.overlay_scatters()
+
+    def test_replay_filters_on_a_fixed_test(self, monkeypatch):
+        tst = make_pr_pair(monkeypatch, reference_source="fixed", expected_pr=0.78)
+        tst.meas_filters_pending = [{"type": "Irradiance", "low": 400, "high": 900}]
+        assert tst.replay_filters() is tst
+        assert [type(step) for step in tst.meas.filters] == [Irradiance]
+        assert tst.meas_filters_pending == []
+        with pytest.raises(ValueError, match="reference_source='fixed'"):
+            tst.replay_filters(side="sim")
+        with pytest.raises(ValueError, match=r"replays only \['meas'\]"):
+            tst.replay_filters(configs={"sim": []})
+
+    def test_get_summary_on_a_fixed_test(self, monkeypatch):
+        tst = make_pr_pair(monkeypatch, reference_source="fixed", expected_pr=0.78)
+        tst.meas.filter_irr(400, 900)
+        pd.testing.assert_frame_equal(tst.get_summary(), tst.meas.get_summary())
+
+    def test_get_summary_on_a_derived_test(self, monkeypatch):
+        tst = make_pr_pair(monkeypatch)
+        tst.meas.filter_irr(400, 900)
+        tst.sim.filter_irr(300, 900)
+        pd.testing.assert_frame_equal(
+            tst.get_summary(),
+            pd.concat([tst.meas.get_summary(), tst.sim.get_summary()]),
+        )
+
+    def test_derived_meas_only_setup_without_sim(self, monkeypatch):
+        tst = make_pr_pair(monkeypatch)
+        tst.sim = None
+        assert tst.setup(side="meas", verbose=False) is tst
+        assert tst.setup_completed("meas") is True
+        hint = (
+            r"CapTest\.sim must be set before setup\(\); a derived reference "
+            r"requires tst\.sim; use reference_source='fixed' to run without it\."
+        )
+        with pytest.raises(RuntimeError, match=hint):
+            tst.setup(verbose=False)
+        with pytest.raises(RuntimeError, match=hint):
+            tst.run_test()
+
+    def test_regression_setup_without_sim_message_unchanged(self, ct_default):
+        ct_default.sim = None
+        with pytest.raises(RuntimeError) as excinfo:
+            ct_default.setup(verbose=False)
+        assert str(excinfo.value) == "CapTest.sim must be set before setup()."
+
+    def test_fixed_reload_meas_keeps_the_run_fingerprint(self, monkeypatch):
+        tst, _ = _pr_loaded(monkeypatch, reference_source="fixed", expected_pr=0.78)
+        tst.meas.filter_irr(400, 900)
+        tst.run_test()
+        fingerprint = tst.run_fingerprint
+        assert fingerprint is not None
+        tst.reload("meas", verbose=False)
+        assert tst.run_fingerprint is None
+        tst.run_test()
+        assert tst.run_fingerprint == fingerprint
+
+    def test_derived_reload_sim_keeps_the_run_fingerprint(self, monkeypatch):
+        tst, _ = _pr_loaded(monkeypatch)
+        tst.meas.filter_irr(400, 900)
+        tst.sim.filter_irr(300, 900)
+        tst.run_test()
+        fingerprint = tst.run_fingerprint
+        assert fingerprint is not None
+        tst.reload("sim", verbose=False)
+        assert tst.run_fingerprint is None
+        tst.run_test()
+        assert tst.run_fingerprint == fingerprint
+
+
+# ``sorted(tst.to_mapping())`` of an ``e2848_default`` test with filters and a
+# RepCond step, captured before PR tests were serialized.
+_E2848_MAPPING_KEYS = [
+    "ac_nameplate",
+    "airmass_model",
+    "altitude_override",
+    "base_temp",
+    "bifacial_frac",
+    "bifaciality",
+    "clipping_irr",
+    "fshdbm",
+    "hrs_req",
+    "inv_ac_nameplate",
+    "irrad_stability",
+    "irrad_stability_threshold",
+    "max_irr",
+    "meas_filters",
+    "min_irr",
+    "module_type",
+    "power_temp_coeff",
+    "racking",
+    "rc_source",
+    "rear_shade",
+    "rep_irr_filter",
+    "shade_filter_end",
+    "shade_filter_start",
+    "sim_days",
+    "sim_filters",
+    "spectral_module_type",
+    "test_setup",
+    "test_tolerance",
+]
+
+
+class TestPrMapping:
+    def test_regression_mapping_keys_unchanged(self, ct_default):
+        ct_default.meas.filter_irr(400, 1000)
+        ct_default.sim.filter_irr(400, 1000)
+        ct_default.rep_cond()
+        ct_default.meas.check_duration(1, 1)
+        with pytest.warns(UserWarning, match="not saved"):
+            keys = sorted(ct_default.to_mapping())
+        assert keys == _E2848_MAPPING_KEYS
+
+    def test_derived_mapping_schema(self, monkeypatch):
+        tst = make_pr_pair(monkeypatch)
+        tst.meas.data["g2"] = tst.meas.data["g"]
+        tst.reg_cols_meas = {"poa": {"column": "g2"}}
+        tst.setup(verbose=False)
+        tst.meas.filter_irr(400, 900)
+        tst.meas.check_duration(400, 1)
+        tst.sim.check_duration(400, 2)
+        mapping = tst.to_mapping()
+        for key in ct._PR_SCALAR_KEYS:
+            assert mapping[key] == getattr(tst, key)
+        assert mapping["sim_days"] == tst.sim_days
+        assert mapping["meas_filters"] == tst.meas.filters_to_config()
+        assert "sim_filters" not in mapping
+        assert mapping["meas_checks"] == tst.meas.checks_to_config()
+        assert mapping["sim_checks"] == tst.sim.checks_to_config()
+        assert mapping["overrides"] == {"reg_cols_meas": {"poa": {"column": "g2"}}}
+        for key in ("rc_source", "reporting_conditions_values"):
+            assert key not in mapping
+
+    def test_pending_checks_are_written(self, monkeypatch):
+        tst = make_pr_pair(monkeypatch)
+        pending = [{"type": "Duration", "min_hours": 1, "threshold": 400}]
+        tst.sim_checks_pending = list(pending)
+        mapping = tst.to_mapping()
+        assert "meas_checks" not in mapping
+        assert mapping["sim_checks"] == pending
+
+    def test_fixed_mapping_omits_the_modeled_side(self, monkeypatch):
+        tst = make_pr_pair(monkeypatch, reference_source="fixed", expected_pr=0.78)
+        tst.sim_checks_pending = [{"type": "Duration", "min_hours": 1}]
+        tst.sim_filters_pending = [{"type": "Irradiance", "low": 300, "high": 800}]
+        mapping = tst.to_mapping()
+        assert mapping["expected_pr"] == 0.78
+        assert mapping["t_ref"] is None
+        assert mapping["expected_pr_monthly"] is None
+        for key in (*ct._PR_SIM_SCALAR_KEYS, "sim_checks", "sim_filters"):
+            assert key not in mapping
+
+    def test_yaml_round_trip(self, monkeypatch, tmp_path):
+        tst, loaders = _pr_loaded(
+            monkeypatch, degradation_rate=0.5, degradation_years=2.0
+        )
+        tst.reg_cols_meas = {"poa": {"column": "g2"}}
+        tst.setup(verbose=False)
+        tst.meas.filter_irr(400, 900)
+        tst.sim.filter_irr(300, 900)
+        tst.meas.check_duration(400, 1)
+        tst.sim.check_duration(400, 2)
+        path = tmp_path / "pr.yaml"
+        with pytest.warns(UserWarning, match="programmatic-only"):
+            tst.to_yaml(path)
+        reloaded = CapTest.from_yaml(path, **loaders)
+        for key in (*ct._PR_SCALAR_KEYS, "test_tolerance", "reg_cols_meas"):
+            assert getattr(reloaded, key) == getattr(tst, key)
+        assert reloaded.meas_filters_pending == tst.meas.filters_to_config()
+        assert reloaded.sim_filters_pending == tst.sim.filters_to_config()
+        for side in ("meas", "sim"):
+            want = getattr(tst, side).checks_to_config()
+            assert getattr(reloaded, side).checks_to_config() == want
+            assert getattr(reloaded, f"{side}_checks_pending") == []
+        assert isinstance(reloaded.run_test(), prtest.PrTestResults)
+        for side in ("meas", "sim"):
+            got, want = getattr(reloaded, side), getattr(tst, side)
+            assert got.filters_to_config() == want.filters_to_config()
+            assert got.checks_to_config() == want.checks_to_config()
+        assert (
+            reloaded.resolved_setup.content_digest()
+            == tst.resolved_setup.content_digest()
+        )
+        assert reloaded.mapping_fingerprint() == tst.mapping_fingerprint()
+
+    def test_loaded_checks_are_evaluated_by_replay_and_results(
+        self, monkeypatch, tmp_path
+    ):
+        tst, loaders = _pr_loaded(monkeypatch)
+        tst.meas.check_duration(400, 1000)
+        path = tmp_path / "pr.yaml"
+        with pytest.warns(UserWarning, match="programmatic-only"):
+            tst.to_yaml(path)
+        reloaded = CapTest.from_yaml(path, **loaders)
+        assert reloaded.setup_completed() is True
+        assert reloaded.meas.checks_to_config() == tst.meas.checks_to_config()
+        results = reloaded.replay_filters().pr_results()
+        assert list(results.checks) == ["meas: Duration"]
+        assert results.valid is False
+
+    def test_loaded_checks_survive_an_added_check(self, monkeypatch, tmp_path):
+        tst, loaders = _pr_loaded(monkeypatch)
+        tst.meas.check_duration(400, 1000)
+        saved = tst.meas.checks_to_config()
+        path = tmp_path / "pr.yaml"
+        with pytest.warns(UserWarning, match="programmatic-only"):
+            tst.to_yaml(path)
+        reloaded = CapTest.from_yaml(path, **loaders)
+        reloaded.meas.check_interval_count(400, 1, custom_name="intervals")
+        results = reloaded.run_test()
+        assert sorted(results.checks) == ["meas: Duration", "meas: intervals"]
+        assert results.valid is False
+        with pytest.warns(UserWarning, match="programmatic-only"):
+            mapping = reloaded.to_mapping()
+        assert mapping["meas_checks"][0] == saved[0]
+        assert len(mapping["meas_checks"]) == 2
+
+    def test_fixed_load_adopts_meas_checks_only(self, monkeypatch, tmp_path):
+        tst, loaders = _pr_loaded(
+            monkeypatch, reference_source="fixed", expected_pr=0.78
+        )
+        tst.meas.check_duration(400, 1)
+        path = tmp_path / "pr.yaml"
+        with pytest.warns(UserWarning, match="programmatic-only"):
+            tst.to_yaml(path)
+        sub = ct.load_config(path)
+        sub["sim_checks"] = [{"type": "Duration", "threshold": 400, "min_hours": 1}]
+        reloaded = CapTest.from_mapping(sub, base_dir=tmp_path, **loaders)
+        assert reloaded.meas.checks_to_config() == tst.meas.checks_to_config()
+        assert reloaded.meas_checks_pending == []
+        assert reloaded.sim_checks_pending == sub["sim_checks"]
+
+    def test_regression_load_adopts_checks(self, monkeypatch, tmp_path):
+        base = make_pr_pair(monkeypatch)
+        frames = {"meas": base.meas.data, "sim": base.sim.data}
+
+        @loader_id("test.reg_meas")
+        def meas_loader(path, **kwargs):
+            return _pr_capdata("meas", frames["meas"])
+
+        @loader_id("test.reg_sim")
+        def sim_loader(path, **kwargs):
+            return _pr_capdata("sim", frames["sim"])
+
+        sub = {
+            "test_setup": "custom",
+            "meas_path": "meas.csv",
+            "sim_path": "sim.csv",
+            "overrides": {
+                "reg_cols_meas": _PR_COLS,
+                "reg_cols_sim": _PR_COLS,
+                "reg_fml": "power ~ poa",
+            },
+            "test_tolerance": "- 5",
+        }
+        loaders = {"meas_loader": meas_loader, "sim_loader": sim_loader}
+        plain = CapTest.from_mapping(sub, base_dir=tmp_path, **loaders)
+        with pytest.warns(UserWarning, match="programmatic-only"):
+            plain_mapping = plain.to_mapping()
+        config = [{"type": "Duration", "threshold": 400, "min_hours": 1}]
+        tst = CapTest.from_mapping(
+            {**sub, "meas_checks": config}, base_dir=tmp_path, **loaders
+        )
+        assert tst.meas.checks_to_config() == config
+        assert tst.meas_checks_pending == []
+        with (
+            pytest.warns(UserWarning, match="programmatic-only"),
+            pytest.warns(UserWarning, match=r"tst\.meas .*not saved"),
+        ):
+            mapping = tst.to_mapping()
+        assert "meas_checks" not in mapping
+        assert mapping == plain_mapping
+
+    def test_regression_checks_are_not_saved(self, ct_default):
+        ct_default.sim_checks_pending = [{"type": "Duration", "min_hours": 1}]
+        with pytest.warns(UserWarning, match=r"tst\.sim .*not saved") as record:
+            mapping = ct_default.to_mapping()
+        assert len(record) == 1
+        assert "sim_checks" not in mapping
+        assert sorted(mapping) == sorted(
+            set(_E2848_MAPPING_KEYS) - {"meas_filters", "sim_filters"}
+        )
+
+    def test_regression_without_checks_does_not_warn(self, ct_default):
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            ct_default.to_mapping()
+
+    def test_invalid_settings_are_refused(self, monkeypatch, tmp_path):
+        tst = make_pr_pair(monkeypatch, reference_source="fixed", expected_pr=0.78)
+        tst.expected_pr = None
+        with pytest.raises(ValueError, match="Invalid PR test settings"):
+            tst.to_mapping()
+        path = tmp_path / "pr.yaml"
+        with pytest.raises(ValueError, match="Invalid PR test settings"):
+            tst.to_yaml(path)
+        assert not path.exists()
+
+    def test_mapping_without_data(self, pr_tmp):
+        tst = CapTest(test_setup="pr_tmp", dc_nameplate=DC_NAMEPLATE)
+        tst.test_tolerance = "- 5"
+        mapping = tst.to_mapping()
+        assert mapping["test_setup"] == "pr_tmp"
+
+    def test_params_override_round_trips(self, monkeypatch, tmp_path):
+        tst, loaders = _pr_loaded(monkeypatch)
+        tst.params = {"base_temp": 30}
+        tst.setup(verbose=False)
+        with pytest.warns(UserWarning, match="programmatic-only"):
+            mapping = tst.to_mapping()
+        assert mapping["overrides"] == {"params": {"base_temp": 30}}
+        path = tmp_path / "pr.yaml"
+        with pytest.warns(UserWarning, match="programmatic-only"):
+            tst.to_yaml(path)
+        reloaded = CapTest.from_yaml(path, **loaders)
+        assert reloaded.params == {"base_temp": 30}
+        assert (
+            reloaded.resolved_setup.content_digest()
+            == tst.resolved_setup.content_digest()
+        )

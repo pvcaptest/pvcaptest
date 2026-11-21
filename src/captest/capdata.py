@@ -2888,10 +2888,10 @@ class CapData(param.Parameterized):
 
         Notes
         -----
-        ``CapTest.to_yaml`` / ``from_yaml`` do not yet carry CapData checks;
-        serialization of ``meas`` / ``sim`` checks arrives with CapTest PR-test
-        support. Until then, save and restore them with this method and
-        :meth:`set_checks`.
+        ``CapTest.to_yaml`` / ``from_yaml`` save and restore the checks of a
+        PR test as ``meas_checks`` / ``sim_checks``. A regression test does
+        not save them (``to_yaml`` warns when checks are registered); use this
+        method and :meth:`set_checks` to carry them yourself.
         """
         return [check.to_config() for check in self.checks]
 
@@ -2908,9 +2908,9 @@ class CapData(param.Parameterized):
 
         Notes
         -----
-        ``CapTest.from_yaml`` does not yet restore CapData checks; call this
-        method on ``tst.meas`` / ``tst.sim`` yourself until CapTest PR-test
-        support carries them.
+        ``CapTest.from_yaml`` restores the checks of a PR test. For a
+        regression test, call this method on ``tst.meas`` / ``tst.sim``
+        yourself.
         """
         self.checks = [checks_module.check_from_config(entry) for entry in config]
 

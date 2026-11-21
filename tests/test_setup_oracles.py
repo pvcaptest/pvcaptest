@@ -7,8 +7,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from captest.captest import regression_setups
-from tests.setup_fixtures import build_captest, snapshot
+from captest.captest import pr_setups, regression_setups
+from tests.setup_fixtures import build_captest, snapshot, snapshot_pr
 
 ORACLES = Path("tests/data/setup_oracles")
 
@@ -30,6 +30,24 @@ def test_preset_reproduces_oracle(preset):
                 np.testing.assert_allclose(act[key][term], value, rtol=1e-9)
 
 
+@pytest.mark.parametrize("preset", pr_setups())
+def test_pr_preset_reproduces_oracle(preset):
+    expected = json.loads((ORACLES / f"{preset}.json").read_text())
+    actual = snapshot_pr(build_captest(preset))
+    assert set(actual) == set(expected)
+    for side in set(expected) - {"reference"}:
+        assert set(actual[side]) == set(expected[side])
+        for role, e in expected[side].items():
+            assert actual[side][role]["column"] == e["column"]
+            np.testing.assert_allclose(actual[side][role]["sum"], e["sum"], rtol=1e-9)
+            np.testing.assert_allclose(actual[side][role]["mean"], e["mean"], rtol=1e-9)
+    for key, value in expected["reference"].items():
+        if value is None:
+            assert actual["reference"][key] is None
+        else:
+            np.testing.assert_allclose(actual["reference"][key], value, rtol=1e-9)
+
+
 def test_oracle_files_are_pairwise_distinct():
     """No two presets' captured oracles are byte-identical.
 
@@ -40,7 +58,7 @@ def test_oracle_files_are_pairwise_distinct():
     """
     texts = {
         preset: (ORACLES / f"{preset}.json").read_text()
-        for preset in regression_setups()
+        for preset in (*regression_setups(), *pr_setups())
     }
     seen = {}
     for preset, text in texts.items():

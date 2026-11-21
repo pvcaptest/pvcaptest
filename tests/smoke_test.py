@@ -38,8 +38,9 @@ def test_smoke():
     from captest.captest import SETUPS_DIR, TEST_SETUPS
 
     assert SETUPS_DIR.is_dir(), SETUPS_DIR
-    assert len(TEST_SETUPS) >= 10
+    assert len(TEST_SETUPS) >= 16
     assert "e2848_default" in TEST_SETUPS
+    assert "pr_plain" in TEST_SETUPS
 
     print("Smoke test succeeded")
 

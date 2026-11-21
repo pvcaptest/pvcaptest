@@ -6,6 +6,7 @@ User Guide
     :maxdepth: 2
 
     captest
+    pr_test
     reporting_conditions
     saving_reproducing
     dataload

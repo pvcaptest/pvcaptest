@@ -1,0 +1,39 @@
+kind: pr
+name: pr_tc_calc_bom
+description: >-
+  Temperature-corrected performance ratio following the NREL protocol, same
+  heat-transfer model on both sides. The back of module and cell temperatures
+  are calculated with the Sandia PV Array Performance Model from the POA
+  irradiance, ambient temperature and wind speed, on the measured data
+  (sensor groups) and on the modeled data (GlobInc, T_Amb, WindVel) alike.
+  Requires CapTest's 'power_temp_coeff'. For a contract variant that measures
+  the back of module temperature, see 'pr_tc_meas_bom'.
+temp_corrected: true
+meas:
+  reg_cols:
+    power: {group: real_pwr_mtr, agg: sum}
+    poa: {group: irr_poa, agg: mean}
+    cell_temp:
+      calc: cell_temp
+      args:
+        bom:
+          calc: bom_temp
+          args:
+            poa: {group: irr_poa, agg: mean}
+            temp_amb: {group: temp_amb, agg: mean}
+            wind_speed: {group: wind_speed, agg: mean}
+        poa: {group: irr_poa, agg: mean}
+sim:
+  reg_cols:
+    power: {column: E_Grid}
+    poa: {column: GlobInc}
+    cell_temp:
+      calc: cell_temp
+      args:
+        bom:
+          calc: bom_temp
+          args:
+            poa: {column: GlobInc}
+            temp_amb: {column: T_Amb}
+            wind_speed: {column: WindVel}
+        poa: {column: GlobInc}

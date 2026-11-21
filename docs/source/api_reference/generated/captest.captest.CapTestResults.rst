@@ -25,6 +25,11 @@
 
    .. autosummary::
    
+      ~CapTestResults.expected_ratio
+      ~CapTestResults.kind
+      ~CapTestResults.ratio
+      ~CapTestResults.rc_kind
+      ~CapTestResults.regression_stats
       ~CapTestResults.cap_ratio
       ~CapTestResults.passed
       ~CapTestResults.tolerance

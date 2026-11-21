@@ -1,0 +1,19 @@
+kind: pr
+name: pr_plain
+description: >-
+  Performance ratio test without temperature correction. The measured PR is
+  the metered energy divided by the energy expected at the plane-of-array
+  irradiance and the DC nameplate. The measured numerator is the summed meter
+  power (real_pwr_mtr) and the irradiance is the mean of the POA sensors.
+  The modeled reference comes from PVsyst: E_Grid over GlobInc. Use the
+  bifacial or temperature-corrected variants ('pr_plain_bifi', 'pr_tc_meas_bom',
+  'pr_tc_calc_bom') when the test calls for them.
+temp_corrected: false
+meas:
+  reg_cols:
+    power: {group: real_pwr_mtr, agg: sum}
+    poa: {group: irr_poa, agg: mean}
+sim:
+  reg_cols:
+    power: {column: E_Grid}
+    poa: {column: GlobInc}

@@ -36,6 +36,7 @@
       ~RepCond.param
       ~RepCond.percent_filter
       ~RepCond.rc_kwargs
+      ~RepCond.values
       ~RepCond.w_vel
    
    

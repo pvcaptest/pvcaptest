@@ -9,7 +9,7 @@ import warnings
 import numpy as np
 import pandas as pd
 
-from captest import columngroups as cg
+from captest import columngroups as cg, prtest
 from captest.capdata import CapData
 from captest.captest import CapTest
 from captest.io import load_pvsyst
@@ -197,10 +197,34 @@ PRESET_FIXTURES = {
     ),
 }
 
+_PR = {"dc_nameplate": 7_000_000, "test_tolerance": "- 3", "power_temp_coeff": -0.32}
+_PR_BIFI = {**_PR, "bifaciality": 0.15}
+
+#: PR preset -> (meas builder, sim builder, CapTest.from_params kwargs)
+PR_PRESET_FIXTURES = {
+    "pr_plain": (build_meas_default, build_sim_default, _PR),
+    "pr_tc_meas_bom": (_meas_bom, build_sim_default, _PR),
+    "pr_tc_calc_bom": (build_meas_default, build_sim_default, _PR),
+    "pr_plain_bifi": (build_meas_rear_varied, build_sim_rear_varied, _PR_BIFI),
+    "pr_tc_meas_bom_bifi": (
+        _meas_bom_rear_varied,
+        build_sim_rear_varied,
+        _PR_BIFI,
+    ),
+    "pr_tc_calc_bom_bifi": (
+        build_meas_rear_varied,
+        build_sim_rear_varied,
+        _PR_BIFI,
+    ),
+}
+
+#: every preset (regression and PR) -> fixture entry
+ALL_PRESET_FIXTURES = {**PRESET_FIXTURES, **PR_PRESET_FIXTURES}
+
 
 def build_captest(preset):
     """Build and set up the CapTest for ``preset`` on its fixture data."""
-    meas_builder, sim_builder, kwargs = PRESET_FIXTURES[preset]
+    meas_builder, sim_builder, kwargs = ALL_PRESET_FIXTURES[preset]
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", message="Propagating meas.site")
         return CapTest.from_params(
@@ -233,4 +257,52 @@ def snapshot(tst):
             "params": {k: float(v) for k, v in res.params.items()},
             "pvalues": {k: float(v) for k, v in res.pvalues.items()},
         }
+    return out
+
+
+def snapshot_pr(tst):
+    """Numbers a PR setup computes, independent of CapTest's PR internals.
+
+    Per wired side (both when ``reference_source`` is ``"derived"``, else
+    ``meas``): the column each role resolved to and that column's sum and mean
+    over the unfiltered ``data``. Plus ``reference``, the derived single
+    ``{"pr", "t_ref"}``, built with the public ``prtest`` functions from the
+    complete unfiltered rows of the modeled ``poa``, ``power`` and, when the
+    setup is temperature corrected, ``cell_temp`` columns.
+    """
+    sides = ("meas", "sim") if tst.reference_source == "derived" else ("meas",)
+    out = {}
+    for side in sides:
+        assert tst.setup_completed(side), side
+        cd = getattr(tst, side)
+        out[side] = {
+            role: {
+                "column": column,
+                "sum": float(cd.data[column].sum()),
+                "mean": float(cd.data[column].mean()),
+            }
+            for role, column in cd.regression_cols.items()
+        }
+    corrected = tst.resolved_setup.temp_corrected
+    sim = tst.sim
+    roles = sim.regression_cols
+    kind = tst.sim_numerator_kind
+    columns = {"energy": roles[kind], "poa": roles["poa"]}
+    if corrected:
+        columns["cell_temp"] = roles["cell_temp"]
+    frame = pd.DataFrame({name: sim.data[col] for name, col in columns.items()})
+    frame = frame.loc[prtest.complete_rows(frame, label="sim").index]
+    dt = prtest.dt_hours(sim.data.index)
+    energy_wh = prtest.to_energy_wh(
+        frame["energy"], kind=kind, units=tst.sim_numerator_units, dt_hours=dt
+    )
+    reference = prtest.derive_reference(
+        energy_wh,
+        frame["poa"],
+        dc_nameplate=tst.dc_nameplate,
+        dt_hours=dt,
+        cell_temp=frame["cell_temp"] if corrected else None,
+        unfiltered_index=sim.data.index,
+    )
+    out["reference"] = {"pr": reference.pr, "t_ref": reference.t_ref}
     return out

@@ -40,6 +40,7 @@
       ~TestSetup.parse_raw
       ~TestSetup.schema
       ~TestSetup.schema_json
+      ~TestSetup.semantic_digest
       ~TestSetup.to_dict
       ~TestSetup.to_json
       ~TestSetup.to_yaml
@@ -54,6 +55,7 @@
 
    .. autosummary::
    
+      ~TestSetup.kind
       ~TestSetup.model_computed_fields
       ~TestSetup.model_config
       ~TestSetup.model_extra
