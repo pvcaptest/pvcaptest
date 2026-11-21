@@ -199,12 +199,22 @@ PRESET_FIXTURES = {
 
 
 def build_captest(preset):
-    """Build and set up the CapTest for ``preset`` on its fixture data."""
+    """Build and set up the CapTest for ``preset`` on its fixture data.
+
+    The sim year is never auto-wrapped. The measured fixture (Oct 9-13) has
+    its midpoint within 90 days of New Year, and a wrap re-dates sim rows into
+    1989, which moves solar-position calculations (e.g. spectral correction)
+    off the unwrapped numbers the oracles were captured from.
+    """
     meas_builder, sim_builder, kwargs = PRESET_FIXTURES[preset]
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", message="Propagating meas.site")
         return CapTest.from_params(
-            test_setup=preset, meas=meas_builder(), sim=sim_builder(), **kwargs
+            test_setup=preset,
+            meas=meas_builder(),
+            sim=sim_builder(),
+            auto_wrap_sim=False,
+            **kwargs,
         )
 
 

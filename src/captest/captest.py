@@ -38,7 +38,7 @@ import yaml
 from captest import util
 from captest.calcparams import DOWNSTREAM_PARAMS
 from captest.capdata import CapData
-from captest.filters import wrap_year_end
+from captest.filters import spans_year, wrap_year_end
 from captest.plotting import ScatterBifiPowerTc, ScatterPlot
 from captest.setup import (
     DerivationError,
@@ -748,7 +748,38 @@ def _reg_cols_diff(base, resolved):
     return diff
 
 
-_AUTO_WRAP_DAYS = 60
+_AUTO_WRAP_DAYS = 90
+
+
+def _meas_warrants_sim_wrap(start, end):
+    """Whether a measured window from ``start`` to ``end`` needs the sim wrapped.
+
+    True when the window's midpoint is within ``_AUTO_WRAP_DAYS`` of New Year,
+    or when the window spans two calendar years. The midpoint band catches the
+    usual 5-90 day test that crosses New Year or sits beside it; the year-span
+    check catches a longer window that crosses New Year with its midpoint
+    outside the band. A window centred mid-year does neither, so the sim keeps
+    its calendar year and a sim window crossing July 1 stays contiguous.
+
+    Both tests use local wall time: a zone-aware window is compared in its own
+    zone, as the naive typical-year sim data is.
+
+    Parameters
+    ----------
+    start, end : pandas.Timestamp
+        First and last measured timestamps, both naive or both zone-aware.
+
+    Returns
+    -------
+    bool
+    """
+    midpoint = start + (end - start) / 2
+    if midpoint.tz is not None:
+        midpoint = midpoint.tz_localize(None)
+    year_start = pd.Timestamp(year=midpoint.year, month=1, day=1)
+    next_year_start = pd.Timestamp(year=midpoint.year + 1, month=1, day=1)
+    to_new_year = min(midpoint - year_start, next_year_start - midpoint)
+    return to_new_year <= pd.Timedelta(days=_AUTO_WRAP_DAYS) or spans_year(start, end)
 
 
 def load_config(path, key="captest"):
@@ -1275,7 +1306,8 @@ class CapTest(param.Parameterized):
     auto_wrap_sim = param.Boolean(
         default=True,
         doc="When True, automatically apply wrap_year_end to sim.data during "
-        "setup() if measured data is within 60 days of a year boundary. "
+        "setup() if the midpoint of the measured data is within 90 days of "
+        "New Year or the measured data spans two calendar years. "
         "Set False to opt out and restore any prior auto-wrap.",
     )
 
@@ -2767,6 +2799,12 @@ class CapTest(param.Parameterized):
     def _maybe_wrap_sim_year_end(self):
         """Auto-apply ``wrap_year_end`` to ``self.sim.data`` when warranted.
 
+        Wraps the typical year into a contiguous July 1 -> June 30 year when
+        the measured midpoint is within 90 days (``_AUTO_WRAP_DAYS``) of New
+        Year or the measured window spans two calendar years (see
+        ``_meas_warrants_sim_wrap``), so a sim window crossing New Year keeps
+        its December and its January rows.
+
         Idempotent and reversible: a prior wrap is restored from
         ``self.sim._pre_wrap_data`` before each check, so re-running
         ``setup()`` — or toggling ``self.auto_wrap_sim`` to False and
@@ -2796,18 +2834,7 @@ class CapTest(param.Parameterized):
         if len(meas_idx) == 0 or len(sim_idx) == 0:
             return
 
-        meas_start = meas_idx[0]
-        meas_end = meas_idx[-1]
-        days_from_year_start = (
-            meas_start - pd.Timestamp(year=meas_start.year, month=1, day=1)
-        ).days
-        days_to_year_end = (
-            pd.Timestamp(year=meas_end.year, month=12, day=31) - meas_end
-        ).days
-        if (
-            days_from_year_start > _AUTO_WRAP_DAYS
-            and days_to_year_end > _AUTO_WRAP_DAYS
-        ):
+        if not _meas_warrants_sim_wrap(meas_idx.min(), meas_idx.max()):
             return
 
         # Use a fixed July 1 -> June 30 window so the wrapped sim is a
@@ -2986,8 +3013,8 @@ class CapTest(param.Parameterized):
         resolved = resolve_test_setup(self.test_setup, self._collect_overrides())
         _refuse_pr_setup(resolved)
 
-        # Auto-wrap sim.data when measured spans (within 60 days of) a year
-        # boundary. Idempotent and reversible — re-running setup() or toggling
+        # Auto-wrap sim.data when the measured midpoint is within 90 days of
+        # New Year or measured spans two years. Idempotent and reversible — re-running setup() or toggling
         # auto_wrap_sim restores the appropriate state. The wrap mutates
         # sim.data while reading the meas span, so it is skipped for
         # side='meas' (meas-side setup must not touch sim).
