@@ -3451,6 +3451,27 @@ class TestSetupAutoWrap:
         assert (kept.month == 1).any()
         assert len(kept) == 30 * 24 + 1
 
+    def test_preset_setup_on_fixture_data_wraps(self):
+        # The measured fixture (Oct 9-13) has its midpoint 82 days from New
+        # Year, so a real preset's setup() runs on the wrapped sim year.
+        tst = CapTest.from_params(
+            test_setup="e2848_default",
+            meas=build_meas_default(),
+            sim=build_sim_default(),
+            ac_nameplate=6_000_000,
+        )
+        assert getattr(tst.sim, "_pre_wrap_data", None) is not None
+        idx = tst.sim.data.index
+        assert idx.min() == pd.Timestamp("1989-07-01 00:00")
+        assert idx.max() == pd.Timestamp("1990-06-30 23:00")
+        assert idx.is_monotonic_increasing
+        assert not idx.has_duplicates
+        assert len(idx) == len(tst.sim._pre_wrap_data)
+        reg_data = tst.sim.data[list(tst.sim.regression_cols.values())]
+        assert reg_data.notna().sum().gt(0).all()
+        tst.sim.fit_regression(filter=False, summary=False)
+        assert tst.sim.regression_results is not None
+
     def test_setup_with_tz_aware_meas_wraps(self):
         meas_idx = pd.date_range(
             "2025-12-10", "2026-01-20", freq="h", tz="America/Denver"

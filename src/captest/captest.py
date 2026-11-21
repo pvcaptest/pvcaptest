@@ -3014,8 +3014,9 @@ class CapTest(param.Parameterized):
         _refuse_pr_setup(resolved)
 
         # Auto-wrap sim.data when the measured midpoint is within 90 days of
-        # New Year or measured spans two years. Idempotent and reversible — re-running setup() or toggling
-        # auto_wrap_sim restores the appropriate state. The wrap mutates
+        # New Year or measured spans two years. Idempotent and reversible —
+        # re-running setup() or toggling auto_wrap_sim restores the
+        # appropriate state. The wrap mutates
         # sim.data while reading the meas span, so it is skipped for
         # side='meas' (meas-side setup must not touch sim).
         if "sim" in sides and self.meas is not None:
