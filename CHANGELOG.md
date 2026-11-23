@@ -297,6 +297,21 @@ time, so they are unaffected).
 - `Time` moves a date outside auto-wrapped sim data one year to land inside it.
   A stored `test_date` in the typical year selected nothing, and emptied the
   sim side, once the measured window ended within 60 days of year end.
+- `CapTest.setup()` now wraps the sim year when the measured test crosses New
+  Year. The auto-wrap fired only when the measured start was within 60 days of
+  Jan 1 of its own year or the end within 60 days of Dec 31 of its own year,
+  which a window such as Dec 10 to Jan 20 never is. A sim `filter_time` over
+  that window then kept only the December rows and silently dropped January,
+  skewing the sim regression and reporting conditions. The sim is now wrapped
+  when the midpoint of the measured data is within 90 days of New Year, or when
+  the measured data spans two calendar years. A window centred mid-year is
+  never wrapped, so a sim window crossing July 1 (the wrapped year's seam)
+  stays whole. A zone-aware measured index, which made the check raise a
+  `TypeError`, is now compared in its own local time. A test whose midpoint
+  is 61 to 90 days from New Year (e.g. early October) is now wrapped too; the
+  wrap re-dates sim rows from the earlier half of the typical year one year
+  back, so sim calculations from solar position (e.g. spectral correction)
+  can differ slightly for such a test.
 - `get_summary()` / `describe_filters()` show a percentile reporting
   condition as `func={'poa': perc_wrap(60), ...}` instead of the function's
   object repr (`<function perc_wrap.<locals>.numpy_percentile at 0x...>`).

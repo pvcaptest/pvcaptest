@@ -3438,6 +3438,185 @@ class TestSetupAutoWrap:
         assert ct.sim.data.index.min() >= pd.Timestamp("1990-01-01")
         assert ct.sim.data.index.max() <= pd.Timestamp("1990-12-31 23:00")
 
+    def test_setup_keeps_december_and_january_sim_rows(self):
+        # Measured Dec 10 -> Jan 20 crosses New Year; the sim window around
+        # Dec 25 must keep both its December and its January rows.
+        meas_idx = pd.date_range("2025-12-10", "2026-01-20", freq="h")
+        sim_idx = _hourly_typical_year(1990).index
+        tst = self._make_ct(meas_idx, sim_idx)
+        tst.setup(verbose=False)
+        tst.sim.filter_time(days=30, test_date="1990-12-25")
+        kept = tst.sim.data_filtered.index
+        assert (kept.month == 12).any()
+        assert (kept.month == 1).any()
+        assert len(kept) == 30 * 24 + 1
+
+    def test_preset_setup_on_fixture_data_wraps(self):
+        # The measured fixture (Oct 9-13) has its midpoint 82 days from New
+        # Year, so a real preset's setup() runs on the wrapped sim year.
+        tst = CapTest.from_params(
+            test_setup="e2848_default",
+            meas=build_meas_default(),
+            sim=build_sim_default(),
+            ac_nameplate=6_000_000,
+        )
+        assert getattr(tst.sim, "_pre_wrap_data", None) is not None
+        idx = tst.sim.data.index
+        assert idx.min() == pd.Timestamp("1989-07-01 00:00")
+        assert idx.max() == pd.Timestamp("1990-06-30 23:00")
+        assert idx.is_monotonic_increasing
+        assert not idx.has_duplicates
+        assert len(idx) == len(tst.sim._pre_wrap_data)
+        reg_data = tst.sim.data[list(tst.sim.regression_cols.values())]
+        assert reg_data.notna().sum().gt(0).all()
+        tst.sim.fit_regression(filter=False, summary=False)
+        assert tst.sim.regression_results is not None
+
+    def test_setup_with_tz_aware_meas_wraps(self):
+        meas_idx = pd.date_range(
+            "2025-12-10", "2026-01-20", freq="h", tz="America/Denver"
+        )
+        sim_idx = _hourly_typical_year(1990).index
+        tst = self._make_ct(meas_idx, sim_idx)
+        tst.setup(verbose=False)
+        assert getattr(tst.sim, "_pre_wrap_data", None) is not None
+        tst.sim.filter_time(days=30, test_date="1990-01-05")
+        kept = tst.sim.data_filtered.index
+        assert (kept.month == 12).any()
+        assert (kept.month == 1).any()
+
+
+def _centred_window(mid, half_days=15, tz=None):
+    """Hourly measured index whose midpoint is exactly ``mid``."""
+    mid = pd.Timestamp(mid)
+    half = pd.Timedelta(days=half_days)
+    return pd.date_range(mid - half, mid + half, freq="h", tz=tz)
+
+
+def _wraps(meas_idx):
+    """Whether ``_maybe_wrap_sim_year_end`` wraps a 1990 sim for ``meas_idx``."""
+    tst = _ct_with(meas_idx, _hourly_typical_year(1990).index)
+    tst._maybe_wrap_sim_year_end()
+    return getattr(tst.sim, "_pre_wrap_data", None) is not None
+
+
+class TestAutoWrapDetection:
+    """When the measured window warrants wrapping the typical sim year.
+
+    The rule: wrap when the measured midpoint is within 90 days of New Year,
+    or when the measured window spans two calendar years.
+    """
+
+    @pytest.mark.parametrize(
+        "start, end",
+        [
+            pytest.param("2025-12-28", "2026-01-03", id="short-week"),
+            pytest.param("2025-12-17", "2026-01-16", id="30-days"),
+            pytest.param("2025-12-10", "2026-01-20", id="dec10-jan20"),
+            pytest.param("2025-11-15", "2026-02-15", id="nov15-feb15"),
+            pytest.param("2025-11-16", "2026-02-14", id="90-days"),
+            pytest.param("2025-10-20", "2026-01-02", id="asymmetric-mostly-dec"),
+            pytest.param("2025-12-30", "2026-03-20", id="asymmetric-mostly-jan"),
+            pytest.param("2025-08-01", "2026-01-31", id="long-aug-jan"),
+            pytest.param("2025-06-01", "2026-01-10", id="long-mid-outside-band-dec"),
+            pytest.param("2025-12-20", "2026-08-31", id="long-mid-outside-band-jan"),
+        ],
+    )
+    def test_window_crossing_new_year_wraps(self, start, end):
+        assert _wraps(pd.date_range(start, end, freq="h"))
+
+    @pytest.mark.parametrize(
+        "mid, expected",
+        [
+            pytest.param("2025-10-03 00:00", True, id="dec-side-90-days"),
+            pytest.param("2025-10-02 23:00", False, id="dec-side-90-days-1-hour"),
+            pytest.param("2025-11-20", True, id="dec-side-well-inside"),
+            pytest.param("2026-04-01 00:00", True, id="jan-side-90-days"),
+            pytest.param("2026-04-01 01:00", False, id="jan-side-90-days-1-hour"),
+            pytest.param("2026-02-10", True, id="jan-side-well-inside"),
+            pytest.param("2024-03-31 00:00", True, id="leap-jan-side-90-days"),
+            pytest.param("2024-04-01 00:00", False, id="leap-jan-side-91-days"),
+        ],
+    )
+    def test_midpoint_band(self, mid, expected):
+        assert _wraps(_centred_window(mid)) is expected
+
+    @pytest.mark.parametrize(
+        "start, end",
+        [
+            pytest.param("2026-05-01", "2026-08-31", id="summer-over-90-days"),
+            pytest.param("2026-06-15", "2026-07-15", id="crosses-jul-1-seam"),
+            pytest.param("2026-07-20", "2026-09-10", id="late-summer"),
+            pytest.param("2026-02-20", "2026-05-20", id="starts-near-year-start"),
+            pytest.param("2026-08-15", "2026-11-10", id="ends-near-year-end"),
+        ],
+    )
+    def test_mid_year_window_does_not_wrap(self, start, end):
+        assert not _wraps(pd.date_range(start, end, freq="h"))
+
+    @pytest.mark.parametrize(
+        "start, end, expected",
+        [
+            pytest.param("2025-12-31 12:00", "2025-12-31 12:00", True, id="one-dec"),
+            pytest.param("2026-07-01 12:00", "2026-07-01 12:00", False, id="one-jul"),
+            pytest.param("2025-01-01", "2025-12-31 23:00", False, id="calendar-year"),
+            pytest.param("2025-07-01", "2026-06-30 23:00", True, id="jul-jun-year"),
+            pytest.param("2025-03-15", "2026-03-14 23:00", True, id="mar-mar-year"),
+        ],
+    )
+    def test_single_interval_and_full_year(self, start, end, expected):
+        assert _wraps(pd.date_range(start, end, freq="h")) is expected
+
+    @pytest.mark.parametrize(
+        "start, end, tz, expected",
+        [
+            pytest.param("2025-12-10", "2026-01-20", "America/Denver", True, id="den"),
+            pytest.param("2025-12-10", "2026-01-20", "UTC", True, id="utc"),
+            pytest.param("2026-05-01", "2026-07-31", "America/Denver", False, id="sum"),
+        ],
+    )
+    def test_tz_aware_meas(self, start, end, tz, expected):
+        assert _wraps(pd.date_range(start, end, freq="h", tz=tz)) is expected
+
+    def test_midpoint_band_uses_local_wall_time(self):
+        # Local midpoint 2025-10-03 00:00 is 90 days from New Year; in UTC it
+        # is 2025-10-02 14:00, outside the band.
+        assert _wraps(_centred_window("2025-10-03", tz="Etc/GMT-10"))
+        # Local midpoint 2025-10-02 23:00 is outside; in UTC it is inside.
+        assert not _wraps(_centred_window("2025-10-02 23:00", tz="Etc/GMT+10"))
+
+    def test_year_span_uses_local_wall_time(self):
+        # Ends 2026-01-01 05:00 local (2025-12-31 19:00 UTC); the midpoint is
+        # outside the band, so only the local-time year span wraps it.
+        meas_idx = pd.date_range(
+            "2025-06-01", "2026-01-01 05:00", freq="h", tz="Etc/GMT-10"
+        )
+        assert _wraps(meas_idx)
+
+    @pytest.mark.parametrize(
+        "start, end",
+        [
+            pytest.param("2025-12-10", "2026-01-20", id="dec10-jan20"),
+            pytest.param("2025-11-16", "2026-02-14", id="90-days-crossing"),
+            pytest.param("2025-12-25", "2026-02-08", id="pr-45-days-crossing"),
+            pytest.param("2025-12-29", "2026-01-03", id="pr-5-days-crossing"),
+            pytest.param("2026-01-05", "2026-02-10", id="january"),
+            pytest.param("2026-11-10", "2026-12-20", id="november-december"),
+            pytest.param("2026-06-01", "2026-07-30", id="crosses-jul-1-seam"),
+            pytest.param("2026-02-20", "2026-05-20", id="spring"),
+        ],
+    )
+    def test_sim_window_matching_meas_keeps_every_row(self, start, end):
+        # A sim time filter over the measured window, moved into the typical
+        # year, keeps a contiguous window whichever side of either seam it is.
+        meas_idx = pd.date_range(start, end, freq="h")
+        tst = _ct_with(meas_idx, _hourly_typical_year(1990).index)
+        tst._maybe_wrap_sim_year_end()
+        mid = meas_idx[0] + (meas_idx[-1] - meas_idx[0]) / 2
+        days = (meas_idx[-1] - meas_idx[0]).days // 2 * 2
+        tst.sim.filter_time(days=days, test_date=mid.replace(year=1990))
+        assert len(tst.sim.data_filtered) == days * 24 + 1
+
 
 class TestPipelineYaml:
     def _capt(self, meas_cd_default, sim_cd_default):
